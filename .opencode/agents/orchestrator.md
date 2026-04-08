@@ -12,18 +12,23 @@ not write code yourself.
 
 ## Agent Roster
 
-| Agent            | Owns              | Use for                                          |
-| ---------------- | ----------------- | ------------------------------------------------ |
-| Architect        | Planning          | Explore codebase, design impl plan               |
-| Python Backend   | `llama_manager/`  | Config, validators, cmd builders, GPU stats      |
-| TUI Developer    | `llama_cli/`      | Rich TUI, argparse, process mgmt, signals        |
-| Python QA        | `tests/`          | Write/fix unit tests, mock patterns              |
-| Python Reviewer  | All files         | Ruff, pyright, code quality                      |
-| CI Fixer         | CI pipeline       | Fix lint/type/test failures sequentially         |
-| Debugger         | Runtime issues    | Reproduce → Isolate → Fix → Verify cycle         |
-| GPU Expert       | GPU code          | nvtop parsing, SYCL/CUDA, hardware diagnostics   |
-| Security Reviewer| All files         | OWASP Top 10 review before shipping              |
-| Documentation    | Docs              | Docstrings, README, AGENTS.md, ADRs              |
+| Agent                    | Owns                  | Use for                                               |
+| ------------------------ | --------------------- | ----------------------------------------------------- |
+| Architect                | Planning              | Explore codebase, design impl plan                    |
+| Python Backend           | `llama_manager/`      | Config, validators, cmd builders, GPU stats           |
+| TUI Developer            | `llama_cli/`          | Rich TUI, argparse, process mgmt, signals             |
+| Python QA                | `tests/`              | Write/fix unit tests, mock patterns                   |
+| Python Reviewer          | All files             | Ruff, pyright, code quality                           |
+| DevOps / GitHub Actions  | `.github/workflows/`  | CI/CD design, hardening, automation strategy          |
+| CI Fixer                 | CI pipeline           | Fix lint/type/test failures sequentially              |
+| Diagnostics              | `doctor/setup/smoke`  | Exit codes, locks, health checks, reports             |
+| Build Engineer           | Build pipeline        | SYCL/CUDA serialized builds, preflight, provenance    |
+| Profile Engineer         | Profiling             | Manual profiling, cache persistence, staleness        |
+| Release Engineer         | Release docs          | PRD marker extraction, README sync, release hygiene   |
+| Debugger                 | Runtime issues        | Reproduce → Isolate → Fix → Verify cycle              |
+| GPU Expert               | GPU code              | nvtop parsing, SYCL/CUDA, hardware diagnostics        |
+| Security Reviewer        | All files             | OWASP Top 10 review before shipping                   |
+| Documentation            | Docs                  | Docstrings, README, AGENTS.md, ADRs                   |
 
 ## Workflow
 
@@ -60,6 +65,42 @@ Standard sequence for a bug fix:
 2. **Python QA** → add regression test
 3. **Python Reviewer** → review fix
 4. **CI Fixer** → confirm CI green
+
+Specialized sequences:
+
+- **CI/CD workflow changes**:
+  1. Architect
+  2. DevOps / GitHub Actions
+  3. Python Reviewer
+  4. CI Fixer
+
+- **Doctor/Setup/Smoke work**:
+  1. Architect
+  2. Diagnostics
+  3. Python QA
+  4. Python Reviewer
+  5. CI Fixer
+
+- **Build pipeline work**:
+  1. Architect
+  2. Build Engineer
+  3. TUI Developer (if UI integration required)
+  4. Python QA
+  5. Python Reviewer
+  6. CI Fixer
+
+- **Profiling/presets work**:
+  1. Architect
+  2. Profile Engineer
+  3. Python QA
+  4. Python Reviewer
+  5. CI Fixer
+
+- **Release/docs generation work**:
+  1. Architect
+  2. Release Engineer
+  3. Documentation
+  4. Python Reviewer
 
 ### 4. Track State
 
