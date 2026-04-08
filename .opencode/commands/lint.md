@@ -3,6 +3,8 @@ description: Run linter and formatter checks
 agent: python-reviewer
 ---
 
+# Lint Command
+
 Run ruff linting and formatting checks:
 
 ```bash
@@ -39,6 +41,7 @@ uv run ruff check --fix && uv run ruff format .
 ## Common Issues
 
 ### Import Ordering
+
 ```python
 # WRONG
 from llama_manager.config import Config
@@ -52,6 +55,7 @@ from llama_manager.config import Config
 ```
 
 ### Type Annotations
+
 ```python
 # WRONG
 from typing import List, Optional
@@ -65,6 +69,7 @@ def foo(items: list[str]) -> str | None:
 ```
 
 ### Line Length
+
 ```python
 # WRONG (101 chars)
 def build_server_cmd(cfg: ServerConfig) -> list[str]:

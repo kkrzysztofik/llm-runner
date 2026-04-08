@@ -41,6 +41,7 @@ If I tell you to do something, even if it goes against what follows below, YOU M
 If you want to change something or add a feature, **revise existing code files in place**.
 
 **NEVER** create variations like:
+
 - `mainV2.rs`
 - `main_improved.rs`
 - `main_enhanced.rs`
@@ -59,22 +60,22 @@ We do not care about backwards compatibility—we're in early development with n
 
 ---
 
-
 ## Project Overview
 
 **llm-runner** is a Python TUI application for managing multiple [llama.cpp](https://github.com/ggerganov/llama.cpp) inference server instances across heterogeneous GPU hardware (Intel Arc SYCL + NVIDIA CUDA). It provides a live Rich-based terminal dashboard for real-time log streaming, GPU stats, and configuration display.
 
 ### Hardware Targets
+
 | Role | Hardware | Backend |
-|------|----------|---------|
-| Summary models (Qwen 3.5-2B / 0.8B) | Intel Arc B580 (GPU 1) | SYCL (`SYCL0`) |
+| ------ | ---------- | --------- |
+| Summary models (Qwen 3.5-2B / 0.8B) | Intel Arc B580 (GPU 1) | SYCL (SYCL0) |
 | Code / reasoning model (Qwen 3.5-35B) | NVIDIA RTX 3090 (GPU 0) | CUDA |
 
 ---
 
 ## Repository Layout
 
-```
+```bash
 llm-runner/
 ├── llama_cli/              # CLI layer (entry points, argument parsing, TUI)
 │   ├── cli_parser.py       # argparse modes: both, summary-balanced, summary-fast, qwen35, dry-run
@@ -115,19 +116,19 @@ source .venv/bin/activate
 
 ### Key Commands
 
-| Task | Command |
-|------|---------|
-| Run linter | `uv run ruff check .` |
-| Auto-fix lint | `uv run ruff check --fix .` |
-| Format code | `uv run ruff format .` |
-| Type check | `uv run pyright` |
-| Run tests | `uv run pytest` |
+| Task                | Command |
+| ------------------- | ------- |
+| Run linter          | `uv run ruff check .` |
+| Auto-fix lint       | `uv run ruff check --fix .` |
+| Format code         | `uv run ruff format .` |
+| Type check          | `uv run pyright` |
+| Run tests           | `uv run pytest` |
 | Run tests + coverage | `uv run pytest --cov --cov-report=term-missing` |
 | Install pre-commit hooks | `uv run pre-commit install` |
 | Run all pre-commit hooks | `uv run pre-commit run --all-files` |
 | Launch TUI (dry run) | `uv run llm-runner dry-run both` |
 | Launch summary model | `uv run llm-runner summary-balanced` |
-| Launch all models | `uv run llm-runner both` |
+| Launch all models   | `uv run llm-runner both` |
 
 ---
 
@@ -139,7 +140,10 @@ source .venv/bin/activate
 - `tests/` are pure unit tests — no subprocesses, no GPU, no file system side effects beyond what `tmp_path` provides.
 
 ### Config Dataclasses
-`Config` holds hardware-specific defaults (paths, ports, GPU settings). `ServerConfig` holds per-instance launch parameters. The factory functions in `config_builder.py` translate a `Config` into a `ServerConfig` for a given mode.
+
+`Config` holds hardware-specific defaults (paths, ports, GPU settings).
+`ServerConfig` holds per-instance launch parameters. The factory functions in
+`config_builder.py` translate a `Config` into a `ServerConfig` for a given mode.
 
 ```python
 # Correct pattern — only override what you need
@@ -152,11 +156,10 @@ Validation functions (`validate_port`, `validate_threads`, `validate_ports`) cal
 
 ---
 
-
-
 ## Code Conventions
 
 ### Python Style
+
 - **Python ≥ 3.12**, type hints on all new functions.
 - Line length: 100 chars (ruff enforced).
 - Imports: stdlib → third-party → first-party, sorted by ruff/isort.
@@ -164,12 +167,14 @@ Validation functions (`validate_port`, `validate_threads`, `validate_ports`) cal
 - Dataclasses preferred over plain dicts for structured config.
 
 ### Naming
+
 - Module-level constants: `UPPER_SNAKE_CASE`
 - Functions: `lower_snake_case`
 - Classes: `PascalCase`
 - Private helpers: `_leading_underscore`
 
 ### Type Annotations
+
 - Annotate all function signatures (params + return type).
 - Use `list[str]` not `List[str]`, `dict[str, int]` not `Dict[str, int]` (PEP 585).
 - `build_server_cmd` returns `list[str]` — keep it that way (subprocess-safe).
@@ -190,6 +195,7 @@ Validation functions (`validate_port`, `validate_threads`, `validate_ports`) cal
 ## CI / Pre-commit
 
 All three CI checks must pass before merging:
+
 1. **lint** — `ruff check` + `ruff format --check`
 2. **typecheck** — `pyright` (standard mode)
 3. **test** — `pytest` with coverage
@@ -206,16 +212,10 @@ Issues for this project are tracked with **[br](https://github.com/Dicklesworths
 
 **Never touch `.beads/` directly** — always use the `br` CLI.
 
-### Install
-
-```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh?$(date +%s)" | bash
-```
-
-### Key Commands
+### br CLI Commands
 
 | Task | Command |
-|------|---------|
+| ------ | --------- |
 | See actionable (unblocked) work | `RUST_LOG=error br ready` |
 | List all open issues | `RUST_LOG=error br list --status open` |
 | Create an issue | `br create "Title" --type task --priority 2` |
@@ -229,13 +229,16 @@ curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/
 
 ### Workflow Pattern
 
-1. **Pick work** — `RUST_LOG=error br ready` shows unblocked, open issues sorted by priority
+1. **Pick work** — `RUST_LOG=error br ready` shows unblocked, open issues sorted
+by priority
 2. **Claim** — `br update <id> --status in_progress`
 3. **Implement** the task
-4. **Close** — `br close <id> --reason "..."` (be specific — reference the commit or file changed)
+4. **Close** — `br close <id> --reason "..."` (be specific — reference the
+commit or file changed)
 5. **Sync + commit** — see session end checklist below
 
-`br ready` only surfaces issues that have no open blockers. Use `br dep add <child> <parent>` to declare that one issue must wait for another.
+`br ready` only surfaces issues that have no open blockers. Use `br dep add
+<child> <parent>` to declare that one issue must wait for another.
 
 ### Issue Types and Priority
 
@@ -243,17 +246,19 @@ curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/
 
 **Priority** (use numbers, not words):
 
-| Number | Meaning |
-|--------|---------|
-| 0 | Critical / blocking everything |
-| 1 | High — current sprint |
-| 2 | Normal (default) |
-| 3 | Low |
-| 4 | Backlog |
+| Number | Meaning                 |
+| ------ | ----------------------- |
+| 0      | Critical / blocking everything |
+| 1      | High — current sprint   |
+| 2      | Normal (default)        |
+| 3      | Low                     |
+| 4      | Backlog                 |
 
 ### Agent Usage — Always Use `--json`
 
-**CRITICAL:** Always pass `--json` when parsing `br` output programmatically. Plain output format depends on terminal state and may include ANSI codes that break parsing.
+**CRITICAL:** Always pass `--json` when parsing `br` output programmatically.
+Plain output format depends on terminal state and may include ANSI codes that
+break parsing.
 
 ```bash
 # CORRECT — stable, parseable output
@@ -263,9 +268,10 @@ RUST_LOG=error br show br-abc123 --json
 
 # WRONG — output varies with terminal state
 br ready | head -1
-```
+```bash
 
-`RUST_LOG=error` suppresses internal Rust dependency logs while keeping clean stdout. **Always include it** in automated or agent-driven commands.
+`RUST_LOG=error` suppresses internal Rust dependency logs while keeping clean
+stdout. **Always include it** in automated or agent-driven commands.
 
 ### Session End Checklist
 
@@ -278,20 +284,25 @@ br sync --flush-only        # Export issues to JSONL
 git add .beads/             # Stage beads changes
 git commit -m "..."         # Commit code + beads together
 git push
-```
+```bash
 
 ### Best Practices
 
-- Run `RUST_LOG=error br ready` at the start of each session to find available work
-- Use `br q "Title"` for fast capture when you discover tasks during implementation — fill in details later
-- Set `--type` and `--priority` explicitly on `br create`; defaults are `task` / `2`
-- Always sync and commit `.beads/` at session end — stale JSONL means lost issue state in git history
+- Run `RUST_LOG=error br ready` at the start of each session to find available
+work
+- Use `br q "Title"` for fast capture when you discover tasks during
+implementation — fill in details later
+- Set `--type` and `--priority` explicitly on `br create`; defaults are `task` /
+`2`
+- Always sync and commit `.beads/` at session end — stale JSONL means lost issue
+state in git history
 
 ---
 
 ## ast-grep vs ripgrep
 
-**Use `ast-grep` when structure matters.** It parses code and matches AST nodes, ignoring comments/strings, and can **safely rewrite** code.
+**Use `ast-grep` when structure matters.** It parses code and matches AST nodes,
+ignoring comments/strings, and can **safely rewrite** code.
 
 - Refactors/codemods: rename APIs, change import forms
 - Policy checks: enforce patterns across a repo

@@ -3,6 +3,8 @@ description: Run all pre-commit hooks
 agent: python-reviewer
 ---
 
+# Pre-commit Command
+
 Run all pre-commit hooks:
 
 ```bash
@@ -43,11 +45,13 @@ uv run pre-commit run pyright --all-files
 ## Pre-commit vs CI
 
 **Local (pre-commit)**:
+
 - Runs on every commit
 - Fast feedback
 - Auto-fixes where possible
 
 **CI (build command)**:
+
 - Full pipeline
 - All checks enforced
 - Required for merge
@@ -55,6 +59,7 @@ uv run pre-commit run pyright --all-files
 ## Common Issues
 
 ### Hook Fails on Clean Code
+
 ```bash
 # Re-run to ensure all fixes applied
 uv run pre-commit run --all-files
@@ -64,6 +69,7 @@ git commit --no-verify
 ```
 
 ### Add New Hook
+
 1. Add to `.pre-commit-config.yaml`
 2. Install: `uv run pre-commit install`
 3. Run: `uv run pre-commit run --all-files`

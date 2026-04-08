@@ -3,6 +3,8 @@ description: Run pytest tests with coverage
 agent: python-qa
 ---
 
+# Test Command
+
 Run pytest tests:
 
 ```bash
@@ -35,6 +37,7 @@ Tests are organized in `tests/`:
 ## Testing Patterns
 
 ### Testing Validators
+
 ```python
 def test_validate_port_invalid_low(capsys):
     """validate_port should exit with code 1 for port < 1"""
@@ -47,6 +50,7 @@ def test_validate_port_invalid_low(capsys):
 ```
 
 ### Testing with Subprocess Mock
+
 ```python
 from unittest.mock import patch, MagicMock
 
@@ -62,6 +66,7 @@ def test_gpu_stats_nvtop(mock_run):
 ```
 
 ### Testing with tmp_path
+
 ```python
 def test_require_model_not_found(tmp_path):
     """require_model should exit if model doesn't exist"""

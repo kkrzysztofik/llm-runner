@@ -1,6 +1,7 @@
 # TUI for llama-server
 
-A terminal-based user interface for managing multiple llama-server instances with live logs, configuration display, and GPU monitoring.
+A terminal-based user interface for managing multiple llama-server instances
+with live logs, configuration display, and GPU monitoring.
 
 ## Setup
 
@@ -29,9 +30,11 @@ python run_models_tui.py --help
 
 ## Features
 
-- **2-column layout**: View two models side-by-side (auto-switches to single column on small terminals)
+- **2-column layout**: View two models side-by-side (auto-switches to single
+column on small terminals)
 - **Live logs**: Real-time stdout/stderr from each server process
-- **GPU stats**: Monitor GPU utilization, memory, temperature, and power draw via nvtop
+- **GPU stats**: Monitor GPU utilization, memory, temperature, and power draw
+via nvtop
 - **Config display**: Shows port, device, context size, threads, and batch size
 - **Auto-scroll**: Logs automatically scroll to show newest output
 - **Resize support**: Layout adapts to terminal size changes

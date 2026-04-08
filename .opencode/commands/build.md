@@ -3,6 +3,8 @@ description: Run full CI pipeline - lint, typecheck, and test
 agent: build
 ---
 
+# Build Command
+
 Run the full CI pipeline:
 
 ```bash
