@@ -32,6 +32,9 @@
 - Q: How should stale-owner verification handle race/uncertain states in M1? → A: Require atomic live-owner verification (`pid exists` + `owns expected port`) as one decision step; if indeterminate, block launch with FR-005 actionable error.
 - Q: How should artifact persistence failures be handled in M1? → A: Treat disk/I/O/permission persistence failures as launch-blocking FR-005 errors with `failed_check=artifact_persistence`.
 - Q: What M1 performance targets should apply to dry-run and validation? → A: Set p95 targets: dry-run resolution ≤250 ms (single slot) / ≤400 ms (two slots), lock/port validation ≤150 ms per slot.
+- Q: How should M1 guard against PID reuse during stale-owner verification? → A: Treat lock owner as live only when PID exists, owns expected port, and process start-time matches lock `started_at`; mismatches/indeterminate checks are launch-blocking with `failed_check=lockfile_integrity`.
+- Q: What structure should `hardware_notes` use in the dry-run canonical schema? → A: Use a structured object with required fields `backend`, `device_id`, `device_name`, and optional fields `driver_version`, `runtime_version`.
+- Q: How should `command_args` encode quoting/escaping in the dry-run schema? → A: Represent `command_args` as ordered raw argv tokens (`list[str]`) preserving exact token boundaries; shell-escaped joined strings are non-normative.
 
 ### Session 2026-04-08
 
@@ -126,9 +129,14 @@ result follows documented precedence with explicit risk acknowledgement gates.
   a structured `errors` array rather than only a single blocker.
 - Live-owner stale-check uses an atomic decision step (`pid exists` + `owns expected port`); if the
   verification result is indeterminate, launch is blocked with FR-005 actionable error.
+- PID reuse is guarded by requiring process start-time to match lock `started_at` during live-owner
+  verification; mismatch/indeterminate verification is launch-blocking with
+  `failed_check=lockfile_integrity`.
 - Artifact persistence failures (disk full, I/O error, permission denied after runtime-dir
   resolution) are launch-blocking and return FR-005 actionable errors with
   `failed_check=artifact_persistence`.
+- Dry-run `command_args` preserves exact argv token boundaries as `list[str]`; shell-escaped joined
+  command strings are non-normative representations.
 
 ## Requirements *(mandatory)*
 
@@ -147,7 +155,10 @@ result follows documented precedence with explicit risk acknowledgement gates.
   `vllm_eligibility`, `warnings`, and `validation_results`. M1 MAY present this as human-readable
   output, machine-parseable output, or both, but all representations MUST derive from the same
   canonical schema. M1 dry-run resolution latency target is p95 ≤250 ms for single-slot resolution
-  and p95 ≤400 ms for two-slot resolution.
+  and p95 ≤400 ms for two-slot resolution. `hardware_notes` MUST be an object containing required
+  fields `backend`, `device_id`, `device_name` and optional fields `driver_version`,
+  `runtime_version`. `command_args` MUST be represented as ordered raw argv tokens (`list[str]`)
+  preserving exact token boundaries; shell-escaped joined command strings are non-normative.
 - **FR-004**: System MUST allow degraded one-slot startup when one configured slot is unavailable,
   and MUST emit a clear warning identifying the unavailable slot.
 - **FR-005**: System MUST return launch-blocking errors in a structured actionable format containing
@@ -178,7 +189,8 @@ result follows documented precedence with explicit risk acknowledgement gates.
   launch when a live lock owner is detected. Lockfiles MUST be per-slot under the resolved runtime
   lock directory (`$LLM_RUNNER_RUNTIME_DIR/` when set and usable, otherwise
   `$XDG_RUNTIME_DIR/llm-runner/`) at `slot-{slot_id}.lock` and include `pid`, `port`, `started_at`; a
-  lock owner is live only when the PID exists and still owns the expected port. Lockfiles MUST use
+  lock owner is live only when the PID exists, still owns the expected port, and process start-time
+  matches lock `started_at`. Lockfiles MUST use
   owner-only permissions (`0600`), and parent runtime directories MUST use owner-only permissions
   (`0700`). If lockfile integrity validation fails (malformed/unreadable content) or stale-owner
   verification cannot be completed, launch MUST be blocked and return an FR-005 actionable error
