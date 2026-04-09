@@ -1,4 +1,4 @@
-# Feature Specification: PRD-Aligned MVP Control Plane
+# Feature Specification: PRD M1 — Slot-First Launch & Dry-Run
 
 **Feature Branch**: `001-prd-mvp-spec`  
 **Created**: 2026-04-08  
@@ -6,6 +6,19 @@
 **Input**: User description: "based on PRD.md"
 
 ## Clarifications
+
+### Session 2026-04-09
+
+- Q: Should Spec-001 remain M1-scoped or be expanded to full PRD MVP? → A: Keep Spec-001 M1-scoped and explicitly label it as M1.
+- Q: How should M0 (documentation generation) be handled relative to Spec-001? → A: Defer M0 to a separate spec and keep a dependency/reference note from Spec-001.
+- Q: What dry-run detail level is required for Spec-001? → A: Require full deterministic dry-run detail (binary path, exact args, model path, slot, effective ports, merged env redacted, OpenAI flag bundle, hardware notes, vLLM matrix row).
+- Q: How should backend selection behave in M1? → A: Only llama_cpp is launch-eligible in M1; vllm may appear in config but MUST be reported as non-eligible and blocked with actionable error.
+- Q: What format should launch-blocking errors use? → A: Use a structured actionable error contract with `error_code`, `failed_check`, `why_blocked`, `how_to_fix`, and optional `docs_ref`.
+- Q: How should lock ownership be detected for stale-lock cleanup? → A: Use per-slot lockfiles at `$XDG_RUNTIME_DIR/llm-runner/slot-{slot_id}.lock` with `pid`, `port`, `started_at`; owner is live only if PID exists and still owns the expected port.
+- Q: Which M1 conditions are "risky operations" requiring acknowledgement? → A: Port <1024, non-loopback bind, and manual override that bypasses a warning.
+- Q: What redaction policy should M1 dry-run and artifacts use? → A: Redact any key containing KEY/TOKEN/SECRET/PASSWORD/AUTH and redact filesystem paths by default, showing `[REDACTED]`.
+- Q: How should slot/workstation config be defined for deterministic precedence in M1? → A: Use explicit schema_version:1 with workstation defaults and slot entries keyed by slot_id; after precedence resolution, user override wins per field.
+- Q: How should M1 observability artifacts be stored? → A: Persist one JSON artifact per launch/dry-run under `$XDG_RUNTIME_DIR/llm-runner/artifacts/` with timestamp + slot scope, including resolved command, validation results, warnings, and redacted env snapshot.
 
 ### Session 2026-04-08
 
@@ -83,7 +96,10 @@ result follows documented precedence with explicit risk acknowledgement gates.
 - One-slot degraded launch proceeds with a warning when one configured slot is unavailable.
 - Conflicting values resolve deterministically using: defaults < slot/workstation config < profile guidance < explicit override.
 - Stale lockfiles are auto-cleared; lockfiles with active owners block launch.
-- Risk acknowledgements are non-persistent and apply only to the current launch attempt.
+- Risk acknowledgements are non-persistent and apply only to the current launch attempt; in M1 they
+  are required for port <1024, non-loopback bind, and warning-bypassing manual overrides.
+- Dry-run and artifact outputs redact sensitive keys (KEY/TOKEN/SECRET/PASSWORD/AUTH) and
+  filesystem paths by default as `[REDACTED]`.
 
 ## Requirements *(mandatory)*
 
@@ -93,22 +109,38 @@ result follows documented precedence with explicit risk acknowledgement gates.
   a declared slot and each slot owns its bind address and port.
 - **FR-002**: System MUST prevent invalid startup states, including duplicate slot assignment,
   missing model source, and conflicting network bindings.
-- **FR-003**: System MUST provide a dry-run mode that presents resolved launch intent in
-  operator-readable form before execution.
+- **FR-003**: System MUST provide a deterministic dry-run mode that, before execution, prints for
+  each slot: binary path, exact command arguments, model path, slot ID, effective bind/port,
+  merged environment values with sensitive values redacted, OpenAI flag bundle, hardware notes,
+  and a vLLM matrix row indicating launch eligibility in the current mode.
 - **FR-004**: System MUST allow degraded one-slot startup when one configured slot is unavailable,
   and MUST emit a clear warning identifying the unavailable slot.
-- **FR-005**: System MUST return launch-blocking errors with actionable correction guidance before
-  startup proceeds.
+- **FR-005**: System MUST return launch-blocking errors in a structured actionable format containing
+  `error_code`, `failed_check`, `why_blocked`, `how_to_fix`, and optional `docs_ref` before startup
+  proceeds.
 - **FR-006**: System MUST apply deterministic override precedence in this order: defaults <
-  slot/workstation config < profile guidance < explicit override.
-- **FR-007**: System MUST preserve observability artifacts for launch and dry-run outcomes, with
-  sensitive values redacted.
+  slot/workstation config < profile guidance < explicit override. For M1, config MUST use
+  `schema_version: 1`, workstation defaults, and slot entries keyed by `slot_id`; after
+  precedence resolution, user override wins per field.
+- **FR-007**: System MUST preserve observability artifacts for launch and dry-run outcomes. Redaction
+  MUST replace values with `[REDACTED]` for any key name containing `KEY`, `TOKEN`, `SECRET`,
+  `PASSWORD`, or `AUTH` (case-insensitive), and MUST redact filesystem paths by default. M1
+  artifacts MUST be persisted as one JSON file per launch/dry-run under
+  `$XDG_RUNTIME_DIR/llm-runner/artifacts/` with timestamp + slot scope, containing resolved command,
+  validation results, warnings, and a redacted environment snapshot.
 - **FR-008**: System MUST treat runtime safety as default behavior, requiring explicit acknowledgement
-  for risky operations; acknowledgement is valid only for the current launch attempt.
+  for risky operations; acknowledgement is valid only for the current launch attempt. In M1, risky
+  operations are: port <1024, non-loopback bind, and manual override that bypasses a warning.
 - **FR-009**: System MUST auto-clear stale lockfiles when no active owner exists, and MUST block
-  launch when a live lock owner is detected.
-- **FR-010**: System MUST scope this feature to launch and dry-run core behavior; guided diagnostics,
-  setup mutation flows, and smoke verification are deferred to follow-on specifications.
+  launch when a live lock owner is detected. Lockfiles MUST be per-slot at
+  `$XDG_RUNTIME_DIR/llm-runner/slot-{slot_id}.lock` and include `pid`, `port`, `started_at`; a
+  lock owner is live only when the PID exists and still owns the expected port.
+- **FR-010**: System MUST scope this feature to PRD M1 launch and dry-run core behavior; non-M1 work
+  (including M0 documentation generation and M2-M4 capabilities) is deferred to separate follow-on
+  specifications, and this spec excludes M0 acceptance criteria.
+- **FR-011**: System MUST accept backend values in configuration for forward compatibility, but in
+  PRD M1 only `llama_cpp` is launch-eligible; `vllm` MUST be surfaced as non-eligible and blocked
+  with an actionable correction message.
 
 ### Constitution Alignment *(mandatory)*
 
@@ -124,11 +156,17 @@ result follows documented precedence with explicit risk acknowledgement gates.
 ### Key Entities *(include if feature involves data)*
 
 - **Slot Assignment**: A mapping of slot identity to bind settings and active model selection.
+- **M1 Config Schema**: Versioned configuration model (`schema_version: 1`) containing workstation
+  defaults and slot-specific entries keyed by `slot_id` used for deterministic merge resolution.
 - **Operational Profile**: Preset and override guidance used to resolve effective runtime behavior.
 - **Launch Validation Result**: A per-slot outcome record indicating launch eligibility, blocking
   errors, warnings, and remediation text.
+- **M1 Observability Artifact**: Per-run JSON record persisted in
+  `$XDG_RUNTIME_DIR/llm-runner/artifacts/` with timestamp + slot scope, containing resolved command,
+  validation results, warnings, and redacted environment snapshot.
 - **Slot Lock State**: Per-slot runtime lock state indicating lock presence, owner activity, and
-  stale-lock cleanup action.
+  stale-lock cleanup action, with lockfile metadata (`pid`, `port`, `started_at`) and live-owner
+  detection outcome.
 - **Risk Acknowledgement Record**: A runtime confirmation state indicating the operator accepted
   a risky launch condition for the current run.
 
@@ -139,17 +177,21 @@ result follows documented precedence with explicit risk acknowledgement gates.
 - **SC-001**: 100% of valid launch attempts (one-slot or two-slot) complete without manual command
   editing.
 - **SC-002**: At least 95% of launch-blocking failures return an actionable correction message on
-  first failure.
+  first failure, including all required FR-005 fields.
 - **SC-003**: 100% of override resolution cases produce deterministic, operator-verifiable results.
-- **SC-004**: At least 90% of dry-run reviews are accepted by operators as sufficiently clear to
-  proceed without additional clarification.
+- **SC-004**: 100% of dry-run outputs include all FR-003 required fields for each resolved slot and
+  apply FR-007 redaction rules.
+- **SC-005**: 100% of launch and dry-run attempts produce an FR-007 JSON observability artifact in
+  `$XDG_RUNTIME_DIR/llm-runner/artifacts/` with required redacted fields.
 
 ## Assumptions
 
 - The target persona is a solo operator running on the anchored workstation profile described in
   `PRD.md`.
-- This feature intentionally narrows scope to launch and dry-run behavior from the PRD; diagnostics,
-  setup mutation flows, and smoke verification are deferred to later specs.
+- This feature intentionally narrows scope to PRD M1 launch and dry-run behavior; M0 documentation
+  generation and M2-M4 capabilities are deferred to later specs.
+- M0 documentation generation is tracked as a separate dependent spec and may be planned in parallel,
+  but it is not implemented or validated by Spec-001 acceptance criteria.
 - When one configured slot is unavailable, operators still need usable one-slot launch capability
   with explicit warnings.
 - Users prefer explicit confirmations for risky actions over silent automation.
