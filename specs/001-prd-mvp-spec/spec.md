@@ -80,6 +80,8 @@ slots start with distinct bindings and clear status while unavailable slots are 
     **When** I run launch, **Then** launch is blocked entirely with FR-005 multi-error response
     listing all blockers in the `errors` array before any partial launch is attempted.
 
+**Slot Unavailability Causes**: When a configured slot cannot launch, the system MUST identify and report the specific cause. In M1, slot-unavailability causes are explicitly enumerated as: (1) port conflict (another process or slot binds the same port), (2) missing model source (model file does not exist at the configured path), (3) active lock owner (a live PID owns the slot lock and owns the expected port), or (4) backend non-eligibility (backend is not launch-eligible in M1, e.g., vllm). Each cause maps to a distinct FR-005 error response.
+
 **Flow Classification (User Story 1)**:
 
 - **Primary flow**: Scenario 1 (dual-slot successful launch).
@@ -172,9 +174,17 @@ result follows documented precedence with explicit risk acknowledgement gates.
 ### Functional Requirements
 
 - **FR-001**: System MUST enforce slot-first orchestration where each running workload is bound to
-  a declared slot and each slot owns its bind address and port.
+  a declared slot and each slot owns its bind address and port. Slot ownership invariants: each
+  slot_id is unique within a launch configuration (duplicate slot_ids are launch-blocking with
+  `error_code="duplicate_slot"`), a slot's bind/port ownership is exclusive (no two slots may share
+  the same port), and conflict resolution is explicit: when multiple slots target the same port,
+  the system MUST block launch and return a multi-error FR-005 response listing all conflicting slots.
 - **FR-002**: System MUST prevent invalid startup states, including duplicate slot assignment,
-  missing model source, and conflicting network bindings.
+  missing model source, and conflicting network bindings. Slot ID normalization/boundary rules:
+  slot_id values are normalized to lowercase canonical form (`slot_id.lower()` after stripping
+  leading/trailing whitespace), only ASCII characters `a-z`, digits `0-9`, hyphen `-`, and underscore
+  `_` are allowed in slot_id values (any other character is rejected with `error_code="invalid_slot_id"`
+  and an FR-005 actionable error).
 - **FR-003**: System MUST provide a deterministic dry-run mode that, before execution, prints for
   each slot: binary path, exact command arguments, model path, slot ID, effective bind/port,
   merged environment values with sensitive values redacted, OpenAI flag bundle, hardware notes,
@@ -187,9 +197,10 @@ result follows documented precedence with explicit risk acknowledgement gates.
   and p95 ≤400 ms for two-slot resolution. `hardware_notes` MUST be an object containing required
   fields `backend`, `device_id`, `device_name` and optional fields `driver_version`,
   `runtime_version`. `command_args` MUST be represented as ordered raw argv tokens (`list[str]`)
-  preserving exact token boundaries; shell-escaped joined command strings are non-normative.
-  `openai_flag_bundle` MUST be an object keyed by effective CLI-style OpenAI flags (including
-  leading `--`) as defined in the dry-run contract.
+  preserving exact token boundaries (e.g., `["model", "path/with spaces/model.gguf", "--threads",
+  "4"]`); shell-escaped joined command strings are non-normative. `openai_flag_bundle` MUST be an
+  object keyed by effective CLI-style OpenAI flags (including leading `--`) as defined in the
+  dry-run contract.
   Output comparisons in acceptance tests MUST follow the deterministic edge-condition rules in
   the Edge Cases section.
 - **FR-004**: System MUST allow degraded one-slot startup when one configured slot is unavailable,
@@ -214,9 +225,12 @@ result follows documented precedence with explicit risk acknowledgement gates.
   artifacts MUST be persisted as one JSON file per launch/dry-run under the resolved runtime
   artifact directory (`$LLM_RUNNER_RUNTIME_DIR/artifacts/` when set and usable, otherwise
   `$XDG_RUNTIME_DIR/llm-runner/artifacts/`) with timestamp + slot scope, containing resolved command,
-  validation results, warnings, and a redacted environment snapshot. If neither runtime directory
-  is usable, the system MUST fail with a clear attribution to the unavailable path and return a
-  launch-blocking FR-005 actionable error. Artifact files MUST be created with owner-only
+  validation results, warnings, and a redacted environment snapshot. Artifact lifecycle: M1 uses
+  timestamp-based filenames (`artifact-{timestamp}.json`) with collision behavior of overwrite
+  (same timestamp is unique per launch invocation); retention window and cleanup responsibility are
+  out of scope for M1 (operators may remove artifacts manually or via external process). If neither
+  runtime directory is usable, the system MUST fail with a clear attribution to the unavailable path
+  and return a launch-blocking FR-005 actionable error. Artifact files MUST be created with owner-only
   permissions (`0600`) and their runtime directories with owner-only permissions (`0700`);
   inability to enforce these permissions MUST return a launch-blocking actionable error.
   Artifact persistence failures (disk full, I/O error, permission denied after path resolution) MUST
@@ -225,7 +239,11 @@ result follows documented precedence with explicit risk acknowledgement gates.
   edge-condition rules in the Edge Cases section.
 - **FR-008**: System MUST treat runtime safety as default behavior, requiring explicit acknowledgement
   for risky operations; acknowledgement is valid only for the current launch attempt. In M1, risky
-  operations are: port <1024, non-loopback bind, and manual override that bypasses a warning.
+  operations are: (1) privileged port (port <1024), (2) non-loopback bind (bind address not
+  `127.0.0.1` or `::1`), and (3) manual override that bypasses a warning. Acknowledgement scope
+  explicitly covers: dry-run path (acknowledgement required before dry-run completes), and launch
+  attempt path (acknowledgement required before subprocess execution); acknowledgement does NOT
+  persist across separate launch/dry-run invocations.
 - **FR-009**: System MUST auto-clear stale lockfiles when no active owner exists, and MUST block
   launch when a live lock owner is detected. Lockfiles MUST be per-slot under the resolved runtime
   lock directory (`$LLM_RUNNER_RUNTIME_DIR/` when set and usable, otherwise
@@ -237,19 +255,27 @@ result follows documented precedence with explicit risk acknowledgement gates.
   owner-only permissions (`0600`), and parent runtime directories MUST use owner-only permissions
   (`0700`). If lockfile integrity validation fails (malformed/unreadable content) or stale-owner
   verification cannot be completed, launch MUST be blocked and return an FR-005 actionable error
-  with `failed_check=lockfile_integrity`. Automatic stale-lock recovery is prohibited for
-  indeterminate ownership states (e.g., when PID/ownership/start-time verification is ambiguous);
-  this prohibition includes race conditions, partial verification matches, and stale-check outcomes
-  that cannot produce a definitive live/stale decision in one atomic step.
-  such cases MUST block launch with FR-005. Live-owner verification MUST be evaluated as one atomic
-  decision (`pid exists` + `owns expected port`); indeterminate verification states are
-  launch-blocking. Lock/port validation latency target is p95 ≤150 ms per slot.
+  with `failed_check=lockfile_integrity`. Stale-lock cleanup failure recovery requirements:
+  (1) permission denied on lockfile read: block and return FR-005 with `failed_check=lockfile_integrity`,
+  (2) concurrent writer during stale-check: block and return FR-005 with `failed_check=lockfile_integrity`,
+  (3) malformed/unreadable lock content: block and return FR-005 with `failed_check=lockfile_integrity`.
+  Automatic stale-lock recovery is prohibited for indeterminate ownership states (e.g., when
+  PID/ownership/start-time verification is ambiguous); this prohibition includes race conditions,
+  partial verification matches, and stale-check outcomes that cannot produce a definitive live/stale
+  decision in one atomic step. such cases MUST block launch with FR-005. Live-owner verification
+  MUST be evaluated as one atomic decision (`pid exists` + `owns expected port`); indeterminate
+  verification states are launch-blocking. Lock/port validation latency target is p95 ≤150 ms per slot.
 - **FR-010**: System MUST scope this feature to PRD M1 launch and dry-run core behavior; non-M1 work
-  (including M0 documentation generation and M2-M4 capabilities) is deferred to separate follow-on
-  specifications, and this spec excludes M0 acceptance criteria.
+  is deferred to separate follow-on specifications. M0 documentation generation is tracked as a
+  separate dependent spec. M2 diagnostic tools, M3 smoke-testing workflow, and M4 multi-workstation
+  orchestration are each scoped to dedicated follow-on specs named "PRD M2: Diagnostic Tools",
+  "PRD M3: Smoke-Testing Workflow", and "PRD M4: Multi-Workstation Orchestration". This spec
+  excludes M0 acceptance criteria.
 - **FR-011**: System MUST accept backend values in configuration for forward compatibility, but in
   PRD M1 only `llama_cpp` is launch-eligible; `vllm` MUST be surfaced as non-eligible and blocked
-  with an actionable correction message. For blocked `vllm`, FR-005 response MUST include
+  with an actionable correction message. `launch-eligible` is a validation-state concept in M1:
+  it describes the system's eligibility decision at validation time, not a persistent runtime state.
+  For blocked `vllm`, FR-005 response MUST include
   `error_code=BACKEND_NOT_ELIGIBLE`, `failed_check=vllm_launch_eligibility`,
   `why_blocked=vllm is not launch-eligible in PRD M1`, and
   `how_to_fix=change backend to 'llama_cpp' for M1`.
@@ -362,4 +388,4 @@ the expectation.
 | **risky operation** | A launch condition requiring explicit operator acknowledgement in M1: port <1024, non-loopback bind, or a manual override that bypasses a warning. |
 | **degraded launch** | A one-slot launch that proceeds when only one of two configured slots is available; the unavailable slot generates a warning but does not block the running slot. |
 | **full-block launch** | A launch outcome where zero configured slots can start due to one or more launch-blocking errors; no slots are started in this state. |
-| **current launch attempt** | The runtime context covering a single invocation of the launch/dry-run resolution path; risk acknowledgements and in-memory state are scoped to this attempt and do not persist across invocations. |
+| **current launch attempt** | The runtime context covering a single invocation of the launch/dry-run resolution path; risk acknowledgements and in-memory state are scoped to this attempt and do not persist across invocations. Synonymous with "session-only" in M1. |
