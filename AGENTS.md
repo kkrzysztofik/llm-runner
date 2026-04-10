@@ -334,3 +334,10 @@ ignoring comments/strings, and can **safely rewrite** code.
 
 - Model weights and binary paths are local to the developer's machine — do not hardcode new paths, use `Config` defaults.
 - GPU driver setup, SYCL environment variables (`ONEAPI_DEVICE_SELECTOR`), and CUDA library paths are handled by shell wrapper scripts (`run_opencode_models.sh`), not Python.
+
+## Active Technologies
+- Python 3.12+ + rich, psutil, pytest, ruff, pyright (001-prd-mvp-spec)
+- Local runtime files under resolved runtime dir (`LLM_RUNNER_RUNTIME_DIR` else `$XDG_RUNTIME_DIR/llm-runner`) for lockfiles + JSON artifacts (001-prd-mvp-spec)
+
+## Recent Changes
+- 001-prd-mvp-spec: Added Python 3.12+ + rich, psutil, pytest, ruff, pyright

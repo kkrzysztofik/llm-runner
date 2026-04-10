@@ -66,6 +66,25 @@ slots start with distinct bindings and clear status while unavailable slots are 
    for the available slot and returns a warning for the unavailable slot.
 4. **Given** a stale lockfile with no active owner, **When** I run launch, **Then** stale lock is
    cleared and launch proceeds.
+5. **Given** multiple simultaneous blockers (e.g., duplicate slot, occupied port, missing model),
+   **When** I run launch or dry-run, **Then** the system returns a structured multi-error FR-005
+   response with all blockers included in an `errors` array, each containing required fields
+   (`error_code`, `failed_check`, `why_blocked`, `how_to_fix`).
+6. **Given** a degraded scenario where one slot has a stale lock and another slot has a port conflict,
+   **When** I run launch, **Then** the stale lock is auto-cleared and launch proceeds for the available
+   slot, while the port conflict blocks the second slot with an FR-005 actionable error.
+7. **Given** a fully blocked scenario where all configured slots have non-recoverable blockers
+    (e.g., active lock owner on one slot and occupied port on another), **When** I run launch,
+    **Then** launch is blocked entirely with FR-005 multi-error response covering all blocker types.
+8. **Given** all configured slots are blocked (e.g., duplicate slot, occupied ports, missing models),
+    **When** I run launch, **Then** launch is blocked entirely with FR-005 multi-error response
+    listing all blockers in the `errors` array before any partial launch is attempted.
+
+**Flow Classification (User Story 1)**:
+
+- **Primary flow**: Scenario 1 (dual-slot successful launch).
+- **Alternate flow**: Scenarios 3 and 6 (degraded one-slot launch with warning/remediation).
+- **Exception/full-block flow**: Scenarios 5, 7, and 8 (all-slot blocked outcomes with FR-005 multi-error).
 
 ---
 
@@ -110,6 +129,8 @@ result follows documented precedence with explicit risk acknowledgement gates.
 ### Edge Cases
 
 - One-slot degraded launch proceeds with a warning when one configured slot is unavailable.
+- Full-block scenarios (all configured slots blocked) block launch entirely with FR-005 multi-error;
+  partial launch is not attempted only when all configured slots are blocked.
 - Conflicting values resolve deterministically using: defaults < slot/workstation config < profile guidance < explicit override.
 - Stale lockfiles are auto-cleared; lockfiles with active owners block launch.
 - Risk acknowledgements are non-persistent and apply only to the current launch attempt; in M1 they
@@ -137,6 +158,14 @@ result follows documented precedence with explicit risk acknowledgement gates.
   `failed_check=artifact_persistence`.
 - Dry-run `command_args` preserves exact argv token boundaries as `list[str]`; shell-escaped joined
   command strings are non-normative representations.
+- Deterministic output: repeated identical inputs (same config, same hardware state) produce identical
+  dry-run output and artifact field values (`resolved_command`, `validation_results`, `warnings`)
+  with stable ordering across runs.
+- Stable ordering: slot iteration order, warnings array, and validation_results array maintain
+  deterministic ordering based on slot configuration sequence.
+- Determinism scope: hardware/process-state changes (different live owners, changed runtime
+  directory availability, changed device/runtime metadata) are treated as distinct inputs and are
+  excluded from identical-input comparison assertions.
 
 ## Requirements *(mandatory)*
 
@@ -159,6 +188,10 @@ result follows documented precedence with explicit risk acknowledgement gates.
   fields `backend`, `device_id`, `device_name` and optional fields `driver_version`,
   `runtime_version`. `command_args` MUST be represented as ordered raw argv tokens (`list[str]`)
   preserving exact token boundaries; shell-escaped joined command strings are non-normative.
+  `openai_flag_bundle` MUST be an object keyed by effective CLI-style OpenAI flags (including
+  leading `--`) as defined in the dry-run contract.
+  Output comparisons in acceptance tests MUST follow the deterministic edge-condition rules in
+  the Edge Cases section.
 - **FR-004**: System MUST allow degraded one-slot startup when one configured slot is unavailable,
   and MUST emit a clear warning identifying the unavailable slot.
 - **FR-005**: System MUST return launch-blocking errors in a structured actionable format containing
@@ -169,32 +202,46 @@ result follows documented precedence with explicit risk acknowledgement gates.
 - **FR-006**: System MUST apply deterministic override precedence in this order: defaults <
   slot/workstation config < profile guidance < explicit override. For M1, config MUST use
   `schema_version: 1`, workstation defaults, and slot entries keyed by `slot_id`; after
-  precedence resolution, user override wins per field.
+  precedence resolution, user override wins per field. Profile guidance MUST take precedence
+  over slot/workstation config when a field is defined in both, and explicit override MUST
+  take precedence over profile guidance. Within each precedence layer, fields are resolved
+  by specificity: per-slot keys override workstation-wide keys, which override global/default keys.
+  When multiple fields conflict within the same precedence layer and specificity, the most
+  specific field (per-slot key over workstation-wide key over global/default key) wins.
 - **FR-007**: System MUST preserve observability artifacts for launch and dry-run outcomes. Redaction
   MUST replace values with `[REDACTED]` for any key name containing `KEY`, `TOKEN`, `SECRET`,
   `PASSWORD`, or `AUTH` (case-insensitive). Filesystem paths MUST remain visible in M1. M1
   artifacts MUST be persisted as one JSON file per launch/dry-run under the resolved runtime
   artifact directory (`$LLM_RUNNER_RUNTIME_DIR/artifacts/` when set and usable, otherwise
   `$XDG_RUNTIME_DIR/llm-runner/artifacts/`) with timestamp + slot scope, containing resolved command,
-  validation results, warnings, and a redacted environment snapshot. Artifact files MUST be created
-  with owner-only permissions (`0600`) and their runtime directories with owner-only permissions
-  (`0700`); inability to enforce these permissions MUST return a launch-blocking actionable error.
+  validation results, warnings, and a redacted environment snapshot. If neither runtime directory
+  is usable, the system MUST fail with a clear attribution to the unavailable path and return a
+  launch-blocking FR-005 actionable error. Artifact files MUST be created with owner-only
+  permissions (`0600`) and their runtime directories with owner-only permissions (`0700`);
+  inability to enforce these permissions MUST return a launch-blocking actionable error.
   Artifact persistence failures (disk full, I/O error, permission denied after path resolution) MUST
   be launch-blocking and return FR-005 actionable error with
-  `failed_check=artifact_persistence`.
+  `failed_check=artifact_persistence`. Artifact output comparisons MUST follow the deterministic
+  edge-condition rules in the Edge Cases section.
 - **FR-008**: System MUST treat runtime safety as default behavior, requiring explicit acknowledgement
   for risky operations; acknowledgement is valid only for the current launch attempt. In M1, risky
   operations are: port <1024, non-loopback bind, and manual override that bypasses a warning.
 - **FR-009**: System MUST auto-clear stale lockfiles when no active owner exists, and MUST block
   launch when a live lock owner is detected. Lockfiles MUST be per-slot under the resolved runtime
   lock directory (`$LLM_RUNNER_RUNTIME_DIR/` when set and usable, otherwise
-  `$XDG_RUNTIME_DIR/llm-runner/`) at `slot-{slot_id}.lock` and include `pid`, `port`, `started_at`; a
+  `$XDG_RUNTIME_DIR/llm-runner/`) at `slot-{slot_id}.lock` and include `pid`, `port`, `started_at`.
+  If neither lock-directory candidate is usable, launch MUST be blocked with FR-005 actionable error
+  and `failed_check=lockfile_integrity`; a
   lock owner is live only when the PID exists, still owns the expected port, and process start-time
   matches lock `started_at`. Lockfiles MUST use
   owner-only permissions (`0600`), and parent runtime directories MUST use owner-only permissions
   (`0700`). If lockfile integrity validation fails (malformed/unreadable content) or stale-owner
   verification cannot be completed, launch MUST be blocked and return an FR-005 actionable error
-  with `failed_check=lockfile_integrity`. Live-owner verification MUST be evaluated as one atomic
+  with `failed_check=lockfile_integrity`. Automatic stale-lock recovery is prohibited for
+  indeterminate ownership states (e.g., when PID/ownership/start-time verification is ambiguous);
+  this prohibition includes race conditions, partial verification matches, and stale-check outcomes
+  that cannot produce a definitive live/stale decision in one atomic step.
+  such cases MUST block launch with FR-005. Live-owner verification MUST be evaluated as one atomic
   decision (`pid exists` + `owns expected port`); indeterminate verification states are
   launch-blocking. Lock/port validation latency target is p95 ≤150 ms per slot.
 - **FR-010**: System MUST scope this feature to PRD M1 launch and dry-run core behavior; non-M1 work
@@ -246,9 +293,12 @@ result follows documented precedence with explicit risk acknowledgement gates.
   editing.
 - **SC-002**: At least 95% of FR-005 launch-blocking validation outcomes produced in launch/dry-run
   paths during M1 acceptance tests return an actionable correction message on first failure,
-  including all required FR-005 fields.
+  including all required FR-005 fields. The denominator for this metric includes all FR-005
+  multi-error responses (with one or more `errors` array entries) and single-error responses
+  produced during M1 acceptance test execution.
 - **SC-003**: 100% of override resolution cases produce deterministic, operator-verifiable results,
-  evidenced by identical dry-run output for identical inputs and matching FR-007 artifact fields
+  evidenced by: (a) identical human-readable dry-run output for identical inputs, (b) identical
+  machine-parseable dry-run output for identical inputs, and (c) matching FR-007 artifact fields
   (`resolved_command`, `validation_results`, `warnings`) across repeated runs.
 - **SC-004**: 100% of dry-run outputs include all FR-003 canonical schema required fields for each
   resolved slot and apply FR-007 redaction rules.
@@ -256,7 +306,10 @@ result follows documented precedence with explicit risk acknowledgement gates.
   artifact with required redacted fields, or (b) fail with FR-005
   `failed_check=artifact_persistence` before execution proceeds.
 - **SC-006**: M1 performance budgets are met: dry-run resolution p95 ≤250 ms (single slot) / ≤400
-  ms (two slots), and lock/port validation p95 ≤150 ms per slot.
+  ms (two slots), and lock/port validation p95 ≤150 ms per slot. The p95 timing windows are
+  measured over all completed dry-run and lock/port validation invocations during M1 acceptance
+  tests, excluding outlier failures (timeouts, CI noise) that are recorded separately. Single-slot,
+  two-slot, and per-slot lock/port timing windows are measured and reported independently.
 
 ## Assumptions
 
@@ -272,3 +325,41 @@ result follows documented precedence with explicit risk acknowledgement gates.
 - Risk acknowledgement does not persist across separate launch attempts.
 - Functional readiness for this feature is defined by successful launch and deterministic dry-run,
   not full operational validation workflows.
+
+## Addendum — Definitions & Measurement Notes (M1)
+
+### SC-002 Denominator Clarification
+
+For SC-002's 95% actionable-error threshold, the denominator counts **all FR-005 error objects**
+(individual `errors[n]` entries) produced across all launch/dry-run validation runs during M1
+acceptance tests, not the number of launch attempts or response objects. When FR-005 returns a
+multi-error response with N error entries, those N entries contribute N items to the denominator.
+The numerator counts how many of those error entries include all required FR-005 fields
+(`error_code`, `failed_check`, `why_blocked`, `how_to_fix`).
+
+### FR-009 Lockfile Atomicity Expectation (Requirement Note)
+
+This requirement expects lockfile operations to behave atomically with respect to launch-state
+decisions:
+
+- **Write**: A lockfile must be fully written with valid content (`pid`, `port`, `started_at`)
+  before any other process can observe it.
+- **Read**: Ownership checks must read a consistent snapshot; partial or corrupted reads must not be
+  treated as stale.
+- **Update**: When a lock is acquired, cleared, or refreshed, the operation must not interleave with
+  another process's read in a way that produces ambiguous live/stale results.
+
+This is stated as a correctness requirement, not an implementation mandate; implementations may use
+OS-level atomic primitives or file-locked transactions as long as the observable behavior matches
+the expectation.
+
+### Canonical Terminology (M1)
+
+| Term | Definition (M1 scope) |
+| --- | --- |
+| **warning** | A non-blocking diagnostic emitted when a configuration or runtime condition deviates from the expected healthy state but does not prevent launch (e.g., one-slot unavailable in a two-slot config). |
+| **launch-blocking error** | An FR-005 error that prevents any slot from starting; includes both single-slot full-block and multi-slot cases where all configured slots are blocked. |
+| **risky operation** | A launch condition requiring explicit operator acknowledgement in M1: port <1024, non-loopback bind, or a manual override that bypasses a warning. |
+| **degraded launch** | A one-slot launch that proceeds when only one of two configured slots is available; the unavailable slot generates a warning but does not block the running slot. |
+| **full-block launch** | A launch outcome where zero configured slots can start due to one or more launch-blocking errors; no slots are started in this state. |
+| **current launch attempt** | The runtime context covering a single invocation of the launch/dry-run resolution path; risk acknowledgements and in-memory state are scoped to this attempt and do not persist across invocations. |
