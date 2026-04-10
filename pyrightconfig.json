@@ -1,0 +1,18 @@
+{
+  "include": [
+    "llama_cli",
+    "llama_manager",
+    "tests"
+  ],
+  "exclude": [
+    ".venv",
+    "dist"
+  ],
+  "typeCheckingMode": "standard",
+  "pythonVersion": "3.12",
+  "reportMissingImports": true,
+  "reportMissingModuleSource": false,
+  "extraPaths": [
+    "."
+  ]
+}

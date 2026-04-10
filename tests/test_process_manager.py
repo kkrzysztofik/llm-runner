@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from llama_manager.process_manager import resolve_runtime_dir
+from llama_manager.process_manager import ValidationException, resolve_runtime_dir
 
 
 class TestResolveRuntimeDir:
@@ -53,14 +53,14 @@ class TestResolveRuntimeDir:
             assert result.exists()
             assert result.is_dir()
 
-    def test_no_env_vars_raises_error(self) -> None:
-        """Should raise RuntimeError when neither env var is set."""
+    def test_no_env_vars_raises_validation_exception(self) -> None:
+        """Should raise ValidationException when neither env var is set (FR-005)."""
         with pytest.MonkeyPatch.context() as mp:
             mp.delenv("LLM_RUNNER_RUNTIME_DIR", raising=False)
             mp.delenv("XDG_RUNTIME_DIR", raising=False)
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(ValidationException) as exc_info:
                 resolve_runtime_dir()
-            assert "No usable runtime directory" in str(exc_info.value)
+            assert exc_info.value.multi_error.error_count == 1
 
     def test_xdg_creates_subdirectory(self, tmp_path: Path) -> None:
         """XDG_RUNTIME_DIR fallback should create llm-runner subdirectory."""

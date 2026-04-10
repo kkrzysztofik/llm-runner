@@ -1,6 +1,7 @@
 # Config & ServerConfig dataclasses
 
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -83,6 +84,50 @@ class ServerConfig:
 
 
 # M1 scaffolding
+
+# Regex pattern for slot ID normalization: strip, lowercase, allow only a-z0-9_-
+_SLOT_ID_PATTERN = re.compile(r"[^a-z0-9_-]")
+
+
+def normalize_slot_id(slot_id: str) -> str:
+    """Normalize slot ID by stripping whitespace, lowercasing ASCII, allowing only a-z0-9_-.
+
+    Args:
+        slot_id: Raw slot identifier string
+
+    Returns:
+        Normalized slot ID with only allowed characters (lowercase a-z, digits, underscore, hyphen)
+
+    Raises:
+        ValueError: If normalized result is empty after applying allowed character filter
+    """
+    normalized = _SLOT_ID_PATTERN.sub("", slot_id.strip().lower())
+    if not normalized:
+        raise ValueError("slot_id must contain at least one valid character after normalization")
+    return normalized
+
+
+def detect_duplicate_slots(slots: list["ModelSlot"]) -> list[str]:
+    """Detect duplicate slot IDs in a list of ModelSlot entries.
+
+    Args:
+        slots: List of ModelSlot objects to check for duplicates
+
+    Returns:
+        List of normalized slot_ids that appear more than once
+    """
+    seen: dict[str, int] = {}
+    duplicates: list[str] = []
+    for slot in slots:
+        normalized = normalize_slot_id(slot.slot_id)
+        if normalized in seen:
+            if normalized not in duplicates:
+                duplicates.append(normalized)
+        else:
+            seen[normalized] = 1
+    return duplicates
+
+
 @dataclass
 class ModelSlot:
     """Model slot configuration for multi-slot serving"""
@@ -124,3 +169,73 @@ class ValidationResult:
     def valid(self) -> bool:
         """Alias for passed to maintain backward compatibility"""
         return self.passed
+
+
+@dataclass
+class ErrorDetail:
+    """FR-005 structured actionable error detail"""
+
+    error_code: ErrorCode
+    failed_check: str
+    why_blocked: str
+    how_to_fix: str
+    docs_ref: str | None = None
+
+
+@dataclass
+class MultiValidationError:
+    """FR-005 container for multiple validation errors with deterministic ordering"""
+
+    errors: list[ErrorDetail]
+
+    @property
+    def error_count(self) -> int:
+        """Return the number of errors in this multi-error"""
+        return len(self.errors)
+
+    def sort_errors(self) -> None:
+        """Sort errors in-place by slot configuration sequence, then failed_check ascending.
+
+        This provides stable, deterministic ordering for consistent error output.
+        Slots are ordered by first appearance; within each slot, failed_check is sorted alphabetically.
+        """
+        if not self.errors:
+            return
+
+        # Build slot order map: slot_id -> order index (first occurrence wins)
+        # We need to extract slot IDs from error details
+        # For errors without slot_id, we put them at the end
+        slot_order: dict[str, int] = {}
+        other_errors: list[ErrorDetail] = []
+
+        for _i, error in enumerate(self.errors):
+            # Extract slot_id from failed_check if it follows pattern "slot_<id>_<check>"
+            slot_id: str | None = None
+            if error.failed_check.startswith("slot_"):
+                parts = error.failed_check.split("_", 2)
+                if len(parts) >= 2:
+                    slot_id = parts[1]
+
+            if slot_id:
+                if slot_id not in slot_order:
+                    slot_order[slot_id] = len(slot_order)
+                else:
+                    # Update slot_order to use the minimum index
+                    slot_order[slot_id] = min(slot_order[slot_id], slot_order.get(slot_id, 0))
+            else:
+                other_errors.append(error)
+
+        def sort_key(error: ErrorDetail) -> tuple[int, str, int]:
+            """Sort key: (slot_sequence_order, failed_check, original_index)"""
+            slot_idx = 0
+            if error.failed_check.startswith("slot_"):
+                parts = error.failed_check.split("_", 2)
+                if len(parts) >= 2:
+                    slot_id = parts[1]
+                    slot_idx = slot_order.get(slot_id, 0)
+            return (slot_idx, error.failed_check, id(error))
+
+        # Sort main errors, then append others at the end
+        sorted_errors = sorted(self.errors, key=sort_key)
+
+        self.errors = sorted_errors
