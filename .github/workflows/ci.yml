@@ -25,6 +25,9 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --extra dev
 
+      - name: Check lockfile reproducibility
+        run: uv lock --check
+
       - name: ruff check
         run: uv run ruff check .
 

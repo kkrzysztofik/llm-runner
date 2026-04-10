@@ -11,3 +11,9 @@ repos:
     hooks:
       - id: pyright
         additional_dependencies: [".", "rich>=13.0.0", "psutil>=5.9.0", "pytest"]
+
+  - repo: https://github.com/pypa/pip-audit
+    rev: v2.9.0
+    hooks:
+      - id: pip-audit
+        args: [--exit-level, "high", "--no-progress-bar"]

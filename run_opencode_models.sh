@@ -9,7 +9,7 @@ set -euo pipefail
 LLAMA_CPP_ROOT="/home/kmk/src/llama.cpp"
 LLAMA_SERVER_BIN_INTEL="$LLAMA_CPP_ROOT/build/bin/llama-server"
 LLAMA_SERVER_BIN_NVIDIA="$LLAMA_CPP_ROOT/build_cuda/bin/llama-server"
-MODEL_SUMMARY_BALANCED="/home/kmk/models/unsloth/Qwen3.5-2B-GGUF/Qwen3.5-2B-IQ4_XS.gguf"
+MODEL_SUMMARY_BALANCED="/home/kmk/models/unsloth/Qwen3.5-2B-GGUF/Qwen3.5-2B-UD-Q4_K_XL.gguf"
 MODEL_SUMMARY_FAST="/home/kmk/models/unsloth/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q4_K_M.gguf"
 MODEL_QWEN35="/home/kmk/models/unsloth/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-IQ4_XS.gguf"
 MODEL_QWEN35_BOTH="/home/kmk/models/unsloth/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-IQ4_XS.gguf"
@@ -35,14 +35,14 @@ GEMMA4_CHAT_TEMPLATE_KWARGS='{"enable_thinking":true}'
 
 # Server defaults
 DEFAULT_N_GPU_LAYERS=99                  # Max GPU layers for fastest inference
-DEFAULT_CTX_SIZE_SUMMARY=16144           # 16k with headroom for summary assistants
+DEFAULT_CTX_SIZE_SUMMARY=262144           # 16k with headroom for summary assistants
 DEFAULT_CTX_SIZE_QWEN35=262144           # Match NVIDIA qwen35 single-run config
 DEFAULT_CTX_SIZE_GEMMA4_E4B=131072       # Full 128k context for Gemma 4 E4B
 # 27B Q4_K_XL: validated llama-completion warmup + gen at 262144 on RTX 3090 (f16 KV, -np 1)
 DEFAULT_CTX_SIZE_GEMMA4_27B=262144
 # 31B IQ4_XS: max stable ctx with default batch/ubatch (see probe notes in script header paths)
 DEFAULT_CTX_SIZE_GEMMA4_31B=82176
-DEFAULT_CTX_SIZE_BOTH_SUMMARY=16144      # Keep summarizer at 16k in dual-run mode
+DEFAULT_CTX_SIZE_BOTH_SUMMARY=262144      # Keep summarizer at 16k in dual-run mode
 DEFAULT_CTX_SIZE_BOTH_QWEN35=262144      # Match NVIDIA qwen35 dual-run config
 DEFAULT_CTX_SIZE_BOTH_GEMMA4_27B=262144   # Same as single-GPU 27B when paired with E4B on Intel
 DEFAULT_N_GPU_LAYERS_QWEN35=all
@@ -88,6 +88,7 @@ DEFAULT_CACHE_TYPE_GEMMA4_27B_BOTH_K=f16
 DEFAULT_CACHE_TYPE_GEMMA4_27B_BOTH_V=f16
 DEFAULT_CACHE_TYPE_GEMMA4_31B_K=f16
 DEFAULT_CACHE_TYPE_GEMMA4_31B_V=f16
+DEFAULT_N_PREDICT=32768
 DEFAULT_SPEC_TYPE_GEMMA4_E4B=ngram-mod
 DEFAULT_SPEC_NGRAM_SIZE_N_GEMMA4_E4B=24
 DEFAULT_DRAFT_MIN_GEMMA4_E4B=48
@@ -277,6 +278,7 @@ build_server_cmd() {
   
   cmd_ref+=(
     --ctx-size "$ctx_size"
+    --n-predict "$DEFAULT_N_PREDICT"
     --flash-attn on
     --cache-type-k "$cache_type_k"
     --cache-type-v "$cache_type_v"
@@ -400,7 +402,9 @@ start_summary_balanced() {
   require_model "$MODEL_SUMMARY_BALANCED"
   build_server_cmd cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$port" \
     "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
-    "" on deepseek "$SUMMARY_BALANCED_CHAT_TEMPLATE_KWARGS" "" true "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+    "" off "" "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+  cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+  cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
 
   exec_server "summary-balanced" cmd
 }
@@ -413,6 +417,8 @@ start_summary_fast() {
   build_server_cmd cmd "$MODEL_SUMMARY_FAST" "summary-fast" "SYCL0" "$port" \
     "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_FAST" "$DEFAULT_THREADS_SUMMARY_FAST" \
     "" auto none "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+  cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+  cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
 
   exec_server "summary-fast" cmd
 }
@@ -451,6 +457,8 @@ start_qwen35() {
     "$DEFAULT_CTX_SIZE_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35" "$DEFAULT_THREADS_QWEN35" \
     "" "" "" "" "" false \
     "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA"
+  cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+  cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   
   exec_server "qwen35-coding" cmd
 }
@@ -511,12 +519,14 @@ start_both_qwen35() {
 
   build_server_cmd summary_balanced_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
     "$DEFAULT_CTX_SIZE_BOTH_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
-    "" on deepseek "$SUMMARY_BALANCED_CHAT_TEMPLATE_KWARGS" "" true "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+    "" off "" "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
   
   build_server_cmd qwen35_cmd "$MODEL_QWEN35_BOTH" "qwen35-coding" "" "$qwen35_port" \
     "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
     "" "" "" "" "" false \
     "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA"
+  qwen35_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+  qwen35_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   
   # Setup signal handlers BEFORE launching servers
   trap on_interrupt INT
@@ -657,13 +667,13 @@ dry_run() {
       echo "  Context: $DEFAULT_CTX_SIZE_SUMMARY"
       echo "  Threads: $DEFAULT_THREADS_SUMMARY_BALANCED"
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED"
-      echo "  Reasoning: on"
-      echo "  Reasoning Format: deepseek"
-      echo "  Jinja: true"
-      echo "  Chat Template Kwargs: $SUMMARY_BALANCED_CHAT_TEMPLATE_KWARGS"
+      echo "  Reasoning: off"
+      echo "  Reasoning Format: (disabled)"
+      echo "  Jinja: false"
+      echo "  Chat Template Kwargs: (none)"
       build_server_cmd tmp_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
         "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
-        "" on deepseek "$SUMMARY_BALANCED_CHAT_TEMPLATE_KWARGS" "" true
+        "" off "" "" "" false
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
@@ -796,13 +806,13 @@ dry_run() {
       echo "  Threads: $DEFAULT_THREADS_SUMMARY_BALANCED"
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_SUMMARY_K/$DEFAULT_CACHE_TYPE_SUMMARY_V"
-      echo "  Reasoning: on"
-      echo "  Reasoning Format: deepseek"
-      echo "  Jinja: true"
-      echo "  Chat Template Kwargs: $SUMMARY_BALANCED_CHAT_TEMPLATE_KWARGS"
+      echo "  Reasoning: off"
+      echo "  Reasoning Format: (disabled)"
+      echo "  Jinja: false"
+      echo "  Chat Template Kwargs: (none)"
       build_server_cmd tmp_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
         "$DEFAULT_CTX_SIZE_BOTH_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
-        "" on deepseek "$SUMMARY_BALANCED_CHAT_TEMPLATE_KWARGS" "" true "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+        "" off "" "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       echo ""

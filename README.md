@@ -44,6 +44,12 @@ via nvtop
 - **NVIDIA (CUDA)**: GPU 0 (RTX 3090) - used by qwen35-coding
 - **Intel (SYCL)**: GPU 1 (Arc B580) - used by summary-balanced, summary-fast
 
+## Security
+
+The inference servers bind to `127.0.0.1:8080` and `127.0.0.1:8081` by default,
+making them accessible only from localhost. Do not expose these ports to external
+networks without configuring proper authentication and firewall rules.
+
 ## Exit
 
 Press `Ctrl+C` to gracefully stop all servers and exit.
