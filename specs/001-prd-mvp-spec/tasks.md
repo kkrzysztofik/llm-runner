@@ -17,11 +17,11 @@
 
 **Purpose**: Establish shared M1 scaffolding and deterministic test helpers.
 
-- [ ] T001 Add M1 schema and validation dataclass scaffolding with `ModelSlot` (slot_id, model_path, port) and `Config` dataclasses, including `error_code` enum and `ValidationResult` structure in `llama_manager/config.py`
-- [ ] T002 Add runtime-directory resolution scaffolding with `resolve_runtime_dir()` fallback chain (`LLM_RUNNER_RUNTIME_DIR` env var then `$XDG_RUNTIME_DIR/llm-runner`) and path validation in `llama_manager/process_manager.py`
-- [ ] T003 [P] Add deterministic validation sorting helper scaffolding with `sort_validation_errors()` function that orders by slot configuration sequence (slot_id iteration order); when tie-breaking errors, use `failed_check` ascending within slot in `llama_manager/server.py`
-- [ ] T004 [P] Add runtime-dir and lock/artifact pytest fixtures (`tmp_runtime_dir`, `sample_lockfile`, `artifact_writer`) with cleanup teardown in `tests/conftest.py`
-- [ ] T005 [P] Add deterministic comparison helpers (`assert_dicts_equal`, `assert_sorted_identically`, `normalize_output_for_diff`) for FR-003/FR-005 contract testing in `tests/helpers_determinism.py`
+- [x] T001 Add M1 schema and validation dataclass scaffolding with `ModelSlot` (slot_id, model_path, port) and `Config` dataclasses, including `error_code` enum and `ValidationResult` structure in `llama_manager/config.py`
+- [x] T002 Add runtime-directory resolution scaffolding with `resolve_runtime_dir()` fallback chain (`LLM_RUNNER_RUNTIME_DIR` env var then `$XDG_RUNTIME_DIR/llm-runner`) and path validation in `llama_manager/process_manager.py`
+- [x] T003 [P] Add deterministic validation sorting helper scaffolding with `sort_validation_errors()` function that orders by slot configuration sequence (slot_id iteration order); when tie-breaking errors, use `failed_check` ascending within slot in `llama_manager/server.py`
+- [x] T004 [P] Add runtime-dir and lock/artifact pytest fixtures (`tmp_runtime_dir`, `sample_lockfile`, `artifact_writer`) with cleanup teardown in `tests/conftest.py`
+- [x] T005 [P] Add deterministic comparison helpers (`assert_dicts_equal`, `assert_sorted_identically`, `normalize_output_for_diff`) for FR-003/FR-005 contract testing in `tests/helpers_determinism.py`
 
 ---
 

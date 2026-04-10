@@ -4,7 +4,7 @@
 import os
 import sys
 
-from .config import Config, ServerConfig
+from .config import Config, ServerConfig, ValidationResult
 
 
 def build_server_cmd(cfg: ServerConfig) -> list[str]:
@@ -97,3 +97,36 @@ def validate_ports(port1: int, port2: int, name1: str = "port1", name2: str = "p
             file=sys.stderr,
         )
         sys.exit(1)
+
+
+def sort_validation_errors(
+    results: list[ValidationResult],
+) -> list[ValidationResult]:
+    """Sort validation errors deterministically for T003 stable ordering.
+
+    Sort order:
+    1. Primary: slot configuration sequence (first occurrence in input list)
+    2. Secondary: failed_check ascending within each slot
+
+    This provides stable, deterministic ordering for consistent validation output.
+
+    Args:
+        results: List of ValidationResult objects with slot_id, passed, failed_check,
+                 error_code, and error_message fields
+
+    Returns:
+        Sorted list with slots in input order, failed_check alphabetically within slots.
+    """
+    # Build slot order map: slot_id -> order index (first occurrence wins)
+    slot_order: dict[str, int] = {}
+    for i, r in enumerate(results):
+        if r.slot_id not in slot_order:
+            slot_order[r.slot_id] = i
+
+    def sort_key(r: ValidationResult) -> tuple[int, str]:
+        """Sort key: (slot_sequence_order, failed_check)"""
+        slot_idx = slot_order[r.slot_id]
+        failed_check = r.failed_check or ""
+        return (slot_idx, failed_check)
+
+    return sorted(results, key=sort_key)

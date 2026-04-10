@@ -2,6 +2,7 @@
 
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 
 @dataclass
@@ -79,3 +80,47 @@ class ServerConfig:
     cache_type_v: str = "q8_0"
     n_gpu_layers: int | str = 99
     server_bin: str = ""
+
+
+# M1 scaffolding
+@dataclass
+class ModelSlot:
+    """Model slot configuration for multi-slot serving"""
+
+    slot_id: str
+    model_path: str
+    port: int
+
+
+class ErrorCode(StrEnum):
+    """Error code enum for validation with deterministic string ordering"""
+
+    FILE_NOT_FOUND = "FILE_NOT_FOUND"
+    PATH_INVALID = "PATH_INVALID"
+    PERMISSION_DENIED = "PERMISSION_DENIED"
+    PORT_CONFLICT = "PORT_CONFLICT"
+    PORT_INVALID = "PORT_INVALID"
+    THREADS_INVALID = "THREADS_INVALID"
+    CONFIG_ERROR = "CONFIG_ERROR"
+    INVALID_SLOT_ID = "invalid_slot_id"
+    DUPLICATE_SLOT = "duplicate_slot"
+    RUNTIME_DIR_UNAVAILABLE = "runtime_dir_unavailable"
+    LOCKFILE_INTEGRITY_FAILURE = "lockfile_integrity_failure"
+    ARTIFACT_PERSISTENCE_FAILURE = "artifact_persistence_failure"
+    BACKEND_NOT_ELIGIBLE = "backend_not_eligible"
+
+
+@dataclass
+class ValidationResult:
+    """Result of a validation check with slot identity for T003 deterministic sorting"""
+
+    slot_id: str
+    passed: bool
+    failed_check: str = ""
+    error_code: ErrorCode | None = None
+    error_message: str = ""
+
+    @property
+    def valid(self) -> bool:
+        """Alias for passed to maintain backward compatibility"""
+        return self.passed

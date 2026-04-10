@@ -8,12 +8,50 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .colors import Color
 
 if TYPE_CHECKING:
     from .config import ServerConfig
+
+
+def resolve_runtime_dir() -> Path:
+    """Resolve runtime directory for lockfiles and artifacts.
+
+    Fallback order:
+    1. LLM_RUNNER_RUNTIME_DIR environment variable
+    2. XDG_RUNTIME_DIR/llm-runner
+
+    Raises:
+        RuntimeError: If no usable runtime directory can be determined.
+    """
+    env_dir = os.environ.get("LLM_RUNNER_RUNTIME_DIR")
+    if env_dir:
+        candidate = Path(env_dir)
+        try:
+            candidate.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if candidate.is_dir() and os.access(candidate, os.W_OK):
+                return candidate
+        except (OSError, RuntimeError):
+            pass
+
+    xdg_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg_dir:
+        candidate = Path(xdg_dir) / "llm-runner"
+        try:
+            candidate.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if candidate.is_dir() and os.access(candidate, os.W_OK):
+                return candidate
+        except (OSError, RuntimeError):
+            pass
+
+    raise RuntimeError(
+        "No usable runtime directory found. "
+        "Set LLM_RUNNER_RUNTIME_DIR environment variable, "
+        "or ensure XDG_RUNTIME_DIR exists and is writable"
+    )
 
 
 class ServerManager:
