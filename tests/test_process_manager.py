@@ -3,12 +3,15 @@
 Focused tests for:
 - resolve_runtime_dir fallback behavior (T001)
 - Runtime directory usability (T002)
+- Pipe streaming with optional log buffers (T013)
 """
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from llama_manager.log_buffer import LogBuffer
 from llama_manager.process_manager import ValidationException, resolve_runtime_dir
 
 
@@ -117,3 +120,225 @@ class TestResolveRuntimeDir:
             result2 = resolve_runtime_dir()
             assert result1 == result2
             assert result1 == target
+
+
+class TestPipeStreaming:
+    """Tests for pipe streaming with optional log buffer support (T013)."""
+
+    def test_stream_pipe_to_handler(self) -> None:
+        """_stream_pipe should write to log handler when provided."""
+        from llama_manager.process_manager import ServerManager
+
+        manager = ServerManager()
+        buffer = LogBuffer()
+
+        # Create a mock pipe with test lines (subprocess pipes return strings with text=True)
+        mock_pipe = MagicMock()
+        mock_pipe.readline.side_effect = ["line1\n", "line2\n", "line3\n", ""]
+
+        # Stream to handler
+        manager._stream_pipe(mock_pipe, "test_server", False, buffer.add_line)
+
+        # Verify buffer received lines
+        assert buffer.line_count == 3
+        lines = list(buffer.lines)
+        assert "[test_server] line1" in lines[0]
+        assert "[test_server] line2" in lines[1]
+        assert "[test_server] line3" in lines[2]
+
+    def test_stream_pipe_to_handler_stderr(self) -> None:
+        """_stream_pipe should handle stderr to handler correctly."""
+        from llama_manager.process_manager import ServerManager
+
+        manager = ServerManager()
+        buffer = LogBuffer()
+
+        mock_pipe = MagicMock()
+        mock_pipe.readline.side_effect = ["error1\n", "error2\n", ""]
+
+        # Stream stderr to handler
+        manager._stream_pipe(mock_pipe, "test_server", True, buffer.add_line)
+
+        assert buffer.line_count == 2
+
+    def test_stream_pipe_null_pipe(self) -> None:
+        """_stream_pipe should handle None pipe gracefully."""
+        from llama_manager.process_manager import ServerManager
+
+        manager = ServerManager()
+        buffer = LogBuffer()
+
+        # Should not raise on None pipe
+        manager._stream_pipe(None, "test_server", False, buffer.add_line)
+        assert buffer.line_count == 0
+
+    def test_stream_pipe_without_handler_prints(self, capsys):
+        """_stream_pipe should print to stdout/stderr when no handler provided."""
+        from llama_manager.process_manager import ServerManager
+
+        manager = ServerManager()
+
+        # Create mock pipe that prints
+        mock_pipe = MagicMock()
+        mock_pipe.readline.side_effect = ["stdout_line\n", ""]
+
+        # Stream without handler - should print
+        manager._stream_pipe(mock_pipe, "test_server", False, None)
+
+        captured = capsys.readouterr()
+        assert "test_server" in captured.out
+
+    def test_start_server_background_with_handler(self) -> None:
+        """start_server_background should accept and use log handler."""
+        from llama_manager.process_manager import ServerManager
+
+        manager = ServerManager()
+        buffer = LogBuffer()
+
+        # Mock subprocess.Popen to avoid spawning real process
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline.side_effect = ["buffered line\n", ""]
+        mock_proc.stderr = MagicMock()
+        mock_proc.stderr.readline.side_effect = ["error line\n", ""]
+
+        with patch("subprocess.Popen", return_value=mock_proc):
+            cmd = ["echo", "test"]
+            proc = manager.start_server_background("test_server", cmd, buffer.add_line)
+
+            # Give thread time to process
+            import time
+
+            time.sleep(0.1)
+
+            assert proc.pid == 12345
+            assert "buffered line" in list(buffer.lines)[0]
+            assert "error line" in list(buffer.lines)[1]
+
+    def test_start_servers_with_handlers(self) -> None:
+        """start_servers should accept and distribute log handlers."""
+        from llama_manager.config import ServerConfig
+        from llama_manager.process_manager import ServerManager
+
+        manager = ServerManager()
+
+        # Create test configs
+        config1 = ServerConfig(
+            model="/path/to/model1.gguf",
+            alias="server1",
+            device="sycl",
+            port=8080,
+            ctx_size=16384,
+            ubatch_size=1024,
+            threads=8,
+        )
+        config2 = ServerConfig(
+            model="/path/to/model2.gguf",
+            alias="server2",
+            device="cuda",
+            port=8081,
+            ctx_size=16384,
+            ubatch_size=1024,
+            threads=8,
+        )
+
+        # Create buffers and handlers
+        buffers = {
+            "server1": LogBuffer(),
+            "server2": LogBuffer(),
+        }
+        handlers = {alias: buffer.add_line for alias, buffer in buffers.items()}
+
+        # Mock subprocess.Popen
+        def create_mock_proc(*args, **kwargs):
+            mock = MagicMock()
+            mock.pid = id(args[0][-1]) if args[0] else id(args[0])
+            mock.stdout = MagicMock()
+            mock.stdout.readline.side_effect = [f"output from {args[0][-1]}\n", ""]
+            mock.stderr = MagicMock()
+            mock.stderr.readline.side_effect = ["err line\n", ""]
+            return mock
+
+        with patch("subprocess.Popen", side_effect=create_mock_proc):
+            processes = manager.start_servers([config1, config2], handlers)
+
+            # Give threads time to process
+            import time
+
+            time.sleep(0.1)
+
+            assert len(processes) == 2
+            assert buffers["server1"].line_count >= 1
+            assert buffers["server2"].line_count >= 1
+
+    def test_start_servers_backward_compatible_no_handlers(self) -> None:
+        """start_servers should work without handlers for backward compatibility."""
+        from llama_manager.config import ServerConfig
+        from llama_manager.process_manager import ServerManager
+
+        manager = ServerManager()
+
+        config = ServerConfig(
+            model="/path/to/model.gguf",
+            alias="test_server",
+            device="sycl",
+            port=8080,
+            ctx_size=16384,
+            ubatch_size=1024,
+            threads=8,
+        )
+
+        # Mock subprocess.Popen
+        mock_proc = MagicMock()
+        mock_proc.pid = 99999
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline.side_effect = ["test output\n", ""]
+        mock_proc.stderr = MagicMock()
+        mock_proc.stderr.readline.side_effect = ["err line\n", ""]
+
+        with patch("subprocess.Popen", return_value=mock_proc):
+            # Call without handlers - should not raise
+            processes = manager.start_servers([config], None)
+            assert len(processes) == 1
+
+    def test_no_dual_consumer_issue(self) -> None:
+        """Ensure only ServerManager reads pipes when handlers provided."""
+        from llama_manager.config import ServerConfig
+        from llama_manager.log_buffer import LogBuffer
+        from llama_manager.process_manager import ServerManager
+
+        manager = ServerManager()
+        buffer = LogBuffer()
+
+        config = ServerConfig(
+            model="/path/to/model.gguf",
+            alias="test_server",
+            device="sycl",
+            port=8080,
+            ctx_size=16384,
+            ubatch_size=1024,
+            threads=8,
+        )
+
+        # Mock subprocess.Popen
+        mock_proc = MagicMock()
+        mock_proc.pid = 11111
+        mock_stdout = MagicMock()
+        mock_stdout.readline.side_effect = ["single read\n", ""]
+        mock_stderr = MagicMock()
+        mock_stderr.readline.side_effect = ["stderr read\n", ""]
+        mock_proc.stdout = mock_stdout
+        mock_proc.stderr = mock_stderr
+
+        with patch("subprocess.Popen", return_value=mock_proc):
+            manager.start_servers([config], {"test_server": buffer.add_line})
+
+            # Give thread time to process
+            import time
+
+            time.sleep(0.1)
+
+            # Verify both stdout and stderr were consumed by ServerManager only (2 lines)
+            # If TUI also read, we'd see 4 lines (duplication from dual consumption)
+            assert buffer.line_count == 2

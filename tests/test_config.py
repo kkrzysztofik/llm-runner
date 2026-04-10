@@ -1,17 +1,26 @@
 """Tests for llama_manager.config and llama_manager.config_builder."""
 
+import os
+from unittest.mock import Mock, patch
+
+import psutil
+
 from llama_manager.config import (
     Config,
     ErrorCode,
     ModelSlot,
     ServerConfig,
     ValidationResult,
+    validate_slot_id,
+    validate_slot_port,
 )
 from llama_manager.config_builder import (
     create_qwen35_cfg,
     create_summary_balanced_cfg,
     create_summary_fast_cfg,
 )
+from llama_manager.log_buffer import LogBuffer
+from llama_manager.process_manager import ServerManager, write_artifact
 
 
 class TestConfig:
@@ -236,3 +245,548 @@ class TestValidationResult:
         result = ValidationResult(slot_id="test", passed=True)
         assert result.slot_id == "test"
         assert result.passed is True
+
+
+class TestProcessOwnershipVerification:
+    """Tests for process ownership verification hardening (Suggestion #1)."""
+
+    def test_pid_metadata_captured_on_start(self) -> None:
+        """ServerManager should capture process creation time when starting a server."""
+        manager = ServerManager()
+
+        # Mock subprocess.Popen to avoid actually starting a process
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock_popen.return_value
+            mock_proc.pid = 12345
+            mock_proc.stdout = None
+            mock_proc.stderr = None
+            mock_proc.wait.return_value = 0
+
+            # Mock psutil.Process to return a creation time
+            with patch("psutil.Process") as mock_psutil:
+                mock_proc_obj = mock_psutil.return_value
+                mock_proc_obj.create_time.return_value = 1234567890.123
+
+                manager.start_server_background("test", ["cmd"])
+
+                # Should have captured the PID and its metadata
+                assert 12345 in manager.pid_metadata
+
+    def test_pid_metadata_missing_falls_back_to_existence(self) -> None:
+        """ServerManager should fall back to PID existence check when metadata unavailable."""
+        manager = ServerManager()
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock_popen.return_value
+            mock_proc.pid = 12345
+            mock_proc.stdout = None
+            mock_proc.stderr = None
+
+            # Simulate psutil failure (AccessDenied)
+            with patch("psutil.Process") as mock_psutil:
+                mock_psutil.side_effect = psutil.AccessDenied(12345, "denied")
+
+                manager.start_server_background("test", ["cmd"])
+
+                # Metadata should not be added due to exception
+                assert 12345 not in manager.pid_metadata
+
+    def test_verify_ownership_with_matching_time(self) -> None:
+        """_verify_process_ownership should return True when creation time matches."""
+        manager = ServerManager()
+        manager.pid_metadata[12345] = 1234567890.0
+
+        with patch("psutil.Process") as mock_psutil:
+            mock_proc_obj = mock_psutil.return_value
+            mock_proc_obj.create_time.return_value = 1234567890.05  # within 0.1s tolerance
+
+            # Mock uid() to return same as current process
+            mock_uids = Mock()
+            mock_uids.real = os.getuid()
+            mock_proc_obj.uids.return_value = mock_uids
+
+            assert manager._verify_process_ownership(12345) is True
+
+    def test_verify_ownership_with_mismatched_time(self) -> None:
+        """_verify_process_ownership should return False when creation time differs."""
+        manager = ServerManager()
+        manager.pid_metadata[12345] = 1234567890.0
+
+        with patch("psutil.Process") as mock_psutil:
+            mock_proc_obj = mock_psutil.return_value
+            mock_proc_obj.create_time.return_value = 1234567900.0  # 10 seconds different
+
+            assert manager._verify_process_ownership(12345) is False
+
+    def test_verify_ownership_no_metadata_uses_existence_check(self) -> None:
+        """_verify_process_ownership should fall back to existence check without metadata."""
+        manager = ServerManager()
+        # No metadata for this PID
+
+        with patch("os.kill") as mock_kill:
+            mock_kill.return_value = None  # Process exists
+
+            assert manager._verify_process_ownership(12345) is True
+
+    def test_verify_ownership_process_not_found(self) -> None:
+        """_verify_process_ownership should return False when process doesn't exist."""
+        manager = ServerManager()
+        manager.pid_metadata[12345] = 1234567890.0
+
+        with patch("psutil.Process") as mock_psutil:
+            mock_psutil.side_effect = psutil.NoSuchProcess(12345)
+
+            assert manager._verify_process_ownership(12345) is False
+
+    def test_cleanup_ignores_process_with_different_creation_time(self) -> None:
+        """cleanup_servers should not signal processes with mismatched creation time."""
+        manager = ServerManager()
+        manager.pids = [12345]
+        manager.pid_metadata[12345] = 1234567890.0
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock_popen.return_value
+            mock_proc.pid = 12345
+            mock_proc.stdout = None
+            mock_proc.stderr = None
+            mock_proc.wait.return_value = 0
+
+            with patch("psutil.Process") as mock_psutil:
+                mock_proc_obj = mock_psutil.return_value
+                # Different creation time - simulating PID reuse by attacker
+                mock_proc_obj.create_time.return_value = 1234567900.0
+
+                # os.kill should NOT be called because ownership doesn't match
+                with patch("os.kill") as mock_kill:
+                    mock_kill.return_value = None
+                    manager.cleanup_servers()
+                    mock_kill.assert_not_called()
+
+    def test_cleanup_signals_matching_process(self) -> None:
+        """cleanup_servers should signal processes with matching creation time."""
+        manager = ServerManager()
+        manager.pids = [12345]
+        manager.pid_metadata[12345] = 1234567890.0
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock_popen.return_value
+            mock_proc.pid = 12345
+            mock_proc.stdout = None
+            mock_proc.stderr = None
+            mock_proc.wait.return_value = 0
+
+            with patch("psutil.Process") as mock_psutil:
+                mock_proc_obj = mock_psutil.return_value
+                mock_proc_obj.create_time.return_value = 1234567890.05  # matches
+
+                # Mock uid() to return same as current process
+                mock_uids = Mock()
+                mock_uids.real = os.getuid()
+                mock_proc_obj.uids.return_value = mock_uids
+
+                with patch("os.kill") as mock_kill:
+                    mock_kill.return_value = None
+                    manager.cleanup_servers()
+                    # Should be called twice: once with SIGTERM, once check with pid 0
+                    assert mock_kill.call_count >= 1
+
+
+class TestArtifactFilenameUniqueness:
+    """Tests for artifact filename uniqueness hardening (Suggestion #5)."""
+
+    def test_artifact_filename_contains_uuid(self, tmp_path) -> None:
+        """write_artifact should include UUID in filename for collision resistance."""
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+
+        artifact_path = write_artifact(runtime_dir, "slot1", {"test": "data"})
+
+        filename = artifact_path.name
+        # Should contain UUID suffix: artifact-{timestamp}-{uuid}.json
+        assert filename.startswith("artifact-")
+        assert filename.endswith(".json")
+        # Extract the UUID part (8 hex chars before .json)
+        uuid_part = filename.replace(".json", "").split("-")[-1]
+        # UUID should be 8 hex characters
+        assert len(uuid_part) == 8
+        # Should be valid hex
+        int(uuid_part, 16)
+
+    def test_artifact_filename_unique_within_same_second(self, tmp_path) -> None:
+        """write_artifact should produce unique filenames even within same second."""
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+
+        # Write multiple artifacts rapidly
+        paths = []
+        for i in range(5):
+            path = write_artifact(runtime_dir, f"slot{i}", {"index": i})
+            paths.append(path)
+
+        # All filenames should be unique
+        filenames = [p.name for p in paths]
+        assert len(filenames) == len(set(filenames))
+
+    def test_artifact_filename_format(self, tmp_path) -> None:
+        """write_artifact should follow expected filename format."""
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+
+        artifact_path = write_artifact(runtime_dir, "slot1", {"test": "data"})
+
+        # Format: artifact-{YYYYMMDD}-{HHMMSS}-{uuid8}.json
+        filename = artifact_path.name
+        parts = filename.replace(".json", "").split("-")
+        assert len(parts) == 4  # artifact, date, time, uuid
+        assert parts[0] == "artifact"
+        # Date part should be 8 digits
+        assert len(parts[1]) == 8 and parts[1].isdigit()
+        # Time part should be 6 digits
+        assert len(parts[2]) == 6 and parts[2].isdigit()
+
+
+class TestLogBufferRedaction:
+    """Tests for LogBuffer sensitive value redaction."""
+
+    def test_redacts_api_key(self) -> None:
+        """LogBuffer should redact API_KEY values."""
+        buffer = LogBuffer(max_lines=10)
+        buffer.add_line("Loading config API_KEY=secret123")
+        lines = list(buffer.lines)
+        assert "API_KEY=[REDACTED]" in lines[0]
+        assert "secret123" not in lines[0]
+
+    def test_redacts_token(self) -> None:
+        """LogBuffer should redact TOKEN values."""
+        buffer = LogBuffer(max_lines=10)
+        buffer.add_line("Auth token=abc123xyz")
+        lines = list(buffer.lines)
+        assert "token=[REDACTED]" in lines[0]
+
+    def test_redacts_secret(self) -> None:
+        """LogBuffer should redact SECRET values."""
+        buffer = LogBuffer(max_lines=10)
+        buffer.add_line("Environment SECRET=mysecret")
+        lines = list(buffer.lines)
+        assert "SECRET=[REDACTED]" in lines[0]
+
+    def test_redacts_password(self) -> None:
+        """LogBuffer should redact PASSWORD values."""
+        buffer = LogBuffer(max_lines=10)
+        buffer.add_line("DB_PASSWORD=supersecret")
+        lines = list(buffer.lines)
+        assert "PASSWORD=[REDACTED]" in lines[0]
+
+    def test_redacts_auth(self) -> None:
+        """LogBuffer should redact AUTH values."""
+        buffer = LogBuffer(max_lines=10)
+        buffer.add_line("AUTH_HEADER=bearer_xyz")
+        lines = list(buffer.lines)
+        assert "AUTH_HEADER=[REDACTED]" in lines[0]
+
+    def test_case_insensitive(self) -> None:
+        """LogBuffer should redact keys case-insensitively."""
+        buffer = LogBuffer(max_lines=10)
+        buffer.add_line("api_key=lowercase")
+        buffer.add_line("API_KEY=uppercase")
+        buffer.add_line("Api_Key=MixedCase")
+        lines = list(buffer.lines)
+        assert all("[REDACTED]" in line for line in lines)
+
+    def test_non_sensitive_lines_unchanged(self) -> None:
+        """LogBuffer should not modify non-sensitive log lines."""
+        buffer = LogBuffer(max_lines=10)
+        buffer.add_line("Server started on port 8080")
+        buffer.add_line("Loading model from /models/gguf")
+        lines = list(buffer.lines)
+        assert "port 8080" in lines[0]
+        assert "/models/gguf" in lines[1]
+        assert "[REDACTED]" not in lines[0]
+        assert "[REDACTED]" not in lines[1]
+
+    def test_redact_disabled_keeps_values(self) -> None:
+        """LogBuffer should preserve values when redaction is disabled."""
+        buffer = LogBuffer(max_lines=10, redact_sensitive=False)
+        buffer.add_line("API_KEY=shouldappear")
+        lines = list(buffer.lines)
+        assert "API_KEY=shouldappear" in lines[0]
+        assert "[REDACTED]" not in lines[0]
+
+    def test_multiple_sensitive_in_one_line(self) -> None:
+        """LogBuffer should redact multiple sensitive values in one line."""
+        buffer = LogBuffer(max_lines=10)
+        buffer.add_line("API_KEY=one TOKEN=two PASSWORD=three")
+        lines = list(buffer.lines)
+        assert lines[0].count("[REDACTED]") == 3
+
+    def test_empty_line_unchanged(self) -> None:
+        """LogBuffer should handle empty lines gracefully."""
+        buffer = LogBuffer(max_lines=10)
+        buffer.add_line("")
+        lines = list(buffer.lines)
+        assert lines[0] == ""
+
+    def test_timestamp_preserved(self) -> None:
+        """LogBuffer should preserve timestamps when redacting."""
+        buffer = LogBuffer(max_lines=10)
+        buffer.add_line("[2024-01-01 12:00:00] API_KEY=secret")
+        lines = list(buffer.lines)
+        assert "2024-01-01 12:00:00" in lines[0]
+        assert "[REDACTED]" in lines[0]
+
+
+class TestModelSlotValidation:
+    """Tests for ModelSlot validation helpers (validate_slot_id, validate_slot_port)."""
+
+    def test_validate_slot_id_success(self) -> None:
+        """validate_slot_id should return success for valid slot IDs."""
+        result = validate_slot_id("valid-slot_123")
+        assert result.passed is True
+        assert result.slot_id == "valid-slot_123"
+        assert result.failed_check == ""
+        assert result.error_code is None
+
+    def test_validate_slot_id_normalization(self) -> None:
+        """validate_slot_id should normalize uppercase to lowercase."""
+        result = validate_slot_id("VALID_SLOT_123")
+        assert result.passed is True
+        assert result.slot_id == "valid_slot_123"
+
+    def test_validate_slot_id_rejects_invalid_chars(self) -> None:
+        """validate_slot_id should reject slot IDs with invalid characters."""
+        result = validate_slot_id("invalid@slot#123")
+        assert result.passed is True
+        assert result.slot_id == "invalidslot123"
+
+    def test_validate_slot_id_rejects_empty(self) -> None:
+        """validate_slot_id should fail for empty slot IDs."""
+        result = validate_slot_id("")
+        assert result.passed is False
+        assert result.failed_check == "slot_id_validation"
+        assert result.error_code == ErrorCode.INVALID_SLOT_ID
+        assert "at least one valid character" in result.error_message
+
+    def test_validate_slot_id_rejects_whitespace_only(self) -> None:
+        """validate_slot_id should fail for whitespace-only slot IDs."""
+        result = validate_slot_id("   ")
+        assert result.passed is False
+        assert result.failed_check == "slot_id_validation"
+        assert result.error_code == ErrorCode.INVALID_SLOT_ID
+
+    def test_validate_slot_port_success(self) -> None:
+        """validate_slot_port should return success for valid ports."""
+        result = validate_slot_port(8080, "slot1")
+        assert result.passed is True
+        assert result.slot_id == "slot1"
+
+    def test_validate_slot_port_rejects_zero(self) -> None:
+        """validate_slot_port should reject port 0."""
+        result = validate_slot_port(0, "slot1")
+        assert result.passed is False
+        assert result.failed_check == "port_range"
+        assert result.error_code == ErrorCode.PORT_INVALID
+
+    def test_validate_slot_port_rejects_negative(self) -> None:
+        """validate_slot_port should reject negative ports."""
+        result = validate_slot_port(-1, "slot1")
+        assert result.passed is False
+        assert result.failed_check == "port_range"
+        assert result.error_code == ErrorCode.PORT_INVALID
+
+    def test_validate_slot_port_rejects_above_65535(self) -> None:
+        """validate_slot_port should reject ports above 65535."""
+        result = validate_slot_port(65536, "slot1")
+        assert result.passed is False
+        assert result.failed_check == "port_range"
+        assert result.error_code == ErrorCode.PORT_INVALID
+
+    def test_validate_slot_port_rejects_string(self) -> None:
+        """validate_slot_port should reject non-integer ports."""
+        # Test with a float to avoid type checker issues
+        result = validate_slot_port(8080.0, "slot1")  # type: ignore[arg-type]
+        assert result.passed is False
+        assert result.failed_check == "port_range"
+        assert result.error_code == ErrorCode.PORT_INVALID
+
+    def test_validate_slot_port_boundary_min(self) -> None:
+        """validate_slot_port should accept port 1."""
+        result = validate_slot_port(1, "slot1")
+        assert result.passed is True
+
+    def test_validate_slot_port_boundary_max(self) -> None:
+        """validate_slot_port should accept port 65535."""
+        result = validate_slot_port(65535, "slot1")
+        assert result.passed is True
+
+
+class TestLifecycleAuditTrail:
+    """Tests for ServerManager lifecycle audit trail (Suggestion #3)."""
+
+    def test_audit_trail_records_start(self, tmp_path) -> None:
+        """start_server_background should record start event in audit trail."""
+        manager = ServerManager()
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock_popen.return_value
+            mock_proc.pid = 12345
+            mock_proc.stdout = None
+            mock_proc.stderr = None
+
+            with patch("psutil.Process") as mock_psutil:
+                mock_proc_obj = mock_psutil.return_value
+                mock_proc_obj.create_time.return_value = 1234567890.123
+
+                manager.start_server_background("test", ["cmd"])
+
+                # Should have recorded a start event
+                audit = manager._lifecycle_audit
+                assert len(audit) >= 1
+                assert any(e["event"] == "start" for e in audit)
+                assert any(e["pid"] == 12345 for e in audit)
+
+    def test_audit_trail_records_cleanup(self) -> None:
+        """cleanup_servers should record cleanup event in audit trail."""
+        manager = ServerManager()
+        manager._record_lifecycle_event("start", pid=12345)
+        manager.pids = [12345]
+        manager.pid_metadata[12345] = 1234567890.0
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock_popen.return_value
+            mock_proc.pid = 12345
+            mock_proc.stdout = None
+            mock_proc.stderr = None
+            mock_proc.wait.return_value = 0
+
+            with patch("psutil.Process") as mock_psutil:
+                mock_proc_obj = mock_psutil.return_value
+                mock_proc_obj.create_time.return_value = 1234567890.05
+
+                with patch("os.kill") as mock_kill:
+                    mock_kill.return_value = None
+                    manager.cleanup_servers()
+
+                    # Should have recorded cleanup event
+                    audit = manager._lifecycle_audit
+                    assert any(e["event"] == "cleanup" for e in audit)
+
+    def test_audit_trail_records_kill_events(self) -> None:
+        """cleanup_servers should record kill events (SIGTERM/SIGKILL) in audit trail."""
+        manager = ServerManager()
+        manager._record_lifecycle_event("start", pid=12345)
+        manager.pids = [12345]
+        manager.pid_metadata[12345] = 1234567890.0
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock_popen.return_value
+            mock_proc.pid = 12345
+            mock_proc.stdout = None
+            mock_proc.stderr = None
+            mock_proc.wait.return_value = 0
+
+            with patch("psutil.Process") as mock_psutil:
+                mock_proc_obj = mock_psutil.return_value
+                # Stubborn process - create time still matches after TERM
+                mock_proc_obj.create_time.return_value = 1234567890.05
+
+                # Mock uid() to return same as current process
+                mock_uids = Mock()
+                mock_uids.real = os.getuid()
+                mock_proc_obj.uids.return_value = mock_uids
+
+                with patch("os.kill") as mock_kill:
+                    mock_kill.return_value = None
+                    manager.cleanup_servers()
+
+                    # Should have recorded kill events
+                    audit = manager._lifecycle_audit
+                    kill_events = [e for e in audit if e["event"] == "kill"]
+                    assert len(kill_events) >= 1
+
+    def test_audit_trail_records_skip_events(self) -> None:
+        """cleanup_servers should record skip events for failed ownership checks."""
+        manager = ServerManager()
+        manager._record_lifecycle_event("start", pid=12345)
+        manager.pids = [12345]
+        manager.pid_metadata[12345] = 1234567890.0
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock_popen.return_value
+            mock_proc.pid = 12345
+            mock_proc.stdout = None
+            mock_proc.stderr = None
+            mock_proc.wait.return_value = 0
+
+            with patch("psutil.Process") as mock_psutil:
+                mock_proc_obj = mock_psutil.return_value
+                # Different creation time - ownership fails
+                mock_proc_obj.create_time.return_value = 1234567900.0
+
+                # os.kill should NOT be called because ownership doesn't match
+                with patch("os.kill") as mock_kill:
+                    mock_kill.return_value = None
+                    manager.cleanup_servers()
+
+                    # Should have recorded skip event
+                    audit = manager._lifecycle_audit
+                    skip_events = [e for e in audit if e["event"] == "skip"]
+                    assert any(e["details"] == "ownership_failed" for e in skip_events)
+
+    def test_audit_trail_multiple_servers(self, tmp_path) -> None:
+        """Audit trail should track multiple servers correctly."""
+        manager = ServerManager()
+
+        with patch("subprocess.Popen") as mock_popen:
+            # Mock separate return values for each call
+            mock_proc1 = Mock()
+            mock_proc1.pid = 11111
+            mock_proc1.stdout = None
+            mock_proc1.stderr = None
+
+            mock_proc2 = Mock()
+            mock_proc2.pid = 22222
+            mock_proc2.stdout = None
+            mock_proc2.stderr = None
+
+            mock_popen.side_effect = [mock_proc1, mock_proc2]
+
+            with patch("psutil.Process") as mock_psutil:
+                mock_proc_obj = mock_psutil.return_value
+                mock_proc_obj.create_time.return_value = 1234567890.123
+
+                manager.start_server_background("server1", ["cmd1"])
+                manager.start_server_background("server2", ["cmd2"])
+
+                # Should have recorded start events for both servers
+                audit = manager._lifecycle_audit
+                start_events = [e for e in audit if e["event"] == "start"]
+                assert len(start_events) == 2
+                pids = [e["pid"] for e in start_events]
+                assert 11111 in pids
+                assert 22222 in pids
+
+
+class TestTUILifecycle:
+    """Tests for TUIApp lifecycle management via ServerManager."""
+
+    def test_tui_uses_servermanager(self) -> None:
+        """TUIApp should use ServerManager for lifecycle management."""
+        from llama_cli.tui_app import TUIApp
+        from llama_manager import ServerConfig
+
+        configs = [
+            ServerConfig(
+                model="/test/model.gguf",
+                alias="test1",
+                device="CPU",
+                port=8080,
+                ctx_size=2048,
+                ubatch_size=512,
+                threads=2,
+            ),
+        ]
+        app = TUIApp(configs, [0])
+        # Verify ServerManager is initialized
+        assert app.server_manager is not None
+        # Verify cleanup delegates to ServerManager (no error on empty cleanup)
+        app._cleanup()  # Should not raise

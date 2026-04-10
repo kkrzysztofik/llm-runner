@@ -11,6 +11,8 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,6 +29,14 @@ class LockMetadata:
     pid: int
     port: int
     started_at: float
+
+
+@dataclass
+class ProcessMetadata:
+    """Process ownership metadata for T001 security hardening"""
+
+    pid: int
+    create_time: float
 
 
 @dataclass
@@ -140,7 +150,7 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check="lockfile_integrity",
                 why_blocked="lockfile persistence failed to enforce required owner-only permissions",
-                how_to_fix="verify runtime path writability and filesystem permission support",
+                how_to_fix="verify runtime path writability and filesystem permission support/chmod limitations",
             )
             raise ValidationException(MultiValidationError(errors=[error_detail]))
 
@@ -150,7 +160,7 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
             error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
             failed_check="lockfile_integrity",
             why_blocked="lockfile creation failed due to permission denied",
-            how_to_fix="ensure runtime directory is writable",
+            how_to_fix="ensure runtime directory is writable and supports chmod",
         )
         raise ValidationException(MultiValidationError(errors=[error_detail])) from e
     except OSError as e:
@@ -158,7 +168,7 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
             error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
             failed_check="lockfile_integrity",
             why_blocked=f"lockfile persistence failed: {e}",
-            how_to_fix="verify runtime path and permission support before retry",
+            how_to_fix="verify runtime path and permission support/chmod limitations before retry",
         )
         raise ValidationException(MultiValidationError(errors=[error_detail])) from e
 
@@ -333,13 +343,14 @@ def write_artifact(runtime_dir: Path, slot_id: str, data: dict) -> Path:
             error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
             failed_check="artifact_persistence",
             why_blocked="artifact persistence failed to enforce required owner-only permissions",
-            how_to_fix="verify runtime path writability and filesystem permission support",
+            how_to_fix="verify runtime path writability and filesystem permission support/chmod limitations",
         )
         raise ValidationException(MultiValidationError(errors=[error_detail]))
 
-    # Create artifact filename with timestamp
+    # Create artifact filename with timestamp + UUID for collision resistance
     timestamp = time.strftime("%Y%m%d-%H%M%S")
-    artifact_filename = f"artifact-{timestamp}.json"
+    uuid_suffix = uuid.uuid4().hex[:8]  # 8 hex characters
+    artifact_filename = f"artifact-{timestamp}-{uuid_suffix}.json"
     artifact_path = artifact_dir / artifact_filename
 
     try:
@@ -357,7 +368,7 @@ def write_artifact(runtime_dir: Path, slot_id: str, data: dict) -> Path:
                 error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
                 failed_check="artifact_persistence",
                 why_blocked="artifact persistence failed to enforce required owner-only permissions",
-                how_to_fix="verify runtime path writability and filesystem permission support",
+                how_to_fix="verify runtime path writability and filesystem permission support/chmod limitations",
             )
             raise ValidationException(MultiValidationError(errors=[error_detail]))
 
@@ -367,7 +378,7 @@ def write_artifact(runtime_dir: Path, slot_id: str, data: dict) -> Path:
             error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
             failed_check="artifact_persistence",
             why_blocked="artifact persistence failed due to permission denied",
-            how_to_fix="verify runtime path and permission support before retry",
+            how_to_fix="verify runtime path and permission support/chmod limitations before retry",
         )
         raise ValidationException(MultiValidationError(errors=[error_detail])) from e
     except OSError as e:
@@ -375,7 +386,7 @@ def write_artifact(runtime_dir: Path, slot_id: str, data: dict) -> Path:
             error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
             failed_check="artifact_persistence",
             why_blocked=f"artifact persistence failed: {e}",
-            how_to_fix="verify runtime path and permission support before retry",
+            how_to_fix="verify runtime path and permission support/chmod limitations before retry",
         )
         raise ValidationException(MultiValidationError(errors=[error_detail])) from e
     except TypeError as e:
@@ -415,28 +426,35 @@ def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
 
 
 class ServerManager:
-    """Manages server processes"""
+    """Manages server processes with lifecycle audit trail."""
 
     def __init__(self):
         self.pids: list[int] = []
         self.shutting_down: bool = False
         self.servers: list[subprocess.Popen] = []
+        self.pid_metadata: dict[int, float] = {}
+        # In-memory lifecycle audit trail for start/cleanup/kill/skip decisions
+        self._lifecycle_audit: list[dict] = []
 
     def cleanup_servers(self) -> None:
-        """Clean up all server processes"""
+        """Clean up all server processes with ownership verification and audit trail."""
         if self.shutting_down:
+            self._record_lifecycle_event("skip", details="already_shutting_down")
             return
         self.shutting_down = True
 
+        self._record_lifecycle_event("cleanup", details="initiated")
+
+        # Filter PIDs by ownership verification
         running_pids = []
         for pid in self.pids:
-            try:
-                os.kill(pid, 0)
+            if self._verify_process_ownership(pid):
                 running_pids.append(pid)
-            except OSError:
-                pass
+            else:
+                self._record_lifecycle_event("skip", pid=pid, details="ownership_failed")
 
         if not running_pids:
+            self._record_lifecycle_event("cleanup", details="no_running_pids")
             return
 
         print(
@@ -447,16 +465,17 @@ class ServerManager:
         for pid in running_pids:
             with contextlib.suppress(OSError):
                 os.kill(pid, signal.SIGTERM)
+                self._record_lifecycle_event("kill", pid=pid, details="SIGTERM")
 
         time.sleep(1)
 
+        # Re-verify ownership after TERM (stubborn processes that still exist)
         stubborn_pids = []
         for pid in running_pids:
-            try:
-                os.kill(pid, 0)
+            if self._verify_process_ownership(pid):
                 stubborn_pids.append(pid)
-            except OSError:
-                pass
+            else:
+                self._record_lifecycle_event("skip", pid=pid, details="graceful_exit")
 
         if stubborn_pids:
             print(
@@ -466,6 +485,7 @@ class ServerManager:
             for pid in stubborn_pids:
                 with contextlib.suppress(OSError):
                     os.kill(pid, signal.SIGKILL)
+                    self._record_lifecycle_event("kill", pid=pid, details="SIGKILL")
 
         for proc in self.servers:
             try:
@@ -485,17 +505,33 @@ class ServerManager:
         self.cleanup_servers()
         sys.exit(143)
 
-    def _stream_pipe(self, pipe, server_name: str, is_stderr: bool = False) -> None:
-        """Stream pipe output with timestamp and color"""
+    def _stream_pipe(
+        self,
+        pipe,
+        server_name: str,
+        is_stderr: bool = False,
+        log_handler: Callable[[str], None] | None = None,
+    ) -> None:
+        """Stream pipe output with timestamp and color, optionally to a log handler.
+
+        Args:
+            pipe: Pipe reader (stdout or stderr)
+            server_name: Server alias for log formatting
+            is_stderr: True if this is stderr output
+            log_handler: Optional callable(str) to append to instead of printing
+        """
         if pipe is None:
             return
         try:
             for line in iter(pipe.readline, ""):
                 formatted = self._format_output(server_name, line.rstrip("\n"))
-                if is_stderr:
-                    print(formatted, file=sys.stderr, flush=True)
+                if log_handler is not None:
+                    log_handler(formatted)
                 else:
-                    print(formatted, flush=True)
+                    if is_stderr:
+                        print(formatted, file=sys.stderr, flush=True)
+                    else:
+                        print(formatted, flush=True)
         finally:
             pipe.close()
 
@@ -508,23 +544,117 @@ class ServerManager:
             return f"\033[1m[{timestamp}][{server_name}]\033[0m {line}"
         return f"[{timestamp}][{server_name}] {line}"
 
-    def start_server_background(self, server_name: str, cmd: list[str]) -> subprocess.Popen:
-        """Start a server in background with output redirection"""
+    def _verify_process_ownership(self, pid: int) -> bool:
+        """Verify process ownership using creation time metadata and UID.
+
+        Defense-in-depth verification:
+        1. If metadata is available, verify creation time matches (0.1s tolerance)
+        2. When metadata path is used, also verify owner UID matches current process
+        3. Falls back to existence check if metadata unavailable or UID check fails
+
+        Args:
+            pid: Process ID to verify
+
+        Returns:
+            True if ownership is verified, False otherwise
+        """
+        # If metadata is available, use creation time verification
+        if pid in self.pid_metadata:
+            try:
+                proc = psutil.Process(pid)
+                current_create_time = proc.create_time()
+                recorded_create_time = self.pid_metadata[pid]
+
+                # Allow 0.1 second tolerance for floating-point precision
+                if abs(current_create_time - recorded_create_time) > 0.1:
+                    return False
+
+                # Defense-in-depth: verify owner UID matches current process
+                try:
+                    current_uid = os.getuid()
+                    # Check if the process has a uid() method (may not be available in all environments)
+                    if hasattr(proc, "uids"):
+                        proc_uid = proc.uids().real
+                        if proc_uid != current_uid:
+                            return False
+                except (psutil.AccessDenied, AttributeError, TypeError):
+                    # UID check not available or denied - still accept if time matches
+                    pass
+
+                return True
+            except psutil.NoSuchProcess:
+                return False
+            except psutil.AccessDenied:
+                # If we can't read the process, fall back to existence check
+                pass
+
+        # Fallback: just check if process exists
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    def _record_lifecycle_event(
+        self, event: str, pid: int | None = None, details: str | None = None
+    ) -> None:
+        """Record a lifecycle event in the audit trail.
+
+        Args:
+            event: Event type (start, cleanup, kill, skip, etc.)
+            pid: Process ID involved in the event
+            details: Optional additional details
+        """
+        self._lifecycle_audit.append(
+            {
+                "event": event,
+                "pid": pid,
+                "details": details,
+                "timestamp": time.time(),
+            }
+        )
+
+    def start_server_background(
+        self,
+        server_name: str,
+        cmd: list[str],
+        log_handler: Callable[[str], None] | None = None,
+    ) -> subprocess.Popen:
+        """Start a server in background with output redirection.
+
+        Args:
+            server_name: Server alias for log formatting
+            cmd: Command to execute
+            log_handler: Optional callable(str) to append to instead of printing
+
+        Returns:
+            subprocess.Popen process object
+        """
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1
         )
 
         self.pids.append(proc.pid)
         self.servers.append(proc)
+        self._record_lifecycle_event("start", pid=proc.pid, details=f"server={server_name}")
+
+        # Capture process creation time for ownership verification
+        try:
+            proc_obj = psutil.Process(proc.pid)
+            create_time = proc_obj.create_time()
+            self.pid_metadata[proc.pid] = create_time
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            # Metadata unavailable - will fall back to existence check later
+            pass
 
         threading.Thread(
             target=self._stream_pipe,
-            args=(proc.stdout, server_name, False),
+            args=(proc.stdout, server_name, False, log_handler),
             daemon=True,
         ).start()
         threading.Thread(
             target=self._stream_pipe,
-            args=(proc.stderr, server_name, True),
+            args=(proc.stderr, server_name, True, log_handler),
             daemon=True,
         ).start()
 
@@ -544,13 +674,28 @@ class ServerManager:
                     return code
             time.sleep(0.2)
 
-    def start_servers(self, configs: list["ServerConfig"]) -> list[subprocess.Popen]:
-        """Start multiple servers and return their processes"""
+    def start_servers(
+        self,
+        configs: list["ServerConfig"],
+        log_handlers: dict[str, Callable[[str], None]] | None = None,
+    ) -> list[subprocess.Popen]:
+        """Start multiple servers and return their processes.
+
+        Args:
+            configs: List of ServerConfig objects
+            log_handlers: Optional dict mapping server aliases to callables.
+                        If provided, logs are written via these handlers instead of stdout/stderr.
+
+        Returns:
+            List of subprocess.Popen process objects
+        """
         from .server import build_server_cmd
 
+        log_handlers = log_handlers or {}
         processes = []
         for cfg in configs:
             cmd = build_server_cmd(cfg)
-            proc = self.start_server_background(cfg.alias, cmd)
+            handler = log_handlers.get(cfg.alias) if log_handlers else None
+            proc = self.start_server_background(cfg.alias, cmd, handler)
             processes.append(proc)
         return processes

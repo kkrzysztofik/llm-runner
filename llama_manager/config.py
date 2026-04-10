@@ -8,7 +8,15 @@ from enum import StrEnum
 
 @dataclass
 class Config:
-    """Server configuration defaults"""
+    """Server configuration defaults.
+
+    Computed binary defaults are derived from llama_cpp_root:
+    - llama_server_bin_intel: SYCL backend path (build/bin/llama-server)
+    - llama_server_bin_nvidia: CUDA backend path (build_cuda/bin/llama-server)
+
+    These defaults are used by build_server_cmd() when ServerConfig.server_bin
+    is not explicitly provided.
+    """
 
     # Paths
     llama_cpp_root: str = "/home/kmk/src/llama.cpp"
@@ -135,6 +143,55 @@ class ModelSlot:
     slot_id: str
     model_path: str
     port: int
+
+
+def validate_slot_id(slot_id: str) -> "ValidationResult":
+    """Validate and normalize a slot ID.
+
+    Args:
+        slot_id: Raw slot identifier string
+
+    Returns:
+        ValidationResult indicating success or failure with error details
+    """
+    try:
+        normalized = normalize_slot_id(slot_id)
+        return ValidationResult(
+            slot_id=normalized,
+            passed=True,
+        )
+    except ValueError as e:
+        return ValidationResult(
+            slot_id=slot_id,
+            passed=False,
+            failed_check="slot_id_validation",
+            error_code=ErrorCode.INVALID_SLOT_ID,
+            error_message=str(e),
+        )
+
+
+def validate_slot_port(port: int, slot_id: str) -> "ValidationResult":
+    """Validate a slot port number.
+
+    Args:
+        port: Port number to validate
+        slot_id: Slot identifier for error reporting
+
+    Returns:
+        ValidationResult indicating success or failure with error details
+    """
+    if not isinstance(port, int) or port < 1 or port > 65535:
+        return ValidationResult(
+            slot_id=slot_id,
+            passed=False,
+            failed_check="port_range",
+            error_code=ErrorCode.PORT_INVALID,
+            error_message=f"port must be between 1 and 65535, got: {port}",
+        )
+    return ValidationResult(
+        slot_id=slot_id,
+        passed=True,
+    )
 
 
 class ErrorCode(StrEnum):

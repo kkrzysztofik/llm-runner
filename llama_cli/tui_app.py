@@ -1,11 +1,7 @@
 # TUI application
 
 
-import contextlib
 import signal
-import subprocess
-import sys
-import threading
 import time
 
 from rich.columns import Columns
@@ -21,13 +17,8 @@ from llama_manager import (
     GPUStats,
     LogBuffer,
     ServerConfig,
+    ServerManager,
 )
-
-
-def prefix_output(server_name: str, line: str) -> str:
-    """Format log line with timestamp"""
-    timestamp = time.strftime("%H:%M:%S")
-    return f"[{timestamp}][{server_name}] {line}"
 
 
 class TUIApp:
@@ -40,97 +31,34 @@ class TUIApp:
         self.gpu_stats: list[GPUStats] = []
         self.console = Console()
         self.running = True
-        self.processes: list[subprocess.Popen] = []
-        self.threads: list[threading.Thread] = []
-        self.pids: list[int] = []
-        self.shutting_down = False
         self.width = 80
         self.height = 24
 
+        # Initialize ServerManager for lifecycle management
+        self.server_manager = ServerManager()
+
         # Initialize buffers and GPU stats
         for cfg in configs:
-            self.log_buffers[cfg.alias] = LogBuffer()
+            self.log_buffers[cfg.alias] = LogBuffer(redact_sensitive=True)
         for idx in gpu_indices:
             self.gpu_stats.append(GPUStats(idx))
 
-        # Setup signal handlers
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-
-    def _signal_handler(self, signum, frame) -> None:
-        """Handle signals for graceful shutdown"""
-        self._cleanup()
-        sys.exit(130)
-
-    def _cleanup(self) -> None:
-        """Clean up all processes and resources"""
-        if self.shutting_down:
-            return
-        self.shutting_down = True
-
-        # Stop log buffers
-        for buffer in self.log_buffers.values():
-            buffer.stop()
-
-        # Kill processes
-        for proc in self.processes:
-            with contextlib.suppress(Exception):
-                proc.terminate()
-
-        time.sleep(0.5)
-
-        for proc in self.processes:
-            with contextlib.suppress(Exception):
-                proc.kill()
-
-        # Wait for threads
-        for thread in self.threads:
-            thread.join(timeout=1)
-
-    def _read_log_output(self, pipe, server_name: str, is_stderr: bool = False) -> None:
-        """Read log output from process and add to buffer"""
-        if pipe is None:
-            return
-        try:
-            for line in iter(pipe.readline, ""):
-                formatted = prefix_output(server_name, line.rstrip("\n"))
-                self.log_buffers[server_name].add_line(formatted)
-        except Exception:
-            pass
-        finally:
-            pipe.close()
+        # Setup signal handlers through ServerManager
+        signal.signal(signal.SIGINT, self.server_manager.on_interrupt)
+        signal.signal(signal.SIGTERM, self.server_manager.on_terminate)
 
     def start_servers(self) -> None:
         """Start all server processes with log buffering"""
-        from llama_manager import build_server_cmd
+        # Create log handlers that wrap LogBuffer.add_line
+        log_handlers = {
+            cfg.alias: lambda line, buf=buf: buf.add_line(line)
+            for cfg, buf in zip(self.configs, self.log_buffers.values(), strict=True)
+        }
 
-        for _i, cfg in enumerate(self.configs):
-            cmd = build_server_cmd(cfg)
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-            )
-            self.processes.append(proc)
-            self.pids.append(proc.pid)
+        # Start servers via ServerManager with log handler delegation
+        processes = self.server_manager.start_servers(self.configs, log_handlers)
 
-            # Start log reading threads
-            threading.Thread(
-                target=self._read_log_output,
-                args=(proc.stdout, cfg.alias, False),
-                daemon=True,
-            ).start()
-            threading.Thread(
-                target=self._read_log_output,
-                args=(proc.stderr, cfg.alias, True),
-                daemon=True,
-            ).start()
-
-            self.threads.extend([t for t in threading.enumerate() if "read_log_output" in str(t)])
-
-            print(f"Started {cfg.alias} (PID {proc.pid})")
+        print(f"Started {len(processes)} server(s)")
 
     def on_resize(self, event) -> None:
         """Handle terminal resize events"""
@@ -238,6 +166,10 @@ class TUIApp:
             padding=(1, 2),
         )
 
+    def _cleanup(self) -> None:
+        """Clean up all processes and resources via ServerManager"""
+        self.server_manager.cleanup_servers()
+
     def run(self) -> None:
         """Run the TUI"""
         # Start servers
@@ -256,5 +188,5 @@ class TUIApp:
                 time.sleep(0.1)
                 live.refresh()
 
-        # Cleanup
+        # Cleanup via ServerManager
         self._cleanup()
