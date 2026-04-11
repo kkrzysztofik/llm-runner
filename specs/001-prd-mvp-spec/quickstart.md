@@ -14,10 +14,11 @@ uv run llm-runner dry-run both
 
 Expected outcomes:
 
-- Canonical per-slot dry-run fields present (FR-003)
+- Per-slot canonical dry-run output with `slot_id`, `binary_path`, `command_args`, `model_path`, `bind_address`, `port`
 - `command_args` shown as ordered argv tokens
-- `vllm_eligibility` row included and blocked in M1 when backend is `vllm`
-- Sensitive env values redacted by key rule; filesystem paths remain visible
+- `vllm_eligibility` field included and blocked in M1 when backend is `vllm`
+- Sensitive env values redacted by key rule (`KEY|TOKEN|SECRET|PASSWORD|AUTH`); filesystem paths remain visible
+- Artifact written as `artifact-{timestamp}.json` in runtime directory
 
 ## 2) Verify launch-blocking validation contract
 
@@ -43,7 +44,7 @@ Run with one unavailable slot (conflict/lock) and confirm:
 Check runtime outputs under resolved runtime directory:
 
 - Lockfiles at `slot-{slot_id}.lock` with owner metadata (`pid`, `port`, `started_at`)
-- One JSON artifact per dry-run/launch attempt in `artifacts/`
+- JSON artifacts at `artifact-{timestamp}.json` (one per dry-run/launch attempt)
 - Permissions: files `0600`, directories `0700`
 
 ## 5) Run required quality gates

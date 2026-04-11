@@ -11,7 +11,6 @@ import subprocess
 import sys
 import threading
 import time
-import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,7 +18,7 @@ from pathlib import Path
 import psutil
 
 from .colors import Color
-from .config import ErrorCode, ErrorDetail, MultiValidationError, ServerConfig
+from .config import ErrorCode, ErrorDetail, ModelSlot, MultiValidationError, ServerConfig
 
 
 @dataclass
@@ -41,7 +40,12 @@ class ProcessMetadata:
 
 @dataclass
 class ArtifactMetadata:
-    """Artifact metadata for T012 persistence tracking"""
+    """FR-007: Artifact metadata for T012 persistence tracking.
+
+    Required top-level artifact fields are validated/persisted:
+    - timestamp, slot_scope, resolved_command, validation_results,
+      warnings, environment_redacted
+    """
 
     artifact_type: str
     created_at: float
@@ -59,6 +63,40 @@ class ValidationException(Exception):
     def __init__(self, multi_error: MultiValidationError) -> None:
         self.multi_error = multi_error
         super().__init__(f"Validation failed with {len(multi_error.errors)} error(s)")
+
+
+@dataclass
+class LaunchResult:
+    """Result of slot-based launch operation (T020).
+
+    Attributes:
+        status: One of 'success', 'degraded', or 'blocked'
+        launched: List of slot IDs that were successfully launched
+        warnings: List of warning messages for blocked slots (when status='degraded')
+        errors: MultiValidationError if all slots were blocked (when status='blocked')
+    """
+
+    status: str
+    launched: list[str] | None = None
+    warnings: list[str] | None = None
+    errors: MultiValidationError | None = None
+
+    @property
+    def launch_count(self) -> int:
+        """Return the number of successfully launched slots."""
+        return len(self.launched) if self.launched else 0
+
+    def is_blocked(self) -> bool:
+        """Check if launch was completely blocked."""
+        return self.status == "blocked"
+
+    def is_degraded(self) -> bool:
+        """Check if launch was partially successful (degraded)."""
+        return self.status == "degraded"
+
+    def is_success(self) -> bool:
+        """Check if launch was fully successful."""
+        return self.status == "success"
 
 
 def resolve_runtime_dir() -> Path:
@@ -103,8 +141,11 @@ def resolve_runtime_dir() -> Path:
 
 
 def _get_lock_path(runtime_dir: Path, slot_id: str) -> Path:
-    """Get lockfile path for a specific slot."""
-    return runtime_dir / f"lock-{slot_id}.json"
+    """Get lockfile path for a specific slot.
+
+    FR-009: Lock naming convention is `slot-{slot_id}.lock`.
+    """
+    return runtime_dir / f"slot-{slot_id}.lock"
 
 
 def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
@@ -168,20 +209,29 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
             error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
             failed_check="lockfile_integrity",
             why_blocked=f"lockfile persistence failed: {e}",
-            how_to_fix="verify runtime path and permission support/chmod limitations before retry",
+            how_to_fix="verify runtime path and filesystem permission support/chmod limitations before retry",
         )
         raise ValidationException(MultiValidationError(errors=[error_detail])) from e
 
 
-def read_lock(runtime_dir: Path, slot_id: str) -> LockMetadata | None:
+def read_lock(
+    runtime_dir: Path, slot_id: str, require_valid: bool = False
+) -> LockMetadata | ErrorDetail | None:
     """T011: Read lockfile metadata for a slot.
+
+    FR-009: Malformed/unreadable lock content must be launch-blocking with
+    FR-005 actionable error (failed_check=lockfile_integrity) when require_valid=True.
 
     Args:
         runtime_dir: Runtime directory path
         slot_id: Slot identifier
+        require_valid: If True, return ErrorDetail for malformed content (launch-blocking).
+                      If False, return None for malformed content (permissive).
 
     Returns:
-        LockMetadata if lockfile exists and is valid, None otherwise
+        LockMetadata if lockfile exists and is valid.
+        ErrorDetail if lock exists but is malformed and require_valid=True.
+        None if no lock exists, or if lock is malformed and require_valid=False.
     """
     lock_path = _get_lock_path(runtime_dir, slot_id)
 
@@ -195,7 +245,14 @@ def read_lock(runtime_dir: Path, slot_id: str) -> LockMetadata | None:
             port=lock_data["port"],
             started_at=lock_data["started_at"],
         )
-    except (json.JSONDecodeError, KeyError, OSError):
+    except (json.JSONDecodeError, KeyError, OSError) as e:
+        if require_valid:
+            return ErrorDetail(
+                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+                failed_check="lockfile_integrity",
+                why_blocked=f"malformed_content: {e}",
+                how_to_fix="remove or repair the lockfile to proceed",
+            )
         return None
 
 
@@ -233,7 +290,7 @@ def update_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> None:
             error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
             failed_check="lockfile_integrity",
             why_blocked=f"lockfile update failed: {e}",
-            how_to_fix="verify runtime path and permission support",
+            how_to_fix="verify runtime path and permission support/chmod limitations before retry",
         )
         raise ValidationException(MultiValidationError(errors=[error_detail])) from e
 
@@ -258,6 +315,8 @@ def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | N
     Handles indeterminate owner states by mapping to LOCKFILE_INTEGRITY_FAILURE
     with failed_check=lockfile_integrity.
 
+    FR-009: Malformed lock content is now launch-blocking with actionable error.
+
     Args:
         runtime_dir: Runtime directory path
         slot_id: Slot identifier
@@ -265,8 +324,30 @@ def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | N
     Returns:
         ErrorDetail if integrity check fails, None if valid
     """
-    metadata = read_lock(runtime_dir, slot_id)
-    if metadata is None:
+    # Use require_valid=True to ensure malformed lock content is launch-blocking
+    metadata_result = read_lock(runtime_dir, slot_id, require_valid=True)
+
+    # Check if this is an ErrorDetail (malformed lock content) - launch-blocking
+    if isinstance(metadata_result, ErrorDetail):
+        return metadata_result
+
+    # At this point, metadata_result is either None or LockMetadata
+    if metadata_result is None:
+        return None
+
+    # Narrow type to LockMetadata
+    metadata: LockMetadata = metadata_result
+
+    # T017: Check lock age - treat as stale if older than 300 seconds
+    lock_age = time.monotonic() - metadata.started_at
+    if lock_age > 300:
+        # Stale lock due to age - auto-clearable
+        try:
+            lock_path = _get_lock_path(runtime_dir, slot_id)
+            if lock_path.exists():
+                lock_path.unlink()
+        except OSError:
+            pass
         return None
 
     # Check if process exists
@@ -283,7 +364,24 @@ def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | N
     # Process exists - check if it's bound to the same port
     # This is the indeterminate owner state check
     try:
-        proc = psutil.Process(metadata.pid)
+        # First check if process exists
+        if not psutil.pid_exists(metadata.pid):
+            # Process died between checks - clear lock
+            lock_path = _get_lock_path(runtime_dir, slot_id)
+            if lock_path.exists():
+                lock_path.unlink()
+            return None
+
+        # Wrap Process creation in try/except for safety
+        try:
+            proc = psutil.Process(metadata.pid)
+        except psutil.NoSuchProcess:
+            # Process died between pid_exists check and Process creation
+            lock_path = _get_lock_path(runtime_dir, slot_id)
+            if lock_path.exists():
+                lock_path.unlink()
+            return None
+
         try:
             connections = proc.connections()
             port_matches = any(conn.laddr.port == metadata.port for conn in connections)
@@ -318,22 +416,30 @@ def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | N
 def write_artifact(runtime_dir: Path, slot_id: str, data: dict) -> Path:
     """T012: Write artifact with JSON serialization and 0700/0600 permission enforcement.
 
+    FR-007: Artifact directory is artifacts/. Filename format: artifact-{timestamp}.json
+    (no UUID suffix). Validates required top-level artifact fields:
+    - timestamp, slot_scope, resolved_command, validation_results, warnings,
+      environment_redacted
+
     FR-005 actionable error mapping for ARTIFACT_PERSISTENCE_FAILURE with
     failed_check=artifact_persistence.
 
     Args:
         runtime_dir: Runtime directory path
         slot_id: Slot identifier for artifact naming
-        data: Artifact data to serialize
+        data: Artifact data to serialize (must contain required FR-007 fields)
 
     Returns:
         Path to the created artifact file
 
     Raises:
-        ValidationException: If artifact persistence fails due to permission issues
-                             or filesystem doesn't support required permissions
+        ValidationException: If artifact persistence fails due to permission issues,
+                              missing required fields, or filesystem doesn't support
+                              required permissions
     """
-    artifact_dir = runtime_dir / "artifact"
+    # FR-007: Validate required top-level artifact fields
+    _validate_artifact_fields(data)
+    artifact_dir = runtime_dir / "artifacts"
     artifact_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     # Verify directory permissions
@@ -347,10 +453,9 @@ def write_artifact(runtime_dir: Path, slot_id: str, data: dict) -> Path:
         )
         raise ValidationException(MultiValidationError(errors=[error_detail]))
 
-    # Create artifact filename with timestamp + UUID for collision resistance
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
-    uuid_suffix = uuid.uuid4().hex[:8]  # 8 hex characters
-    artifact_filename = f"artifact-{timestamp}-{uuid_suffix}.json"
+    # FR-007: Artifact filename format: artifact-{timestamp}.json (no UUID suffix)
+    timestamp_filename = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    artifact_filename = f"artifact-{timestamp_filename}.json"
     artifact_path = artifact_dir / artifact_filename
 
     try:
@@ -397,6 +502,44 @@ def write_artifact(runtime_dir: Path, slot_id: str, data: dict) -> Path:
             how_to_fix="ensure artifact data is JSON-serializable",
         )
         raise ValidationException(MultiValidationError(errors=[error_detail])) from e
+
+
+def _validate_artifact_fields(data: dict) -> None:
+    """FR-007: Validate required top-level artifact fields.
+
+    Required fields:
+    - timestamp: ISO timestamp or Unix epoch
+    - slot_scope: Slot identifier or scope
+    - resolved_command: Full command as list or string
+    - validation_results: Validation status dict
+    - warnings: List of warning strings
+    - environment_redacted: Dict of redacted environment variables
+
+    Args:
+        data: Artifact data to validate
+
+    Raises:
+        ValidationException: If required fields are missing
+    """
+    required_fields = [
+        "timestamp",
+        "slot_scope",
+        "resolved_command",
+        "validation_results",
+        "warnings",
+        "environment_redacted",
+    ]
+
+    missing_fields = [field for field in required_fields if field not in data]
+
+    if missing_fields:
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
+            failed_check="artifact_validation",
+            why_blocked=f"artifact missing required fields: {', '.join(missing_fields)}",
+            how_to_fix="ensure artifact data contains all required FR-007 fields",
+        )
+        raise ValidationException(MultiValidationError(errors=[error_detail]))
 
 
 def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
@@ -699,3 +842,77 @@ class ServerManager:
             proc = self.start_server_background(cfg.alias, cmd, handler)
             processes.append(proc)
         return processes
+
+    def launch_all_slots(
+        self, slots: list[ModelSlot], runtime_dir: Path | None = None
+    ) -> LaunchResult:
+        """Launch model slots with lock collision detection (T017-T019).
+
+        Processes slots in deterministic order, collecting warnings for blocked slots
+        and errors when all slots are blocked.
+
+        Args:
+            slots: List of ModelSlot configurations to launch
+            runtime_dir: Runtime directory for lockfiles (uses resolve_runtime_dir() if None)
+
+        Returns:
+            LaunchResult with status ('success', 'degraded', or 'blocked'),
+            launched slot IDs, warnings, and/or errors
+        """
+        runtime_dir = runtime_dir or resolve_runtime_dir()
+
+        launched: list[str] = []
+        warnings: list[str] = []
+        errors: list[ErrorDetail] = []
+
+        # Process slots in deterministic order
+        for slot in slots:
+            # Check for blocking locks
+            block = check_lockfile_integrity(runtime_dir, slot.slot_id)
+
+            if block is not None:
+                # Slot is blocked
+                error_msg = f"slot {slot.slot_id}: {block.error_code.value} - {block.why_blocked}"
+                warnings.append(error_msg)
+                errors.append(block)
+            else:
+                # Slot is available - attempt to acquire lock and launch
+                try:
+                    # Create lock for this slot (simulating successful launch)
+                    create_lock(runtime_dir, slot.slot_id, pid=0, port=slot.port)
+
+                    # Mock subprocess start (in real usage, this would start the actual server)
+                    # For now, just record success
+                    launched.append(slot.slot_id)
+
+                except (FileExistsError, ValidationException):
+                    # Lock acquisition failed - slot is blocked
+                    error_msg = (
+                        f"slot {slot.slot_id}: port_conflict - "
+                        f"lockfile already exists or could not be created"
+                    )
+                    warnings.append(error_msg)
+                    errors.append(
+                        ErrorDetail(
+                            error_code=ErrorCode.PORT_CONFLICT,
+                            failed_check="lockfile_creation",
+                            why_blocked="lockfile already exists or could not be created",
+                            how_to_fix="remove existing lockfile or wait for server to exit",
+                        )
+                    )
+
+        # Determine final status
+        if not launched:
+            # No slots could be launched - full block
+            if errors:
+                multi_error = MultiValidationError(errors=errors)
+                return LaunchResult(status="blocked", launched=[], errors=multi_error)
+            else:
+                # Should not happen, but handle gracefully
+                return LaunchResult(status="blocked", launched=[], errors=None)
+        elif len(launched) < len(slots):
+            # Some slots launched, some blocked - degraded
+            return LaunchResult(status="degraded", launched=launched, warnings=warnings)
+        else:
+            # All slots launched successfully
+            return LaunchResult(status="success", launched=launched)

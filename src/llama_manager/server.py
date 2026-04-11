@@ -4,6 +4,8 @@
 import os
 import re
 import sys
+from dataclasses import dataclass
+from typing import Any
 
 from .config import (
     Config,
@@ -14,6 +16,49 @@ from .config import (
     ServerConfig,
     ValidationResult,
 )
+
+
+# FR-003: Canonical dry-run payload types
+@dataclass
+class VllmEligibility:
+    """FR-003: vLLM eligibility status for a slot."""
+
+    eligible: bool
+    reason: str
+
+
+@dataclass
+class ValidationResults:
+    """FR-003: Aggregated validation results for a slot."""
+
+    passed: bool
+    checks: list[dict[str, Any]]
+
+
+@dataclass
+class DryRunSlotPayload:
+    """FR-003: Canonical dry-run slot payload with deterministic field ordering.
+
+    Fields are ordered to provide stable serialization:
+    1. slot_id, binary_path, command_args (core identity)
+    2. model_path, bind_address, port (network/model config)
+    3. environment_redacted, openai_flag_bundle (runtime environment)
+    4. hardware_notes, vllm_eligibility (hardware/backend info)
+    5. warnings, validation_results (diagnostics)
+    """
+
+    slot_id: str
+    binary_path: str
+    command_args: list[str]
+    model_path: str
+    bind_address: str
+    port: int
+    environment_redacted: dict[str, str]
+    openai_flag_bundle: dict[str, str | int | bool | None]
+    hardware_notes: dict[str, str | None]
+    vllm_eligibility: VllmEligibility
+    warnings: list[str]
+    validation_results: ValidationResults
 
 
 def build_server_cmd(cfg: ServerConfig) -> list[str]:
@@ -166,6 +211,41 @@ def redact_sensitive(env_value: str, env_key: str) -> str:
     return env_value
 
 
+def validate_backend_eligibility(backend: str) -> ErrorDetail | None:
+    """FR-011: Validate backend eligibility for M1 launch.
+
+    vllm is not launch-eligible in PRD M1 - only llama_cpp is supported.
+
+    Args:
+        backend: Backend name to validate (e.g., 'vllm', 'llama_cpp')
+
+    Returns:
+        ErrorDetail if backend is not eligible, None if eligible
+    """
+    if backend.lower() == "vllm":
+        return ErrorDetail(
+            error_code=ErrorCode.BACKEND_NOT_ELIGIBLE,
+            failed_check="vllm_launch_eligibility",
+            why_blocked="vllm is not launch-eligible in PRD M1",
+            how_to_fix="change backend to 'llama_cpp' for M1",
+        )
+    return None
+
+
+def validate_server_config(cfg: ServerConfig) -> ErrorDetail | None:
+    """FR-011: Validate ServerConfig for M1 launch eligibility.
+
+    Validates backend eligibility (vllm is blocked in M1).
+
+    Args:
+        cfg: ServerConfig to validate
+
+    Returns:
+        ErrorDetail if validation fails, None if valid
+    """
+    return validate_backend_eligibility(cfg.backend)
+
+
 def validate_slots(slots: list["ModelSlot"]) -> MultiValidationError | None:
     """Validate ModelSlot configurations and return MultiValidationError if any fail.
 
@@ -263,4 +343,157 @@ def validate_slots(slots: list["ModelSlot"]) -> MultiValidationError | None:
 
         return MultiValidationError(errors=error_details)
 
-    return None
+
+def build_dry_run_slot_payload(
+    cfg: ServerConfig,
+    slot_id: str,
+    bind_address: str = "127.0.0.1",
+    validation_results: ValidationResults | None = None,
+    warnings: list[str] | None = None,
+) -> DryRunSlotPayload:
+    """FR-003: Build canonical dry-run slot payload from ServerConfig + slot_id.
+
+    Returns a typed DryRunSlotPayload with deterministic field ordering.
+    The payload is suitable for dry-run output without serializing in the backend.
+
+    Args:
+        cfg: ServerConfig to build payload from
+        slot_id: Slot identifier for this payload
+        bind_address: Bind address for the server (default: 127.0.0.1)
+        validation_results: Optional validation results (defaults to passed=True)
+        warnings: Optional list of warning messages (defaults to empty list)
+
+    Returns:
+        DryRunSlotPayload with all fields populated deterministically
+    """
+    # Build command args (excluding binary path which is in binary_path field)
+    cmd = build_server_cmd(cfg)
+    command_args = cmd[1:]  # Exclude binary path
+
+    # Redact sensitive environment variables
+    environment_redacted = _build_environment_redacted()
+
+    # OpenAI flag bundle - indicates API compatibility flags
+    openai_flag_bundle = _build_openai_flag_bundle(cfg)
+
+    # Hardware notes - describe backend and hardware characteristics
+    hardware_notes = _build_hardware_notes(cfg)  # type: ignore[assignment]
+
+    # vLLM eligibility - M1: vllm not eligible
+    vllm_eligibility = VllmEligibility(
+        eligible=False,
+        reason="vllm is not launch-eligible in PRD M1 - only llama_cpp supported",
+    )
+
+    # Validation results - default to passed if not provided
+    if validation_results is None:
+        validation_results = ValidationResults(
+            passed=True,
+            checks=[],
+        )
+
+    # Warnings - default to empty list if not provided
+    if warnings is None:
+        warnings = []
+
+    return DryRunSlotPayload(
+        slot_id=slot_id,
+        binary_path=cmd[0],
+        command_args=command_args,
+        model_path=cfg.model,
+        bind_address=bind_address,
+        port=cfg.port,
+        environment_redacted=environment_redacted,
+        openai_flag_bundle=openai_flag_bundle,
+        hardware_notes=hardware_notes,
+        vllm_eligibility=vllm_eligibility,
+        warnings=warnings,
+        validation_results=validation_results,
+    )
+
+
+def _build_environment_redacted() -> dict[str, str]:
+    """FR-007: Build environment variable map with sensitive values redacted.
+
+    Returns a dict with environment variable keys and redacted values.
+    """
+    env_vars_to_check = [
+        "PATH",
+        "HOME",
+        "LD_LIBRARY_PATH",
+        "CUDA_VISIBLE_DEVICES",
+        "ONEAPI_DEVICE_SELECTOR",
+        "SYCL_DEVICE_SELECTOR",
+        "HF_HOME",
+        "HF_HUB_CACHE",
+    ]
+
+    result: dict[str, str] = {}
+    for key in env_vars_to_check:
+        value = os.environ.get(key, "")
+        result[key] = redact_sensitive(value, key)
+
+    return result
+
+
+def _build_openai_flag_bundle(cfg: ServerConfig) -> dict[str, str | int | bool | None]:
+    """Build OpenAI API compatibility flag bundle.
+
+    Args:
+        cfg: ServerConfig to derive flags from
+
+    Returns:
+        Dict with OpenAI API compatibility flags (keys with leading dashes, mixed value types)
+    """
+    # Determine if chat completion is supported based on reasoning mode
+    chat_completion_supported = cfg.reasoning_mode in ("auto", "enabled")
+
+    return {
+        "--port": cfg.port,
+        "--host": "127.0.0.1",
+        "--chat-format": "chatml" if chat_completion_supported else None,
+        "--openai": True,
+    }
+
+
+def _build_hardware_notes(cfg: ServerConfig) -> dict[str, str | None]:
+    """Build hardware notes dict describing backend and hardware.
+
+    Args:
+        cfg: ServerConfig to derive hardware info from
+
+    Returns:
+        Dict with required fields: backend, device_id, device_name;
+        optional fields: driver_version, runtime_version (may be None)
+    """
+    backend = cfg.backend if cfg.backend else "llama_cpp"
+    device = cfg.device if cfg.device else "auto"
+
+    # Parse device string to extract device_id and device_name
+    # Format can be "cuda:X" or "sycl:X:Y" or just "auto"
+    device_id: str | None = None
+    device_name: str = device
+
+    if device != "auto":
+        if device.startswith("cuda:"):
+            try:
+                device_id = device.split(":")[1]
+                device_name = "NVIDIA GPU"
+            except (IndexError, ValueError):
+                device_id = None
+                device_name = device
+        elif device.startswith("sycl:"):
+            parts = device.split(":")
+            if len(parts) >= 3:
+                device_id = f"{parts[1]}:{parts[2]}"
+                device_name = f"SYCL Device {parts[1]}"
+            else:
+                device_id = ":".join(parts[1:]) if len(parts) > 1 else None
+
+    return {
+        "backend": backend,
+        "device_id": device_id,
+        "device_name": device_name,
+        "driver_version": None,
+        "runtime_version": None,
+    }

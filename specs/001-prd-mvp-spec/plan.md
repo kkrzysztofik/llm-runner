@@ -26,8 +26,8 @@ only), preserve CLI/TUI contract parity, and meet stated p95 validation and dry-
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-- [x] Code quality impact is explicit: planned changes remain in `llama_manager/` (core logic) and
-      `llama_cli/` (presentation/interaction) with one-way dependency preserved; validation includes
+- [x] Code quality impact is explicit: planned changes remain in `src/llama_manager/` (core logic) and
+      `src/llama_cli/` (presentation/interaction) with one-way dependency preserved; validation includes
       `ruff` + `pyright`.
 - [x] Testing plan is explicit: add/update deterministic tests for slot validation, dry-run schema,
       multi-blocker FR-005 errors, lock integrity, artifact persistence/redaction, and degraded launch
@@ -66,29 +66,28 @@ specs/001-prd-mvp-spec/
 ### Source Code (repository root)
 
 ```text
-llama_manager/
-├── config.py
-├── config_builder.py
-├── server.py
-├── process_manager.py
-├── gpu_stats.py
-└── (new modules may be added only where needed for validators/observability)
-
-llama_cli/
-├── cli_parser.py
-├── dry_run.py
-├── server_runner.py
-└── tui_app.py
-
-tests/
-├── test_config.py
-├── test_server.py
-└── (new focused test modules for lock/artifact/error contracts)
+src/
+├── llama_manager/
+│   ├── config.py
+│   ├── config_builder.py
+│   ├── server.py
+│   ├── process_manager.py
+│   ├── gpu_stats.py
+│   └── (new modules may be added only where needed for validators/observability)
+├── llama_cli/
+│   ├── cli_parser.py
+│   ├── dry_run.py
+│   ├── server_runner.py
+│   └── tui_app.py
+└── tests/
+    ├── test_config.py
+    ├── test_server.py
+    └── (new focused test modules for lock/artifact/error contracts)
 ```
 
 **Structure Decision**: Keep the existing single-repo Python architecture; implement core behavior in
-`llama_manager/`, wire user-facing flows in `llama_cli/`, and enforce behavior through deterministic
-tests in `tests/`.
+`src/llama_manager/`, wire user-facing flows in `src/llama_cli/`, and enforce behavior through deterministic
+tests in `src/tests/`.
 
 ## Complexity Tracking
 

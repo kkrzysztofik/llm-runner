@@ -2,6 +2,7 @@
 
 
 import signal
+import sys
 import time
 
 from rich.columns import Columns
@@ -15,7 +16,9 @@ from llama_manager import (
     Color,
     Config,
     GPUStats,
+    LaunchResult,
     LogBuffer,
+    ModelSlot,
     ServerConfig,
     ServerManager,
 )
@@ -24,15 +27,23 @@ from llama_manager import (
 class TUIApp:
     """Main TUI application with 2-column layout"""
 
-    def __init__(self, configs: list[ServerConfig], gpu_indices: list[int]):
+    def __init__(
+        self,
+        configs: list[ServerConfig],
+        gpu_indices: list[int],
+        slots: list[ModelSlot] | None = None,
+    ):
         self.configs = configs
         self.gpu_indices = gpu_indices
+        self.slots = slots or []
         self.log_buffers: dict[str, LogBuffer] = {}
         self.gpu_stats: list[GPUStats] = []
         self.console = Console()
         self.running = True
         self.width = 80
         self.height = 24
+        self.launch_result: LaunchResult | None = None
+        self.status_panel: Panel | None = None
 
         # Initialize ServerManager for lifecycle management
         self.server_manager = ServerManager()
@@ -47,8 +58,19 @@ class TUIApp:
         signal.signal(signal.SIGINT, self.server_manager.on_interrupt)
         signal.signal(signal.SIGTERM, self.server_manager.on_terminate)
 
-    def start_servers(self) -> None:
-        """Start all server processes with log buffering"""
+    def start_servers(
+        self,
+        launch_result: LaunchResult | None = None,
+    ) -> None:
+        """Start all server processes with log buffering and status handling.
+
+        Args:
+            launch_result: Optional LaunchResult from slot-based launch (T020)
+                          If provided, renders status panel for degraded/blocked states.
+        """
+        # Store launch result for status panel rendering (T021)
+        self.launch_result = launch_result
+
         # Create log handlers that wrap LogBuffer.add_line
         log_handlers = {
             cfg.alias: lambda line, buf=buf: buf.add_line(line)
@@ -56,9 +78,12 @@ class TUIApp:
         }
 
         # Start servers via ServerManager with log handler delegation
-        processes = self.server_manager.start_servers(self.configs, log_handlers)
+        self.server_manager.start_servers(self.configs, log_handlers)
 
-        print(f"Started {len(processes)} server(s)")
+        # Build status panel for degraded/full-block states (T021)
+        # Do NOT print directly while Rich Live is active - update layout instead
+        if launch_result is not None:
+            self._build_status_panel(launch_result)
 
     def on_resize(self, event) -> None:
         """Handle terminal resize events"""
@@ -66,27 +91,49 @@ class TUIApp:
         self.height = event.rows
 
     def build_layout(self) -> Layout:
-        """Build dynamic layout based on terminal width"""
+        """Build dynamic layout based on terminal width and status panel (T021)"""
         layout = Layout(name="main")
 
-        if self.width >= 80:
-            # 2-column layout
-            layout.split_row(
-                Layout(name="left", ratio=1),
-                Layout(name="right", ratio=1),
-            )
-        else:
-            # Single column layout
+        if self.status_panel is not None:
+            # Status panel at top
             layout.split_column(
-                Layout(name="left", ratio=1),
-                Layout(name="right", ratio=1),
+                Layout(name="status", ratio=1),
+                Layout(name="content", ratio=3),
             )
+            # Content area splits into columns
+            if self.width >= 80:
+                layout["content"].split_row(
+                    Layout(name="left", ratio=1),
+                    Layout(name="right", ratio=1),
+                )
+            else:
+                layout["content"].split_column(
+                    Layout(name="left", ratio=1),
+                    Layout(name="right", ratio=1),
+                )
+        else:
+            # No status panel - standard layout
+            if self.width >= 80:
+                layout.split_row(
+                    Layout(name="left", ratio=1),
+                    Layout(name="right", ratio=1),
+                )
+            else:
+                layout.split_column(
+                    Layout(name="left", ratio=1),
+                    Layout(name="right", ratio=1),
+                )
 
         return layout
 
     def render(self) -> Layout:
-        """Render the TUI layout"""
+        """Render the TUI layout with optional status panel (T021)"""
         layout = self.build_layout()
+
+        # Render status panel if degraded/blocked (T021)
+        if self.status_panel is not None:
+            # Place status panel at top for visibility
+            layout["status"].update(self.status_panel)
 
         # Render left column (first config)
         if self.configs:
@@ -107,6 +154,75 @@ class TUIApp:
             layout["right"].update(right_panel)
 
         return layout
+
+    def _build_status_panel(self, launch_result: LaunchResult) -> None:
+        """Build status panel for degraded/full-block states (T021).
+
+        Renders consistent status panel updates without printing directly
+        while Rich Live is active.
+
+        Args:
+            launch_result: LaunchResult from launch_all_slots()
+        """
+        if launch_result.is_success():
+            # No status panel needed for success
+            self.status_panel = None
+            return
+
+        # Build status panel content
+        status_text = Text()
+
+        if launch_result.is_blocked():
+            # Full block - red border, critical styling
+            status_text.append("STATUS: ", style="bold red")
+            status_text.append("BLOCKED", style="bold red reverse")
+            status_text.append("\n\n")
+
+            if launch_result.errors is not None:
+                status_text.append("FR-005 Error Details:\n", style="bold yellow")
+                for error_detail in launch_result.errors.errors:
+                    status_text.append(f"  • {error_detail.error_code}\n", style="red")
+                    status_text.append(
+                        f"    failed_check: {error_detail.failed_check}\n", style="dim"
+                    )
+                    status_text.append(
+                        f"    why_blocked: {error_detail.why_blocked}\n", style="dim"
+                    )
+                    status_text.append(
+                        f"    how_to_fix: {error_detail.how_to_fix}\n\n", style="dim"
+                    )
+
+            self.status_panel = Panel(
+                status_text,
+                title="[red]Launch Failed[/red]",
+                border_style="red",
+            )
+
+        elif launch_result.is_degraded():
+            # Degraded - yellow/orange border, warning styling
+            status_text.append("STATUS: ", style="bold yellow")
+            status_text.append("DEGRADED", style="bold yellow")
+            status_text.append(" (partial success)\n\n", style="dim")
+
+            # Launched slots
+            launched = launch_result.launched or []
+            if launched:
+                status_text.append("Launched slots:\n", style="bold green")
+                for slot_id in launched:
+                    status_text.append(f"  ✓ {slot_id}\n", style="green")
+                status_text.append("\n")
+
+            # Blocked slots/warnings
+            if launch_result.warnings:
+                status_text.append("Blocked/Warning slots:\n", style="bold yellow")
+                for warning in launch_result.warnings:
+                    status_text.append(f"  ⚠ {warning}\n", style="yellow")
+
+            self.status_panel = Panel(
+                status_text,
+                title="[yellow]Launch Degraded[/yellow]",
+                border_style="yellow",
+            )
 
     def _build_column_panel(
         self, cfg: ServerConfig, buffer: LogBuffer, gpu: GPUStats | None
@@ -171,9 +287,50 @@ class TUIApp:
         self.server_manager.cleanup_servers()
 
     def run(self) -> None:
-        """Run the TUI"""
-        # Start servers
-        self.start_servers()
+        """Run the TUI with optional slot-based launch (T020/T021)"""
+        # Convert ServerConfig to ModelSlot for slot-based launch
+        slots: list[ModelSlot] = []
+        for cfg in self.configs:
+            slot = ModelSlot(
+                slot_id=cfg.alias,
+                model_path=cfg.model,
+                port=cfg.port,
+            )
+            slots.append(slot)
+
+        # Launch slots with status handling (T020)
+        launch_result = self.server_manager.launch_all_slots(slots)
+
+        # Handle blocked status immediately (T020)
+        if launch_result.is_blocked():
+            # Print FR-005 details to stderr and exit
+            print("error: launch blocked - no slots could be launched", file=sys.stderr)
+            if launch_result.errors is not None:
+                for error_detail in launch_result.errors.errors:
+                    print(f"  {error_detail.error_code}", file=sys.stderr)
+                    print(f"    failed_check: {error_detail.failed_check}", file=sys.stderr)
+                    print(f"    why_blocked: {error_detail.why_blocked}", file=sys.stderr)
+                    print(f"    how_to_fix: {error_detail.how_to_fix}", file=sys.stderr)
+            sys.exit(1)
+
+        # Handle degraded status with warnings (T020)
+        if launch_result.is_degraded():
+            print("warning: launch degraded - some slots blocked", file=sys.stderr)
+            for warning in launch_result.warnings or []:
+                print(f"  warning: {warning}", file=sys.stderr)
+
+        # Store launch result for TUI status panel (T021)
+        self.launch_result = launch_result
+        self._build_status_panel(launch_result)
+
+        # Start servers with log buffering
+        log_handlers = {
+            cfg.alias: lambda line, buf=buf: buf.add_line(line)
+            for cfg, buf in zip(self.configs, self.log_buffers.values(), strict=True)
+        }
+
+        # Start servers via ServerManager with log handler delegation
+        self.server_manager.start_servers(self.configs, log_handlers)
 
         # Run the live display
         with Live(

@@ -52,6 +52,7 @@ def create_summary_balanced_cfg(
         use_jinja=True,
         cache_type_k=cache_k or cfg.default_cache_type_summary_k,
         cache_type_v=cache_v or cfg.default_cache_type_summary_v,
+        backend="llama_cpp",
     )
 
 
@@ -74,6 +75,7 @@ def create_summary_fast_cfg(
         threads=threads or cfg.default_threads_summary_fast,
         cache_type_k=cache_k or cfg.default_cache_type_summary_k,
         cache_type_v=cache_v or cfg.default_cache_type_summary_v,
+        backend="llama_cpp",
     )
 
 
@@ -87,6 +89,7 @@ def create_qwen35_cfg(
     n_gpu_layers: int | str = "all",
     model: str | None = None,
     server_bin: str = "",
+    backend: str = "llama_cpp",
 ) -> ServerConfig:
     cfg = Config()
     return ServerConfig(
@@ -101,6 +104,7 @@ def create_qwen35_cfg(
         cache_type_v=cache_v or cfg.default_cache_type_qwen35_v,
         n_gpu_layers=n_gpu_layers,
         server_bin=server_bin or cfg.llama_server_bin_nvidia,
+        backend=backend,
     )
 
 
@@ -153,6 +157,7 @@ def merge_config_overrides(
         "cache_type_v": defaults.default_cache_type_summary_v,
         "n_gpu_layers": defaults.default_n_gpu_layers,
         "server_bin": "",
+        "backend": "llama_cpp",
     }
 
     # Apply precedence order: defaults < slot/workstation < profile < override
@@ -193,4 +198,5 @@ def merge_config_overrides(
         cache_type_v=merged["cache_type_v"],
         n_gpu_layers=merged.get("n_gpu_layers", defaults.default_n_gpu_layers),
         server_bin=merged.get("server_bin", ""),
+        backend=merged.get("backend", "llama_cpp"),
     )

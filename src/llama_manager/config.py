@@ -89,6 +89,7 @@ class ServerConfig:
     cache_type_v: str = "q8_0"
     n_gpu_layers: int | str = 99
     server_bin: str = ""
+    backend: str = "llama_cpp"
 
 
 # M1 scaffolding

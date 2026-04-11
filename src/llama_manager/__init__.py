@@ -20,6 +20,7 @@ from .gpu_stats import GPUStats
 from .log_buffer import LogBuffer
 from .process_manager import (
     ArtifactMetadata,
+    LaunchResult,
     LockMetadata,
     ServerManager,
     ValidationException,
@@ -31,12 +32,18 @@ from .process_manager import (
     write_artifact,
 )
 from .server import (
+    DryRunSlotPayload,
+    ValidationResults,
+    VllmEligibility,
+    build_dry_run_slot_payload,
     build_server_cmd,
     redact_sensitive,
     require_executable,
     require_model,
+    validate_backend_eligibility,
     validate_port,
     validate_ports,
+    validate_server_config,
     validate_slots,
     validate_threads,
 )
@@ -51,12 +58,19 @@ __all__ = [
     "MultiValidationError",
     "normalize_slot_id",
     "detect_duplicate_slots",
+    # FR-003: Dry-run payload types
+    "DryRunSlotPayload",
+    "VllmEligibility",
+    "ValidationResults",
     # Server
     "build_server_cmd",
+    "build_dry_run_slot_payload",
     "validate_port",
     "validate_ports",
     "validate_threads",
     "validate_slots",
+    "validate_backend_eligibility",
+    "validate_server_config",
     "require_model",
     "require_executable",
     "redact_sensitive",
@@ -71,6 +85,7 @@ __all__ = [
     "ServerManager",
     # Lockfile and artifacts
     "ArtifactMetadata",
+    "LaunchResult",
     "LockMetadata",
     "ValidationException",
     "create_lock",

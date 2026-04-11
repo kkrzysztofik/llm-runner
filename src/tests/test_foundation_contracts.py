@@ -446,9 +446,9 @@ class TestReadLock:
         _ = create_lock(tmp_path, "slot", 1234, 8080)
         metadata = read_lock(tmp_path, "slot")
         assert metadata is not None
-        assert metadata.pid == 1234
-        assert metadata.port == 8080
-        assert isinstance(metadata.started_at, float)
+        assert metadata.pid == 1234  # type: ignore[union-attr]
+        assert metadata.port == 8080  # type: ignore[union-attr]
+        assert isinstance(metadata.started_at, float)  # type: ignore[union-attr]
 
     def test_nonexistent_lock_returns_none(self, tmp_path: Path) -> None:
         """Should return None for non-existent lockfile."""
@@ -472,8 +472,8 @@ class TestUpdateLock:
         update_lock(tmp_path, "slot", 5678, 9000)
         metadata = read_lock(tmp_path, "slot")
         assert metadata is not None
-        assert metadata.pid == 5678
-        assert metadata.port == 9000
+        assert metadata.pid == 5678  # type: ignore[union-attr]
+        assert metadata.port == 9000  # type: ignore[union-attr]
 
     def test_missing_lock_raises_file_not_found(self, tmp_path: Path) -> None:
         """Should raise FileNotFoundError if lockfile does not exist."""
@@ -488,7 +488,7 @@ class TestReleaseLock:
         """Should delete existing lockfile."""
         create_lock(tmp_path, "slot", 1234, 8080)
         release_lock(tmp_path, "slot")
-        assert not (tmp_path / "lock-slot.json").exists()
+        assert not (tmp_path / "slot-slot.lock").exists()
 
     def test_noop_if_nonexistent(self, tmp_path: Path) -> None:
         """Should not error if lockfile doesn't exist."""
@@ -499,9 +499,22 @@ class TestReleaseLock:
 class TestWriteArtifact:
     """Tests for artifact persistence with FR-005 error paths."""
 
+    def _valid_artifact_data(self) -> dict:
+        """Create valid artifact data with all FR-007 required fields."""
+        return {
+            "timestamp": "2026-04-12T00:00:00Z",
+            "slot_scope": ["slot1"],
+            "resolved_command": {"cmd": ["echo", "test"]},
+            "validation_results": {"passed": True, "checks": []},
+            "warnings": [],
+            "environment_redacted": {"model_path": "/path/to/model"},
+        }
+
     def test_writes_artifact(self, tmp_path: Path) -> None:
         """Should write artifact with JSON serialization."""
-        data = {"slot_id": "test", "status": "running"}
+        data = self._valid_artifact_data()
+        data["slot_id"] = "test"
+        data["status"] = "running"
         artifact_path = write_artifact(tmp_path, "slot", data)
         assert artifact_path.exists()
         loaded = json.loads(artifact_path.read_text())
@@ -510,17 +523,17 @@ class TestWriteArtifact:
 
     def test_artifact_permissions_0600(self, tmp_path: Path) -> None:
         """Artifact should have 0600 permissions."""
-        artifact_path = write_artifact(tmp_path, "slot", {"data": "value"})
+        data = self._valid_artifact_data()
+        artifact_path = write_artifact(tmp_path, "slot", data)
         mode = stat.S_IMODE(os.stat(artifact_path).st_mode)
         assert mode == 0o600
 
     def test_redacts_sensitive_in_artifact(self, tmp_path: Path) -> None:
         """Should redact sensitive environment variable values in artifact."""
-        data = {
-            "api_key": "secret123",
-            "model_path": "/path/to/model",
-            "password": "pass456",
-        }
+        data = self._valid_artifact_data()
+        data["api_key"] = "secret123"
+        data["password"] = "pass456"  # noqa: S105
+        data["model_path"] = "/path/to/model"
         artifact_path = write_artifact(tmp_path, "slot", data)
         loaded = json.loads(artifact_path.read_text())
         assert loaded["api_key"] == "[REDACTED]"
@@ -535,7 +548,7 @@ class TestWriteArtifact:
         try:
             # The error happens when trying to create artifact subdirectory
             with pytest.raises(PermissionError):
-                write_artifact(readonly_dir, "slot", {"data": "value"})
+                write_artifact(readonly_dir, "slot", self._valid_artifact_data())
         finally:
             readonly_dir.chmod(0o755)  # Restore for cleanup
 
