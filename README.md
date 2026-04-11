@@ -1,4 +1,4 @@
-# TUI for llama-server
+# llm-runner
 
 A terminal-based user interface for managing multiple llama-server instances
 with live logs, configuration display, and GPU monitoring.
@@ -14,18 +14,21 @@ source .venv/bin/activate
 
 ```bash
 # Run both models side-by-side
-python run_models_tui.py both
+python src/run_models_tui.py both
 
 # Run with custom ports
-python run_models_tui.py both --port 8080 --port2 8081
+python src/run_models_tui.py both --port 8080 --port2 8081
 
 # Run single model
-python run_models_tui.py summary-balanced --port 8080
-python run_models_tui.py qwen35 --port 8081
-python run_models_tui.py summary-fast
+python src/run_models_tui.py summary-balanced --port 8080
+python src/run_models_tui.py qwen35 --port 8081
+python src/run_models_tui.py summary-fast
 
 # Get help
-python run_models_tui.py --help
+python src/run_models_tui.py --help
+
+# Or use the llm-runner CLI script (for CLI mode only)
+uv run llm-runner both
 ```
 
 ## Features

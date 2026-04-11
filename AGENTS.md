@@ -77,22 +77,25 @@ We do not care about backwards compatibility—we're in early development with n
 
 ```bash
 llm-runner/
-├── llama_cli/              # CLI layer (entry points, argument parsing, TUI)
-│   ├── cli_parser.py       # argparse modes: both, summary-balanced, summary-fast, qwen35, dry-run
-│   ├── server_runner.py    # main() + cli_main() entry point
-│   ├── tui_app.py          # Rich Live TUI (signal handling, layout)
-│   └── dry_run.py          # Print resolved commands without launching
-├── llama_manager/          # Core library (no I/O except sys.stderr)
-│   ├── config.py           # Config + ServerConfig dataclasses
-│   ├── config_builder.py   # Factory functions: create_*_cfg()
-│   ├── server.py           # build_server_cmd() + validators
-│   ├── process_manager.py  # ServerManager — subprocess lifecycle
-│   ├── gpu_stats.py        # GPUStats (nvidia-smi / sycl-ls parsing)
-│   ├── log_buffer.py       # Thread-safe real-time log streaming
-│   └── colors.py           # Terminal colour constants
-├── tests/
-│   ├── test_config.py      # Config, ServerConfig, config builders
-│   └── test_server.py      # Validators, build_server_cmd
+├── src/
+│   ├── llama_cli/              # CLI layer (entry points, argument parsing, TUI)
+│   │   ├── cli_parser.py       # argparse modes: both, summary-balanced, summary-fast, qwen35, dry-run
+│   │   ├── server_runner.py    # main() + cli_main() entry point
+│   │   ├── tui_app.py          # Rich Live TUI (signal handling, layout)
+│   │   └── dry_run.py          # Print resolved commands without launching
+│   ├── llama_manager/          # Core library (no I/O except sys.stderr)
+│   │   ├── config.py           # Config + ServerConfig dataclasses
+│   │   ├── config_builder.py   # Factory functions: create_*_cfg()
+│   │   ├── server.py           # build_server_cmd() + validators
+│   │   ├── process_manager.py  # ServerManager — subprocess lifecycle
+│   │   ├── gpu_stats.py        # GPUStats (nvidia-smi / sycl-ls parsing)
+│   │   ├── log_buffer.py       # Thread-safe real-time log streaming
+│   │   └── colors.py           # Terminal colour constants
+│   ├── tests/
+│   │   ├── test_config.py      # Config, ServerConfig, config builders
+│   │   └── test_server.py      # Validators, build_server_cmd
+│   ├── run_models_tui.py       # TUI entry point
+│   └── run_opencode_models.py  # CLI entry point
 ├── pyproject.toml          # Build config, deps, ruff/pyright/pytest settings
 ├── .python-version         # 3.12
 ├── .pre-commit-config.yaml # ruff + pyright hooks

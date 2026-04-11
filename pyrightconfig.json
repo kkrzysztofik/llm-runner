@@ -1,8 +1,8 @@
 {
   "include": [
-    "llama_cli",
-    "llama_manager",
-    "tests"
+    "src/llama_cli",
+    "src/llama_manager",
+    "src/tests"
   ],
   "exclude": [
     ".venv",

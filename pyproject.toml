@@ -27,7 +27,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["llama_cli", "llama_manager"]
+packages = ["src/llama_cli", "src/llama_manager"]
 
 # ---------------------------------------------------------------------------
 # Ruff — linter + formatter
@@ -57,7 +57,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101"]  # assert is fine in tests
+"src/tests/*" = ["S101"]  # assert is fine in tests
 
 [tool.ruff.lint.isort]
 known-first-party = ["llama_cli", "llama_manager"]
@@ -68,7 +68,7 @@ known-first-party = ["llama_cli", "llama_manager"]
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
-include = ["llama_cli", "llama_manager", "tests"]
+include = ["src/llama_cli", "src/llama_manager", "src/tests", "src/run_opencode_models.py", "src/run_models_tui.py"]
 exclude = [".venv", "dist"]
 reportMissingImports = true
 reportMissingModuleSource = false
@@ -77,15 +77,15 @@ reportMissingModuleSource = false
 # Pytest
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["src/tests"]
 addopts = "-v --tb=short"
 
 # ---------------------------------------------------------------------------
 # Coverage
 # ---------------------------------------------------------------------------
 [tool.coverage.run]
-source = ["llama_cli", "llama_manager"]
-omit = ["tests/*"]
+source = ["src/llama_cli", "src/llama_manager"]
+omit = ["src/tests/*"]
 
 [tool.coverage.report]
 show_missing = true

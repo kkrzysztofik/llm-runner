@@ -1,6 +1,5 @@
 # CLI argument parsing
 
-
 import argparse
 
 
@@ -18,11 +17,11 @@ Modes:
   dry-run          Preview commands without executing
 
 Examples:
-  run_opencode_models.py summary-balanced
-  run_opencode_models.py summary-fast 8082
-  run_opencode_models.py qwen35 8080
-  run_opencode_models.py both 8080 8081
-  run_opencode_models.py dry-run both
+  src/run_opencode_models.py summary-balanced
+  src/run_opencode_models.py summary-fast 8082
+  src/run_opencode_models.py qwen35 8080
+  src/run_opencode_models.py both 8080 8081
+  src/run_opencode_models.py dry-run both
         """,
     )
 

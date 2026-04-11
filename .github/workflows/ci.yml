@@ -74,7 +74,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: pytest
-        run: uv run pytest tests/ --cov --cov-report=term-missing --cov-report=xml
+        run: uv run pytest src/tests/ --cov --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4

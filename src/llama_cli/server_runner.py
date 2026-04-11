@@ -23,18 +23,18 @@ from llama_manager import (
 
 def usage() -> None:
     print("""Usage:
-  run_opencode_models.py summary-balanced [port]
-  run_opencode_models.py summary-fast [port]
-  run_opencode_models.py qwen35 [port]
-  run_opencode_models.py both [summary_balanced_port qwen35_port]
-  run_opencode_models.py dry-run summary-balanced|summary-fast|qwen35|both [ports...]
+  src/run_opencode_models.py summary-balanced [port]
+  src/run_opencode_models.py summary-fast [port]
+  src/run_opencode_models.py qwen35 [port]
+  src/run_opencode_models.py both [summary_balanced_port qwen35_port]
+  src/run_opencode_models.py dry-run summary-balanced|summary-fast|qwen35|both [ports...]
 
 Examples:
-  run_opencode_models.py summary-balanced
-  run_opencode_models.py summary-fast 8082
-  run_opencode_models.py qwen35 8080
-  run_opencode_models.py both 8080 8081
-  run_opencode_models.py dry-run both""")
+  src/run_opencode_models.py summary-balanced
+  src/run_opencode_models.py summary-fast 8082
+  src/run_opencode_models.py qwen35 8080
+  src/run_opencode_models.py both 8080 8081
+  src/run_opencode_models.py dry-run both""")
 
 
 def check_prereqs() -> None:
