@@ -49,6 +49,48 @@ via nvtop
 
 ## Security
 
+### Dependency Security
+
+We take dependency security seriously. All CI runs include automated dependency
+auditing via `pip-audit`.
+
+#### CI Dependency Scan
+
+CI automatically runs `uv run pip-audit` on every push and pull request to detect
+known CVEs in dependencies. The audit job is part of the CI workflow but does not
+block merging — it provides visibility into potential vulnerabilities.
+
+#### Local Pre-release Check
+
+Before merging or releasing, run:
+
+```bash
+uv run pip-audit
+```
+
+#### Vulnerability Response Cadence
+
+| Severity | Response Target |
+| -------- | --------------- |
+| Critical | Immediately — patch or pin within 24h |
+| High     | Within 1 week |
+| Medium   | Within 1 month |
+| Low      | Included in routine dependency refresh |
+
+#### Routine Dependency Refresh
+
+Quarterly (or before major releases), update all dependencies:
+
+```bash
+uv pip compile pyproject.toml --upgrade
+uv sync
+uv run pip-audit
+```
+
+Review `pip-audit` output and update dependencies via `uv add --upgrade-package <pkg>`.
+
+---
+
 The inference servers bind to `127.0.0.1:8080` and `127.0.0.1:8081` by default,
 making them accessible only from localhost. Do not expose these ports to external
 networks without configuring proper authentication and firewall rules.

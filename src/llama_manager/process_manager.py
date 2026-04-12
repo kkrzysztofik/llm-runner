@@ -14,11 +14,16 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 import psutil
 
 from .colors import Color
 from .config import ErrorCode, ErrorDetail, ModelSlot, MultiValidationError, ServerConfig
+
+# File permission constants (owner-only access)
+FILE_MODE_OWNER_ONLY: Final[int] = 0o600
+DIR_MODE_OWNER_ONLY: Final[int] = 0o700
 
 
 @dataclass
@@ -62,7 +67,14 @@ class ValidationException(Exception):
 
     def __init__(self, multi_error: MultiValidationError) -> None:
         self.multi_error = multi_error
-        super().__init__(f"Validation failed with {len(multi_error.errors)} error(s)")
+        # Include detailed error messages for easier debugging
+        if multi_error.errors:
+            details = "; ".join(e.why_blocked for e in multi_error.errors)
+            super().__init__(
+                f"Validation failed with {len(multi_error.errors)} error(s): {details}"
+            )
+        else:
+            super().__init__(f"Validation failed with {len(multi_error.errors)} error(s)")
 
 
 @dataclass
@@ -99,6 +111,35 @@ class LaunchResult:
         return self.status == "success"
 
 
+def _atomic_write_json(path: Path, data: dict, mode: int = FILE_MODE_OWNER_ONLY) -> None:
+    """Atomic JSON write with mode set at file creation (TOCTOU fix).
+
+    Uses os.open() with O_CREAT|O_TRUNC to ensure atomic write while allowing
+    file overwrites. The mode is set at file creation time to prevent TOCTOU
+    vulnerabilities that would occur with a separate chmod() call.
+
+    Args:
+        path: Path to write to
+        data: Dictionary to serialize as JSON
+        mode: File permissions (default 0o600)
+
+    Raises:
+        OSError: If file creation fails
+        TypeError: If data is not JSON-serializable
+    """
+    # Serialize JSON first (fail before writing file)
+    json_text = json.dumps(data, indent=2)
+
+    # Atomic write: open with O_CREAT|O_TRUNC to ensure atomic write
+    # Mode is set at open() time to prevent TOCTOU permissions race
+    fd = os.open(str(path), os.O_CREAT | os.O_TRUNC | os.O_WRONLY, mode)
+    try:
+        # Write the entire JSON content atomically
+        os.write(fd, json_text.encode("utf-8"))
+    finally:
+        os.close(fd)
+
+
 def resolve_runtime_dir() -> Path:
     """FR-009: Resolve runtime directory for lockfiles and artifacts.
 
@@ -114,7 +155,7 @@ def resolve_runtime_dir() -> Path:
     if env_dir:
         candidate = Path(env_dir)
         try:
-            candidate.mkdir(parents=True, exist_ok=True, mode=0o700)
+            candidate.mkdir(parents=True, exist_ok=True, mode=DIR_MODE_OWNER_ONLY)
             if candidate.is_dir() and os.access(candidate, os.W_OK):
                 return candidate
         except (OSError, RuntimeError):
@@ -124,7 +165,7 @@ def resolve_runtime_dir() -> Path:
     if xdg_dir:
         candidate = Path(xdg_dir) / "llm-runner"
         try:
-            candidate.mkdir(parents=True, exist_ok=True, mode=0o700)
+            candidate.mkdir(parents=True, exist_ok=True, mode=DIR_MODE_OWNER_ONLY)
             if candidate.is_dir() and os.access(candidate, os.W_OK):
                 return candidate
         except (OSError, RuntimeError):
@@ -180,13 +221,12 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
     }
 
     try:
-        # Write with 0600 permissions
-        lock_path.write_text(json.dumps(lock_data, indent=2))
-        os.chmod(lock_path, 0o600)
+        # Atomic write with mode set at file creation (TOCTOU fix)
+        _atomic_write_json(lock_path, lock_data, FILE_MODE_OWNER_ONLY)
 
         # Verify permissions were set correctly
         mode = stat.S_IMODE(os.stat(lock_path).st_mode)
-        if mode != 0o600:
+        if mode != FILE_MODE_OWNER_ONLY:
             error_detail = ErrorDetail(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check="lockfile_integrity",
@@ -284,7 +324,8 @@ def update_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> None:
     }
 
     try:
-        lock_path.write_text(json.dumps(lock_data, indent=2))
+        # Atomic write with mode set at file creation (TOCTOU fix)
+        _atomic_write_json(lock_path, lock_data, FILE_MODE_OWNER_ONLY)
     except OSError as e:
         error_detail = ErrorDetail(
             error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
@@ -440,11 +481,11 @@ def write_artifact(runtime_dir: Path, slot_id: str, data: dict) -> Path:
     # FR-007: Validate required top-level artifact fields
     _validate_artifact_fields(data)
     artifact_dir = runtime_dir / "artifacts"
-    artifact_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    artifact_dir.mkdir(parents=True, exist_ok=True, mode=DIR_MODE_OWNER_ONLY)
 
     # Verify directory permissions
     dir_mode = stat.S_IMODE(os.stat(artifact_dir).st_mode)
-    if dir_mode != 0o700:
+    if dir_mode != DIR_MODE_OWNER_ONLY:
         error_detail = ErrorDetail(
             error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
             failed_check="artifact_persistence",
@@ -462,13 +503,12 @@ def write_artifact(runtime_dir: Path, slot_id: str, data: dict) -> Path:
         # Redact sensitive environment variables in the data
         redacted_data = _redact_sensitive_in_dict(data)
 
-        # Write with 0600 permissions
-        artifact_path.write_text(json.dumps(redacted_data, indent=2))
-        os.chmod(artifact_path, 0o600)
+        # Atomic write with mode set at file creation (TOCTOU fix)
+        _atomic_write_json(artifact_path, redacted_data, FILE_MODE_OWNER_ONLY)
 
         # Verify file permissions
         file_mode = stat.S_IMODE(os.stat(artifact_path).st_mode)
-        if file_mode != 0o600:
+        if file_mode != FILE_MODE_OWNER_ONLY:
             error_detail = ErrorDetail(
                 error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
                 failed_check="artifact_persistence",

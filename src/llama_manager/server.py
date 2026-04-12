@@ -115,44 +115,6 @@ def build_server_cmd(cfg: ServerConfig) -> list[str]:
     return cmd
 
 
-def validate_port(port: int, name: str = "port") -> None:
-    """Validate port number"""
-    if not isinstance(port, int) or port < 1 or port > 65535:
-        print(f"error: {name} must be between 1 and 65535, got: {port}", file=sys.stderr)
-        sys.exit(1)
-
-
-def validate_threads(threads: int, name: str = "threads") -> None:
-    """Validate thread count"""
-    if not isinstance(threads, int) or threads < 1:
-        print(f"error: {name} must be greater than 0, got: {threads}", file=sys.stderr)
-        sys.exit(1)
-
-
-def require_model(model_path: str) -> None:
-    """Check if model file exists"""
-    if not os.path.isfile(model_path):
-        print(f"error: model not found: {model_path}", file=sys.stderr)
-        sys.exit(1)
-
-
-def require_executable(bin_path: str, name: str = "binary") -> None:
-    """Check if executable exists"""
-    if not os.access(bin_path, os.X_OK):
-        print(f"error: {name} not found or not executable: {bin_path}", file=sys.stderr)
-        sys.exit(1)
-
-
-def validate_ports(port1: int, port2: int, name1: str = "port1", name2: str = "port2") -> None:
-    """Validate ports are different"""
-    if port1 == port2:
-        print(
-            f"error: {name1} and {name2} must be different, got: {port1}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-
 def sort_validation_errors(
     results: list[ValidationResult],
 ) -> list[ValidationResult]:
@@ -412,10 +374,97 @@ def build_dry_run_slot_payload(
     )
 
 
+def _error_detail_to_stderr(error_detail: ErrorDetail) -> None:
+    """FR-005: Print structured error detail to stderr.
+
+    Outputs consistent fields for easy parsing:
+    error_code=<code> failed_check=<check> why_blocked=<message> how_to_fix=<fix>
+
+    Args:
+        error_detail: ErrorDetail with error_code, failed_check, why_blocked, how_to_fix
+    """
+    error_code = (
+        error_detail.error_code.value
+        if isinstance(error_detail.error_code, ErrorCode)
+        else str(error_detail.error_code)
+    )
+    print(
+        f"error: error_code={error_code} failed_check={error_detail.failed_check} "
+        f"why_blocked={error_detail.why_blocked} how_to_fix={error_detail.how_to_fix}",
+        file=sys.stderr,
+    )
+
+
+def validate_port(port: int, name: str = "port") -> None:
+    """Validate port number"""
+    if not isinstance(port, int) or port < 1 or port > 65535:
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.PORT_INVALID,
+            failed_check="port_validation",
+            why_blocked=f"{name} must be between 1 and 65535, got: {port}",
+            how_to_fix=f"ensure {name} is an integer between 1 and 65535",
+        )
+        _error_detail_to_stderr(error_detail)
+        sys.exit(1)
+
+
+def validate_threads(threads: int, name: str = "threads") -> None:
+    """Validate thread count"""
+    if not isinstance(threads, int) or threads < 1:
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.THREADS_INVALID,
+            failed_check="thread_validation",
+            why_blocked=f"{name} must be greater than 0, got: {threads}",
+            how_to_fix=f"ensure {name} is a positive integer",
+        )
+        _error_detail_to_stderr(error_detail)
+        sys.exit(1)
+
+
+def require_model(model_path: str) -> None:
+    """Check if model file exists"""
+    if not os.path.isfile(model_path):
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.FILE_NOT_FOUND,
+            failed_check="model_path_exists",
+            why_blocked=f"model not found: {model_path}",
+            how_to_fix="verify model path exists and is accessible",
+        )
+        _error_detail_to_stderr(error_detail)
+        sys.exit(1)
+
+
+def require_executable(bin_path: str, name: str = "binary") -> None:
+    """Check if executable exists"""
+    if not os.access(bin_path, os.X_OK):
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.PERMISSION_DENIED,
+            failed_check="executable_exists",
+            why_blocked=f"{name} not found or not executable: {bin_path}",
+            how_to_fix="verify executable path exists and has execute permissions",
+        )
+        _error_detail_to_stderr(error_detail)
+        sys.exit(1)
+
+
+def validate_ports(port1: int, port2: int, name1: str = "port1", name2: str = "port2") -> None:
+    """Validate ports are different"""
+    if port1 == port2:
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.PORT_CONFLICT,
+            failed_check="port_uniqueness",
+            why_blocked=f"{name1} and {name2} must be different, got: {port1}",
+            how_to_fix="ensure both ports are unique values between 1 and 65535",
+        )
+        _error_detail_to_stderr(error_detail)
+        sys.exit(1)
+
+
 def _build_environment_redacted() -> dict[str, str]:
     """FR-007: Build environment variable map with sensitive values redacted.
 
     Returns a dict with environment variable keys and redacted values.
+    Includes all environment variables from os.environ with sensitive values redacted.
     """
     env_vars_to_check = [
         "PATH",
@@ -429,9 +478,17 @@ def _build_environment_redacted() -> dict[str, str]:
     ]
 
     result: dict[str, str] = {}
+
+    # First add the standard environment variables
     for key in env_vars_to_check:
         value = os.environ.get(key, "")
         result[key] = redact_sensitive(value, key)
+
+    # Also include any additional environment variables from os.environ
+    # that aren't already in the result, with sensitive values redacted
+    for key, value in os.environ.items():
+        if key not in result:
+            result[key] = redact_sensitive(value, key)
 
     return result
 

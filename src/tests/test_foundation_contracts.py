@@ -194,10 +194,11 @@ class TestMultiValidationError:
         multi = MultiValidationError(errors=errors)
         multi.sort_errors()
         checks = [e.failed_check for e in multi.errors]
-        # slot_b appears first in original list (index 0), so slot_b entries come first
-        assert checks.index("slot_b_check_a") < checks.index("slot_a_check_a")
-        assert checks.index("slot_b_check_a") < checks.index("slot_a_check_b")
-        assert checks.index("slot_a_check_a") < checks.index("slot_a_check_b")
+        # slot_ids are sorted alphabetically: a before b
+        assert checks.index("slot_a_check_a") < checks.index("slot_b_check_a")
+        assert checks.index("slot_a_check_a") < checks.index("slot_b_check_b")
+        assert checks.index("slot_a_check_b") < checks.index("slot_b_check_a")
+        assert checks.index("slot_a_check_b") < checks.index("slot_b_check_b")
 
     def test_sort_errors_within_slot_alphabetical(self) -> None:
         """Within each slot, errors should be sorted by failed_check alphabetically."""

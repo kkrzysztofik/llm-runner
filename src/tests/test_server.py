@@ -39,6 +39,19 @@ class TestValidatePort:
         captured = capsys.readouterr()
         assert "summary-balanced port" in captured.err
 
+    def test_error_output_has_structured_fields(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """FR-005: Validation errors should have structured fields in stderr output."""
+        with pytest.raises(SystemExit):
+            validate_port(0, "port")
+        captured = capsys.readouterr()
+        err_text = captured.err
+        # FR-005 structured output should have error_code, failed_check, why_blocked, how_to_fix
+        assert "error_code=" in err_text
+        assert "failed_check=" in err_text
+        assert "why_blocked=" in err_text
+        assert "how_to_fix=" in err_text
+        assert ErrorCode.PORT_INVALID.value in err_text
+
 
 class TestValidatePorts:
     def test_different_ports_pass(self) -> None:
@@ -72,6 +85,19 @@ class TestValidateThreads:
             validate_threads(0, "qwen35 threads")
         captured = capsys.readouterr()
         assert "qwen35 threads" in captured.err
+
+    def test_error_output_has_structured_fields(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """FR-005: Validation errors should have structured fields in stderr output."""
+        with pytest.raises(SystemExit):
+            validate_threads(0, "threads")
+        captured = capsys.readouterr()
+        err_text = captured.err
+        # FR-005 structured output should have error_code, failed_check, why_blocked, how_to_fix
+        assert "error_code=" in err_text
+        assert "failed_check=" in err_text
+        assert "why_blocked=" in err_text
+        assert "how_to_fix=" in err_text
+        assert ErrorCode.THREADS_INVALID.value in err_text
 
 
 class TestBuildServerCmd:

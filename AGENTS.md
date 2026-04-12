@@ -203,7 +203,49 @@ All three CI checks must pass before merging:
 2. **typecheck** — `pyright` (standard mode)
 3. **test** — `pytest` with coverage
 
+Additionally, an audit job runs `uv run pip-audit` to check for known CVEs in
+dependencies.
+
 Pre-commit hooks run the same ruff and pyright checks locally on every commit.
+
+---
+
+## Dependency Security Policy
+
+### CI Dependency Scan
+
+CI automatically runs `uv run pip-audit` on every push and pull request to detect
+known CVEs in dependencies. The audit job does not block merging but provides
+visibility into potential vulnerabilities.
+
+### Local Pre-release Check
+
+Before merging or releasing, run:
+
+```bash
+uv run pip-audit
+```
+
+### Vulnerability Response Cadence
+
+| Severity | Response Target |
+| -------- | --------------- |
+| Critical | Immediately — patch or pin within 24h |
+| High     | Within 1 week |
+| Medium   | Within 1 month |
+| Low      | Included in routine dependency refresh |
+
+### Routine Dependency Refresh
+
+Quarterly (or before major releases), update all dependencies:
+
+```bash
+uv pip compile pyproject.toml --upgrade
+uv sync
+uv run pip-audit
+```
+
+Review `pip-audit` output and update dependencies via `uv add --upgrade-package <pkg>`.
 
 ---
 

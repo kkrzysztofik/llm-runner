@@ -165,7 +165,7 @@ class TestFR003DryRunPayloadContract:
             warnings=[],
         )
         for key, value in payload.openai_flag_bundle.items():
-            assert isinstance(value, (str, int, bool, type(None))), (
+            assert isinstance(value, str | int | bool | None), (
                 f"openai_flag_bundle value for '{key}' should be str|int|bool|None, got {type(value)}"
             )
 
@@ -186,9 +186,7 @@ class TestFR003DryRunPayloadContract:
         # Values should be str or None
         for field in ["backend", "device_id", "device_name"]:
             value = payload.hardware_notes[field]
-            assert isinstance(value, (str, type(None))), (
-                f"hardware_notes['{field}'] should be str|None"
-            )
+            assert isinstance(value, str | None), f"hardware_notes['{field}'] should be str|None"
 
     def test_hardware_notes_backend_value(self) -> None:
         """FR-003: hardware_notes.backend should reflect the backend."""

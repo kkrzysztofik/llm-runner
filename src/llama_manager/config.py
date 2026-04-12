@@ -255,45 +255,68 @@ class MultiValidationError:
         """Sort errors in-place by slot configuration sequence, then failed_check ascending.
 
         This provides stable, deterministic ordering for consistent error output.
-        Slots are ordered by first appearance; within each slot, failed_check is sorted alphabetically.
+        Slots are ordered alphabetically by slot_id; within each slot, failed_check is sorted alphabetically.
+
+        Slot ID extraction:
+        - Pattern: failed_check starts with "slot_<slot_id>_<check>"
+        - slot_id is the second underscore-separated component (e.g., "slot_slot1_a_check" -> slot1)
+        - Normalize by stripping "slot_" prefix (e.g., "slot_slot1" -> "slot1")
         """
         if not self.errors:
             return
 
-        # Build slot order map: slot_id -> order index (first occurrence wins)
-        # We need to extract slot IDs from error details
-        # For errors without slot_id, we put them at the end
-        slot_order: dict[str, int] = {}
-        other_errors: list[ErrorDetail] = []
+        def extract_slot_id(failed_check: str) -> str | None:
+            """Extract slot_id from failed_check field.
 
-        for _i, error in enumerate(self.errors):
-            # Extract slot_id from failed_check if it follows pattern "slot_<id>_<check>"
-            slot_id: str | None = None
-            if error.failed_check.startswith("slot_"):
-                parts = error.failed_check.split("_", 2)
-                if len(parts) >= 2:
-                    slot_id = parts[1]
+            Pattern: "slot_<slot_id>_<check>" where slot_id may have "slot_" prefix
+            Examples:
+            - "slot_slot1_a_check" -> "slot1"
+            - "slot_slot2_port_validation" -> "slot2"
+            - "slot_a_check" -> "a" (if it doesn't start with "slot_")
+            """
+            if not failed_check.startswith("slot_"):
+                return None
 
+            # Split by underscore
+            parts = failed_check.split("_")
+            if len(parts) < 2:
+                return None
+
+            # Second part should be the slot_id (possibly with "slot_" prefix)
+            slot_part = parts[1]
+
+            # Check if it starts with "slot_" and extract the actual ID
+            if slot_part.startswith("slot_"):
+                # e.g., "slot_slot1" -> "slot1"
+                actual_slot = slot_part[5:]  # Remove "slot_" prefix
+                if actual_slot:
+                    return actual_slot
+
+            # Otherwise use it as-is
+            return slot_part
+
+        # Get all unique slot_ids and sort them alphabetically for ordering
+        slot_ids: list[str] = []
+        for error in self.errors:
+            slot_id = extract_slot_id(error.failed_check)
+            if slot_id and slot_id not in slot_ids:
+                slot_ids.append(slot_id)
+
+        # Sort slot_ids alphabetically
+        slot_ids.sort()
+
+        # Create slot order map: slot_id -> order index
+        slot_order: dict[str, int] = {slot_id: idx for idx, slot_id in enumerate(slot_ids)}
+
+        def sort_key(error: ErrorDetail) -> tuple[int, str]:
+            """Sort key: (slot_sequence_order, failed_check)"""
+            slot_id = extract_slot_id(error.failed_check)
             if slot_id:
-                if slot_id not in slot_order:
-                    slot_order[slot_id] = len(slot_order)
-                else:
-                    # Update slot_order to use the minimum index
-                    slot_order[slot_id] = min(slot_order[slot_id], slot_order.get(slot_id, 0))
+                slot_idx = slot_order.get(slot_id, 0)
+                return (slot_idx, error.failed_check)
             else:
-                other_errors.append(error)
+                # Errors without slot_id come at the end
+                return (len(slot_ids) + 1, error.failed_check)
 
-        def sort_key(error: ErrorDetail) -> tuple[int, str, int]:
-            """Sort key: (slot_sequence_order, failed_check, original_index)"""
-            slot_idx = 0
-            if error.failed_check.startswith("slot_"):
-                parts = error.failed_check.split("_", 2)
-                if len(parts) >= 2:
-                    slot_id = parts[1]
-                    slot_idx = slot_order.get(slot_id, 0)
-            return (slot_idx, error.failed_check, id(error))
-
-        # Sort main errors, then append others at the end
-        sorted_errors = sorted(self.errors, key=sort_key)
-
-        self.errors = sorted_errors
+        # Sort errors in place
+        self.errors = sorted(self.errors, key=sort_key)
