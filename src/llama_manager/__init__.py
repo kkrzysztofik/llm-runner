@@ -80,7 +80,6 @@ __all__ = [
     "create_summary_fast_cfg",
     "create_qwen35_cfg",
     # Components
-    "Color",
     "LogBuffer",
     "GPUStats",
     "ServerManager",
@@ -97,5 +96,3 @@ __all__ = [
     "update_lock",
     "write_artifact",
 ]
-
-from .colors import Color

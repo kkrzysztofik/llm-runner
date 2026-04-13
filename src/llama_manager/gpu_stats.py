@@ -47,6 +47,8 @@ class GPUStats:
                     "mem_util": gpu.get("mem_util", "N/A"),
                     "temp": gpu.get("temp", "N/A"),
                     "power": gpu.get("power_draw", "N/A"),
+                    "cpu": f"{psutil.cpu_percent():.0f}%",
+                    "mem": f"{psutil.virtual_memory().percent:.0f}%",
                 }
         except subprocess.TimeoutExpired:
             pass
@@ -54,12 +56,16 @@ class GPUStats:
             print(f"warning: nvtop JSON parse error: {e}", file=sys.stderr)
         except RuntimeError as e:
             print(f"warning: nvtop error: {e}", file=sys.stderr)
-        except Exception:
-            pass
+        except (ValueError, OSError, subprocess.CalledProcessError) as e:
+            print(f"warning: nvtop error: {e}", file=sys.stderr)
 
         # Fallback to psutil
         return {
             "device": f"GPU {self.device_index}",
+            "gpu_util": "N/A",
+            "mem_util": "N/A",
+            "temp": "N/A",
+            "power": "N/A",
             "cpu": f"{psutil.cpu_percent():.0f}%",
             "mem": f"{psutil.virtual_memory().percent:.0f}%",
         }

@@ -3,10 +3,11 @@
 
 import sys
 import time
-from typing import Any
+from typing import Any, NoReturn
 
 from llama_manager import (
     Config,
+    DryRunSlotPayload,
     ServerConfig,
     ServerManager,
     build_dry_run_slot_payload,
@@ -25,7 +26,7 @@ ELIGIBLE_LABEL = "    Eligible"
 REASON_LABEL = "    Reason"
 
 
-def _print_acknowledgement_required_and_exit() -> None:
+def _print_acknowledgement_required_and_exit() -> NoReturn:
     print("error: acknowledgement_required", file=sys.stderr)
     print("  failed_check: acknowledgement_required", file=sys.stderr)
     print(
@@ -74,7 +75,10 @@ def _acknowledge_risk_if_required(
 
     if not acknowledged:
         print(f"warning: risky operation detected in {cfg.alias}: {risk}")
-        response = input(RISK_CONFIRM_PROMPT).strip().lower()
+        try:
+            response = input(RISK_CONFIRM_PROMPT).strip().lower()
+        except EOFError:
+            _print_acknowledgement_required_and_exit()
         if response != "y":
             _print_acknowledgement_required_and_exit()
 
@@ -288,8 +292,6 @@ def dry_run(
     print(f"qwen35 both model: {cfg.model_qwen35_both}")
     print()
 
-    from llama_manager import DryRunSlotPayload
-
     slot_payloads: list[DryRunSlotPayload] = []
     has_error = False
     manager = ServerManager()
@@ -336,8 +338,9 @@ def dry_run(
     try:
         handler = handlers.get(mode)
         if handler is None:
+            allowed_modes = ", ".join(sorted(handlers.keys()))
             print(
-                "error: dry-run requires a mode argument (summary-balanced|summary-fast|qwen35|both)",
+                f"error: invalid mode '{mode}'. Valid modes: {allowed_modes}",
                 file=sys.stderr,
             )
             sys.exit(1)

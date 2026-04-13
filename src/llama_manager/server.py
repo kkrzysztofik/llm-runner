@@ -17,6 +17,9 @@ from .config import (
     ValidationResult,
 )
 
+# Precompiled regex pattern for sensitive key detection (Finding 172)
+_SENSITIVE_KEY_PATTERN = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|AUTH)", re.IGNORECASE)
+
 
 # FR-003: Canonical dry-run payload types
 @dataclass
@@ -61,10 +64,28 @@ class DryRunSlotPayload:
     validation_results: ValidationResults
 
 
-def build_server_cmd(cfg: ServerConfig) -> list[str]:
-    """Build llama-server command arguments"""
+def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[str]:
+    """Build llama-server command arguments.
+
+    Args:
+        cfg: ServerConfig to build command from.
+        default_bin: Optional default binary path if cfg.server_bin is empty.
+                    If not provided, falls back to Config().llama_server_bin_intel.
+
+    Returns:
+        List of command arguments for subprocess.
+
+    """
+    # Get binary path - prefer cfg.server_bin, then default_bin, then Config()
+    if cfg.server_bin:
+        server_bin = cfg.server_bin
+    elif default_bin:
+        server_bin = default_bin
+    else:
+        server_bin = Config().llama_server_bin_intel
+
     cmd = [
-        cfg.server_bin or Config().llama_server_bin_intel,
+        server_bin,
         "--model",
         cfg.model,
         "--alias",
@@ -169,8 +190,7 @@ def redact_sensitive(env_value: str, env_key: str) -> str:
         "/path/to/model"
 
     """
-    sensitive_patterns = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|AUTH)", re.IGNORECASE)
-    if sensitive_patterns.search(env_key):
+    if _SENSITIVE_KEY_PATTERN.search(env_key):
         return "[REDACTED]"
     return env_value
 
@@ -276,20 +296,33 @@ def validate_slots(slots: list["ModelSlot"]) -> MultiValidationError | None:
                 )
             )
 
-        # Validate model_path exists if it's a file path
-        if slot.model_path and os.path.isfile(slot.model_path):
-            # Model file exists, validation passes
-            pass
-        elif slot.model_path and not os.path.exists(slot.model_path):
-            validation_results.append(
-                ValidationResult(
-                    slot_id=normalized_id,
-                    passed=False,
-                    failed_check="model_path_validation",
-                    error_code=ErrorCode.FILE_NOT_FOUND,
-                    error_message=f"model path not found: {slot.model_path}",
+        # Validate model_path exists if specified
+        if slot.model_path:
+            if os.path.isfile(slot.model_path):
+                # Model file exists, validation passes
+                pass
+            elif os.path.isdir(slot.model_path):
+                # Directory not allowed
+                validation_results.append(
+                    ValidationResult(
+                        slot_id=normalized_id,
+                        passed=False,
+                        failed_check="model_path_validation",
+                        error_code=ErrorCode.FILE_NOT_FOUND,
+                        error_message="model_path must be a file, not a directory",
+                    )
                 )
-            )
+            else:
+                # Path doesn't exist
+                validation_results.append(
+                    ValidationResult(
+                        slot_id=normalized_id,
+                        passed=False,
+                        failed_check="model_path_validation",
+                        error_code=ErrorCode.FILE_NOT_FOUND,
+                        error_message=f"model_path does not exist: {slot.model_path}",
+                    )
+                )
 
     # Convert validation results to MultiValidationError if any failed
     failed = [r for r in validation_results if not r.passed]
@@ -374,7 +407,8 @@ def build_dry_run_slot_payload(
     openai_flag_bundle = _build_openai_flag_bundle(cfg)
 
     # Hardware notes - describe backend and hardware characteristics
-    hardware_notes = _build_hardware_notes(cfg)  # type: ignore[assignment]
+    # mypy false positive: both are dict[str, str | None]
+    hardware_notes = _build_hardware_notes(cfg)
 
     # vLLM eligibility - M1: vllm not eligible
     vllm_eligibility = VllmEligibility(

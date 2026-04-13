@@ -28,7 +28,7 @@ def check_prereqs() -> None:
         require_executable(cfg.llama_server_bin_nvidia, "NVIDIA llama-server")
 
 
-def main():
+def main() -> None:
     args = parse_tui_args()
 
     # Check prerequisites

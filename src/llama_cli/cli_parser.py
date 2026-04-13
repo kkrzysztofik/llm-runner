@@ -24,9 +24,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
             sys.exit(1)
 
         dry_run_mode = args[1]
-        if dry_run_mode not in ["summary-balanced", "summary-fast", "qwen35", "both"]:
+        allowed_modes = ["summary-balanced", "summary-fast", "qwen35", "both"]
+        if dry_run_mode not in allowed_modes:
             print(
-                f"error: invalid dry-run mode '{dry_run_mode}'",
+                f"error: invalid dry-run mode '{dry_run_mode}'. Valid modes:",
+                "summary-balanced, summary-fast, qwen35, both",
                 file=sys.stderr,
             )
             sys.exit(1)

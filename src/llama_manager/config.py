@@ -20,8 +20,19 @@ class Config:
 
     # Paths
     llama_cpp_root: str = "/home/kmk/src/llama.cpp"
-    llama_server_bin_intel: str = f"{llama_cpp_root}/build/bin/llama-server"
-    llama_server_bin_nvidia: str = f"{llama_cpp_root}/build_cuda/bin/llama-server"
+    llama_server_bin_intel: str = ""
+    llama_server_bin_nvidia: str = ""
+
+    def __post_init__(self) -> None:
+        """Compute derived paths from llama_cpp_root after dataclass init."""
+        from pathlib import Path
+
+        self.llama_server_bin_intel = str(
+            Path(self.llama_cpp_root) / "build" / "bin" / "llama-server"
+        )
+        self.llama_server_bin_nvidia = str(
+            Path(self.llama_cpp_root) / "build_cuda" / "bin" / "llama-server"
+        )
 
     # Models
     model_summary_balanced: str = "/home/kmk/models/unsloth/Qwen3.5-2B-GGUF/Qwen3.5-2B-IQ4_XS.gguf"
@@ -211,12 +222,12 @@ class ErrorCode(StrEnum):
     PORT_INVALID = "PORT_INVALID"
     THREADS_INVALID = "THREADS_INVALID"
     CONFIG_ERROR = "CONFIG_ERROR"
-    INVALID_SLOT_ID = "invalid_slot_id"
-    DUPLICATE_SLOT = "duplicate_slot"
-    RUNTIME_DIR_UNAVAILABLE = "runtime_dir_unavailable"
-    LOCKFILE_INTEGRITY_FAILURE = "lockfile_integrity_failure"
-    ARTIFACT_PERSISTENCE_FAILURE = "artifact_persistence_failure"
-    BACKEND_NOT_ELIGIBLE = "backend_not_eligible"
+    INVALID_SLOT_ID = "INVALID_SLOT_ID"
+    DUPLICATE_SLOT = "DUPLICATE_SLOT"
+    RUNTIME_DIR_UNAVAILABLE = "RUNTIME_DIR_UNAVAILABLE"
+    LOCKFILE_INTEGRITY_FAILURE = "LOCKFILE_INTEGRITY_FAILURE"
+    ARTIFACT_PERSISTENCE_FAILURE = "ARTIFACT_PERSISTENCE_FAILURE"
+    BACKEND_NOT_ELIGIBLE = "BACKEND_NOT_ELIGIBLE"
 
 
 @dataclass

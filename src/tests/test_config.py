@@ -185,12 +185,12 @@ class TestErrorCode:
             "PORT_INVALID",
             "THREADS_INVALID",
             "CONFIG_ERROR",
-            "invalid_slot_id",
-            "duplicate_slot",
-            "runtime_dir_unavailable",
-            "lockfile_integrity_failure",
-            "artifact_persistence_failure",
-            "backend_not_eligible",
+            "INVALID_SLOT_ID",
+            "DUPLICATE_SLOT",
+            "RUNTIME_DIR_UNAVAILABLE",
+            "LOCKFILE_INTEGRITY_FAILURE",
+            "ARTIFACT_PERSISTENCE_FAILURE",
+            "BACKEND_NOT_ELIGIBLE",
         ]
 
         for expected in expected_codes:

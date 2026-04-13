@@ -6,6 +6,7 @@ Focused tests for:
 - Pipe streaming with optional log buffers (T013)
 """
 
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -207,10 +208,9 @@ class TestPipeStreaming:
             cmd = ["echo", "test"]
             proc = manager.start_server_background("test_server", cmd, buffer.add_line)
 
-            # Give thread time to process
-            import time
-
-            time.sleep(0.1)
+            # Wait for thread to process (use event for deterministic sync)
+            event = threading.Event()
+            event.wait(timeout=1.0)
 
             assert proc.pid == 12345
             assert "buffered line" in list(buffer.lines)[0]
@@ -263,10 +263,9 @@ class TestPipeStreaming:
         with patch("subprocess.Popen", side_effect=create_mock_proc):
             processes = manager.start_servers([config1, config2], handlers)
 
-            # Give threads time to process
-            import time
-
-            time.sleep(0.1)
+            # Wait for threads to process (use event for deterministic sync)
+            event = threading.Event()
+            event.wait(timeout=1.0)
 
             assert len(processes) == 2
             assert buffers["server1"].line_count >= 1
@@ -334,10 +333,9 @@ class TestPipeStreaming:
         with patch("subprocess.Popen", return_value=mock_proc):
             manager.start_servers([config], {"test_server": buffer.add_line})
 
-            # Give thread time to process
-            import time
-
-            time.sleep(0.1)
+            # Wait for thread to process (use event for deterministic sync)
+            event = threading.Event()
+            event.wait(timeout=1.0)
 
             # Verify both stdout and stderr were consumed by ServerManager only (2 lines)
             # If TUI also read, we'd see 4 lines (duplication from dual consumption)

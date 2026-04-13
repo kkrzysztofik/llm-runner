@@ -6,10 +6,11 @@ import os
 import signal
 import sys
 from collections.abc import Callable
+from typing import NoReturn
 
 from llama_cli.cli_parser import parse_args
+from llama_cli.colors import Colors
 from llama_manager import (
-    Color,
     Config,
     ModelSlot,
     ServerConfig,
@@ -55,14 +56,11 @@ Examples:
   src/run_opencode_models.py dry-run both 8080 8081""")
 
 
-def _print_backend_error_and_exit() -> None:
+def _print_backend_error_and_exit() -> NoReturn:
     print("error: acknowledgement_required", file=sys.stderr)
-    print("  failed_check: acknowledgement_required", file=sys.stderr)
     print(
+        "  failed_check: acknowledgement_required",
         "  why_blocked: risky operation detected and not acknowledged",
-        file=sys.stderr,
-    )
-    print(
         "  how_to_fix: use --acknowledge-risky flag or confirm with 'y'",
         file=sys.stderr,
     )
@@ -198,7 +196,10 @@ def _acknowledge_risk_if_required(
 
     if not acknowledged:
         print(f"warning: risky operation detected in {cfg.alias}: {risk}")
-        response = input(RISK_CONFIRM_PROMPT).strip().lower()
+        try:
+            response = input(RISK_CONFIRM_PROMPT).strip().lower()
+        except EOFError:
+            _print_backend_error_and_exit()
         if response != "y":
             _print_backend_error_and_exit()
 
@@ -230,19 +231,24 @@ def _run_dry_run_mode(parsed: argparse.Namespace, acknowledged: bool) -> int:
     return 0
 
 
+def _resolve_port(ports: list[int], index: int, default: int) -> int:
+    """Resolve port from ports list with default fallback."""
+    return ports[index] if len(ports) > index else default
+
+
 def _run_mode(parsed_mode: str, ports: list[int], manager: ServerManager, cfg: Config) -> int:
     if parsed_mode == "summary-balanced":
-        port = ports[0] if ports else cfg.summary_balanced_port
+        port = _resolve_port(ports, 0, cfg.summary_balanced_port)
         return run_summary_balanced(port, manager)
     if parsed_mode == "summary-fast":
-        port = ports[0] if ports else cfg.summary_fast_port
+        port = _resolve_port(ports, 0, cfg.summary_fast_port)
         return run_summary_fast(port, manager)
     if parsed_mode == "qwen35":
-        port = ports[0] if ports else cfg.qwen35_port
+        port = _resolve_port(ports, 0, cfg.qwen35_port)
         return run_qwen35(port, manager)
     if parsed_mode == "both":
-        port32 = ports[0] if len(ports) > 0 else cfg.summary_balanced_port
-        port35 = ports[1] if len(ports) > 1 else cfg.qwen35_port
+        port32 = _resolve_port(ports, 0, cfg.summary_balanced_port)
+        port35 = _resolve_port(ports, 1, cfg.qwen35_port)
         return run_both(port32, port35, manager)
     usage()
     return 1
@@ -262,17 +268,17 @@ def _normalize_main_args(args: list[str] | None) -> list[str]:
 
 def _build_target_configs(parsed_mode: str, ports: list[int], cfg: Config) -> list[ServerConfig]:
     if parsed_mode == "summary-balanced":
-        port = ports[0] if ports else cfg.summary_balanced_port
+        port = _resolve_port(ports, 0, cfg.summary_balanced_port)
         return [create_summary_balanced_cfg(port)]
     if parsed_mode == "summary-fast":
-        port = ports[0] if ports else cfg.summary_fast_port
+        port = _resolve_port(ports, 0, cfg.summary_fast_port)
         return [create_summary_fast_cfg(port)]
     if parsed_mode == "qwen35":
-        port = ports[0] if ports else cfg.qwen35_port
+        port = _resolve_port(ports, 0, cfg.qwen35_port)
         return [create_qwen35_cfg(port)]
     if parsed_mode == "both":
-        port32 = ports[0] if len(ports) > 0 else cfg.summary_balanced_port
-        port35 = ports[1] if len(ports) > 1 else cfg.qwen35_port
+        port32 = _resolve_port(ports, 0, cfg.summary_balanced_port)
+        port35 = _resolve_port(ports, 1, cfg.qwen35_port)
         return [create_summary_balanced_cfg(port32), create_qwen35_cfg(port35)]
     return []
 
@@ -291,7 +297,7 @@ def main(args: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, manager.on_terminate)
     atexit.register(manager.cleanup_servers)
 
-    Color.is_enabled()
+    Colors.is_enabled()
     check_prereqs()
     os.environ["ZES_ENABLE_SYSMAN"] = "1"
 
@@ -307,8 +313,11 @@ def main(args: list[str] | None = None) -> int:
 
     try:
         return _run_mode(parsed.mode, parsed.ports, manager, cfg)
-    except (ValueError, IndexError):
-        usage()
+    except ValueError as e:
+        print(f"error: invalid arguments: {e}", file=sys.stderr)
+        return 1
+    except IndexError as e:
+        print(f"error: index error: {e}", file=sys.stderr)
         return 1
 
 

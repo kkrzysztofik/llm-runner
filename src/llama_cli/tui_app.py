@@ -4,14 +4,14 @@ import signal
 import sys
 import time
 
-from rich.console import Group
+from rich.console import ConsoleDimensions, Group
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
+from llama_cli.colors import Colors
 from llama_manager import (
-    Color,
     Config,
     GPUStats,
     LaunchResult,
@@ -36,6 +36,7 @@ class TUIApp:
         gpu_indices: list[int],
         slots: list[ModelSlot] | None = None,
     ):
+        self.config = Config()
         self.configs = configs
         self.gpu_indices = gpu_indices
         self.slots = slots or []
@@ -56,12 +57,20 @@ class TUIApp:
         for idx in gpu_indices:
             self.gpu_stats.append(GPUStats(idx))
 
-        signal.signal(signal.SIGINT, self.server_manager.on_interrupt)
-        signal.signal(signal.SIGTERM, self.server_manager.on_terminate)
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
 
-    def on_resize(self, event) -> None:
-        self.width = event.columns
-        self.height = event.rows
+    def _signal_handler(self, signum: int, frame: object | None) -> None:
+        """Handle shutdown signals by stopping the TUI loop."""
+        self.stop()
+
+    def on_resize(self, event: ConsoleDimensions) -> None:
+        self.width = event.width
+        self.height = event.height
+
+    def stop(self) -> None:
+        """Stop the TUI loop gracefully."""
+        self.running = False
 
     def build_layout(self) -> Layout:
         layout = Layout(name="main")
@@ -111,6 +120,8 @@ class TUIApp:
             buffer2 = self.log_buffers[cfg2.alias]
             gpu2 = self.gpu_stats[1] if len(self.gpu_stats) > 1 else None
             layout["right"].update(self._build_column_panel(cfg2, buffer2, gpu2))
+        else:
+            layout["right"].update(self._build_placeholder_panel())
 
         return layout
 
@@ -183,12 +194,12 @@ class TUIApp:
     def _build_column_panel(
         self, cfg: ServerConfig, buffer: LogBuffer, gpu: GPUStats | None
     ) -> Panel:
-        color_code = Color.get_code(cfg.alias)
+        color_code = Colors.get_code(cfg.alias)
         color_style = color_code if color_code else "white"
 
         header = Text()
         header.append(f"{cfg.alias.upper()} ", style=f"bold {color_style}")
-        header.append(f"http://{Config().host}:{cfg.port}/v1", style="dim")
+        header.append(f"http://{self.config.host}:{cfg.port}/v1", style="dim")
         header.append("\n")
         header.append(
             f"Device: {cfg.device} | Ctx: {cfg.ctx_size} | Threads: {cfg.threads}", style="cyan"
@@ -252,9 +263,13 @@ class TUIApp:
         if not acknowledged:
             self._build_risk_panel_required()
             print(f"warning: risky operation detected in {cfg.alias}: {risk}")
-            response = input(RISK_CONFIRM_PROMPT).strip().lower()
-            if response != "y":
+            try:
+                response = input(RISK_CONFIRM_PROMPT).strip().lower()
+            except EOFError:
                 self._print_acknowledgement_required_and_exit()
+            else:
+                if response != "y":
+                    self._print_acknowledgement_required_and_exit()
 
         self.server_manager.acknowledge_risk(
             cfg.alias,
@@ -269,6 +284,14 @@ class TUIApp:
             return
         self.risk_panel = None
         self.risks_acknowledged = False
+
+    def _build_placeholder_panel(self) -> Panel:
+        """Build a placeholder panel for the right column when only one config exists."""
+        return Panel(
+            Text("[dim]No secondary config[/dim]"),
+            title="Status",
+            border_style="dim",
+        )
 
     def _handle_launch_result(self, launch_result: LaunchResult) -> None:
         if launch_result.is_blocked():

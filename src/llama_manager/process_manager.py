@@ -4,7 +4,6 @@
 import contextlib
 import json
 import os
-import re
 import signal
 import stat
 import subprocess
@@ -25,8 +24,8 @@ except ImportError:
 
 import psutil
 
-from .colors import Color
 from .config import ErrorCode, ErrorDetail, ModelSlot, MultiValidationError, ServerConfig
+from .server import _SENSITIVE_KEY_PATTERN
 
 # File permission constants (owner-only access)
 FILE_MODE_OWNER_ONLY: Final[int] = 0o600
@@ -711,9 +710,7 @@ def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
         full_key = f"{env_key_prefix}_{key}" if env_key_prefix else key
         if isinstance(value, dict):
             result[key] = _redact_sensitive_in_dict(value, full_key)
-        elif isinstance(value, str) and re.search(
-            r"(KEY|TOKEN|SECRET|PASSWORD|AUTH)", key, re.IGNORECASE
-        ):
+        elif isinstance(value, str) and _SENSITIVE_KEY_PATTERN.search(key):
             result[key] = REDACTED_VALUE
         else:
             result[key] = value
@@ -927,7 +924,9 @@ class ServerManager:
     def _format_output(self, server_name: str, line: str) -> str:
         """Format output line with timestamp and color"""
         timestamp = time.strftime("%H:%M:%S")
-        color_code = Color.get_code(server_name)
+        from llama_cli.colors import Colors
+
+        color_code = Colors.get_code(server_name)
 
         if color_code:
             return f"\033[1m[{timestamp}][{server_name}]\033[0m {line}"

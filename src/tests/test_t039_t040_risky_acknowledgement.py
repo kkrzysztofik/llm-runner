@@ -19,6 +19,31 @@ from llama_manager import LaunchResult, ServerConfig, ServerManager
 from llama_manager.config import ErrorCode, ErrorDetail, MultiValidationError
 
 
+class _FakeLive:
+    """Fake Rich Live context for TUI tests.
+
+    This class mocks Rich's Live context manager to allow testing
+    TUI components without actually rendering to the terminal.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        """Initialize fake Live context."""
+        self.args = args
+        self.kwargs = kwargs
+
+    def __enter__(self) -> "_FakeLive":
+        """Enter context manager."""
+        return self
+
+    def __exit__(self, *args) -> None:
+        """Exit context manager."""
+        pass
+
+    def update(self, *args, **kwargs) -> None:
+        """Update the live display (no-op for tests)."""
+        pass
+
+
 def _risky_cfg() -> ServerConfig:
     return ServerConfig(
         model="/home/kmk/models/test-model.gguf",
@@ -140,19 +165,6 @@ def test_tui_run_keeps_acknowledged_risk_panel_visible() -> None:
     app = TUIApp([_risky_cfg()], [0])
     app.running = False
 
-    class _FakeLive:
-        def __init__(self, *_args, **_kwargs) -> None:
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args) -> None:
-            return None
-
-        def update(self, *_args, **_kwargs) -> None:
-            return None
-
     with (
         patch("llama_cli.tui_app.Live", _FakeLive),
         patch.object(
@@ -184,7 +196,8 @@ def test_dry_run_invalid_mode_exits_with_usage_error(capsys: pytest.CaptureFixtu
 
     assert exc.value.code == 1
     captured = capsys.readouterr()
-    assert "dry-run requires a mode argument" in captured.err
+    assert "invalid mode" in captured.err
+    assert "Valid modes:" in captured.err
 
 
 def test_dry_run_exits_when_backend_validation_fails() -> None:
@@ -207,19 +220,6 @@ def test_dry_run_exits_when_backend_validation_fails() -> None:
 def test_tui_run_exits_when_launch_is_blocked(capsys: pytest.CaptureFixture[str]) -> None:
     app = TUIApp([_risky_cfg()], [0])
     app.running = False
-
-    class _FakeLive:
-        def __init__(self, *_args, **_kwargs) -> None:
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args) -> None:
-            return None
-
-        def update(self, *_args, **_kwargs) -> None:
-            return None
 
     blocked_error = ErrorDetail(
         error_code=ErrorCode.PORT_CONFLICT,
@@ -254,19 +254,6 @@ def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) ->
     app = TUIApp([_risky_cfg()], [0])
     app.running = False
 
-    class _FakeLive:
-        def __init__(self, *_args, **_kwargs) -> None:
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args) -> None:
-            return None
-
-        def update(self, *_args, **_kwargs) -> None:
-            return None
-
     with (
         patch("llama_cli.tui_app.Live", _FakeLive),
         patch.object(
@@ -299,7 +286,7 @@ def test_server_runner_main_dispatches_dry_run_mode() -> None:
         patch("llama_cli.server_runner.parse_args", return_value=parsed),
         patch("llama_cli.server_runner.check_prereqs"),
         patch("llama_cli.server_runner.ServerManager"),
-        patch("llama_cli.server_runner.Color.is_enabled"),
+        patch("llama_cli.colors.Colors.is_enabled"),
         patch("llama_cli.server_runner._run_dry_run_mode", return_value=0) as mock_run,
     ):
         code = server_runner.main(["dry-run", "both", "8080", "8081"])
@@ -320,7 +307,7 @@ def test_server_runner_main_returns_one_on_value_error() -> None:
         patch("llama_cli.server_runner.parse_args", return_value=parsed),
         patch("llama_cli.server_runner.check_prereqs"),
         patch("llama_cli.server_runner.ServerManager") as mock_manager_cls,
-        patch("llama_cli.server_runner.Color.is_enabled"),
+        patch("llama_cli.colors.Colors.is_enabled"),
         patch("llama_cli.server_runner.verify_risks"),
         patch("llama_cli.server_runner.run_summary_fast", side_effect=ValueError),
     ):

@@ -72,7 +72,7 @@ DEFAULT_PARALLEL_GEMMA4_E4B=-1
 # Single slot minimizes VRAM for parallel KV / server batching (matches llama-completion -np 1 probes)
 DEFAULT_PARALLEL_GEMMA4_27B=1
 DEFAULT_PARALLEL_GEMMA4_31B=1
-# Intel SYCL: f16 KV (no q8 cache quant) — lower overhead than q8_0 on Arc for these profiles
+# Intel SYCL summary: q8_0 KV cache for 256k context (memory savings outweigh slight overhead vs f16)
 DEFAULT_CACHE_TYPE_SUMMARY_K=q8_0
 DEFAULT_CACHE_TYPE_SUMMARY_V=q8_0
 DEFAULT_CACHE_TYPE_QWEN35_K=q8_0
@@ -520,6 +520,8 @@ start_both_qwen35() {
   build_server_cmd summary_balanced_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
     "$DEFAULT_CTX_SIZE_BOTH_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
     "" off "" "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+  summary_balanced_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+  summary_balanced_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   
   build_server_cmd qwen35_cmd "$MODEL_QWEN35_BOTH" "qwen35-coding" "" "$qwen35_port" \
     "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
@@ -671,9 +673,13 @@ dry_run() {
       echo "  Reasoning Format: (disabled)"
       echo "  Jinja: false"
       echo "  Chat Template Kwargs: (none)"
+      echo "  Sampling: temperature=0.6 top-p=0.95 top-k=20 min-p=0.0"
+      echo "  Penalties: presence=0.0 repeat=1.0"
       build_server_cmd tmp_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
         "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
         "" off "" "" "" false
+      tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+      tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
@@ -810,9 +816,13 @@ dry_run() {
       echo "  Reasoning Format: (disabled)"
       echo "  Jinja: false"
       echo "  Chat Template Kwargs: (none)"
+      echo "  Sampling: temperature=0.6 top-p=0.95 top-k=20 min-p=0.0"
+      echo "  Penalties: presence=0.0 repeat=1.0"
       build_server_cmd tmp_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
         "$DEFAULT_CTX_SIZE_BOTH_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
         "" off "" "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+      tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+      tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       echo ""
