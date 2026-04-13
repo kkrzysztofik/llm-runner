@@ -8,6 +8,15 @@
   - Fail immediately when `LLM_RUNNER_RUNTIME_DIR` is set but unusable (rejected: conflicts with clarified fallback order).
   - Silent fallback to temp dir (rejected: non-deterministic and weak observability).
 
+## 2) FR-019 gendoc.py design (M0 documentation generation)
+
+- **Decision**: Use simple `<!-- readme:section-name -->` marker pairs in PRD.md; gendoc.py extracts and injects into README at `<!-- BEGIN readme:section-name -->` / `<!-- END readme:section-name -->` markers.
+- **Rationale**: Simple, ad-hoc tool for release-time documentation sync; not part of MVP runtime.
+- **Alternatives considered**:
+  - Full Sphinx documentation generation (rejected: overkill for MVP, adds build complexity).
+  - Auto-generated README from code (rejected: PRD markers provide explicit control over what's documented).
+- **Milestone**: M0 (separate from M1 implementation).
+
 ## 2) Profile guidance precedence layer (FR-006)
 
 - **Decision**: Represent profile guidance as a structured preset layer that is merged after slot/workstation config and before explicit user overrides.
@@ -71,3 +80,11 @@
 - **Alternatives considered**:
   - Real hardware timing in CI (rejected: non-deterministic and unavailable in standard runners).
   - No automated timing checks (rejected: cannot demonstrate SC-006 evidence).
+
+## 10) FR-017 hardware fingerprint computation
+
+- **Decision**: Use `lspci` output hash for GPU devices combined with SYCL device enumeration (`sycl-ls`) to create deterministic machine identifier.
+- **Rationale**: Provides stable fingerprint across reboots while detecting hardware changes.
+- **Alternatives considered**:
+  - PCI device IDs only (rejected: doesn't capture full GPU topology).
+  - MAC address + hostname (rejected: changes with network config, not hardware).

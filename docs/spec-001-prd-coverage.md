@@ -261,4 +261,4 @@ Spec-001 successfully covers the **M1 milestone** (slot-first orchestration + va
 3. **Plan M2-M4 follow-ons** – Build pipeline (M2), profiling (M3), smoke/monitoring/shutdown (M4).
 4. **Update milestones** – Ensure implementation planning aligns with the PRD's M0-M4 roadmap, not Spec-001's narrow scope.
 
-**Output Path:** `/home/kmk/llm-runner/docs/spec-001-prd-coverage.md`
+**Output Path:** `docs/spec-001-prd-coverage.md`

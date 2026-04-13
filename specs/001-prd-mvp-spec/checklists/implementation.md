@@ -2,7 +2,7 @@
 
 **Purpose**: Validate that the M1 specification is complete, clear, consistent, and measurable before implementation planning/review.
 **Created**: 2026-04-09
-**Feature**: `/home/kmk/llm-runner/specs/001-prd-mvp-spec/spec.md`
+**Feature**: `specs/001-prd-mvp-spec/spec.md`
 
 **Note**: This checklist is a requirements-quality gate ("unit tests for English"), not an implementation behavior test.
 **Consulted Subagents**: Architect, Python QA, Security Reviewer

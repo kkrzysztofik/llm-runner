@@ -74,7 +74,7 @@ from .config import Config, ServerConfig
 @dataclass
 class Config:
     """Server configuration defaults"""
-    llama_cpp_root: str = "/home/kmk/src/llama.cpp"
+    llama_cpp_root: str = "src/llama.cpp"
     llama_server_bin_intel: str = f"{llama_cpp_root}/build/bin/llama-server"
     # ... more defaults
 ```

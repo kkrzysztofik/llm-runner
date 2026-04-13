@@ -43,12 +43,13 @@ Type conversions MUST be explicit and deterministic; no implicit casting or type
 ## `openai_flag_bundle` Schema
 
 - **Type**: object (dict[str, str | int | bool])
-- **Required keys**: none (bundle is opt-in based on configuration)
+- **Required keys**: none (bundle is opt-in based on configuration; empty `{}` when not configured)
 - **Allowed keys for M1**:
   - `--port` (int): OpenAI-compatible port override
   - `--host` (str): OpenAI-compatible host override
-  - `--chat-format` (str): chat template identifier
+  - `--chat-format` (str): chat template identifier (e.g., `chatml`, `qwen2`)
   - `--openai` (bool): OpenAI compatibility mode flag
+- **Qwen-class template requirement**: For anchored workstation models (Qwen 3.5–35B class), bundle MUST include `--chat-format` or `--jinja` flag to ensure correct chat template rendering under OpenAI-compatible surface.
 - Keys MUST retain leading `--` and map directly to effective CLI-style OpenAI flags.
 - Unknown keys are FR-003 canonical-schema violations in M1.
 - **Deterministic serialization requirement**:
@@ -68,3 +69,21 @@ Type conversions MUST be explicit and deterministic; no implicit casting or type
 - **SC-003/FR-003 consistency**: Deterministic ordering rules apply identically to both SC-003
   (override resolution verification) and FR-003 (dry-run canonical schema) to ensure consistent
   operator verification across repeated runs with identical inputs.
+
+## Redaction Rules (FR-007 alignment)
+
+- **Trigger patterns** (case-insensitive substring match on env key):
+  - `KEY`
+  - `TOKEN`
+  - `SECRET`
+  - `PASSWORD`
+  - `AUTH`
+- **Redaction format**: Replace value with `"[REDACTED]"` (string literal).
+- **Visible fields**: Filesystem paths remain visible in `model_path`, `binary_path`, and environment values.
+- **Token rules**: Environment values containing tokens are redacted regardless of key name if value pattern matches token format (e.g., `^[A-Za-z0-9_-]{20,}$`).
+
+## Filename Rules
+
+- Slot IDs must be filesystem-safe (alphanumeric, hyphen, underscore only; no spaces or special characters).
+- Artifact filenames must be filesystem-safe and include timestamp for uniqueness.
+- Lockfile names must be derived from slot_id with `.lock` suffix.

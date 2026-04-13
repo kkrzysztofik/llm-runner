@@ -98,7 +98,14 @@ The codebase already provides:
 - Run modes: `summary-balanced`, `summary-fast`, `qwen35`, `both`, `dry-run`.
 - Quality baseline: `ruff`, `pyright`, `pytest`.
 
-**Gaps to close for this PRD**: slot-first config, **`doctor` / `setup` / `smoke`**, TUI build jobs + provenance, GGUF metadata import (+ **test fixtures**), profile cache, slot locks, hardware warning / allowlist flows, **VRAM heuristics**, **OpenAI flag bundles** (incl. **chat template** for Qwen-class), **smoke defaults** (`both` vs **`slot`**), **`setup` venv**, exit-code contracts, README excerpt generation from PRD markers.
+**Gaps to close for this PRD**: slot-first config, **`doctor` / `setup` / `smoke`**, TUI build jobs + provenance, GGUF metadata import (+ **test fixtures**), profile cache, slot locks, hardware warning / allowlist flows, **VRAM heuristics**, **OpenAI flag bundles** (incl. **chat template** for Qwen-class), **smoke defaults** (`both` vs **`slot`**), **`setup` venv**, exit-code contracts, README excerpt generation from PRD markers (`<!-- readme:... -->`), gendoc.py tool.
+
+**Milestone Mapping**:
+- **M0** (Documentation): gendoc.py, README marker extraction
+- **M1** (Slot-first): slot-first config, validation, dry-run, lockfiles, risk acknowledgement
+- **M2** (Build/Setup): build pipeline, provenance, setup venv
+- **M3** (Profiling): profile cache, staleness warnings
+- **M4** (Operational): smoke, TUI monitoring, shutdown, GGUF parsing, hardware acknowledgment, logging, exit codes
 
 ---
 
@@ -117,6 +124,8 @@ User selects backend via config / CLI / TUI **without source edits**. MVP **runt
 Dry-run prints **exact** resolved command line, **binary path**, **model path**, **slot**, **merged environment** (defaults `<` workstation `<` slot overlays `<` process), **OpenAI-compat flag bundle**, **effective ports**, **hardware / compatibility notes**, and a small **compatibility matrix** (e.g. `vllm: not enabled in MVP`). Supports **`dry-run smoke`** showing **sequential smoke order**.
 
 The **anchored workstation OpenAI flag bundle** MUST include whatever **`llama-server` arguments** are required so **Qwen-class** GGUFs behave correctly under the **OpenAI-compatible** surface (e.g. **chat template / `--jinja`** or the **successor flag** required by the pinned upstream CLI). If upstream renames flags, the **workstation profile** is updated first; **`smoke`** remains the gate that catches drift.
+
+**OpenAI Flag Bundle Schema**: A dictionary mapping CLI-style flag names (with leading `--`) to their effective values. For M1, allowed keys are: `--port`, `--host`, `--chat-format`, `--openai`. Bundle is opt-in based on configuration; if empty, `openai_flag_bundle: {}` in dry-run output.
 
 ### FR-004 — TUI build pipeline (`llama.cpp`, `master`)
 
@@ -174,9 +183,11 @@ Repo defaults + user file merge by **`model_id` / slot keys**; **user wins** on 
 
 Support **unsharded** files or **user-indicated header shard**; **`doctor`** distinguishes **corrupt file** vs **parser / spec mismatch** (e.g. GGUF version).
 
-**Filename normalization** (for display + smoke id inference): deterministic pipeline — take **basename**, apply **Unicode normalization**, replace **whitespace** with **`-`**, lowercase optional (config: default **on**); optional **strip quant suffix patterns** (workstation-tuned list, **off by default** unless enabled in profile). **`doctor` dry-run / metadata view** shows **raw path**, **normalized stem**, and **resolved smoke name**.
+**Filename normalization** (for display + smoke id inference): deterministic pipeline — take **basename**, apply **Unicode normalization** (NFKC), replace **whitespace** with **`-`**, lowercase optional (config: default **on**); optional **strip quant suffix patterns** (workstation-tuned list, **off by default** unless enabled in profile). **`doctor` dry-run / metadata view** shows **raw path**, **normalized stem**, and **resolved smoke name**.
 
 **Test fixtures policy**: repo contains **small synthetic GGUF** files under a **`tests/fixtures/`** (or equivalent) path, produced **once** by a **documented maintainer script** (e.g. `scripts/generate_gguf_fixtures.py`). **CI consumes committed bytes only**—**no fixture generation in CI**.
+
+**Metadata Fields Extracted**: `general.name`, `general.architecture`, `tokenizer.type`, `llama.embedding_length`, `llama.block_count`, `llama.context_length`, `llama.attention.head_count`, `llama.attention.head_count_kv`. Missing `general.name` falls back to normalized filename stem for smoke model_id.
 
 ### FR-015 — Smoke (OpenAI-compatible)
 
@@ -214,6 +225,8 @@ Non-anchor or unexpected topology → **warn** (not MVP hard-fail).
 
 **Session snooze**: **ephemeral** file under **`$XDG_RUNTIME_DIR/llm-runner/`** (fallback **`/tmp/llm-runner/`**) — **suppresses duplicate warnings until exit or reboot**, never replaces **allowlist** for permanent suppression.
 
+**Hardware Fingerprint Computation**: Use `lspci` output hash for GPU devices combined with SYCL device enumeration (`sycl-ls`) to create a deterministic machine identifier. Fingerprint changes when GPU hardware changes.
+
 ### FR-018 — Logging and reports
 
 **`setup`** / mutating actions append to a **rotating log** with **command, timestamp, exit code, truncated output**; **redact** obvious secret patterns; failure drops a **report directory** under **`~/.local/share/llm-runner/reports/<timestamp>/`** (plain files MVP).
@@ -221,6 +234,15 @@ Non-anchor or unexpected topology → **warn** (not MVP hard-fail).
 ### FR-019 — Documentation excerpt generation
 
 `PRD.md` contains `<!-- readme:... -->` marker blocks; **`gendoc.py`** (ad-hoc, before releases) injects excerpts into **README** (exact mechanism documented in dev docs / M0).
+
+**Marker Format**: `<!-- readme:section-name -->` opens a section and `<!-- /readme:section-name -->` closes it. Content between markers is extracted verbatim. Example:
+```markdown
+<!-- readme:workstation -->
+(Workstation table + prerequisites — keep short)
+<!-- /readme:workstation -->
+```
+
+**gendoc.py Behavior**: Scans PRD for marker pairs, extracts content, injects into README at `<!-- BEGIN readme:section-name -->` / `<!-- END readme:section-name -->` markers. Ad-hoc tool, not part of MVP runtime.
 
 ---
 
@@ -352,6 +374,14 @@ This PRD is implementation-ready when:
 2. **Scope** clearly states **llama.cpp-only runtime**, **`vLLM` deferred**, **anchored workstation**, and **slot-first networking**.
 3. **Operational contracts** exist for **`doctor` / `setup` / `smoke`**, **build provenance**, **locks**, and **shutdown**.
 4. Work can be **broken into engineering tasks** without further product ambiguity on **MVP vs future** boundaries.
+
+**Canonical Terminology**:
+- **warning**: Non-blocking diagnostic; does not prevent launch.
+- **launch-blocking error**: Error that prevents any slot from starting.
+- **risky operation**: Launch condition requiring explicit operator acknowledgement (port <1024, non-loopback bind, warning-bypass override).
+- **degraded launch**: One-slot launch when only one of two configured slots is available.
+- **full-block launch**: Launch outcome where zero configured slots can start.
+- **current launch attempt**: Runtime context covering a single invocation; synonymous with "session-only" in M1.
 
 ---
 

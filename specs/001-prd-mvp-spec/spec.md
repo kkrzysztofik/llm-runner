@@ -3,7 +3,8 @@
 **Feature Branch**: `001-prd-mvp-spec`  
 **Created**: 2026-04-08  
 **Status**: Draft  
-**Input**: User description: "based on PRD.md"
+**Input**: PRD.md v0.3 (M0-M4 milestones)  
+**Milestone Scope**: M1 only — slot-first orchestration, deterministic override precedence, validation, dry-run, lockfiles, risk acknowledgement. Not full PRD MVP.
 
 ## Clarifications
 

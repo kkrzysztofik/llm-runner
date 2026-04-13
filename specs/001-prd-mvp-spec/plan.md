@@ -2,6 +2,7 @@
 
 **Branch**: `001-prd-mvp-spec` | **Date**: 2026-04-10 | **Spec**: `/specs/001-prd-mvp-spec/spec.md`
 **Input**: Feature specification from `/specs/001-prd-mvp-spec/spec.md`
+**Milestone Scope**: M1 only — slot-first orchestration, deterministic override precedence, validation, dry-run, lockfiles, risk acknowledgement, backend eligibility. Not full PRD MVP.
 
 ## Summary
 
@@ -9,6 +10,9 @@ Implement PRD M1 slot-first launch/dry-run behavior with deterministic configura
 per-slot lock ownership checks, structured actionable validation errors, canonical dry-run output,
 and JSON observability artifacts. The implementation must enforce M1 backend eligibility (`llama_cpp`
 only), preserve CLI/TUI contract parity, and meet stated p95 validation and dry-run timing budgets.
+
+**Note**: This plan covers M1 milestone only. M0 (documentation generation), M2 (build/setup),
+M3 (profiling), and M4 (smoke/monitoring/shutdown) are deferred to follow-on specifications.
 
 ## Technical Context
 

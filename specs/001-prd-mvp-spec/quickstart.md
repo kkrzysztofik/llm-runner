@@ -6,19 +6,21 @@
 
 **M1 Scope (Implemented):**
 - Slot-first orchestration (FR-001)
-- Deterministic override precedence (FR-009)
+- Deterministic override precedence (FR-006, FR-009)
 - Basic validation (FR-002, NFR-001)
-- Dry-run mode (FR-003 partial)
+- Dry-run mode (FR-003)
 - Lockfile handling (FR-009)
 - Risk acknowledgement (FR-008)
+- Backend eligibility (FR-011)
+- Observability artifacts (FR-007)
 
 **Deferred to Future Milestones (per PRD Spec-001 Compliance Review):**
 - M0: Documentation generation (FR-019)
+- M1: Backend abstraction (FR-002), Config schema (FR-013) — partial
 - M2: Build pipeline (FR-004, FR-006), Setup (FR-005)
 - M3: Profiling (FR-007, FR-008)
 - M4: Smoke (FR-015), TUI monitoring (FR-010), Shutdown (FR-012), GGUF parsing (FR-014),
-      Hardware acknowledgment (FR-017), Logging (FR-018), CLI scripting (FR-011),
-      Backend abstraction (FR-002), Config schema (FR-013)
+      Hardware acknowledgment (FR-017), Logging (FR-018), CLI scripting (FR-011)
 
 **Do not claim full PRD completion.** This branch is a milestone delivery, not MVP completion.
 

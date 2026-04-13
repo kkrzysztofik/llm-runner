@@ -36,7 +36,7 @@ llm-runner/
 def test_config_default_values():
     """Config should have correct default paths and ports"""
     cfg = Config()
-    assert cfg.llama_cpp_root == "/home/kmk/src/llama.cpp"
+    assert cfg.llama_cpp_root == "src/llama.cpp"
     assert cfg.summary_balanced_port == 8080
 
 def test_validate_port_invalid_low():

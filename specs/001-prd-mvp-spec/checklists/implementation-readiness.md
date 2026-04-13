@@ -2,7 +2,7 @@
 
 **Purpose**: Validate that implementation tasks (`tasks.md`) are complete, clear, consistent, and measurable against the M1 spec/plan/contracts before execution.
 **Created**: 2026-04-10
-**Feature**: `/home/kmk/llm-runner/specs/001-prd-mvp-spec/spec.md`
+**Feature**: `specs/001-prd-mvp-spec/spec.md`
 
 **Note**: This is a requirements-quality checklist ("unit tests for English"), not an implementation behavior test suite.
 **Consulted Subagents**: Architect, Python QA, Security Reviewer, Documentation

@@ -124,6 +124,26 @@
   - Lock owner considered live only if PID exists, owns expected port, and start-time matches
   - Malformed/unreadable/indeterminate lock checks are launch-blocking (`failed_check=lockfile_integrity`)
 
+## Entity: GGUFMetadata (M4 - GGUF Parsing)
+
+- **Fields**:
+  - `general_name: str | None`
+  - `architecture: str`
+  - `tokenizer_type: str`
+  - `embedding_length: int`
+  - `block_count: int`
+  - `context_length: int`
+  - `attention_head_count: int`
+  - `attention_head_count_kv: int`
+  - `file_path: str`
+  - `normalized_stem: str`
+  - `parse_status: "success" | "timeout" | "corrupt" | "unsupported"`
+- **Validation rules**:
+  - Parse timeout (5s default) treated as `unsupported/corrupt`
+  - Missing `general_name` falls back to normalized filename stem for smoke model_id
+  - Prefix read cap (32 MiB default) enforced to avoid full weight loading
+  - Test fixtures required for CI validation (AC-018)
+
 ## Entity: RiskAcknowledgementRecord
 
 - **Fields**:
@@ -133,6 +153,31 @@
   - `attempt_id: str`
 - **State rules**:
   - Session/attempt scoped only; never persisted across launch attempts
+
+## Entity: HardwareAllowlistEntry (FR-017)
+
+- **Fields**:
+  - `machine_fingerprint: str`
+  - `pci_device_ids: list[str]`
+  - `granted_at: str`
+  - `granted_by: str` (user identifier)
+  - `expires: str | None` (None = permanent until fingerprint changes)
+- **Validation rules**:
+  - Invalidated automatically when fingerprint/PCI set changes
+  - JSON file under `~/.config/llm-runner/hardware-allowlist.json`
+  - User must re-ack when hardware changes
+
+## Entity: SessionSnooze (FR-017)
+
+- **Fields**:
+  - `snooze_id: str` (ephemeral)
+  - `created_at: str`
+  - `expires_at: str` (end of session or reboot)
+  - `hardware_fingerprint: str`
+- **Validation rules**:
+  - Ephemeral file under `$XDG_RUNTIME_DIR/llm-runner/` or `/tmp/llm-runner/`
+  - Suppresses duplicate warnings until exit/reboot
+  - Never replaces persistent allowlist
 
 ## Entity: ObservabilityArtifact
 
@@ -148,6 +193,31 @@
   - Stored under resolved runtime artifact dir
   - File permission `0600`, directory permission `0700`
   - Persistence failures are launch-blocking (`failed_check=artifact_persistence`)
+
+## Entity: ReadmeMarker (M0 - Documentation Generation)
+
+- **Fields**:
+  - `section_name: str`
+  - `content: str`
+  - `start_marker: str` (e.g., `<!-- readme:workstation -->`)
+  - `end_marker: str` (e.g., `<!-- /readme:workstation -->`)
+- **Validation rules**:
+  - Section names are alphanumeric with hyphens only
+  - Content is extracted verbatim between markers
+  - Used by gendoc.py for README injection (M0 milestone, not M1)
+
+## Entity: HardwareFingerprint
+
+- **Fields**:
+  - `gpu_devices: list[GPUDevice]`
+  - `sycl_devices: list[SYCLDevice]`
+  - `fingerprint_hash: str` (SHA256 of device enumeration)
+- **GPUDevice fields**: `vendor`, `model`, `pci_address`, `driver_version`
+- **SYCLDevice fields**: `vendor`, `model`, `backend`, `device_id`
+- **Validation rules**:
+  - Fingerprint changes when any device attribute changes
+  - Used for hardware-allowlist matching (FR-017)
+  - Computed via `lspci` + `sycl-ls` (M4 milestone)
 
 ## Relationships
 
