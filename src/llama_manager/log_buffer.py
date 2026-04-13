@@ -5,9 +5,6 @@ import re
 import threading
 from collections import deque
 
-from rich.panel import Panel
-from rich.text import Text
-
 
 def _redact_sensitive_values(line: str) -> str:
     """Redact sensitive values from a log line.
@@ -39,7 +36,7 @@ class LogBuffer:
 
     Thread Safety:
     - All public methods acquire self.lock before accessing self.lines
-    - add_line(), clear(), get_rich_renderable(), get_stats(), and line_count
+    - add_line(), clear(), get_lines(), get_text(), get_stats(), and line_count
       are all thread-safe via the internal threading.Lock
     - The running flag is not protected by the lock (read-only after initialization)
     - Consumers should not access self.lines directly without holding the lock
@@ -68,20 +65,22 @@ class LogBuffer:
         """Stop the buffer"""
         self.running = False
 
-    def get_rich_renderable(self) -> Panel:
-        """Get a Rich renderable for this buffer (Panel auto-scrolls)"""
+    def get_lines(self) -> list[str]:
+        """Get a snapshot of current buffered lines."""
         with self.lock:
-            if not self.lines:
-                text = Text("[dim]Waiting for output...[/]")
-            else:
-                text = Text("\n".join(self.lines))
+            return list(self.lines)
 
-        return Panel(text, title="Logs", border_style="dim")
+    def get_text(self, empty_message: str = "Waiting for output...") -> str:
+        """Get plain-text log output suitable for UI rendering."""
+        lines = self.get_lines()
+        if not lines:
+            return empty_message
+        return "\n".join(lines)
 
     def get_stats(self) -> str:
-        """Get buffer stats for display"""
+        """Get buffer stats for display."""
         with self.lock:
-            return f"[dim]{len(self.lines)} lines[/]"
+            return f"{len(self.lines)} lines"
 
     @property
     def line_count(self) -> int:

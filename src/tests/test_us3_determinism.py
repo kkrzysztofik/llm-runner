@@ -27,7 +27,7 @@ def test_resolution_is_deterministic():
     # Verify JSON serialization is identical
     # Use a helper to convert ServerConfig to dict for JSON dumping
     def to_dict(cfg):
-        return {k: getattr(cfg, k) for k in res1.__dict__.keys()}
+        return {k: getattr(cfg, k) for k in res1.__dict__}
 
     assert json.dumps(to_dict(res1), sort_keys=True) == json.dumps(to_dict(res2), sort_keys=True)
 

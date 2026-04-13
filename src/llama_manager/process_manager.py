@@ -11,11 +11,12 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import FrameType
-from typing import Final, TextIO
+from typing import Any, Final, TextIO, TypedDict, cast
 
 import psutil
 
@@ -129,6 +130,17 @@ class LaunchResult:
     def is_success(self) -> bool:
         """Check if launch was fully successful."""
         return self.status == "success"
+
+
+class DryRunArtifactPayload(TypedDict):
+    """Dry-run artifact payload contract used by backend persistence."""
+
+    timestamp: str
+    slot_scope: list[str]
+    resolved_command: dict[str, Any]
+    validation_results: dict[str, Any]
+    warnings: list[Any]
+    environment_redacted: dict[str, Any]
 
 
 def _atomic_write_json(path: Path, data: dict, mode: int = FILE_MODE_OWNER_ONLY) -> None:
@@ -495,7 +507,7 @@ def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | N
     return None
 
 
-def write_artifact(runtime_dir: Path, slot_id: str, data: dict) -> Path:
+def write_artifact(runtime_dir: Path, slot_id: str, data: DryRunArtifactPayload | dict) -> Path:
     """T012: Write artifact with JSON serialization and 0700/0600 permission enforcement.
 
     FR-007: Artifact directory is artifacts/. Filename format: artifact-{timestamp}.json
@@ -543,7 +555,8 @@ def write_artifact(runtime_dir: Path, slot_id: str, data: dict) -> Path:
 
     try:
         # Redact sensitive environment variables in the data
-        redacted_data = _redact_sensitive_in_dict(data)
+        # TypedDict is not recognized as dict by pyright, so we cast explicitly
+        redacted_data = _redact_sensitive_in_dict(cast(dict, data))
 
         # Atomic write with mode set at file creation (TOCTOU fix)
         _atomic_write_json(artifact_path, redacted_data, FILE_MODE_OWNER_ONLY)
@@ -586,7 +599,7 @@ def write_artifact(runtime_dir: Path, slot_id: str, data: dict) -> Path:
         raise ValidationException(MultiValidationError(errors=[error_detail])) from e
 
 
-def _validate_artifact_fields(data: dict) -> None:
+def _validate_artifact_fields(data: DryRunArtifactPayload | dict) -> None:
     """FR-007: Validate required top-level artifact fields.
 
     Required fields:
@@ -621,6 +634,26 @@ def _validate_artifact_fields(data: dict) -> None:
             failed_check="artifact_validation",
             why_blocked=f"artifact missing required fields: {', '.join(missing_fields)}",
             how_to_fix="ensure artifact data contains all required FR-007 fields",
+        )
+        raise ValidationException(MultiValidationError(errors=[error_detail]))
+
+    slot_scope = data.get("slot_scope")
+    if not isinstance(slot_scope, list) or not all(isinstance(item, str) for item in slot_scope):
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
+            failed_check="artifact_validation",
+            why_blocked="slot_scope must be list[str]",
+            how_to_fix="provide slot_scope as a list of slot IDs",
+        )
+        raise ValidationException(MultiValidationError(errors=[error_detail]))
+
+    resolved_command = data.get("resolved_command")
+    if not isinstance(resolved_command, dict):
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
+            failed_check="artifact_validation",
+            why_blocked="resolved_command must be an object mapping",
+            how_to_fix="provide resolved_command as a mapping keyed by slot ID",
         )
         raise ValidationException(MultiValidationError(errors=[error_detail]))
 
@@ -663,27 +696,75 @@ class ServerManager:
         # In-memory lifecycle audit trail for start/cleanup/kill/skip decisions
         self._lifecycle_audit: list[dict] = []
         # Current-attempt acknowledgement cache for risky operations
-        self._risky_acknowledged: set[str] = set()
+        self._risky_acknowledged_cache: dict[str, set[str]] = {}
+        self._current_launch_attempt_id: str | None = None
 
-    def acknowledge_risk(self, slot_id: str, risk_type: str) -> None:
+    def begin_launch_attempt(self, launch_attempt_id: str | None = None) -> str:
+        """Create/select launch attempt and initialize per-attempt ack cache."""
+        attempt_id = launch_attempt_id or uuid.uuid4().hex
+        self._current_launch_attempt_id = attempt_id
+        self._risky_acknowledged_cache.setdefault(attempt_id, set())
+        return attempt_id
+
+    def issue_ack_token(self, launch_attempt_id: str | None = None) -> str:
+        """Issue deterministic ack token bound to a launch attempt."""
+        attempt_id = launch_attempt_id or self.begin_launch_attempt()
+        return f"ack:{attempt_id}"
+
+    def validate_ack_token(self, launch_attempt_id: str, ack_token: str | None) -> bool:
+        """Validate that ack_token is bound to launch_attempt_id."""
+        if ack_token is None:
+            return False
+        return ack_token == f"ack:{launch_attempt_id}"
+
+    def acknowledge_risk(
+        self,
+        slot_id: str,
+        risk_type: str,
+        launch_attempt_id: str | None = None,
+        ack_token: str | None = None,
+    ) -> None:
         """Mark a risky operation as acknowledged for a specific slot.
 
         Args:
             slot_id: Slot identifier
             risk_type: The type of risk (e.g., 'privileged_port')
+            launch_attempt_id: Launch attempt identifier (current attempt if omitted)
+            ack_token: Optional token that must match the attempt when provided
 
         """
-        self._risky_acknowledged.add(f"{slot_id}:{risk_type}")
+        attempt_id = launch_attempt_id or self._current_launch_attempt_id
+        if attempt_id is None:
+            attempt_id = self.begin_launch_attempt()
 
-    def is_risk_acknowledged(self, slot_id: str, risk_type: str) -> bool:
+        if ack_token is not None and not self.validate_ack_token(attempt_id, ack_token):
+            raise ValueError("ack_token does not match launch_attempt_id")
+
+        self._risky_acknowledged_cache.setdefault(attempt_id, set()).add(f"{slot_id}:{risk_type}")
+
+    def is_risk_acknowledged(
+        self,
+        slot_id: str,
+        risk_type: str,
+        launch_attempt_id: str | None = None,
+    ) -> bool:
         """Check if a risky operation has been acknowledged for a specific slot.
 
         Args:
             slot_id: Slot identifier
             risk_type: The type of risk (e.g., 'privileged_port')
+            launch_attempt_id: Launch attempt identifier (current attempt if omitted)
 
         """
-        return f"{slot_id}:{risk_type}" in self._risky_acknowledged
+        attempt_id = launch_attempt_id or self._current_launch_attempt_id
+        if attempt_id is None:
+            return False
+        return f"{slot_id}:{risk_type}" in self._risky_acknowledged_cache.get(attempt_id, set())
+
+    def clear_risk_acknowledgements(self) -> None:
+        """Clear all in-memory risk acknowledgement state."""
+        self._risky_acknowledged_cache.clear()
+        self._current_launch_attempt_id = None
 
     def cleanup_servers(self) -> None:
         """Clean up all server processes with ownership verification and audit trail.
@@ -701,7 +782,7 @@ class ServerManager:
             return
         self.shutting_down = True
         # Clear acknowledgement cache on exit paths
-        self._risky_acknowledged.clear()
+        self.clear_risk_acknowledgements()
 
         self._record_lifecycle_event("cleanup", details="initiated")
 
@@ -961,6 +1042,8 @@ class ServerManager:
             for proc in self.servers:
                 code = proc.poll()
                 if code is not None:
+                    # Clear acknowledgement cache when process lifecycle exits.
+                    self.clear_risk_acknowledgements()
                     return code
             time.sleep(0.2)
 

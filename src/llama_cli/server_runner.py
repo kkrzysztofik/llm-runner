@@ -156,16 +156,26 @@ def run_both(port32: int, port35: int, manager: ServerManager) -> int:
 
 def verify_risks(manager: ServerManager, configs: list[ServerConfig], acknowledged: bool) -> None:
     """Verify that risky operations are acknowledged before launch."""
+    launch_attempt_id = manager.begin_launch_attempt()
+    ack_token = manager.issue_ack_token(launch_attempt_id)
+
     for cfg in configs:
+        if acknowledged and "warning_bypass" not in cfg.risky_acknowledged:
+            cfg.risky_acknowledged.append("warning_bypass")
         for risk in detect_risky_operations(cfg):
-            if manager.is_risk_acknowledged(cfg.alias, risk):
+            if manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
                 continue
             if not acknowledged:
                 print(f"warning: risky operation detected in {cfg.alias}: {risk}")
                 response = input("Confirm risky operation [y/N]: ").strip().lower()
                 if response != "y":
                     _print_backend_error_and_exit()
-            manager.acknowledge_risk(cfg.alias, risk)
+            manager.acknowledge_risk(
+                cfg.alias,
+                risk,
+                launch_attempt_id=launch_attempt_id,
+                ack_token=ack_token,
+            )
 
 
 def _normalize_main_args(args: list[str] | None) -> list[str]:
@@ -225,7 +235,7 @@ def main(args: list[str] | None = None) -> int:
         target_mode = argv[1]
         primary_port = argv[2] if len(argv) > 2 else ""
         secondary_port = argv[3] if len(argv) > 3 else ""
-        dry_run(target_mode, primary_port, secondary_port)
+        dry_run(target_mode, primary_port, secondary_port, acknowledged=parsed.acknowledge_risky)
         return 0
 
     cfg = Config()

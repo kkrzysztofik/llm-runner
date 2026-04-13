@@ -317,6 +317,7 @@ def detect_risky_operations(cfg: ServerConfig) -> list[str]:
     Risky operations include:
     - Privileged ports (< 1024)
     - Non-loopback bind addresses (not 127.0.0.1 or ::1)
+    - Warning bypass acknowledgement path
 
     Args:
         cfg: Server configuration to analyze
@@ -332,6 +333,9 @@ def detect_risky_operations(cfg: ServerConfig) -> list[str]:
 
     if cfg.bind_address not in ("127.0.0.1", "::1"):
         risks.append("non_loopback")
+
+    if "warning_bypass" in cfg.risky_acknowledged:
+        risks.append("warning_bypass")
 
     return risks
 

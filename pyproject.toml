@@ -49,18 +49,19 @@ select = [
     "S",   # flake8-bandit (security)
 ]
 ignore = [
-    "D",     # docstring style checks are out of scope for this phase
-    "E501",  # line length — handled by formatter
-    "B008",  # function call in default argument
-    "S603",  # subprocess call — intentional in process_manager
-    "S607",  # partial executable path — intentional (user-configured paths)
-    "S110",  # try-except-pass — intentional in thread pipe readers, cleanup, and GPU stat fallbacks
+    "D",             # docstring style checks are out of scope for this phase
+    "E501",          # line length — handled by formatter
+    "B008",          # function call in default argument
+    "B006",          # mutable default argument — intentional in config defaults
+    "S603",          # subprocess call — intentional in process_manager
+    "S607",          # partial executable path — intentional (user-configured paths)
+    "S110",          # try-except-pass — intentional in thread pipe readers, cleanup, and GPU stat fallbacks
+    "S108",          # /tmp usage — test fixtures for temp paths
+    "S104",          # network binds — test coverage for security checks (uses 192.168.x.x instead)
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/llama_cli/*" = ["D", "E501"]
-"src/llama_manager/*" = ["D", "E501"]
-"src/tests/*" = ["D", "E501", "S101"]  # assert is fine in tests
+"src/tests/*" = ["S101"]  # assert is fine in tests
 
 [tool.ruff.lint.isort]
 known-first-party = ["llama_cli", "llama_manager"]

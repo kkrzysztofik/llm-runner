@@ -1,5 +1,27 @@
 # Quickstart — Validate PRD M1 Slot-First Launch & Dry-Run
 
+## Scope & Compliance Notice
+
+**CRITICAL:** This branch (`001-prd-mvp-spec`) implements **PRD Milestone M1 only** — not the full PRD MVP.
+
+**M1 Scope (Implemented):**
+- Slot-first orchestration (FR-001)
+- Deterministic override precedence (FR-009)
+- Basic validation (FR-002, NFR-001)
+- Dry-run mode (FR-003 partial)
+- Lockfile handling (FR-009)
+- Risk acknowledgement (FR-008)
+
+**Deferred to Future Milestones (per PRD Spec-001 Compliance Review):**
+- M0: Documentation generation (FR-019)
+- M2: Build pipeline (FR-004, FR-006), Setup (FR-005)
+- M3: Profiling (FR-007, FR-008)
+- M4: Smoke (FR-015), TUI monitoring (FR-010), Shutdown (FR-012), GGUF parsing (FR-014),
+      Hardware acknowledgment (FR-017), Logging (FR-018), CLI scripting (FR-011),
+      Backend abstraction (FR-002), Config schema (FR-013)
+
+**Do not claim full PRD completion.** This branch is a milestone delivery, not MVP completion.
+
 ## Prerequisites
 
 - Python 3.12 environment set up (`uv sync --extra dev`)

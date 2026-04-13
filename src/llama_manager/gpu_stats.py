@@ -4,10 +4,9 @@
 import json
 import subprocess
 import time
+from typing import Any
 
 import psutil
-from rich.panel import Panel
-from rich.text import Text
 
 
 class GPUStats:
@@ -15,7 +14,7 @@ class GPUStats:
 
     def __init__(self, device_index: int = 0):
         self.device_index = device_index
-        self.stats: dict = {}
+        self.stats: dict[str, Any] = {}
         self.last_update = 0
         self.update_interval = 0.5
 
@@ -28,7 +27,7 @@ class GPUStats:
         self.stats = self._get_nvtop_stats()
         self.last_update = current_time
 
-    def _get_nvtop_stats(self) -> dict:
+    def _get_nvtop_stats(self) -> dict[str, Any]:
         """Get stats from nvtop JSON output"""
         try:
             result = subprocess.run(
@@ -57,33 +56,30 @@ class GPUStats:
             "mem": f"{psutil.virtual_memory().percent:.0f}%",
         }
 
-    def get_rich_renderable(self) -> Panel:
-        """Get a panel with GPU stats"""
+    def get_stats_snapshot(self) -> dict[str, Any]:
+        """Get current GPU stats as pure data."""
         self.update()
+        return dict(self.stats)
 
-        stats_text = Text()
-        stats_text.append("Device: ", style="bold")
-        stats_text.append(self.stats.get("device", "N/A"), style="cyan")
+    def format_stats_text(self) -> str:
+        """Get plain-text representation of current GPU stats."""
+        stats = self.get_stats_snapshot()
+        lines = [f"Device: {stats.get('device', 'N/A')}"]
 
-        if "gpu_util" in self.stats:
-            stats_text.append("GPU: ", style="bold")
-            stats_text.append(str(self.stats.get("gpu_util", "N/A")), style="green")
-            stats_text.append(" | Mem: ", style="bold")
-            stats_text.append(str(self.stats.get("mem_util", "N/A")), style="yellow")
+        if "gpu_util" in stats:
+            lines.append(
+                f"GPU: {stats.get('gpu_util', 'N/A')} | Mem: {stats.get('mem_util', 'N/A')}"
+            )
+        else:
+            lines.append(f"CPU: {stats.get('cpu', 'N/A')} | Mem: {stats.get('mem', 'N/A')}")
 
-        if "temp" in self.stats:
-            stats_text.append("\nTemp: ", style="bold")
-            stats_text.append(str(self.stats.get("temp", "N/A")), style="red")
+        if "temp" in stats:
+            lines.append(f"Temp: {stats.get('temp', 'N/A')}")
 
-        if "power" in self.stats and self.stats["power"] != "N/A":
-            stats_text.append("\nPower: ", style="bold")
-            stats_text.append(str(self.stats["power"]), style="magenta")
+        if "power" in stats and stats["power"] != "N/A":
+            lines.append(f"Power: {stats['power']}")
 
-        return Panel(
-            stats_text,
-            title="[bold yellow]GPU Stats[/]",
-            border_style="yellow",
-        )
+        return "\n".join(lines)
 
     @property
     def gpu_util(self) -> str:

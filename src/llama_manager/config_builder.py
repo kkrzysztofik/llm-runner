@@ -1,6 +1,7 @@
 # ServerConfig creation helpers
 
 
+import os
 from copy import deepcopy
 from typing import Any
 
@@ -26,9 +27,37 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             result[key] = _deep_merge(result[key], value)
+        elif key in result and isinstance(result[key], list) and isinstance(value, list):
+            result[key] = [*deepcopy(result[key]), *deepcopy(value)]
         else:
             result[key] = value
     return result
+
+
+def _validate_merged_config(
+    merged: dict[str, Any],
+    slot_config: dict | None,
+    workstation_config: dict | None,
+    profile_config: dict | None,
+    override_config: dict | None,
+) -> None:
+    """Validate merged FR-006 config values after precedence resolution."""
+    port = merged.get("port")
+    if not isinstance(port, int) or not (1024 <= port <= 65535):
+        raise ValueError(f"port must be between 1024 and 65535, got: {port}")
+
+    threads = merged.get("threads")
+    if not isinstance(threads, int) or threads <= 0:
+        raise ValueError(f"threads must be greater than 0, got: {threads}")
+
+    model_overridden = any(
+        isinstance(layer, dict) and "model" in layer
+        for layer in (slot_config, workstation_config, profile_config, override_config)
+    )
+    if model_overridden:
+        model = merged.get("model")
+        if not isinstance(model, str) or not os.path.exists(model):
+            raise ValueError(f"model path not found: {model}")
 
 
 def create_summary_balanced_cfg(
@@ -229,6 +258,14 @@ def merge_config_overrides(
     # Step 4: override_config (highest precedence)
     if override_config:
         merged = _deep_merge(merged, override_config)
+
+    _validate_merged_config(
+        merged,
+        slot_config=slot_config,
+        workstation_config=workstation_config,
+        profile_config=profile_config,
+        override_config=override_config,
+    )
 
     # Convert dict back to ServerConfig
     return ServerConfig(

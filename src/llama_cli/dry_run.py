@@ -6,6 +6,8 @@ import time
 
 from llama_manager import (
     Config,
+    ServerConfig,
+    ServerManager,
     build_dry_run_slot_payload,
     create_qwen35_cfg,
     create_summary_balanced_cfg,
@@ -14,12 +16,55 @@ from llama_manager import (
     validate_server_config,
     write_artifact,
 )
+from llama_manager.server import detect_risky_operations
+
+
+def _print_acknowledgement_required_and_exit() -> None:
+    print("error: acknowledgement_required", file=sys.stderr)
+    print("  failed_check: acknowledgement_required", file=sys.stderr)
+    print(
+        "  why_blocked: risky operation detected and not acknowledged",
+        file=sys.stderr,
+    )
+    print(
+        "  how_to_fix: use --acknowledge-risky flag or confirm with 'y'",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+def _verify_dry_run_risks(
+    manager: ServerManager,
+    configs: list[ServerConfig],
+    acknowledged: bool,
+) -> None:
+    launch_attempt_id = manager.begin_launch_attempt()
+    ack_token = manager.issue_ack_token(launch_attempt_id)
+
+    for cfg in configs:
+        if acknowledged and "warning_bypass" not in cfg.risky_acknowledged:
+            cfg.risky_acknowledged.append("warning_bypass")
+        for risk in detect_risky_operations(cfg):
+            if manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
+                continue
+            if not acknowledged:
+                print(f"warning: risky operation detected in {cfg.alias}: {risk}")
+                response = input("Confirm risky operation [y/N]: ").strip().lower()
+                if response != "y":
+                    _print_acknowledgement_required_and_exit()
+            manager.acknowledge_risk(
+                cfg.alias,
+                risk,
+                launch_attempt_id=launch_attempt_id,
+                ack_token=ack_token,
+            )
 
 
 def dry_run(
     mode: str,
     primary_port: str | None = None,
     secondary_port: str | None = None,
+    acknowledged: bool = False,
 ) -> None:
     """Print command without executing"""
     cfg = Config()
@@ -44,10 +89,12 @@ def dry_run(
 
     slot_payloads: list[DryRunSlotPayload] = []
     has_error = False
+    manager = ServerManager()
 
     try:
         if mode in ("summary-balanced", "llama32"):
             server_cfg = create_summary_balanced_cfg(summary_balanced_port)
+            _verify_dry_run_risks(manager, [server_cfg], acknowledged)
             # FR-011: Validate backend eligibility
             backend_error = validate_server_config(server_cfg)
             if backend_error is not None:
@@ -82,6 +129,7 @@ def dry_run(
 
         elif mode == "summary-fast":
             server_cfg = create_summary_fast_cfg(summary_fast_port)
+            _verify_dry_run_risks(manager, [server_cfg], acknowledged)
             # FR-011: Validate backend eligibility
             backend_error = validate_server_config(server_cfg)
             if backend_error is not None:
@@ -117,6 +165,7 @@ def dry_run(
                 model=cfg.model_qwen35,
                 server_bin=cfg.llama_server_bin_nvidia,
             )
+            _verify_dry_run_risks(manager, [server_cfg], acknowledged)
             # FR-011: Validate backend eligibility
             backend_error = validate_server_config(server_cfg)
             if backend_error is not None:
@@ -151,6 +200,7 @@ def dry_run(
 
         elif mode == "both":
             server_cfg1 = create_summary_balanced_cfg(summary_balanced_port)
+            _verify_dry_run_risks(manager, [server_cfg1], acknowledged)
             # FR-011: Validate backend eligibility for summary-balanced
             backend_error = validate_server_config(server_cfg1)
             if backend_error is not None:
@@ -196,6 +246,7 @@ def dry_run(
                 model=cfg.model_qwen35_both,
                 server_bin=cfg.llama_server_bin_nvidia,
             )
+            _verify_dry_run_risks(manager, [server_cfg2], acknowledged)
             # FR-011: Validate backend eligibility for qwen35
             backend_error = validate_server_config(server_cfg2)
             if backend_error is not None:
@@ -240,16 +291,16 @@ def dry_run(
             # Build canonical top-level payload containing ordered slot payloads
             canonical_payload = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "slot_scope": mode,
-                "resolved_command": [p.command_args for p in slot_payloads],
-                "validation_results": [
-                    {
+                "slot_scope": [p.slot_id for p in slot_payloads],
+                "resolved_command": {p.slot_id: p.command_args for p in slot_payloads},
+                "validation_results": {
+                    p.slot_id: {
                         "passed": p.validation_results.passed,
                         "checks": p.validation_results.checks,
                     }
                     for p in slot_payloads
-                ],
-                "warnings": [p.warnings for p in slot_payloads],
+                },
+                "warnings": [warning for p in slot_payloads for warning in p.warnings],
                 "environment_redacted": slot_payloads[0].environment_redacted
                 if slot_payloads
                 else {},

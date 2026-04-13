@@ -14,6 +14,7 @@ def test_privileged_port_requires_acknowledgement():
 
     cfg.port = 80
     cfg.bind_address = "127.0.0.1"
+    cfg.risky_acknowledged = []
 
     risks = detect_risky_operations(cfg)
     assert "privileged_port" in risks
@@ -28,7 +29,8 @@ def test_non_loopback_bind_requires_acknowledgement():
 
     cfg = MagicMock()
     cfg.port = 8080
-    cfg.bind_address = "0.0.0.0"
+    cfg.bind_address = "192.168.1.1"
+    cfg.risky_acknowledged = []
 
     risks = detect_risky_operations(cfg)
     assert "non_loopback" in risks
@@ -43,8 +45,25 @@ def test_combined_risks():
 
     cfg = MagicMock()
     cfg.port = 80
-    cfg.bind_address = "0.0.0.0"
+    cfg.bind_address = "192.168.1.1"
+    cfg.risky_acknowledged = []
 
     risks = detect_risky_operations(cfg)
     assert "privileged_port" in risks
     assert "non_loopback" in risks
+
+
+def test_warning_bypass_risk_class_detected():
+    """warning_bypass marker should be reported as a risk class."""
+    try:
+        from llama_manager.server import detect_risky_operations
+    except ImportError:
+        pytest.fail("detect_risky_operations not implemented in llama_manager.server")
+
+    cfg = MagicMock()
+    cfg.port = 8080
+    cfg.bind_address = "127.0.0.1"
+    cfg.risky_acknowledged = ["warning_bypass"]
+
+    risks = detect_risky_operations(cfg)
+    assert "warning_bypass" in risks

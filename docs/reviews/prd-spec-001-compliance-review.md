@@ -5,6 +5,7 @@
 **PRD Version:** MVP draft v0.3  
 **Spec Version:** specs/001-prd-mvp-spec/spec.md (Draft, Created 2026-04-08)  
 **Review Scope:** Full compliance assessment of PRD requirements against MVP spec-001
+**Current Branch:** `001-prd-mvp-spec` (implements M1 scope only)
 
 ---
 
@@ -18,7 +19,16 @@
 - **Non-Functional Requirements:** 0/7 fully covered, 4/7 partially covered (57%), 3/7 missing (43%)
 - **Acceptance Criteria:** 1/20 fully covered (5%), 3/20 partially covered (15%), 16/20 missing (80%)
 
-**Conclusion:** Spec-001 represents Milestone M1 (Slot-first config + backend abstraction + validation) from the PRD's milestone roadmap, not the full MVP. The title "PRD-Aligned MVP Control Plane" is misleading and should be corrected to "PRD M1: Slot-First Launch & Dry-Run" or similar.
+**Current Branch Status (`001-prd-mvp-spec`):**
+- Implements **M1 Milestone only**: Slot-first orchestration, deterministic override precedence, basic validation, dry-run mode, lockfile handling, risk acknowledgement
+- **NOT** full PRD MVP completion — deferred items span M0, M2, M3, M4 milestones
+- Title recommendation: Rename from "PRD-Aligned MVP Control Plane" to "PRD M1: Slot-First Launch & Dry-Run" to avoid stakeholder confusion
+
+**PRD-Deferred Scope (Remaining Work):**
+- **M0:** Documentation generation (FR-019)
+- **M2:** Build pipeline (FR-004, FR-006), Setup (FR-005)
+- **M3:** Profiling (FR-007, FR-008)
+- **M4:** Smoke (FR-015), TUI monitoring (FR-010), Shutdown (FR-012), GGUF parsing (FR-014), Hardware acknowledgment (FR-017), Logging (FR-018), CLI scripting (FR-011), Backend abstraction (FR-002), Config schema (FR-013)
 
 ---
 
@@ -268,3 +278,36 @@ All plans must address the following CI gates:
 - New FR definitions need testable acceptance criteria
 - Success criteria must be measurable (avoid "sufficiently clear", "operator-verifiable" without definition)
 - Any new dataclasses (e.g., HardwareWarning, GGUFMetadata, SmokeResult) need type annotations
+
+---
+
+## E) Current Branch Status Summary
+
+**Branch:** `001-prd-mvp-spec`  
+**Status:** Implements PRD Milestone M1 only — **NOT full PRD MVP**
+
+### What's Implemented (M1 Scope)
+
+| Category | Items |
+| -------- | ----- |
+| Core Orchestration | FR-001: Slot-first orchestration |
+| Validation | FR-002 (partial), NFR-001 (partial) |
+| Dry-Run | FR-003 (partial): Basic operator-readable output |
+| Precedence | FR-009, NFR-004: Deterministic override precedence |
+| Lockfiles | FR-009: Stale lock clearing, live lock blocking |
+| Risk Mgmt | FR-008: Risk acknowledgement mechanism |
+
+### What's Deferred (M0, M2, M3, M4)
+
+| Milestone | Deferred Items |
+| --------- | -------------- |
+| M0 | FR-019: Documentation generation (gendoc.py) |
+| M2 | FR-004: Build pipeline, FR-006: Provenance, FR-005: Setup/venv |
+| M3 | FR-007, FR-008: Profiling & presets, GGUF parsing (FR-014) |
+| M4 | FR-015: Smoke verification, FR-010: TUI monitoring, FR-012: Graceful shutdown, FR-017: Hardware acknowledgment, FR-018: Logging & reports, FR-011: CLI scripting, FR-002: Backend abstraction, FR-013: Config schema |
+
+### Key Takeaway
+
+**This branch represents a milestone delivery, not MVP completion.** The PRD's MVP includes features spanning M0-M4, but `001-prd-mvp-spec` only implements M1. Stakeholders should not assume full PRD compliance based on this branch alone.
+
+**Recommendation:** Update spec title to "PRD M1: Slot-First Launch & Dry-Run" to accurately reflect scope and prevent confusion.

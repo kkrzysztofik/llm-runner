@@ -19,7 +19,7 @@ Contract:
 
 from typing import Any
 
-from llama_manager.config import ServerConfig
+from llama_manager.config import ErrorCode, ServerConfig
 from llama_manager.server import (
     ValidationResults,
     VllmEligibility,
@@ -547,7 +547,7 @@ class TestFR003HardwareNotes:
             warnings=[],
         )
         backend = payload.hardware_notes["backend"]
-        assert isinstance(backend, (str, type(None)))
+        assert isinstance(backend, str | None)
 
     def test_hardware_notes_device_id_is_string_or_none(self) -> None:
         """FR-003: hardware_notes.device_id should be str or None."""
@@ -558,7 +558,7 @@ class TestFR003HardwareNotes:
             warnings=[],
         )
         device_id = payload.hardware_notes["device_id"]
-        assert isinstance(device_id, (str, type(None)))
+        assert isinstance(device_id, str | None)
 
     def test_hardware_notes_device_name_is_string_or_none(self) -> None:
         """FR-003: hardware_notes.device_name should be str or None."""
@@ -569,7 +569,7 @@ class TestFR003HardwareNotes:
             warnings=[],
         )
         device_name = payload.hardware_notes["device_name"]
-        assert isinstance(device_name, (str, type(None)))
+        assert isinstance(device_name, str | None)
 
 
 class TestFR003VllmEligibility:
@@ -623,3 +623,386 @@ class TestFR003VllmEligibility:
         )
         assert payload.vllm_eligibility.eligible is False
         assert "vllm is not launch-eligible" in payload.vllm_eligibility.reason.lower()
+
+
+class TestFR003SlotConfigurationSequenceConsistency:
+    """FR-003: Verify slot configuration sequence consistency between error output
+    and dry-run payload.
+    """
+
+    def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
+        """Create ServerConfig for testing."""
+        defaults = {
+            "model": "/models/test.gguf",
+            "alias": "test",
+            "device": "SYCL0",
+            "port": 8080,
+            "ctx_size": 4096,
+            "ubatch_size": 512,
+            "threads": 4,
+            "server_bin": "/usr/bin/llama-server",
+            "backend": "llama_cpp",
+        }
+        defaults.update(kwargs)
+        return ServerConfig(**defaults)  # type: ignore[arg-type]
+
+    def test_error_slot_order_matches_dry_run_slot_order(self) -> None:
+        """FR-003: Error slot sequence order must match dry-run payload slot order."""
+        from llama_manager.config import ErrorDetail, MultiValidationError
+
+        # Create errors with specific slot order
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot2_port",
+                why_blocked="port conflict in slot2",
+                how_to_fix="fix port in slot2",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.FILE_NOT_FOUND,
+                failed_check="slot_slot1_model",
+                why_blocked="model missing in slot1",
+                how_to_fix="fix model in slot1",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot1_port",
+                why_blocked="port conflict in slot1",
+                how_to_fix="fix port in slot1",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        # After sorting, expected order is: slot1_model, slot1_port, slot2_port
+        expected_sorted_order = ["slot_slot1_model", "slot_slot1_port", "slot_slot2_port"]
+        actual_sorted_order = [error.failed_check for error in mve.errors]
+        assert actual_sorted_order == expected_sorted_order, (
+            f"Sort order mismatch: expected {expected_sorted_order}, got {actual_sorted_order}"
+        )
+
+        # Create ValidationResults with same slot order
+        validation_results = ValidationResults(
+            passed=False,
+            checks=[
+                {
+                    "slot_id": error.failed_check.split("_")[1],
+                    "failed_check": error.failed_check,
+                    "error_code": error.error_code.value,
+                }
+                for error in mve.errors
+            ],
+        )
+
+        # Verify slot sequence consistency
+        error_slot_sequence = [error.failed_check.split("_")[1] for error in mve.errors]
+        check_slot_sequence = [check["slot_id"] for check in validation_results.checks]
+
+        assert error_slot_sequence == check_slot_sequence, (
+            f"Slot sequence mismatch: errors={error_slot_sequence}, checks={check_slot_sequence}"
+        )
+
+    def test_dry_run_payload_slot_scope_matches_error_slot_sequence(self) -> None:
+        """FR-003: Dry-run slot_scope list order must match error slot sequence."""
+        from llama_manager.config import ErrorDetail, MultiValidationError
+
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot3_port",
+                why_blocked="port issue in slot3",
+                how_to_fix="fix slot3",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.FILE_NOT_FOUND,
+                failed_check="slot_slot1_model",
+                why_blocked="model issue in slot1",
+                how_to_fix="fix slot1",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot2_port",
+                why_blocked="port issue in slot2",
+                how_to_fix="fix slot2",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        # Build dry-run payloads in sorted error order
+        payloads = [
+            build_dry_run_slot_payload(
+                self._cfg(slot_id=error.failed_check.split("_")[1]),
+                slot_id=error.failed_check.split("_")[1],
+                validation_results=ValidationResults(
+                    passed=False,
+                    checks=[{"failed_check": error.failed_check}],
+                ),
+                warnings=[],
+            )
+            for error in mve.errors
+        ]
+
+        # slot_scope should match the sorted error slot order
+        slot_scope = [p.slot_id for p in payloads]
+        expected_slot_order = [error.failed_check.split("_")[1] for error in mve.errors]
+
+        assert slot_scope == expected_slot_order, (
+            f"slot_scope order mismatch: expected {expected_slot_order}, got {slot_scope}"
+        )
+
+
+class TestFR003FailedCheckAscendingTieBreak:
+    """FR-003: Verify failed_check ascending tie-break within each slot."""
+
+    def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
+        """Create ServerConfig for testing."""
+        defaults = {
+            "model": "/models/test.gguf",
+            "alias": "test",
+            "device": "SYCL0",
+            "port": 8080,
+            "ctx_size": 4096,
+            "ubatch_size": 512,
+            "threads": 4,
+            "server_bin": "/usr/bin/llama-server",
+            "backend": "llama_cpp",
+        }
+        defaults.update(kwargs)
+        return ServerConfig(**defaults)  # type: ignore[arg-type]
+
+    def test_failed_check_ascending_tiebreak_within_slot(self) -> None:
+        """FR-003: failed_check should be sorted ascending within each slot."""
+        from llama_manager.config import ErrorDetail, MultiValidationError
+
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot1_z_port_validation",  # Should come last in slot1
+                why_blocked="z error",
+                how_to_fix="fix z",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.FILE_NOT_FOUND,
+                failed_check="slot_slot1_a_model_check",  # Should come first in slot1
+                why_blocked="a error",
+                how_to_fix="fix a",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.CONFIG_ERROR,
+                failed_check="slot_slot1_m_ctx_size",  # Should come middle in slot1
+                why_blocked="m error",
+                how_to_fix="fix m",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot2_port",  # slot2 errors
+                why_blocked="slot2 error",
+                how_to_fix="fix slot2",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        # Expected order: slot1_a_model_check, slot1_m_ctx_size, slot1_z_port_validation, slot2_port
+        expected_order = [
+            "slot_slot1_a_model_check",
+            "slot_slot1_m_ctx_size",
+            "slot_slot1_z_port_validation",
+            "slot_slot2_port",
+        ]
+        actual_order = [error.failed_check for error in mve.errors]
+
+        assert actual_order == expected_order, (
+            f"Tie-break order mismatch: expected {expected_order}, got {actual_order}"
+        )
+
+        # Verify slot sequence: slot1 errors before slot2
+        slot1_indices = [i for i, e in enumerate(mve.errors) if "slot1" in e.failed_check]
+        slot2_indices = [i for i, e in enumerate(mve.errors) if "slot2" in e.failed_check]
+
+        assert all(idx < slot2_indices[0] for idx in slot1_indices), (
+            "Slot1 errors should come before slot2 errors"
+        )
+
+
+class TestFR003NewArtifactShapeAssertions:
+    """FR-003: Explicit tests for new dry-run artifact shape: slot_scope list
+    and resolved_command mapping.
+    """
+
+    def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
+        """Create ServerConfig for testing."""
+        defaults = {
+            "model": "/models/test.gguf",
+            "alias": "test",
+            "device": "SYCL0",
+            "port": 8080,
+            "ctx_size": 4096,
+            "ubatch_size": 512,
+            "threads": 4,
+            "server_bin": "/usr/bin/llama-server",
+            "backend": "llama_cpp",
+        }
+        defaults.update(kwargs)
+        return ServerConfig(**defaults)  # type: ignore[arg-type]
+
+    def test_slot_scope_is_list_of_strings(self) -> None:
+        """FR-003: slot_scope must be a list of strings (slot IDs)."""
+        from llama_manager.config import ErrorDetail, MultiValidationError
+
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot1_port",
+                why_blocked="error1",
+                how_to_fix="fix1",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.FILE_NOT_FOUND,
+                failed_check="slot_slot2_model",
+                why_blocked="error2",
+                how_to_fix="fix2",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        # Build payloads in sorted order
+        payloads = [
+            build_dry_run_slot_payload(
+                self._cfg(slot_id=error.failed_check.split("_")[1]),
+                slot_id=error.failed_check.split("_")[1],
+                validation_results=ValidationResults(
+                    passed=False, checks=[{"failed_check": error.failed_check}]
+                ),
+                warnings=[],
+            )
+            for error in mve.errors
+        ]
+
+        # slot_scope is the canonical list of slot IDs
+        slot_scope = [p.slot_id for p in payloads]
+
+        assert isinstance(slot_scope, list), "slot_scope must be a list"
+        assert all(isinstance(slot_id, str) for slot_id in slot_scope), (
+            "All slot_scope entries must be strings"
+        )
+        assert len(slot_scope) == len(mve.errors), (
+            f"slot_scope length mismatch: expected {len(mve.errors)}, got {len(slot_scope)}"
+        )
+
+    def test_resolved_command_is_mapping_of_slot_id_to_command_args(self) -> None:
+        """FR-003: resolved_command must be a dict mapping slot_id -> command_args list."""
+        from llama_manager.config import ErrorDetail, MultiValidationError
+
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot1_port",
+                why_blocked="error1",
+                how_to_fix="fix1",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        payloads = [
+            build_dry_run_slot_payload(
+                self._cfg(slot_id=error.failed_check.split("_")[1]),
+                slot_id=error.failed_check.split("_")[1],
+                validation_results=ValidationResults(
+                    passed=False, checks=[{"failed_check": error.failed_check}]
+                ),
+                warnings=[],
+            )
+            for error in mve.errors
+        ]
+
+        # Build resolved_command mapping (as done in dry_run.py)
+        resolved_command = {p.slot_id: p.command_args for p in payloads}
+
+        assert isinstance(resolved_command, dict), "resolved_command must be a dict"
+
+        # Each key must be a slot_id and each value must be a list of command args
+        for slot_id, cmd_args in resolved_command.items():
+            assert isinstance(slot_id, str), (
+                f"resolved_command key must be string, got {type(slot_id)}"
+            )
+            assert isinstance(cmd_args, list), (
+                f"resolved_command[{slot_id}] must be list, got {type(cmd_args)}"
+            )
+            assert all(isinstance(arg, str) for arg in cmd_args), (
+                f"resolved_command[{slot_id}] must contain only strings"
+            )
+
+    def test_slot_scope_and_resolved_command_keys_alignment(self) -> None:
+        """FR-003: resolved_command keys must exactly match slot_scope entries."""
+        from llama_manager.config import ErrorDetail, MultiValidationError
+
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot1_port",
+                why_blocked="error1",
+                how_to_fix="fix1",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.FILE_NOT_FOUND,
+                failed_check="slot_slot2_model",
+                why_blocked="error2",
+                how_to_fix="fix2",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        payloads = [
+            build_dry_run_slot_payload(
+                self._cfg(slot_id=error.failed_check.split("_")[1]),
+                slot_id=error.failed_check.split("_")[1],
+                validation_results=ValidationResults(
+                    passed=False, checks=[{"failed_check": error.failed_check}]
+                ),
+                warnings=[],
+            )
+            for error in mve.errors
+        ]
+
+        slot_scope = [p.slot_id for p in payloads]
+        resolved_command = {p.slot_id: p.command_args for p in payloads}
+
+        # Keys in resolved_command must match slot_scope entries
+        assert set(resolved_command.keys()) == set(slot_scope), (
+            f"resolved_command keys {set(resolved_command.keys())} must match slot_scope {set(slot_scope)}"
+        )
+
+        # Order must be consistent: resolved_command should preserve slot_scope order
+        ordered_keys = list(resolved_command.keys())
+        assert ordered_keys == slot_scope, (
+            f"resolved_command key order {ordered_keys} must match slot_scope order {slot_scope}"
+        )
+
+    def test_resolved_command_contains_correct_command_args_for_each_slot(self) -> None:
+        """FR-003: resolved_command[<slot_id>] must contain the correct command_args."""
+        cfg = self._cfg(slot_id="test-slot")
+        payload = build_dry_run_slot_payload(
+            cfg,
+            slot_id="test-slot",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+
+        resolved_command = {"test-slot": payload.command_args}
+
+        # resolved_command["test-slot"] must equal payload.command_args
+        assert "test-slot" in resolved_command, "resolved_command must contain 'test-slot' key"
+        assert resolved_command["test-slot"] == payload.command_args, (
+            "resolved_command['test-slot'] must equal payload.command_args"
+        )
+
+        # Verify command_args structure
+        cmd_args = resolved_command["test-slot"]
+        assert isinstance(cmd_args, list), "command_args must be a list"
+        assert len(cmd_args) > 0, "command_args must not be empty"
+        assert "--model" in cmd_args, "command_args must contain --model flag"

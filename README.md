@@ -3,6 +3,11 @@
 A terminal-based user interface for managing multiple llama-server instances
 with live logs, configuration display, and GPU monitoring.
 
+**Current Branch Scope:** The `001-prd-mvp-spec` branch implements **PRD Milestone M1 only**
+(slot-first orchestration, dry-run, validation), not the full PRD MVP. See
+[PRD Spec-001 Compliance Review](docs/reviews/prd-spec-001-compliance-review.md) for
+detailed scope and deferred items.
+
 ## Setup
 
 ```bash

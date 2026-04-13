@@ -191,9 +191,10 @@ class TUIApp:
         )
         header.append("\n\n")
 
-        logs = buffer.get_rich_renderable()
+        logs_text = buffer.get_text(empty_message="Waiting for output...")
+        logs = Panel(Text(logs_text), title="Logs", border_style="dim")
         gpu_renderable = (
-            gpu.get_rich_renderable()
+            Panel(Text(gpu.format_stats_text()), title="GPU", border_style="yellow")
             if gpu is not None
             else Panel(Text("GPU stats unavailable", style="dim"), title="GPU", border_style="dim")
         )
@@ -221,11 +222,16 @@ class TUIApp:
             for cfg in self.configs
         ]
 
+        launch_attempt_id = self.server_manager.begin_launch_attempt()
+        ack_token = self.server_manager.issue_ack_token(launch_attempt_id)
+
         has_risks = False
         for cfg in self.configs:
+            if acknowledged and "warning_bypass" not in cfg.risky_acknowledged:
+                cfg.risky_acknowledged.append("warning_bypass")
             for risk in detect_risky_operations(cfg):
                 has_risks = True
-                if self.server_manager.is_risk_acknowledged(cfg.alias, risk):
+                if self.server_manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
                     continue
                 if not acknowledged:
                     self._build_risk_panel_required()
@@ -233,7 +239,12 @@ class TUIApp:
                     response = input("Confirm risky operation [y/N]: ").strip().lower()
                     if response != "y":
                         self._print_acknowledgement_required_and_exit()
-                self.server_manager.acknowledge_risk(cfg.alias, risk)
+                self.server_manager.acknowledge_risk(
+                    cfg.alias,
+                    risk,
+                    launch_attempt_id=launch_attempt_id,
+                    ack_token=ack_token,
+                )
 
         if has_risks:
             self._build_risk_panel_acknowledged()

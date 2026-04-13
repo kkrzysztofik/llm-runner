@@ -1,4 +1,6 @@
+import tempfile
 import time
+from contextlib import suppress
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,8 +16,8 @@ def get_p95(data: list[float]) -> float:
     return sorted_data[idx]
 
 
-@patch("llama_cli.dry_run.write_artifact", return_value="/tmp/fake_artifact")
-@patch("llama_cli.dry_run.resolve_runtime_dir", return_value="/tmp")
+@patch("llama_cli.dry_run.write_artifact", return_value=tempfile.gettempdir() + "/fake_artifact")
+@patch("llama_cli.dry_run.resolve_runtime_dir", return_value=tempfile.gettempdir())
 @patch("sys.stdout", new_callable=MagicMock)
 @patch("sys.stderr", new_callable=MagicMock)
 def test_performance_dry_run_resolution(
@@ -26,16 +28,14 @@ def test_performance_dry_run_resolution(
 ):
     """T041: Benchmark dry-run resolution time."""
     iterations = 100
-    times = []
+    times: list[float] = []
 
     for _ in range(iterations):
         start = time.perf_counter()
         # We use a mode that doesn't exit
         # 'summary-balanced' is a good candidate
-        try:
+        with suppress(SystemExit):
             dry_run("summary-balanced")
-        except SystemExit:
-            pass
         end = time.perf_counter()
         times.append(end - start)
 
@@ -73,22 +73,20 @@ def test_performance_validation_paths():
     assert p95_conflict <= 0.150, f"p95 port conflict validation too slow: {p95_conflict:.4f}s"
 
 
-@patch("llama_cli.dry_run.write_artifact", return_value="/tmp/fake_artifact")
-@patch("llama_cli.dry_run.resolve_runtime_dir", return_value="/tmp")
+@patch("llama_cli.dry_run.write_artifact", return_value=tempfile.gettempdir() + "/fake_artifact")
+@patch("llama_cli.dry_run.resolve_runtime_dir", return_value=tempfile.gettempdir())
 @patch("sys.stdout", new_callable=MagicMock)
 @patch("sys.stderr", new_callable=MagicMock)
 def test_performance_dry_run_two_slots(mock_stderr, mock_stdout, mock_runtime, mock_artifact):
     """T041: Benchmark two-slot dry-run resolution time."""
     iterations = 100
-    times = []
+    times: list[float] = []
 
     for _ in range(iterations):
         start = time.perf_counter()
-        try:
+        with suppress(SystemExit):
             # 'both' mode uses two slots
             dry_run("both")
-        except SystemExit:
-            pass
         end = time.perf_counter()
         times.append(end - start)
 

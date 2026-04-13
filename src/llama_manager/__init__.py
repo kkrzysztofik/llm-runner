@@ -20,6 +20,7 @@ from .gpu_stats import GPUStats
 from .log_buffer import LogBuffer
 from .process_manager import (
     ArtifactMetadata,
+    DryRunArtifactPayload,
     LaunchResult,
     LockMetadata,
     ServerManager,
@@ -85,6 +86,7 @@ __all__ = [
     "ServerManager",
     # Lockfile and artifacts
     "ArtifactMetadata",
+    "DryRunArtifactPayload",
     "LaunchResult",
     "LockMetadata",
     "ValidationException",

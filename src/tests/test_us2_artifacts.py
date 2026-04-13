@@ -16,6 +16,7 @@ Contract:
 import os
 import stat
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -119,6 +120,47 @@ class TestFR007ArtifactRequiredFields:
         loaded = artifact_path.read_text()
         assert "summary-balanced" in loaded
         assert "8080" in loaded
+
+
+def test_dry_run_artifact_uses_slot_scope_list_and_resolved_command_mapping(tmp_path: Path) -> None:
+    """Dry-run should persist updated artifact contract shapes."""
+    captured: dict = {}
+
+    def _capture_artifact(_runtime_dir: Path, _slot_id: str, data: dict) -> Path:
+        captured.update(data)
+        return tmp_path / "artifact.json"
+
+    with (
+        patch("llama_cli.dry_run.resolve_runtime_dir", return_value=tmp_path),
+        patch("llama_cli.dry_run.write_artifact", side_effect=_capture_artifact),
+    ):
+        from llama_cli.dry_run import dry_run
+
+        dry_run("summary-balanced")
+
+    assert isinstance(captured["slot_scope"], list)
+    assert captured["slot_scope"] == ["summary-balanced"]
+    assert isinstance(captured["resolved_command"], dict)
+    assert "summary-balanced" in captured["resolved_command"]
+
+
+def test_dry_run_both_artifact_uses_slot_ids_for_scope_and_resolved_command(tmp_path: Path) -> None:
+    captured: dict = {}
+
+    def _capture_artifact(_runtime_dir: Path, _slot_id: str, data: dict) -> Path:
+        captured.update(data)
+        return tmp_path / "artifact.json"
+
+    with (
+        patch("llama_cli.dry_run.resolve_runtime_dir", return_value=tmp_path),
+        patch("llama_cli.dry_run.write_artifact", side_effect=_capture_artifact),
+    ):
+        from llama_cli.dry_run import dry_run
+
+        dry_run("both")
+
+    assert captured["slot_scope"] == ["summary-balanced", "qwen35"]
+    assert sorted(captured["resolved_command"].keys()) == ["qwen35", "summary-balanced"]
 
 
 class TestFR007RedactionRules:
