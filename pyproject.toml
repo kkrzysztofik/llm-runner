@@ -88,7 +88,8 @@ addopts = "-v --tb=short"
 # Coverage
 # ---------------------------------------------------------------------------
 [tool.coverage.run]
-source = ["src/llama_cli", "src/llama_manager"]
+source = ["src"]
+relative_files = true
 omit = ["src/tests/*"]
 
 [tool.coverage.report]
