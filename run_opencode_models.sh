@@ -35,14 +35,14 @@ GEMMA4_CHAT_TEMPLATE_KWARGS='{"enable_thinking":true}'
 
 # Server defaults
 DEFAULT_N_GPU_LAYERS=99                  # Max GPU layers for fastest inference
-DEFAULT_CTX_SIZE_SUMMARY=262144           # 16k with headroom for summary assistants
+DEFAULT_CTX_SIZE_SUMMARY=262144           # 256k with headroom for summary assistants
 DEFAULT_CTX_SIZE_QWEN35=262144           # Match NVIDIA qwen35 single-run config
 DEFAULT_CTX_SIZE_GEMMA4_E4B=131072       # Full 128k context for Gemma 4 E4B
 # 27B Q4_K_XL: validated llama-completion warmup + gen at 262144 on RTX 3090 (f16 KV, -np 1)
 DEFAULT_CTX_SIZE_GEMMA4_27B=262144
 # 31B IQ4_XS: max stable ctx with default batch/ubatch (see probe notes in script header paths)
 DEFAULT_CTX_SIZE_GEMMA4_31B=82176
-DEFAULT_CTX_SIZE_BOTH_SUMMARY=262144      # Keep summarizer at 16k in dual-run mode
+DEFAULT_CTX_SIZE_BOTH_SUMMARY=262144      # Keep summarizer at 256k in dual-run mode
 DEFAULT_CTX_SIZE_BOTH_QWEN35=262144      # Match NVIDIA qwen35 dual-run config
 DEFAULT_CTX_SIZE_BOTH_GEMMA4_27B=262144   # Same as single-GPU 27B when paired with E4B on Intel
 DEFAULT_N_GPU_LAYERS_QWEN35=all

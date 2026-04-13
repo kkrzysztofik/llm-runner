@@ -1,6 +1,6 @@
 import tempfile
 import time
-from contextlib import suppress
+from math import ceil
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,17 +12,22 @@ from llama_manager.server import validate_port, validate_ports
 def get_p95(data: list[float]) -> float:
     """Calculate p95 percentile."""
     sorted_data = sorted(data)
-    idx = int(len(sorted_data) * 0.95)
+    if not sorted_data:
+        raise ValueError("data must not be empty")
+    idx = ceil(len(sorted_data) * 0.95) - 1
+    idx = max(0, min(idx, len(sorted_data) - 1))
     return sorted_data[idx]
 
 
 @patch("llama_cli.dry_run.write_artifact", return_value=tempfile.gettempdir() + "/fake_artifact")
 @patch("llama_cli.dry_run.resolve_runtime_dir", return_value=tempfile.gettempdir())
+@patch("llama_cli.dry_run.validate_server_config", return_value=None)
 @patch("sys.stdout", new_callable=MagicMock)
 @patch("sys.stderr", new_callable=MagicMock)
 def test_performance_dry_run_resolution(
     mock_stderr,
     mock_stdout,
+    mock_validate,
     mock_runtime,
     mock_artifact,
 ):
@@ -32,10 +37,7 @@ def test_performance_dry_run_resolution(
 
     for _ in range(iterations):
         start = time.perf_counter()
-        # We use a mode that doesn't exit
-        # 'summary-balanced' is a good candidate
-        with suppress(SystemExit):
-            dry_run("summary-balanced")
+        dry_run("summary-balanced")
         end = time.perf_counter()
         times.append(end - start)
 
@@ -75,18 +77,24 @@ def test_performance_validation_paths():
 
 @patch("llama_cli.dry_run.write_artifact", return_value=tempfile.gettempdir() + "/fake_artifact")
 @patch("llama_cli.dry_run.resolve_runtime_dir", return_value=tempfile.gettempdir())
+@patch("llama_cli.dry_run.validate_server_config", return_value=None)
 @patch("sys.stdout", new_callable=MagicMock)
 @patch("sys.stderr", new_callable=MagicMock)
-def test_performance_dry_run_two_slots(mock_stderr, mock_stdout, mock_runtime, mock_artifact):
+def test_performance_dry_run_two_slots(
+    mock_stderr,
+    mock_stdout,
+    mock_validate,
+    mock_runtime,
+    mock_artifact,
+):
     """T041: Benchmark two-slot dry-run resolution time."""
     iterations = 100
     times: list[float] = []
 
     for _ in range(iterations):
         start = time.perf_counter()
-        with suppress(SystemExit):
-            # 'both' mode uses two slots
-            dry_run("both")
+        # 'both' mode uses two slots
+        dry_run("both")
         end = time.perf_counter()
         times.append(end - start)
 

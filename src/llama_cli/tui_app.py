@@ -22,6 +22,9 @@ from llama_manager import (
 )
 from llama_manager.server import detect_risky_operations
 
+RISK_ACK_LABEL = "warning_bypass"
+RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
+
 
 class TUIApp:
     """Main TUI application with 2-column layout."""
@@ -216,19 +219,13 @@ class TUIApp:
     def _cleanup(self) -> None:
         self.server_manager.cleanup_servers()
 
-    def run(self, acknowledged: bool = False) -> None:
-        slots = [
-            ModelSlot(slot_id=cfg.alias, model_path=cfg.model, port=cfg.port)
-            for cfg in self.configs
-        ]
-
-        launch_attempt_id = self.server_manager.begin_launch_attempt()
-        ack_token = self.server_manager.issue_ack_token(launch_attempt_id)
-
+    def _acknowledge_risks(
+        self, launch_attempt_id: str, ack_token: str, acknowledged: bool
+    ) -> bool:
         has_risks = False
         for cfg in self.configs:
-            if acknowledged and "warning_bypass" not in cfg.risky_acknowledged:
-                cfg.risky_acknowledged.append("warning_bypass")
+            if acknowledged and RISK_ACK_LABEL not in cfg.risky_acknowledged:
+                cfg.risky_acknowledged.append(RISK_ACK_LABEL)
             for risk in detect_risky_operations(cfg):
                 has_risks = True
                 if self.server_manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
@@ -236,7 +233,7 @@ class TUIApp:
                 if not acknowledged:
                     self._build_risk_panel_required()
                     print(f"warning: risky operation detected in {cfg.alias}: {risk}")
-                    response = input("Confirm risky operation [y/N]: ").strip().lower()
+                    response = input(RISK_CONFIRM_PROMPT).strip().lower()
                     if response != "y":
                         self._print_acknowledgement_required_and_exit()
                 self.server_manager.acknowledge_risk(
@@ -245,14 +242,16 @@ class TUIApp:
                     launch_attempt_id=launch_attempt_id,
                     ack_token=ack_token,
                 )
+        return has_risks
 
+    def _update_risk_panel_state(self, has_risks: bool) -> None:
         if has_risks:
             self._build_risk_panel_acknowledged()
-        else:
-            self.risk_panel = None
-            self.risks_acknowledged = False
+            return
+        self.risk_panel = None
+        self.risks_acknowledged = False
 
-        launch_result = self.server_manager.launch_all_slots(slots)
+    def _handle_launch_result(self, launch_result: LaunchResult) -> None:
         if launch_result.is_blocked():
             print("error: launch blocked - no slots could be launched", file=sys.stderr)
             if launch_result.errors is not None:
@@ -267,6 +266,20 @@ class TUIApp:
             print("warning: launch degraded - some slots blocked", file=sys.stderr)
             for warning in launch_result.warnings or []:
                 print(f"  warning: {warning}", file=sys.stderr)
+
+    def run(self, acknowledged: bool = False) -> None:
+        slots = [
+            ModelSlot(slot_id=cfg.alias, model_path=cfg.model, port=cfg.port)
+            for cfg in self.configs
+        ]
+
+        launch_attempt_id = self.server_manager.begin_launch_attempt()
+        ack_token = self.server_manager.issue_ack_token(launch_attempt_id)
+        has_risks = self._acknowledge_risks(launch_attempt_id, ack_token, acknowledged)
+        self._update_risk_panel_state(has_risks)
+
+        launch_result = self.server_manager.launch_all_slots(slots)
+        self._handle_launch_result(launch_result)
 
         self.launch_result = launch_result
         self._build_status_panel(launch_result)

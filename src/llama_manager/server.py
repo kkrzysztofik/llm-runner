@@ -569,29 +569,9 @@ def _build_hardware_notes(cfg: ServerConfig) -> dict[str, str | None]:
         optional fields: driver_version, runtime_version (may be None)
 
     """
-    backend = cfg.backend if cfg.backend else "llama_cpp"
-    device = cfg.device if cfg.device else "auto"
-
-    # Parse device string to extract device_id and device_name
-    # Format can be "cuda:X" or "sycl:X:Y" or just "auto"
-    device_id: str | None = None
-    device_name: str = device
-
-    if device != "auto":
-        if device.startswith("cuda:"):
-            try:
-                device_id = device.split(":")[1]
-                device_name = "NVIDIA GPU"
-            except (IndexError, ValueError):
-                device_id = None
-                device_name = device
-        elif device.startswith("sycl:"):
-            parts = device.split(":")
-            if len(parts) >= 3:
-                device_id = f"{parts[1]}:{parts[2]}"
-                device_name = f"SYCL Device {parts[1]}"
-            else:
-                device_id = ":".join(parts[1:]) if len(parts) > 1 else None
+    backend = cfg.backend or "llama_cpp"
+    device = cfg.device or "auto"
+    device_id, device_name = _parse_device_details(device)
 
     return {
         "backend": backend,
@@ -600,3 +580,23 @@ def _build_hardware_notes(cfg: ServerConfig) -> dict[str, str | None]:
         "driver_version": None,
         "runtime_version": None,
     }
+
+
+def _parse_device_details(device: str) -> tuple[str | None, str]:
+    if device == "auto":
+        return (None, device)
+
+    if device.startswith("cuda:"):
+        parts = device.split(":", maxsplit=1)
+        if len(parts) == 2 and parts[1]:
+            return (parts[1], "NVIDIA GPU")
+        return (None, device)
+
+    if device.startswith("sycl:"):
+        parts = device.split(":")
+        if len(parts) >= 3:
+            return (f"{parts[1]}:{parts[2]}", f"SYCL Device {parts[1]}")
+        if len(parts) > 1:
+            return (":".join(parts[1:]), device)
+
+    return (None, device)

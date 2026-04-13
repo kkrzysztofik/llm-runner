@@ -1,13 +1,22 @@
 import sys
+from argparse import Namespace
 from unittest.mock import patch
 
 import pytest
 
+from llama_cli import server_runner
 from llama_cli.cli_parser import parse_args, parse_tui_args
 from llama_cli.dry_run import dry_run
-from llama_cli.server_runner import verify_risks
+from llama_cli.server_runner import (
+    run_both,
+    run_qwen35,
+    run_summary_balanced,
+    run_summary_fast,
+    verify_risks,
+)
 from llama_cli.tui_app import TUIApp
 from llama_manager import LaunchResult, ServerConfig, ServerManager
+from llama_manager.config import ErrorCode, ErrorDetail, MultiValidationError
 
 
 def _risky_cfg() -> ServerConfig:
@@ -167,3 +176,213 @@ def test_dry_run_prompts_for_risky_operation_with_exact_prompt() -> None:
 
     assert exc.value.code == 1
     mock_input.assert_called_once_with("Confirm risky operation [y/N]: ")
+
+
+def test_dry_run_invalid_mode_exits_with_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        dry_run("invalid-mode")
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "dry-run requires a mode argument" in captured.err
+
+
+def test_dry_run_exits_when_backend_validation_fails() -> None:
+    backend_error = ErrorDetail(
+        error_code=ErrorCode.BACKEND_NOT_ELIGIBLE,
+        failed_check="vllm_launch_eligibility",
+        why_blocked="backend blocked",
+        how_to_fix="switch backend",
+    )
+
+    with (
+        patch("llama_cli.dry_run.validate_server_config", return_value=backend_error),
+        pytest.raises(SystemExit) as exc,
+    ):
+        dry_run("summary-fast")
+
+    assert exc.value.code == 1
+
+
+def test_tui_run_exits_when_launch_is_blocked(capsys: pytest.CaptureFixture[str]) -> None:
+    app = TUIApp([_risky_cfg()], [0])
+    app.running = False
+
+    class _FakeLive:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def update(self, *_args, **_kwargs) -> None:
+            return None
+
+    blocked_error = ErrorDetail(
+        error_code=ErrorCode.PORT_CONFLICT,
+        failed_check="lockfile_creation",
+        why_blocked="blocked",
+        how_to_fix="fix",
+    )
+
+    with (
+        patch("llama_cli.tui_app.Live", _FakeLive),
+        patch.object(
+            app.server_manager,
+            "launch_all_slots",
+            return_value=LaunchResult(
+                status="blocked",
+                launched=[],
+                errors=MultiValidationError(errors=[blocked_error]),
+            ),
+        ),
+        patch.object(app.server_manager, "start_servers"),
+        patch("builtins.input", return_value="y"),
+        pytest.raises(SystemExit) as exc,
+    ):
+        app.run(acknowledged=False)
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "error: launch blocked - no slots could be launched" in captured.err
+
+
+def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) -> None:
+    app = TUIApp([_risky_cfg()], [0])
+    app.running = False
+
+    class _FakeLive:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def update(self, *_args, **_kwargs) -> None:
+            return None
+
+    with (
+        patch("llama_cli.tui_app.Live", _FakeLive),
+        patch.object(
+            app.server_manager,
+            "launch_all_slots",
+            return_value=LaunchResult(
+                status="degraded",
+                launched=["summary-balanced"],
+                warnings=["slot blocked"],
+            ),
+        ),
+        patch.object(app.server_manager, "start_servers"),
+        patch.object(app.server_manager, "cleanup_servers"),
+    ):
+        app.run(acknowledged=True)
+
+    captured = capsys.readouterr()
+    assert "warning: launch degraded - some slots blocked" in captured.err
+    assert "warning: slot blocked" in captured.err
+
+
+def test_server_runner_main_dispatches_dry_run_mode() -> None:
+    parsed = Namespace(mode="dry-run", ports=[], acknowledge_risky=True)
+    with (
+        patch("llama_cli.server_runner.parse_args", return_value=parsed),
+        patch("llama_cli.server_runner.check_prereqs"),
+        patch("llama_cli.server_runner.ServerManager"),
+        patch("llama_cli.server_runner.Color.is_enabled"),
+        patch("llama_cli.server_runner._run_dry_run_mode", return_value=0) as mock_run,
+    ):
+        code = server_runner.main(["dry-run", "both", "8080", "8081"])
+
+    assert code == 0
+    mock_run.assert_called_once_with(["dry-run", "both", "8080", "8081"], True)
+
+
+def test_server_runner_main_dry_run_without_target_mode_returns_one() -> None:
+    code = server_runner._run_dry_run_mode(["dry-run"], acknowledged=False)
+    assert code == 1
+
+
+def test_server_runner_main_returns_one_on_value_error() -> None:
+    parsed = Namespace(mode="summary-fast", ports=[], acknowledge_risky=False)
+    with (
+        patch("llama_cli.server_runner.parse_args", return_value=parsed),
+        patch("llama_cli.server_runner.check_prereqs"),
+        patch("llama_cli.server_runner.ServerManager") as mock_manager_cls,
+        patch("llama_cli.server_runner.Color.is_enabled"),
+        patch("llama_cli.server_runner.verify_risks"),
+        patch("llama_cli.server_runner.run_summary_fast", side_effect=ValueError),
+    ):
+        code = server_runner.main(["summary-fast"])
+
+    assert code == 1
+    mock_manager_cls.assert_called_once()
+
+
+def test_run_summary_balanced_success_calls_foreground_manager() -> None:
+    manager = ServerManager()
+    with (
+        patch("llama_cli.server_runner.require_model"),
+        patch("llama_cli.server_runner.validate_server_config", return_value=None),
+        patch("llama_cli.server_runner.build_server_cmd", return_value=["bin", "--x"]),
+        patch.object(manager, "run_server_foreground", return_value=0) as run_fg,
+    ):
+        code = run_summary_balanced(8080, manager)
+
+    assert code == 0
+    run_fg.assert_called_once_with("summary-balanced", ["bin", "--x"])
+
+
+def test_run_summary_fast_exits_on_backend_validation_error() -> None:
+    manager = ServerManager()
+    backend_error = ErrorDetail(
+        error_code=ErrorCode.BACKEND_NOT_ELIGIBLE,
+        failed_check="vllm_launch_eligibility",
+        why_blocked="backend blocked",
+        how_to_fix="switch backend",
+    )
+    with (
+        patch("llama_cli.server_runner.require_model"),
+        patch("llama_cli.server_runner.validate_server_config", return_value=backend_error),
+        pytest.raises(SystemExit) as exc,
+    ):
+        run_summary_fast(8082, manager)
+
+    assert exc.value.code == 1
+
+
+def test_run_qwen35_success_calls_foreground_manager() -> None:
+    manager = ServerManager()
+    with (
+        patch("llama_cli.server_runner.require_model"),
+        patch("llama_cli.server_runner.require_executable"),
+        patch("llama_cli.server_runner.validate_server_config", return_value=None),
+        patch("llama_cli.server_runner.build_server_cmd", return_value=["bin", "--y"]),
+        patch.object(manager, "run_server_foreground", return_value=0) as run_fg,
+    ):
+        code = run_qwen35(8081, manager)
+
+    assert code == 0
+    run_fg.assert_called_once_with("qwen35-coding", ["bin", "--y"])
+
+
+def test_run_both_success_starts_waits_and_cleans() -> None:
+    manager = ServerManager()
+    with (
+        patch("llama_cli.server_runner.require_model"),
+        patch("llama_cli.server_runner.require_executable"),
+        patch("llama_cli.server_runner.validate_slots", return_value=None),
+        patch.object(manager, "start_servers") as start_servers,
+        patch.object(manager, "wait_for_any", return_value=0),
+        patch.object(manager, "cleanup_servers") as cleanup,
+    ):
+        code = run_both(8080, 8081, manager)
+
+    assert code == 0
+    start_servers.assert_called_once()
+    cleanup.assert_called_once()

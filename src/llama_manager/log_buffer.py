@@ -38,12 +38,13 @@ class LogBuffer:
     - All public methods acquire self.lock before accessing self.lines
     - add_line(), clear(), get_lines(), get_text(), get_stats(), and line_count
       are all thread-safe via the internal threading.Lock
-    - The running flag is not protected by the lock (read-only after initialization)
+    - The running flag is not protected by the lock and may be toggled by stop();
+      consumers should treat it as best-effort state
     - Consumers should not access self.lines directly without holding the lock
     """
 
     def __init__(self, max_lines: int = 50, redact_sensitive: bool = True):
-        self.lines: deque = deque(maxlen=max_lines)
+        self.lines: deque[str] = deque(maxlen=max_lines)
         self.lock = threading.Lock()
         self.running = True
         self.auto_scroll = True

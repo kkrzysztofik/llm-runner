@@ -26,6 +26,21 @@ from .config import ErrorCode, ErrorDetail, ModelSlot, MultiValidationError, Ser
 # File permission constants (owner-only access)
 FILE_MODE_OWNER_ONLY: Final[int] = 0o600
 DIR_MODE_OWNER_ONLY: Final[int] = 0o700
+LOCKFILE_CHECK_NAME: Final[str] = "lockfile_integrity"
+ARTIFACT_CHECK_NAME: Final[str] = "artifact_persistence"
+REDACTED_VALUE: Final[str] = "[REDACTED]"
+OWNER_ONLY_PERMISSIONS_FAILURE: Final[str] = (
+    "artifact persistence failed to enforce required owner-only permissions"
+)
+PERMISSION_SUPPORT_HINT: Final[str] = (
+    "verify runtime path and permission support/chmod limitations before retry"
+)
+INDETERMINATE_OWNER_MESSAGE: Final[str] = (
+    "indeterminate_owner: lock exists but ownership verification is not definitive"
+)
+INDETERMINATE_OWNER_FIX: Final[str] = (
+    "verify owning process and clear lock only after confirmed stale ownership"
+)
 
 
 @dataclass
@@ -275,7 +290,7 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
         if mode != FILE_MODE_OWNER_ONLY:
             error_detail = ErrorDetail(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-                failed_check="lockfile_integrity",
+                failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked="lockfile persistence failed to enforce required owner-only permissions",
                 how_to_fix="verify runtime path writability and filesystem permission support/chmod limitations",
             )
@@ -285,7 +300,7 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
     except PermissionError as e:
         error_detail = ErrorDetail(
             error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-            failed_check="lockfile_integrity",
+            failed_check=LOCKFILE_CHECK_NAME,
             why_blocked="lockfile creation failed due to permission denied",
             how_to_fix="ensure runtime directory is writable and supports chmod",
         )
@@ -293,7 +308,7 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
     except OSError as e:
         error_detail = ErrorDetail(
             error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-            failed_check="lockfile_integrity",
+            failed_check=LOCKFILE_CHECK_NAME,
             why_blocked=f"lockfile persistence failed: {e}",
             how_to_fix="verify runtime path and filesystem permission support/chmod limitations before retry",
         )
@@ -336,7 +351,7 @@ def read_lock(
         if require_valid:
             return ErrorDetail(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-                failed_check="lockfile_integrity",
+                failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked=f"malformed_content: {e}",
                 how_to_fix="remove or repair the lockfile to proceed",
             )
@@ -377,7 +392,7 @@ def update_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> None:
     except OSError as e:
         error_detail = ErrorDetail(
             error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-            failed_check="lockfile_integrity",
+            failed_check=LOCKFILE_CHECK_NAME,
             why_blocked=f"lockfile update failed: {e}",
             how_to_fix="verify runtime path and permission support/chmod limitations before retry",
         )
@@ -418,62 +433,54 @@ def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | N
         ErrorDetail if integrity check fails, None if valid
 
     """
-    # Use require_valid=True to ensure malformed lock content is launch-blocking
     metadata_result = read_lock(runtime_dir, slot_id, require_valid=True)
-
-    # Check if this is an ErrorDetail (malformed lock content) - launch-blocking
     if isinstance(metadata_result, ErrorDetail):
         return metadata_result
-
-    # At this point, metadata_result is either None or LockMetadata
     if metadata_result is None:
         return None
-
-    # Narrow type to LockMetadata
     metadata: LockMetadata = metadata_result
 
-    # T017: Check lock age - treat as stale if older than 300 seconds
-    lock_age = time.monotonic() - metadata.started_at
-    if lock_age > 300:
-        # Stale lock due to age - auto-clearable
-        try:
-            lock_path = _get_lock_path(runtime_dir, slot_id)
-            if lock_path.exists():
-                lock_path.unlink()
-        except OSError:
-            pass
+    if time.monotonic() - metadata.started_at > 300:
+        _clear_lockfile(runtime_dir, slot_id)
         return None
 
-    # Check if process exists
     if not psutil.pid_exists(metadata.pid):
-        # Stale lock - auto-clearable
-        try:
-            lock_path = _get_lock_path(runtime_dir, slot_id)
-            if lock_path.exists():
-                lock_path.unlink()
-        except OSError:
-            pass
+        _clear_lockfile(runtime_dir, slot_id)
         return None
 
-    # Process exists - check if it's bound to the same port
-    # This is the indeterminate owner state check
+    return _verify_lock_owner(runtime_dir, slot_id, metadata)
+
+
+def _clear_lockfile(runtime_dir: Path, slot_id: str) -> None:
+    lock_path = _get_lock_path(runtime_dir, slot_id)
+    with contextlib.suppress(OSError):
+        if lock_path.exists():
+            lock_path.unlink()
+
+
+def _build_indeterminate_owner_error(why_blocked: str = INDETERMINATE_OWNER_MESSAGE) -> ErrorDetail:
+    return ErrorDetail(
+        error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+        failed_check=LOCKFILE_CHECK_NAME,
+        why_blocked=why_blocked,
+        how_to_fix=INDETERMINATE_OWNER_FIX,
+    )
+
+
+def _verify_lock_owner(
+    runtime_dir: Path,
+    slot_id: str,
+    metadata: LockMetadata,
+) -> ErrorDetail | None:
     try:
-        # First check if process exists
         if not psutil.pid_exists(metadata.pid):
-            # Process died between checks - clear lock
-            lock_path = _get_lock_path(runtime_dir, slot_id)
-            if lock_path.exists():
-                lock_path.unlink()
+            _clear_lockfile(runtime_dir, slot_id)
             return None
 
-        # Wrap Process creation in try/except for safety
         try:
             proc = psutil.Process(metadata.pid)
         except psutil.NoSuchProcess:
-            # Process died between pid_exists check and Process creation
-            lock_path = _get_lock_path(runtime_dir, slot_id)
-            if lock_path.exists():
-                lock_path.unlink()
+            _clear_lockfile(runtime_dir, slot_id)
             return None
 
         try:
@@ -481,33 +488,16 @@ def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | N
             port_matches = any(conn.laddr.port == metadata.port for conn in connections)
 
             if not port_matches:
-                # Indeterminate state: PID exists but port doesn't match
-                return ErrorDetail(
-                    error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-                    failed_check="lockfile_integrity",
-                    why_blocked="indeterminate_owner: lock exists but ownership verification is not definitive",
-                    how_to_fix="verify owning process and clear lock only after confirmed stale ownership",
-                )
+                return _build_indeterminate_owner_error()
         except (psutil.AccessDenied, psutil.NoSuchProcess):
-            # Access denied or process died between check - treat as indeterminate
-            return ErrorDetail(
-                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-                failed_check="lockfile_integrity",
-                why_blocked="indeterminate_owner: lock exists but ownership verification is not definitive",
-                how_to_fix="verify owning process and clear lock only after confirmed stale ownership",
-            )
+            return _build_indeterminate_owner_error()
     except (OSError, psutil.AccessDenied) as e:
-        return ErrorDetail(
-            error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-            failed_check="lockfile_integrity",
-            why_blocked=f"indeterminate_owner: {e}",
-            how_to_fix="verify owning process and clear lock only after confirmed stale ownership",
-        )
+        return _build_indeterminate_owner_error(why_blocked=f"indeterminate_owner: {e}")
 
     return None
 
 
-def write_artifact(runtime_dir: Path, slot_id: str, data: DryRunArtifactPayload | dict) -> Path:
+def write_artifact(runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload | dict) -> Path:
     """T012: Write artifact with JSON serialization and 0700/0600 permission enforcement.
 
     FR-007: Artifact directory is artifacts/. Filename format: artifact-{timestamp}.json
@@ -542,8 +532,8 @@ def write_artifact(runtime_dir: Path, slot_id: str, data: DryRunArtifactPayload 
     if dir_mode != DIR_MODE_OWNER_ONLY:
         error_detail = ErrorDetail(
             error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
-            failed_check="artifact_persistence",
-            why_blocked="artifact persistence failed to enforce required owner-only permissions",
+            failed_check=ARTIFACT_CHECK_NAME,
+            why_blocked=OWNER_ONLY_PERMISSIONS_FAILURE,
             how_to_fix="verify runtime path writability and filesystem permission support/chmod limitations",
         )
         raise ValidationException(MultiValidationError(errors=[error_detail]))
@@ -566,8 +556,8 @@ def write_artifact(runtime_dir: Path, slot_id: str, data: DryRunArtifactPayload 
         if file_mode != FILE_MODE_OWNER_ONLY:
             error_detail = ErrorDetail(
                 error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
-                failed_check="artifact_persistence",
-                why_blocked="artifact persistence failed to enforce required owner-only permissions",
+                failed_check=ARTIFACT_CHECK_NAME,
+                why_blocked=OWNER_ONLY_PERMISSIONS_FAILURE,
                 how_to_fix="verify runtime path writability and filesystem permission support/chmod limitations",
             )
             raise ValidationException(MultiValidationError(errors=[error_detail]))
@@ -576,23 +566,23 @@ def write_artifact(runtime_dir: Path, slot_id: str, data: DryRunArtifactPayload 
     except PermissionError as e:
         error_detail = ErrorDetail(
             error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
-            failed_check="artifact_persistence",
+            failed_check=ARTIFACT_CHECK_NAME,
             why_blocked="artifact persistence failed due to permission denied",
-            how_to_fix="verify runtime path and permission support/chmod limitations before retry",
+            how_to_fix=PERMISSION_SUPPORT_HINT,
         )
         raise ValidationException(MultiValidationError(errors=[error_detail])) from e
     except OSError as e:
         error_detail = ErrorDetail(
             error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
-            failed_check="artifact_persistence",
+            failed_check=ARTIFACT_CHECK_NAME,
             why_blocked=f"artifact persistence failed: {e}",
-            how_to_fix="verify runtime path and permission support/chmod limitations before retry",
+            how_to_fix=PERMISSION_SUPPORT_HINT,
         )
         raise ValidationException(MultiValidationError(errors=[error_detail])) from e
     except TypeError as e:
         error_detail = ErrorDetail(
             error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
-            failed_check="artifact_persistence",
+            failed_check=ARTIFACT_CHECK_NAME,
             why_blocked=f"artifact serialization failed: {e}",
             how_to_fix="ensure artifact data is JSON-serializable",
         )
@@ -679,7 +669,7 @@ def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
         elif isinstance(value, str) and re.search(
             r"(KEY|TOKEN|SECRET|PASSWORD|AUTH)", key, re.IGNORECASE
         ):
-            result[key] = "[REDACTED]"
+            result[key] = REDACTED_VALUE
         else:
             result[key] = value
     return result
@@ -836,7 +826,7 @@ class ServerManager:
             except Exception:
                 pass
 
-    def on_interrupt(self, signum: int, frame: FrameType | None) -> None:
+    def on_interrupt(self, _signum: int, _frame: FrameType | None) -> None:
         """Handle SIGINT signal.
 
         Args:
@@ -847,7 +837,7 @@ class ServerManager:
         self.cleanup_servers()
         sys.exit(130)
 
-    def on_terminate(self, signum: int, frame: FrameType | None) -> None:
+    def on_terminate(self, _signum: int, _frame: FrameType | None) -> None:
         """Handle SIGTERM signal.
 
         Args:

@@ -2,7 +2,9 @@
   "include": [
     "src/llama_cli",
     "src/llama_manager",
-    "src/tests"
+    "src/tests",
+    "src/run_opencode_models.py",
+    "src/run_models_tui.py"
   ],
   "exclude": [
     ".venv",

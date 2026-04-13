@@ -56,7 +56,7 @@ def assert_dicts_equal(
 def assert_sorted_identically(
     actual: list[Any],
     expected: list[Any],
-    key: str | None = None,
+    key_name: str | None = None,
     message: str = "",
 ) -> None:
     """Assert two sorted lists are identical.
@@ -67,7 +67,7 @@ def assert_sorted_identically(
     Args:
         actual: The actual sorted list from the code under test.
         expected: The expected sorted list.
-        key: Optional key function for extracting comparison values.
+        key_name: Optional descriptive key name for mismatch diagnostics.
         message: Optional custom error message.
 
     Raises:
@@ -83,8 +83,8 @@ def assert_sorted_identically(
     for i, (act_item, exp_item) in enumerate(zip(actual, expected, strict=True)):
         if act_item != exp_item:
             error_msg = f"Item at index {i} mismatch: expected {exp_item!r}, got {act_item!r}"
-            if key:
-                error_msg += f" (key={key})"
+            if key_name:
+                error_msg += f" (key={key_name})"
             if message:
                 error_msg += f" ({message})"
             raise AssertionError(error_msg)
@@ -93,8 +93,8 @@ def assert_sorted_identically(
 def normalize_output_for_diff(output: str) -> str:
     """Normalize output string for consistent diff comparison.
 
-    This helper strips leading/trailing whitespace, normalizes
-    line endings, and removes trailing blank lines for cleaner diffs.
+    This helper right-strips each line, normalizes line endings,
+    and removes trailing blank lines for cleaner diffs.
 
     Useful when comparing console output, error messages, or logs
     where formatting may vary slightly.

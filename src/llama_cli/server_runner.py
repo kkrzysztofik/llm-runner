@@ -26,6 +26,9 @@ from llama_manager import (
 )
 from llama_manager.server import detect_risky_operations
 
+RISK_ACK_LABEL = "warning_bypass"
+RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
+
 
 def usage() -> None:
     print("""Usage:
@@ -160,14 +163,14 @@ def verify_risks(manager: ServerManager, configs: list[ServerConfig], acknowledg
     ack_token = manager.issue_ack_token(launch_attempt_id)
 
     for cfg in configs:
-        if acknowledged and "warning_bypass" not in cfg.risky_acknowledged:
-            cfg.risky_acknowledged.append("warning_bypass")
+        if acknowledged and RISK_ACK_LABEL not in cfg.risky_acknowledged:
+            cfg.risky_acknowledged.append(RISK_ACK_LABEL)
         for risk in detect_risky_operations(cfg):
             if manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
                 continue
             if not acknowledged:
                 print(f"warning: risky operation detected in {cfg.alias}: {risk}")
-                response = input("Confirm risky operation [y/N]: ").strip().lower()
+                response = input(RISK_CONFIRM_PROMPT).strip().lower()
                 if response != "y":
                     _print_backend_error_and_exit()
             manager.acknowledge_risk(
@@ -176,6 +179,39 @@ def verify_risks(manager: ServerManager, configs: list[ServerConfig], acknowledg
                 launch_attempt_id=launch_attempt_id,
                 ack_token=ack_token,
             )
+
+
+def _run_dry_run_mode(argv: list[str], acknowledged: bool) -> int:
+    if len(argv) < 2:
+        print("error: dry-run requires a mode argument", file=sys.stderr)
+        usage()
+        return 1
+
+    from llama_cli.dry_run import dry_run
+
+    target_mode = argv[1]
+    primary_port = argv[2] if len(argv) > 2 else ""
+    secondary_port = argv[3] if len(argv) > 3 else ""
+    dry_run(target_mode, primary_port, secondary_port, acknowledged=acknowledged)
+    return 0
+
+
+def _run_mode(parsed_mode: str, ports: list[int], manager: ServerManager, cfg: Config) -> int:
+    if parsed_mode == "summary-balanced":
+        port = ports[0] if ports else cfg.summary_balanced_port
+        return run_summary_balanced(port, manager)
+    if parsed_mode == "summary-fast":
+        port = ports[0] if ports else cfg.summary_fast_port
+        return run_summary_fast(port, manager)
+    if parsed_mode == "qwen35":
+        port = ports[0] if ports else cfg.qwen35_port
+        return run_qwen35(port, manager)
+    if parsed_mode == "both":
+        port32 = ports[0] if len(ports) > 0 else cfg.summary_balanced_port
+        port35 = ports[1] if len(ports) > 1 else cfg.qwen35_port
+        return run_both(port32, port35, manager)
+    usage()
+    return 1
 
 
 def _normalize_main_args(args: list[str] | None) -> list[str]:
@@ -226,17 +262,7 @@ def main(args: list[str] | None = None) -> int:
     os.environ["ZES_ENABLE_SYSMAN"] = "1"
 
     if parsed.mode == "dry-run":
-        if len(argv) < 2:
-            print("error: dry-run requires a mode argument", file=sys.stderr)
-            usage()
-            return 1
-        from llama_cli.dry_run import dry_run
-
-        target_mode = argv[1]
-        primary_port = argv[2] if len(argv) > 2 else ""
-        secondary_port = argv[3] if len(argv) > 3 else ""
-        dry_run(target_mode, primary_port, secondary_port, acknowledged=parsed.acknowledge_risky)
-        return 0
+        return _run_dry_run_mode(argv, parsed.acknowledge_risky)
 
     cfg = Config()
     verify_risks(
@@ -246,25 +272,10 @@ def main(args: list[str] | None = None) -> int:
     )
 
     try:
-        if parsed.mode == "summary-balanced":
-            port = parsed.ports[0] if parsed.ports else cfg.summary_balanced_port
-            return run_summary_balanced(port, manager)
-        if parsed.mode == "summary-fast":
-            port = parsed.ports[0] if parsed.ports else cfg.summary_fast_port
-            return run_summary_fast(port, manager)
-        if parsed.mode == "qwen35":
-            port = parsed.ports[0] if parsed.ports else cfg.qwen35_port
-            return run_qwen35(port, manager)
-        if parsed.mode == "both":
-            port32 = parsed.ports[0] if len(parsed.ports) > 0 else cfg.summary_balanced_port
-            port35 = parsed.ports[1] if len(parsed.ports) > 1 else cfg.qwen35_port
-            return run_both(port32, port35, manager)
+        return _run_mode(parsed.mode, parsed.ports, manager, cfg)
     except (ValueError, IndexError):
         usage()
         return 1
-
-    usage()
-    return 1
 
 
 def cli_main() -> None:

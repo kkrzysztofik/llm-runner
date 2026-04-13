@@ -3,6 +3,7 @@
 
 import sys
 import time
+from typing import Any
 
 from llama_manager import (
     Config,
@@ -17,6 +18,11 @@ from llama_manager import (
     write_artifact,
 )
 from llama_manager.server import detect_risky_operations
+
+RISK_ACK_LABEL = "warning_bypass"
+RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
+ELIGIBLE_LABEL = "    Eligible"
+REASON_LABEL = "    Reason"
 
 
 def _print_acknowledgement_required_and_exit() -> None:
@@ -42,14 +48,14 @@ def _verify_dry_run_risks(
     ack_token = manager.issue_ack_token(launch_attempt_id)
 
     for cfg in configs:
-        if acknowledged and "warning_bypass" not in cfg.risky_acknowledged:
-            cfg.risky_acknowledged.append("warning_bypass")
+        if acknowledged and RISK_ACK_LABEL not in cfg.risky_acknowledged:
+            cfg.risky_acknowledged.append(RISK_ACK_LABEL)
         for risk in detect_risky_operations(cfg):
             if manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
                 continue
             if not acknowledged:
                 print(f"warning: risky operation detected in {cfg.alias}: {risk}")
-                response = input("Confirm risky operation [y/N]: ").strip().lower()
+                response = input(RISK_CONFIRM_PROMPT).strip().lower()
                 if response != "y":
                     _print_acknowledgement_required_and_exit()
             manager.acknowledge_risk(
@@ -58,6 +64,184 @@ def _verify_dry_run_risks(
                 launch_attempt_id=launch_attempt_id,
                 ack_token=ack_token,
             )
+
+
+def _print_backend_error(backend_error: Any) -> None:
+    print(f"error: {backend_error.error_code}", file=sys.stderr)
+    print(f"  failed_check: {backend_error.failed_check}", file=sys.stderr)
+    print(f"  why_blocked: {backend_error.why_blocked}", file=sys.stderr)
+    print(f"  how_to_fix: {backend_error.how_to_fix}", file=sys.stderr)
+
+
+def _print_common_payload_sections(payload: Any) -> None:
+    print("  OpenAI Bundle:")
+    for key in sorted(payload.openai_flag_bundle.keys()):
+        value = payload.openai_flag_bundle[key]
+        print(f"    {key}: {value}")
+
+    print("  vllm Eligibility:")
+    print(f"{ELIGIBLE_LABEL}: {payload.vllm_eligibility.eligible}")
+    print(f"{REASON_LABEL}: {payload.vllm_eligibility.reason}")
+
+    print(f"  Command: {' '.join(payload.command_args)}")
+    print()
+
+
+def _build_payload(
+    server_cfg: ServerConfig,
+    slot_id: str,
+    slot_payloads: list[Any],
+) -> bool:
+    backend_error = validate_server_config(server_cfg)
+    if backend_error is not None:
+        _print_backend_error(backend_error)
+        return True
+
+    payload = build_dry_run_slot_payload(
+        server_cfg,
+        slot_id=slot_id,
+        validation_results=None,
+        warnings=[],
+    )
+    slot_payloads.append(payload)
+    return False
+
+
+def _run_summary_balanced_mode(
+    cfg: Config,
+    manager: ServerManager,
+    port: int,
+    acknowledged: bool,
+    slot_payloads: list[Any],
+) -> bool:
+    server_cfg = create_summary_balanced_cfg(port)
+    _verify_dry_run_risks(manager, [server_cfg], acknowledged)
+    if _build_payload(server_cfg, "summary-balanced", slot_payloads):
+        return True
+
+    payload = slot_payloads[-1]
+    print("summary-balanced:")
+    print(f"  Port: {payload.port}")
+    print("  Device: SYCL0")
+    print(f"  Context: {cfg.default_ctx_size_summary}")
+    print(f"  Threads: {cfg.default_threads_summary_balanced}")
+    print(f"  UBatch: {cfg.default_ubatch_size_summary_balanced}")
+    print("  Reasoning: off")
+    print("  Reasoning Format: deepseek")
+    print("  Jinja: True")
+    print(f"  Chat Template Kwargs: {cfg.summary_balanced_chat_template_kwargs}")
+    _print_common_payload_sections(payload)
+    return False
+
+
+def _run_summary_fast_mode(
+    cfg: Config,
+    manager: ServerManager,
+    port: int,
+    acknowledged: bool,
+    slot_payloads: list[Any],
+) -> bool:
+    server_cfg = create_summary_fast_cfg(port)
+    _verify_dry_run_risks(manager, [server_cfg], acknowledged)
+    if _build_payload(server_cfg, "summary-fast", slot_payloads):
+        return True
+
+    payload = slot_payloads[-1]
+    print("summary-fast:")
+    print(f"  Port: {payload.port}")
+    print("  Device: SYCL0")
+    print(f"  Context: {cfg.default_ctx_size_summary}")
+    print(f"  Threads: {cfg.default_threads_summary_fast}")
+    print(f"  UBatch: {cfg.default_ubatch_size_summary_fast}")
+    _print_common_payload_sections(payload)
+    return False
+
+
+def _run_qwen35_mode(
+    cfg: Config,
+    manager: ServerManager,
+    port: int,
+    acknowledged: bool,
+    slot_payloads: list[Any],
+) -> bool:
+    server_cfg = create_qwen35_cfg(
+        port,
+        n_gpu_layers=cfg.default_n_gpu_layers_qwen35,
+        model=cfg.model_qwen35,
+        server_bin=cfg.llama_server_bin_nvidia,
+    )
+    _verify_dry_run_risks(manager, [server_cfg], acknowledged)
+    if _build_payload(server_cfg, "qwen35", slot_payloads):
+        return True
+
+    payload = slot_payloads[-1]
+    print("qwen35:")
+    print(f"  Port: {payload.port}")
+    print("  Device: NVIDIA (CUDA)")
+    print(f"  Context: {cfg.default_ctx_size_qwen35}")
+    print(f"  Threads: {cfg.default_threads_qwen35}")
+    print(f"  UBatch: {cfg.default_ubatch_size_qwen35}")
+    print(f"  KV cache: {cfg.default_cache_type_qwen35_k}/{cfg.default_cache_type_qwen35_v}")
+    print(f"  n-gpu-layers: {cfg.default_n_gpu_layers_qwen35}")
+    _print_common_payload_sections(payload)
+    return False
+
+
+def _run_both_mode(
+    cfg: Config,
+    manager: ServerManager,
+    summary_port: int,
+    qwen35_port: int,
+    acknowledged: bool,
+    slot_payloads: list[Any],
+) -> bool:
+    server_cfg1 = create_summary_balanced_cfg(summary_port)
+    _verify_dry_run_risks(manager, [server_cfg1], acknowledged)
+    has_error = _build_payload(server_cfg1, "summary-balanced", slot_payloads)
+
+    if not has_error:
+        payload1 = slot_payloads[-1]
+        print("summary-balanced:")
+        print(f"  Port: {payload1.port}")
+        print("  Device: SYCL0")
+        print(f"  Context: {cfg.default_ctx_size_both_summary}")
+        print(f"  Threads: {cfg.default_threads_summary_balanced}")
+        print(f"  UBatch: {cfg.default_ubatch_size_summary_balanced}")
+        print(f"  KV cache: {cfg.default_cache_type_summary_k}/{cfg.default_cache_type_summary_v}")
+        print("  Reasoning: off")
+        print("  Reasoning Format: deepseek")
+        print("  Jinja: True")
+        print(f"  Chat Template Kwargs: {cfg.summary_balanced_chat_template_kwargs}")
+        _print_common_payload_sections(payload1)
+
+    server_cfg = create_qwen35_cfg(
+        qwen35_port,
+        ctx_size=cfg.default_ctx_size_both_qwen35,
+        ubatch_size=cfg.default_ubatch_size_qwen35_both,
+        threads=cfg.default_threads_qwen35_both,
+        cache_k=cfg.default_cache_type_qwen35_both_k,
+        cache_v=cfg.default_cache_type_qwen35_both_v,
+        n_gpu_layers=cfg.default_n_gpu_layers_qwen35_both,
+        model=cfg.model_qwen35_both,
+        server_bin=cfg.llama_server_bin_nvidia,
+    )
+    _verify_dry_run_risks(manager, [server_cfg], acknowledged)
+    if _build_payload(server_cfg, "qwen35", slot_payloads):
+        return True
+
+    payload = slot_payloads[-1]
+    print("qwen35:")
+    print(f"  Port: {payload.port}")
+    print("  Device: NVIDIA (CUDA)")
+    print(f"  Context: {cfg.default_ctx_size_both_qwen35}")
+    print(f"  Threads: {cfg.default_threads_qwen35_both}")
+    print(f"  UBatch: {cfg.default_ubatch_size_qwen35_both}")
+    print(
+        f"  KV cache: {cfg.default_cache_type_qwen35_both_k}/{cfg.default_cache_type_qwen35_both_v}"
+    )
+    print(f"  n-gpu-layers: {cfg.default_n_gpu_layers_qwen35_both}")
+    _print_common_payload_sections(payload)
+    return has_error
 
 
 def dry_run(
@@ -84,266 +268,61 @@ def dry_run(
     print(f"qwen35 both model: {cfg.model_qwen35_both}")
     print()
 
-    # Build canonical slot payloads for FR-003
     from llama_manager import DryRunSlotPayload
 
     slot_payloads: list[DryRunSlotPayload] = []
     has_error = False
     manager = ServerManager()
 
+    handlers = {
+        "summary-balanced": lambda: _run_summary_balanced_mode(
+            cfg,
+            manager,
+            summary_balanced_port,
+            acknowledged,
+            slot_payloads,
+        ),
+        "llama32": lambda: _run_summary_balanced_mode(
+            cfg,
+            manager,
+            summary_balanced_port,
+            acknowledged,
+            slot_payloads,
+        ),
+        "summary-fast": lambda: _run_summary_fast_mode(
+            cfg,
+            manager,
+            summary_fast_port,
+            acknowledged,
+            slot_payloads,
+        ),
+        "qwen35": lambda: _run_qwen35_mode(
+            cfg,
+            manager,
+            qwen35_port,
+            acknowledged,
+            slot_payloads,
+        ),
+        "both": lambda: _run_both_mode(
+            cfg,
+            manager,
+            summary_balanced_port,
+            qwen35_port_both,
+            acknowledged,
+            slot_payloads,
+        ),
+    }
+
     try:
-        if mode in ("summary-balanced", "llama32"):
-            server_cfg = create_summary_balanced_cfg(summary_balanced_port)
-            _verify_dry_run_risks(manager, [server_cfg], acknowledged)
-            # FR-011: Validate backend eligibility
-            backend_error = validate_server_config(server_cfg)
-            if backend_error is not None:
-                print(f"error: {backend_error.error_code}", file=sys.stderr)
-                print(f"  failed_check: {backend_error.failed_check}", file=sys.stderr)
-                print(f"  why_blocked: {backend_error.why_blocked}", file=sys.stderr)
-                print(f"  how_to_fix: {backend_error.how_to_fix}", file=sys.stderr)
-                has_error = True
-            else:
-                # FR-003: Build canonical dry-run slot payload
-                payload = build_dry_run_slot_payload(
-                    server_cfg,
-                    slot_id="summary-balanced",
-                    validation_results=None,  # Will default to passed=True
-                    warnings=[],
-                )
-                slot_payloads.append(payload)
-
-                # Human-readable output derived from canonical payload
-                print("summary-balanced:")
-                print(f"  Port: {payload.port}")
-                print("  Device: SYCL0")
-                print(f"  Context: {cfg.default_ctx_size_summary}")
-                print(f"  Threads: {cfg.default_threads_summary_balanced}")
-                print(f"  UBatch: {cfg.default_ubatch_size_summary_balanced}")
-                print("  Reasoning: off")
-                print("  Reasoning Format: deepseek")
-                print("  Jinja: True")
-                print(f"  Chat Template Kwargs: {cfg.summary_balanced_chat_template_kwargs}")
-
-                # FR-003: OpenAI compatibility bundle (derived from canonical payload)
-                print("  OpenAI Bundle:")
-                for key in sorted(payload.openai_flag_bundle.keys()):
-                    value = payload.openai_flag_bundle[key]
-                    print(f"    {key}: {value}")
-
-                # FR-003/FR-011: vllm eligibility matrix row
-                print("  vllm Eligibility:")
-                print(f"    Eligible: {payload.vllm_eligibility.eligible}")
-                print(f"    Reason: {payload.vllm_eligibility.reason}")
-
-                print(f"  Command: {' '.join(payload.command_args)}")
-                print()
-
-        elif mode == "summary-fast":
-            server_cfg = create_summary_fast_cfg(summary_fast_port)
-            _verify_dry_run_risks(manager, [server_cfg], acknowledged)
-            # FR-011: Validate backend eligibility
-            backend_error = validate_server_config(server_cfg)
-            if backend_error is not None:
-                print(f"error: {backend_error.error_code}", file=sys.stderr)
-                print(f"  failed_check: {backend_error.failed_check}", file=sys.stderr)
-                print(f"  why_blocked: {backend_error.why_blocked}", file=sys.stderr)
-                print(f"  how_to_fix: {backend_error.how_to_fix}", file=sys.stderr)
-                has_error = True
-            else:
-                # FR-003: Build canonical dry-run slot payload
-                payload = build_dry_run_slot_payload(
-                    server_cfg,
-                    slot_id="summary-fast",
-                    validation_results=None,
-                    warnings=[],
-                )
-                slot_payloads.append(payload)
-
-                # Human-readable output derived from canonical payload
-                print("summary-fast:")
-                print(f"  Port: {payload.port}")
-                print("  Device: SYCL0")
-                print(f"  Context: {cfg.default_ctx_size_summary}")
-                print(f"  Threads: {cfg.default_threads_summary_fast}")
-                print(f"  UBatch: {cfg.default_ubatch_size_summary_fast}")
-
-                # FR-003: OpenAI compatibility bundle (derived from canonical payload)
-                print("  OpenAI Bundle:")
-                for key in sorted(payload.openai_flag_bundle.keys()):
-                    value = payload.openai_flag_bundle[key]
-                    print(f"    {key}: {value}")
-
-                # FR-003/FR-011: vllm eligibility matrix row
-                print("  vllm Eligibility:")
-                print(f"    Eligible: {payload.vllm_eligibility.eligible}")
-                print(f"    Reason: {payload.vllm_eligibility.reason}")
-
-                print(f"  Command: {' '.join(payload.command_args)}")
-                print()
-
-        elif mode == "qwen35":
-            server_cfg = create_qwen35_cfg(
-                qwen35_port,
-                n_gpu_layers=cfg.default_n_gpu_layers_qwen35,
-                model=cfg.model_qwen35,
-                server_bin=cfg.llama_server_bin_nvidia,
-            )
-            _verify_dry_run_risks(manager, [server_cfg], acknowledged)
-            # FR-011: Validate backend eligibility
-            backend_error = validate_server_config(server_cfg)
-            if backend_error is not None:
-                print(f"error: {backend_error.error_code}", file=sys.stderr)
-                print(f"  failed_check: {backend_error.failed_check}", file=sys.stderr)
-                print(f"  why_blocked: {backend_error.why_blocked}", file=sys.stderr)
-                print(f"  how_to_fix: {backend_error.how_to_fix}", file=sys.stderr)
-                has_error = True
-            else:
-                # FR-003: Build canonical dry-run slot payload
-                payload = build_dry_run_slot_payload(
-                    server_cfg,
-                    slot_id="qwen35",
-                    validation_results=None,
-                    warnings=[],
-                )
-                slot_payloads.append(payload)
-
-                # Human-readable output derived from canonical payload
-                print("qwen35:")
-                print(f"  Port: {payload.port}")
-                print("  Device: NVIDIA (CUDA)")
-                print(f"  Context: {cfg.default_ctx_size_qwen35}")
-                print(f"  Threads: {cfg.default_threads_qwen35}")
-                print(f"  UBatch: {cfg.default_ubatch_size_qwen35}")
-                print(
-                    f"  KV cache: {cfg.default_cache_type_qwen35_k}/{cfg.default_cache_type_qwen35_v}"
-                )
-                print(f"  n-gpu-layers: {cfg.default_n_gpu_layers_qwen35}")
-
-                # FR-003: OpenAI compatibility bundle (derived from canonical payload)
-                print("  OpenAI Bundle:")
-                for key in sorted(payload.openai_flag_bundle.keys()):
-                    value = payload.openai_flag_bundle[key]
-                    print(f"    {key}: {value}")
-
-                # FR-003/FR-011: vllm eligibility matrix row
-                print("  vllm Eligibility:")
-                print(f"    Eligible: {payload.vllm_eligibility.eligible}")
-                print(f"    Reason: {payload.vllm_eligibility.reason}")
-
-                print(f"  Command: {' '.join(payload.command_args)}")
-                print()
-
-        elif mode == "both":
-            server_cfg1 = create_summary_balanced_cfg(summary_balanced_port)
-            _verify_dry_run_risks(manager, [server_cfg1], acknowledged)
-            # FR-011: Validate backend eligibility for summary-balanced
-            backend_error = validate_server_config(server_cfg1)
-            if backend_error is not None:
-                print(f"error: {backend_error.error_code}", file=sys.stderr)
-                print(f"  failed_check: {backend_error.failed_check}", file=sys.stderr)
-                print(f"  why_blocked: {backend_error.why_blocked}", file=sys.stderr)
-                print(f"  how_to_fix: {backend_error.how_to_fix}", file=sys.stderr)
-                has_error = True
-            else:
-                payload1 = build_dry_run_slot_payload(
-                    server_cfg1,
-                    slot_id="summary-balanced",
-                    validation_results=None,
-                    warnings=[],
-                )
-                slot_payloads.append(payload1)
-
-                # Human-readable output derived from canonical payload
-                print("summary-balanced:")
-                print(f"  Port: {payload1.port}")
-                print("  Device: SYCL0")
-                print(f"  Context: {cfg.default_ctx_size_both_summary}")
-                print(f"  Threads: {cfg.default_threads_summary_balanced}")
-                print(f"  UBatch: {cfg.default_ubatch_size_summary_balanced}")
-                print(
-                    f"  KV cache: {cfg.default_cache_type_summary_k}/{cfg.default_cache_type_summary_v}"
-                )
-                print("  Reasoning: off")
-                print("  Reasoning Format: deepseek")
-                print("  Jinja: True")
-                print(f"  Chat Template Kwargs: {cfg.summary_balanced_chat_template_kwargs}")
-
-                # FR-003: OpenAI compatibility bundle (derived from canonical payload)
-                print("  OpenAI Bundle:")
-                for key in sorted(payload1.openai_flag_bundle.keys()):
-                    value = payload1.openai_flag_bundle[key]
-                    print(f"    {key}: {value}")
-
-                # FR-003/FR-011: vllm eligibility matrix row
-                print("  vllm Eligibility:")
-                print(f"    Eligible: {payload1.vllm_eligibility.eligible}")
-                print(f"    Reason: {payload1.vllm_eligibility.reason}")
-
-                print(f"  Command: {' '.join(payload1.command_args)}")
-                print()
-
-            server_cfg2 = create_qwen35_cfg(
-                qwen35_port_both,
-                ctx_size=cfg.default_ctx_size_both_qwen35,
-                ubatch_size=cfg.default_ubatch_size_qwen35_both,
-                threads=cfg.default_threads_qwen35_both,
-                cache_k=cfg.default_cache_type_qwen35_both_k,
-                cache_v=cfg.default_cache_type_qwen35_both_v,
-                n_gpu_layers=cfg.default_n_gpu_layers_qwen35_both,
-                model=cfg.model_qwen35_both,
-                server_bin=cfg.llama_server_bin_nvidia,
-            )
-            _verify_dry_run_risks(manager, [server_cfg2], acknowledged)
-            # FR-011: Validate backend eligibility for qwen35
-            backend_error = validate_server_config(server_cfg2)
-            if backend_error is not None:
-                print(f"error: {backend_error.error_code}", file=sys.stderr)
-                print(f"  failed_check: {backend_error.failed_check}", file=sys.stderr)
-                print(f"  why_blocked: {backend_error.why_blocked}", file=sys.stderr)
-                print(f"  how_to_fix: {backend_error.how_to_fix}", file=sys.stderr)
-                has_error = True
-            else:
-                payload2 = build_dry_run_slot_payload(
-                    server_cfg2,
-                    slot_id="qwen35",
-                    validation_results=None,
-                    warnings=[],
-                )
-                slot_payloads.append(payload2)
-
-                # Human-readable output derived from canonical payload
-                print("qwen35:")
-                print(f"  Port: {payload2.port}")
-                print("  Device: NVIDIA (CUDA)")
-                print(f"  Context: {cfg.default_ctx_size_both_qwen35}")
-                print(f"  Threads: {cfg.default_threads_qwen35_both}")
-                print(f"  UBatch: {cfg.default_ubatch_size_qwen35_both}")
-                print(
-                    f"  KV cache: {cfg.default_cache_type_qwen35_both_k}/{cfg.default_cache_type_qwen35_both_v}"
-                )
-                print(f"  n-gpu-layers: {cfg.default_n_gpu_layers_qwen35_both}")
-
-                # FR-003: OpenAI compatibility bundle (derived from canonical payload)
-                print("  OpenAI Bundle:")
-                for key in sorted(payload2.openai_flag_bundle.keys()):
-                    value = payload2.openai_flag_bundle[key]
-                    print(f"    {key}: {value}")
-
-                # FR-003/FR-011: vllm eligibility matrix row
-                print("  vllm Eligibility:")
-                print(f"    Eligible: {payload2.vllm_eligibility.eligible}")
-                print(f"    Reason: {payload2.vllm_eligibility.reason}")
-
-                print(f"  Command: {' '.join(payload2.command_args)}")
-                print()
-
-        else:
+        handler = handlers.get(mode)
+        if handler is None:
             print(
                 "error: dry-run requires a mode argument (summary-balanced|summary-fast|qwen35|both)",
                 file=sys.stderr,
             )
             sys.exit(1)
+
+        has_error = handler()
 
         # FR-007: Write artifact for dry-run attempt
         if not has_error and slot_payloads:

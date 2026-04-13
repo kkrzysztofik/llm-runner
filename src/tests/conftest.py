@@ -75,6 +75,11 @@ def artifact_writer(tmp_runtime_dir: Path) -> Any:
             Path to the created artifact file.
 
         """
+        if expected_type == "text" and not isinstance(content, str):
+            raise AssertionError("expected_type='text' requires str content")
+        if expected_type == "binary" and not isinstance(content, bytes):
+            raise AssertionError("expected_type='binary' requires bytes content")
+
         artifact_path = tmp_runtime_dir / filename
         if isinstance(content, str):
             artifact_path.write_text(content)
