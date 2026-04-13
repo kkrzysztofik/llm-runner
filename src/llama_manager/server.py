@@ -532,22 +532,30 @@ def _build_environment_redacted() -> dict[str, str]:
 def _build_openai_flag_bundle(cfg: ServerConfig) -> dict[str, str | int | bool | None]:
     """Build OpenAI API compatibility flag bundle.
 
+    FR-003: Ensures explicit and deterministic OpenAI compatibility bundle for Qwen-class configs.
+    Keys are sorted alphabetically for deterministic serialization.
+
     Args:
         cfg: ServerConfig to derive flags from
 
     Returns:
-        Dict with OpenAI API compatibility flags (keys with leading dashes, mixed value types)
+        Dict with OpenAI API compatibility flags (keys with leading dashes, mixed value types).
+        Keys are deterministically ordered (sorted ascending).
 
     """
     # Determine if chat completion is supported based on reasoning mode
     chat_completion_supported = cfg.reasoning_mode in ("auto", "enabled")
 
-    return {
-        "--port": cfg.port,
-        "--host": "127.0.0.1",
+    # Build bundle with explicit keys for Qwen-class configs
+    # Keys sorted alphabetically for deterministic serialization (FR-003)
+    bundle: dict[str, str | int | bool | None] = {
         "--chat-format": "chatml" if chat_completion_supported else None,
+        "--host": "127.0.0.1",
         "--openai": True,
+        "--port": cfg.port,
     }
+
+    return bundle
 
 
 def _build_hardware_notes(cfg: ServerConfig) -> dict[str, str | None]:

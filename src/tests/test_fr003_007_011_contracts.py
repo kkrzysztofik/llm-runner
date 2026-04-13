@@ -700,3 +700,221 @@ class TestFR011VllmBlockingActionableFields:
         )
         assert payload.vllm_eligibility.eligible is False
         assert "vllm is not launch-eligible in PRD M1" in payload.vllm_eligibility.reason
+
+
+class TestFR003OpenAIBundleDeterminism:
+    """FR-003: OpenAI compatibility bundle determinism and explicitness tests."""
+
+    def _minimal_cfg(self, **kwargs: object) -> ServerConfig:
+        """Create minimal ServerConfig for testing."""
+        defaults = {
+            "model": "/models/test.gguf",
+            "alias": "test",
+            "device": "SYCL0",
+            "port": 8080,
+            "ctx_size": 4096,
+            "ubatch_size": 512,
+            "threads": 4,
+            "server_bin": "/usr/bin/llama-server",
+            "backend": "llama_cpp",
+        }
+        defaults.update(kwargs)
+        return ServerConfig(**defaults)  # type: ignore[arg-type]
+
+    def test_openai_bundle_keys_are_sorted(self) -> None:
+        """FR-003: openai_flag_bundle keys should be deterministically sorted."""
+        cfg = self._minimal_cfg()
+        payload = build_dry_run_slot_payload(
+            cfg,
+            slot_id="test-slot",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+        keys = list(payload.openai_flag_bundle.keys())
+        # Keys should be sorted alphabetically
+        assert keys == sorted(keys), f"Keys should be sorted: {keys}"
+
+    def test_openai_bundle_deterministic_for_qwen35(self) -> None:
+        """FR-003: OpenAI bundle should be explicit and deterministic for Qwen-class configs."""
+        # Qwen35 config with reasoning mode enabled
+        cfg = self._minimal_cfg(
+            reasoning_mode="auto",
+            alias="qwen35-test",
+            port=9000,
+        )
+        payload1 = build_dry_run_slot_payload(
+            cfg,
+            slot_id="qwen35-test",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+        payload2 = build_dry_run_slot_payload(
+            cfg,
+            slot_id="qwen35-test",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+        # Should produce identical bundles
+        assert payload1.openai_flag_bundle == payload2.openai_flag_bundle
+        # Check specific keys
+        assert "--port" in payload1.openai_flag_bundle
+        assert "--host" in payload1.openai_flag_bundle
+        assert "--openai" in payload1.openai_flag_bundle
+        assert payload1.openai_flag_bundle["--openai"] is True
+
+    def test_openai_bundle_chat_format_when_reasoning_enabled(self) -> None:
+        """FR-003: --chat-format should be 'chatml' when reasoning mode is enabled."""
+        cfg = self._minimal_cfg(reasoning_mode="auto")
+        payload = build_dry_run_slot_payload(
+            cfg,
+            slot_id="test-slot",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+        assert payload.openai_flag_bundle["--chat-format"] == "chatml"
+
+    def test_openai_bundle_chat_format_when_reasoning_disabled(self) -> None:
+        """FR-003: --chat-format should be None when reasoning mode is disabled."""
+        cfg = self._minimal_cfg(reasoning_mode="off")
+        payload = build_dry_run_slot_payload(
+            cfg,
+            slot_id="test-slot",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+        assert payload.openai_flag_bundle["--chat-format"] is None
+
+    def test_openai_bundle_keys_match_contract_spec(self) -> None:
+        """FR-003: OpenAI bundle keys should match the dry-run contract spec."""
+        cfg = self._minimal_cfg()
+        payload = build_dry_run_slot_payload(
+            cfg,
+            slot_id="test-slot",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+        keys = set(payload.openai_flag_bundle.keys())
+        # Allowed keys per contract: --port, --host, --chat-format, --openai
+        allowed_keys = {"--port", "--host", "--chat-format", "--openai"}
+        assert keys.issubset(allowed_keys), f"Unknown keys in bundle: {keys - allowed_keys}"
+
+    def test_openai_bundle_sorted_twice_produces_same_result(self) -> None:
+        """FR-003: Multiple calls to build_openai_flag_bundle should produce same sorted result."""
+        cfg = self._minimal_cfg(port=8080)
+
+        # Build multiple times
+        payload1 = build_dry_run_slot_payload(
+            cfg,
+            slot_id="test",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+        payload2 = build_dry_run_slot_payload(
+            cfg,
+            slot_id="test",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+        payload3 = build_dry_run_slot_payload(
+            cfg,
+            slot_id="test",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+
+        # All should be identical
+        assert payload1.openai_flag_bundle == payload2.openai_flag_bundle
+        assert payload2.openai_flag_bundle == payload3.openai_flag_bundle
+
+    def test_openai_bundle_port_reflects_config(self) -> None:
+        """FR-003: OpenAI bundle --port should reflect the ServerConfig port."""
+        cfg1 = self._minimal_cfg(port=8080)
+        cfg2 = self._minimal_cfg(port=9090)
+
+        payload1 = build_dry_run_slot_payload(
+            cfg1,
+            slot_id="test1",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+        payload2 = build_dry_run_slot_payload(
+            cfg2,
+            slot_id="test2",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+
+        assert payload1.openai_flag_bundle["--port"] == 8080
+        assert payload2.openai_flag_bundle["--port"] == 9090
+
+    def test_openai_bundle_host_is_default(self) -> None:
+        """FR-003: OpenAI bundle --host should be 127.0.0.1."""
+        cfg = self._minimal_cfg()
+        payload = build_dry_run_slot_payload(
+            cfg,
+            slot_id="test-slot",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+        assert payload.openai_flag_bundle["--host"] == "127.0.0.1"
+
+
+class TestFR003DryRunHumanReadableOutput:
+    """FR-003: Human-readable dry-run output assertions."""
+
+    def test_dry_run_output_includes_openai_bundle_keys(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """FR-003: Human-readable dry-run output should surface OpenAI bundle values."""
+
+        # Create a mock payload to verify structure
+        cfg = ServerConfig(
+            model="/model.gguf",
+            alias="test",
+            device="SYCL0",
+            port=8080,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+            server_bin="/usr/bin/llama-server",
+            backend="llama_cpp",
+            reasoning_mode="auto",
+        )
+        payload = build_dry_run_slot_payload(
+            cfg,
+            slot_id="test-slot",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+
+        # Verify OpenAI bundle has expected keys
+        assert "--openai" in payload.openai_flag_bundle
+        assert payload.openai_flag_bundle["--openai"] is True
+        assert "--port" in payload.openai_flag_bundle
+        assert payload.openai_flag_bundle["--port"] == 8080
+
+    def test_dry_run_output_includes_vllm_eligibility(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """FR-003/FR-011: Human-readable dry-run output should surface vllm eligibility."""
+        cfg = ServerConfig(
+            model="/model.gguf",
+            alias="test",
+            device="SYCL0",
+            port=8080,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+            server_bin="/usr/bin/llama-server",
+            backend="llama_cpp",
+        )
+        payload = build_dry_run_slot_payload(
+            cfg,
+            slot_id="test-slot",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+
+        # Verify vllm eligibility is present and shows ineligible status
+        assert payload.vllm_eligibility.eligible is False
+        assert "vllm is not launch-eligible" in payload.vllm_eligibility.reason

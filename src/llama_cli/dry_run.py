@@ -124,6 +124,18 @@ def dry_run(
                 print("  Reasoning Format: deepseek")
                 print("  Jinja: True")
                 print(f"  Chat Template Kwargs: {cfg.summary_balanced_chat_template_kwargs}")
+
+                # FR-003: OpenAI compatibility bundle (derived from canonical payload)
+                print("  OpenAI Bundle:")
+                for key in sorted(payload.openai_flag_bundle.keys()):
+                    value = payload.openai_flag_bundle[key]
+                    print(f"    {key}: {value}")
+
+                # FR-003/FR-011: vllm eligibility matrix row
+                print("  vllm Eligibility:")
+                print(f"    Eligible: {payload.vllm_eligibility.eligible}")
+                print(f"    Reason: {payload.vllm_eligibility.reason}")
+
                 print(f"  Command: {' '.join(payload.command_args)}")
                 print()
 
@@ -155,6 +167,18 @@ def dry_run(
                 print(f"  Context: {cfg.default_ctx_size_summary}")
                 print(f"  Threads: {cfg.default_threads_summary_fast}")
                 print(f"  UBatch: {cfg.default_ubatch_size_summary_fast}")
+
+                # FR-003: OpenAI compatibility bundle (derived from canonical payload)
+                print("  OpenAI Bundle:")
+                for key in sorted(payload.openai_flag_bundle.keys()):
+                    value = payload.openai_flag_bundle[key]
+                    print(f"    {key}: {value}")
+
+                # FR-003/FR-011: vllm eligibility matrix row
+                print("  vllm Eligibility:")
+                print(f"    Eligible: {payload.vllm_eligibility.eligible}")
+                print(f"    Reason: {payload.vllm_eligibility.reason}")
+
                 print(f"  Command: {' '.join(payload.command_args)}")
                 print()
 
@@ -195,6 +219,18 @@ def dry_run(
                     f"  KV cache: {cfg.default_cache_type_qwen35_k}/{cfg.default_cache_type_qwen35_v}"
                 )
                 print(f"  n-gpu-layers: {cfg.default_n_gpu_layers_qwen35}")
+
+                # FR-003: OpenAI compatibility bundle (derived from canonical payload)
+                print("  OpenAI Bundle:")
+                for key in sorted(payload.openai_flag_bundle.keys()):
+                    value = payload.openai_flag_bundle[key]
+                    print(f"    {key}: {value}")
+
+                # FR-003/FR-011: vllm eligibility matrix row
+                print("  vllm Eligibility:")
+                print(f"    Eligible: {payload.vllm_eligibility.eligible}")
+                print(f"    Reason: {payload.vllm_eligibility.reason}")
+
                 print(f"  Command: {' '.join(payload.command_args)}")
                 print()
 
@@ -232,6 +268,18 @@ def dry_run(
                 print("  Reasoning Format: deepseek")
                 print("  Jinja: True")
                 print(f"  Chat Template Kwargs: {cfg.summary_balanced_chat_template_kwargs}")
+
+                # FR-003: OpenAI compatibility bundle (derived from canonical payload)
+                print("  OpenAI Bundle:")
+                for key in sorted(payload1.openai_flag_bundle.keys()):
+                    value = payload1.openai_flag_bundle[key]
+                    print(f"    {key}: {value}")
+
+                # FR-003/FR-011: vllm eligibility matrix row
+                print("  vllm Eligibility:")
+                print(f"    Eligible: {payload1.vllm_eligibility.eligible}")
+                print(f"    Reason: {payload1.vllm_eligibility.reason}")
+
                 print(f"  Command: {' '.join(payload1.command_args)}")
                 print()
 
@@ -275,6 +323,18 @@ def dry_run(
                     f"  KV cache: {cfg.default_cache_type_qwen35_both_k}/{cfg.default_cache_type_qwen35_both_v}"
                 )
                 print(f"  n-gpu-layers: {cfg.default_n_gpu_layers_qwen35_both}")
+
+                # FR-003: OpenAI compatibility bundle (derived from canonical payload)
+                print("  OpenAI Bundle:")
+                for key in sorted(payload2.openai_flag_bundle.keys()):
+                    value = payload2.openai_flag_bundle[key]
+                    print(f"    {key}: {value}")
+
+                # FR-003/FR-011: vllm eligibility matrix row
+                print("  vllm Eligibility:")
+                print(f"    Eligible: {payload2.vllm_eligibility.eligible}")
+                print(f"    Reason: {payload2.vllm_eligibility.reason}")
+
                 print(f"  Command: {' '.join(payload2.command_args)}")
                 print()
 
