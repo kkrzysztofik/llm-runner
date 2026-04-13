@@ -3,26 +3,26 @@
 import argparse
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(
         description="Manage multiple llama-server instances",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Modes:
-  summary-balanced  Run summary-balanced model (Intel SYCL)
-  summary-fast      Run summary-fast model (Intel SYCL)
-  qwen35           Run qwen35-coding model (NVIDIA CUDA)
-  both             Run summary-balanced and qwen35 side-by-side
-  dry-run          Preview commands without executing
+    Modes:
+      summary-balanced  Run summary-balanced model (Intel SYCL)
+      summary-fast      Run summary-fast model (Intel SYCL)
+      qwen35           Run qwen35-coding model (NVIDIA CUDA)
+      both             Run summary-balanced and qwen35 side-by-side
+      dry-run          Preview commands without executing
 
-Examples:
-  src/run_opencode_models.py summary-balanced
-  src/run_opencode_models.py summary-fast 8082
-  src/run_opencode_models.py qwen35 8080
-  src/run_opencode_models.py both 8080 8081
-  src/run_opencode_models.py dry-run both
-        """,
+    Examples:
+      src/run_opencode_models.py summary-balanced
+      src/run_opencode_models.py summary-fast 8082
+      src/run_opencode_models.py qwen35 8080
+      src/run_opencode_models.py both 8080 8081
+      src/run_opencode_models.py dry-run both
+            """,
     )
 
     parser.add_argument(
@@ -38,7 +38,13 @@ Examples:
         help="Port(s) for models (1st port, 2nd port for 'both')",
     )
 
-    return parser.parse_args()
+    parser.add_argument(
+        "--acknowledge-risky",
+        action="store_true",
+        help="Acknowledge risky operations (privileged ports, etc.)",
+    )
+
+    return parser.parse_args(args)
 
 
 def parse_tui_args() -> argparse.Namespace:
@@ -77,6 +83,12 @@ GPU Mapping:
         "-p2",
         type=int,
         help="Port for secondary model",
+    )
+
+    parser.add_argument(
+        "--acknowledge-risky",
+        action="store_true",
+        help="Acknowledge risky operations (privileged ports, etc.)",
     )
 
     return parser.parse_args()

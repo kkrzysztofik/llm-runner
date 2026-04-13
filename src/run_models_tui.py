@@ -85,7 +85,7 @@ def main():
 
     # Run TUI
     app = TUIApp(configs, gpu_indices)
-    app.run()
+    app.run(acknowledged=args.acknowledge_risky)
 
 
 if __name__ == "__main__":

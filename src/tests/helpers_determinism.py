@@ -26,6 +26,7 @@ def assert_dicts_equal(
 
     Raises:
         AssertionError: If dicts differ in keys or values.
+
     """
     actual_keys = set(actual.keys())
     expected_keys = set(expected.keys())
@@ -71,6 +72,7 @@ def assert_sorted_identically(
 
     Raises:
         AssertionError: If lists differ in length or element ordering.
+
     """
     if len(actual) != len(expected):
         raise AssertionError(
@@ -102,6 +104,7 @@ def normalize_output_for_diff(output: str) -> str:
 
     Returns:
         Normalized string with consistent formatting.
+
     """
     # Split into lines
     lines = output.splitlines()

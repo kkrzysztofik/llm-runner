@@ -49,6 +49,7 @@ select = [
     "S",   # flake8-bandit (security)
 ]
 ignore = [
+    "D",     # docstring style checks are out of scope for this phase
     "E501",  # line length — handled by formatter
     "B008",  # function call in default argument
     "S603",  # subprocess call — intentional in process_manager
@@ -57,7 +58,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/tests/*" = ["S101"]  # assert is fine in tests
+"src/llama_cli/*" = ["D", "E501"]
+"src/llama_manager/*" = ["D", "E501"]
+"src/tests/*" = ["D", "E501", "S101"]  # assert is fine in tests
 
 [tool.ruff.lint.isort]
 known-first-party = ["llama_cli", "llama_manager"]

@@ -24,6 +24,7 @@ def tmp_runtime_dir(tmp_path: Path) -> Path:
 
     Returns:
         Path to a temporary directory that exists and is writable.
+
     """
     return tmp_path
 
@@ -37,6 +38,7 @@ def sample_lockfile(tmp_runtime_dir: Path) -> Path:
 
     Returns:
         Path to the created lockfile.
+
     """
     lockfile = tmp_runtime_dir / "llm-runner.lock"
     lockfile.write_text(
@@ -58,6 +60,7 @@ def artifact_writer(tmp_runtime_dir: Path) -> Any:
     Returns:
         A function that takes (filename, content, expected_type) and writes
         the artifact, returning the Path to the created file.
+
     """
 
     def write_artifact(filename: str, content: str | bytes, expected_type: str = "text") -> Path:
@@ -70,6 +73,7 @@ def artifact_writer(tmp_runtime_dir: Path) -> Any:
 
         Returns:
             Path to the created artifact file.
+
         """
         artifact_path = tmp_runtime_dir / filename
         if isinstance(content, str):

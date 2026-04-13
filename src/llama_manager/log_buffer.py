@@ -20,6 +20,7 @@ def _redact_sensitive_values(line: str) -> str:
 
     Returns:
         Log line with sensitive values redacted
+
     """
     # Pattern 1: Matches env var names containing sensitive keywords followed by = and a value
     # Examples: API_KEY=secret123, TOKEN=abc, PASSWORD="hidden"

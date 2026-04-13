@@ -132,6 +132,7 @@ def sort_validation_errors(
 
     Returns:
         Sorted list with slots in input order, failed_check alphabetically within slots.
+
     """
     # Build slot order map: slot_id -> order index (first occurrence wins)
     slot_order: dict[str, int] = {}
@@ -166,6 +167,7 @@ def redact_sensitive(env_value: str, env_key: str) -> str:
         "[REDACTED]"
         >>> redact_sensitive("/path/to/model", "MODEL_PATH")
         "/path/to/model"
+
     """
     sensitive_patterns = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|AUTH)", re.IGNORECASE)
     if sensitive_patterns.search(env_key):
@@ -183,6 +185,7 @@ def validate_backend_eligibility(backend: str) -> ErrorDetail | None:
 
     Returns:
         ErrorDetail if backend is not eligible, None if eligible
+
     """
     if backend.lower() == "vllm":
         return ErrorDetail(
@@ -204,6 +207,7 @@ def validate_server_config(cfg: ServerConfig) -> ErrorDetail | None:
 
     Returns:
         ErrorDetail if validation fails, None if valid
+
     """
     return validate_backend_eligibility(cfg.backend)
 
@@ -222,6 +226,7 @@ def validate_slots(slots: list["ModelSlot"]) -> MultiValidationError | None:
 
     Returns:
         MultiValidationError if validation fails, None if all slots pass validation
+
     """
     from .config import (
         detect_duplicate_slots,
@@ -306,6 +311,31 @@ def validate_slots(slots: list["ModelSlot"]) -> MultiValidationError | None:
         return MultiValidationError(errors=error_details)
 
 
+def detect_risky_operations(cfg: ServerConfig) -> list[str]:
+    """Detect potentially risky operations in server configuration.
+
+    Risky operations include:
+    - Privileged ports (< 1024)
+    - Non-loopback bind addresses (not 127.0.0.1 or ::1)
+
+    Args:
+        cfg: Server configuration to analyze
+
+    Returns:
+        List of risk identifiers (e.g., 'privileged_port', 'non_loopback')
+
+    """
+    risks: list[str] = []
+
+    if cfg.port < 1024:
+        risks.append("privileged_port")
+
+    if cfg.bind_address not in ("127.0.0.1", "::1"):
+        risks.append("non_loopback")
+
+    return risks
+
+
 def build_dry_run_slot_payload(
     cfg: ServerConfig,
     slot_id: str,
@@ -327,6 +357,7 @@ def build_dry_run_slot_payload(
 
     Returns:
         DryRunSlotPayload with all fields populated deterministically
+
     """
     # Build command args (excluding binary path which is in binary_path field)
     cmd = build_server_cmd(cfg)
@@ -382,6 +413,7 @@ def _error_detail_to_stderr(error_detail: ErrorDetail) -> None:
 
     Args:
         error_detail: ErrorDetail with error_code, failed_check, why_blocked, how_to_fix
+
     """
     error_code = (
         error_detail.error_code.value
@@ -501,6 +533,7 @@ def _build_openai_flag_bundle(cfg: ServerConfig) -> dict[str, str | int | bool |
 
     Returns:
         Dict with OpenAI API compatibility flags (keys with leading dashes, mixed value types)
+
     """
     # Determine if chat completion is supported based on reasoning mode
     chat_completion_supported = cfg.reasoning_mode in ("auto", "enabled")
@@ -522,6 +555,7 @@ def _build_hardware_notes(cfg: ServerConfig) -> dict[str, str | None]:
     Returns:
         Dict with required fields: backend, device_id, device_name;
         optional fields: driver_version, runtime_version (may be None)
+
     """
     backend = cfg.backend if cfg.backend else "llama_cpp"
     device = cfg.device if cfg.device else "auto"

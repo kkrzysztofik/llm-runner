@@ -2,11 +2,12 @@
 
 
 from copy import deepcopy
+from typing import Any
 
 from .config import Config, ServerConfig
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Deep merge two dicts with override taking precedence.
 
     FR-006: Priority order is defaults < slot/workstation < profile < override.
@@ -14,11 +15,12 @@ def _deep_merge(base: dict, override: dict) -> dict:
     over base values, recursively merging nested dicts.
 
     Args:
-        base: Base dictionary (lower precedence)
-        override: Override dictionary (higher precedence)
+        base: Base dictionary (lower precedence).
+        override: Override dictionary (higher precedence).
 
     Returns:
-        Merged dictionary with override values taking precedence
+        Merged dictionary with override values taking precedence.
+
     """
     result = deepcopy(base)
     for key, value in override.items():
@@ -37,6 +39,20 @@ def create_summary_balanced_cfg(
     cache_k: str | None = None,
     cache_v: str | None = None,
 ) -> ServerConfig:
+    """Create a ServerConfig for the summary-balanced model profile.
+
+    Args:
+        port: Port to bind the server to.
+        ctx_size: Context size (defaults to Config.default_ctx_size_summary).
+        ubatch_size: Ubatch size (defaults to Config.default_ubatch_size_summary_balanced).
+        threads: Number of threads (defaults to Config.default_threads_summary_balanced).
+        cache_k: K cache type.
+        cache_v: V cache type.
+
+    Returns:
+        A configured ServerConfig instance.
+
+    """
     cfg = Config()
     return ServerConfig(
         model=cfg.model_summary_balanced,
@@ -64,6 +80,20 @@ def create_summary_fast_cfg(
     cache_k: str | None = None,
     cache_v: str | None = None,
 ) -> ServerConfig:
+    """Create a ServerConfig for the summary-fast model profile.
+
+    Args:
+        port: Port to bind the server to.
+        ctx_size: Context size (defaults to Config.default_ctx_size_summary).
+        ubatch_size: Ubatch size (defaults to Config.default_ubatch_size_summary_fast).
+        threads: Number of threads (defaults to Config.default_threads_summary_fast).
+        cache_k: K cache type.
+        cache_v: V cache type.
+
+    Returns:
+        A configured ServerConfig instance.
+
+    """
     cfg = Config()
     return ServerConfig(
         model=cfg.model_summary_fast,
@@ -91,6 +121,24 @@ def create_qwen35_cfg(
     server_bin: str = "",
     backend: str = "llama_cpp",
 ) -> ServerConfig:
+    """Create a ServerConfig for the qwen35-coding model profile.
+
+    Args:
+        port: Port to bind the server to.
+        ctx_size: Context size (defaults to Config.default_ctx_size_qwen35).
+        ubatch_size: Ubatch size (defaults to Config.default_ubatch_size_qwen35).
+        threads: Number of threads (defaults to Config.default_threads_qwen35).
+        cache_k: K cache type (defaults to Config.default_cache_type_qwen35_k).
+        cache_v: V cache type (defaults to Config.default_cache_type_qwen35_v).
+        n_gpu_layers: Number of GPU layers to offload (defaults to 'all').
+        model: Specific model path (defaults to Config.model_qwen35).
+        server_bin: Path to llama-server binary (defaults to Config.llama_server_bin_nvidia).
+        backend: Inference backend (defaults to 'llama_cpp').
+
+    Returns:
+        A configured ServerConfig instance.
+
+    """
     cfg = Config()
     return ServerConfig(
         model=model or cfg.model_qwen35,
@@ -139,6 +187,7 @@ def merge_config_overrides(
             profile_config={"threads": 12, "ubatch_size": 2048},
             override_config={"port": 9000},  # Will win over slot_config
         )
+
     """
     # Start with defaults
     base_defaults: dict = {
@@ -146,6 +195,7 @@ def merge_config_overrides(
         "alias": "default",
         "device": "",
         "port": defaults.summary_balanced_port,
+        "bind_address": "127.0.0.1",
         "ctx_size": defaults.default_ctx_size_summary,
         "ubatch_size": defaults.default_ubatch_size_summary_balanced,
         "threads": defaults.default_threads_summary_balanced,
@@ -158,6 +208,7 @@ def merge_config_overrides(
         "n_gpu_layers": defaults.default_n_gpu_layers,
         "server_bin": "",
         "backend": "llama_cpp",
+        "risky_acknowledged": [],
     }
 
     # Apply precedence order: defaults < slot/workstation < profile < override
@@ -185,6 +236,7 @@ def merge_config_overrides(
         alias=merged["alias"],
         device=merged["device"],
         port=merged["port"],
+        bind_address=merged.get("bind_address", "127.0.0.1"),
         ctx_size=merged["ctx_size"],
         ubatch_size=merged["ubatch_size"],
         threads=merged["threads"],
@@ -199,4 +251,5 @@ def merge_config_overrides(
         n_gpu_layers=merged.get("n_gpu_layers", defaults.default_n_gpu_layers),
         server_bin=merged.get("server_bin", ""),
         backend=merged.get("backend", "llama_cpp"),
+        risky_acknowledged=merged.get("risky_acknowledged", []),
     )

@@ -2,7 +2,7 @@
 
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 
@@ -79,6 +79,7 @@ class ServerConfig:
     ctx_size: int
     ubatch_size: int
     threads: int
+    bind_address: str = "127.0.0.1"
     tensor_split: str = ""
     reasoning_mode: str = "auto"
     reasoning_format: str = "none"
@@ -90,6 +91,7 @@ class ServerConfig:
     n_gpu_layers: int | str = 99
     server_bin: str = ""
     backend: str = "llama_cpp"
+    risky_acknowledged: list[str] = field(default_factory=list)
 
 
 # M1 scaffolding
@@ -109,6 +111,7 @@ def normalize_slot_id(slot_id: str) -> str:
 
     Raises:
         ValueError: If normalized result is empty after applying allowed character filter
+
     """
     normalized = _SLOT_ID_PATTERN.sub("", slot_id.strip().lower())
     if not normalized:
@@ -124,6 +127,7 @@ def detect_duplicate_slots(slots: list["ModelSlot"]) -> list[str]:
 
     Returns:
         List of normalized slot_ids that appear more than once
+
     """
     seen: dict[str, int] = {}
     duplicates: list[str] = []
@@ -154,6 +158,7 @@ def validate_slot_id(slot_id: str) -> "ValidationResult":
 
     Returns:
         ValidationResult indicating success or failure with error details
+
     """
     try:
         normalized = normalize_slot_id(slot_id)
@@ -180,6 +185,7 @@ def validate_slot_port(port: int, slot_id: str) -> "ValidationResult":
 
     Returns:
         ValidationResult indicating success or failure with error details
+
     """
     if not isinstance(port, int) or port < 1 or port > 65535:
         return ValidationResult(
