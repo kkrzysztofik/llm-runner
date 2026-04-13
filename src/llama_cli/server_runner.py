@@ -166,19 +166,39 @@ def verify_risks(manager: ServerManager, configs: list[ServerConfig], acknowledg
         if acknowledged and RISK_ACK_LABEL not in cfg.risky_acknowledged:
             cfg.risky_acknowledged.append(RISK_ACK_LABEL)
         for risk in detect_risky_operations(cfg):
-            if manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
-                continue
-            if not acknowledged:
-                print(f"warning: risky operation detected in {cfg.alias}: {risk}")
-                response = input(RISK_CONFIRM_PROMPT).strip().lower()
-                if response != "y":
-                    _print_backend_error_and_exit()
-            manager.acknowledge_risk(
-                cfg.alias,
+            _acknowledge_risk_if_required(
+                manager,
+                cfg,
                 risk,
-                launch_attempt_id=launch_attempt_id,
-                ack_token=ack_token,
+                launch_attempt_id,
+                ack_token,
+                acknowledged,
             )
+
+
+def _acknowledge_risk_if_required(
+    manager: ServerManager,
+    cfg: ServerConfig,
+    risk: str,
+    launch_attempt_id: str,
+    ack_token: str,
+    acknowledged: bool,
+) -> None:
+    if manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
+        return
+
+    if not acknowledged:
+        print(f"warning: risky operation detected in {cfg.alias}: {risk}")
+        response = input(RISK_CONFIRM_PROMPT).strip().lower()
+        if response != "y":
+            _print_backend_error_and_exit()
+
+    manager.acknowledge_risk(
+        cfg.alias,
+        risk,
+        launch_attempt_id=launch_attempt_id,
+        ack_token=ack_token,
+    )
 
 
 def _run_dry_run_mode(argv: list[str], acknowledged: bool) -> int:

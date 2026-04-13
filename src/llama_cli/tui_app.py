@@ -24,6 +24,7 @@ from llama_manager.server import detect_risky_operations
 
 RISK_ACK_LABEL = "warning_bypass"
 RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
+STYLE_BOLD_YELLOW = "bold yellow"
 
 
 class TUIApp:
@@ -124,7 +125,7 @@ class TUIApp:
             status_text.append("BLOCKED", style="bold red reverse")
             status_text.append("\n\n")
             if launch_result.errors is not None:
-                status_text.append("FR-005 Error Details:\n", style="bold yellow")
+                status_text.append("FR-005 Error Details:\n", style=STYLE_BOLD_YELLOW)
                 for error_detail in launch_result.errors.errors:
                     status_text.append(f"  - {error_detail.error_code}\n", style="red")
                     status_text.append(
@@ -146,8 +147,8 @@ class TUIApp:
             )
             return
 
-        status_text.append("STATUS: ", style="bold yellow")
-        status_text.append("DEGRADED", style="bold yellow")
+        status_text.append("STATUS: ", style=STYLE_BOLD_YELLOW)
+        status_text.append("DEGRADED", style=STYLE_BOLD_YELLOW)
         status_text.append(" (partial success)\n\n", style="dim")
         launched = launch_result.launched or []
         if launched:
@@ -228,21 +229,39 @@ class TUIApp:
                 cfg.risky_acknowledged.append(RISK_ACK_LABEL)
             for risk in detect_risky_operations(cfg):
                 has_risks = True
-                if self.server_manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
-                    continue
-                if not acknowledged:
-                    self._build_risk_panel_required()
-                    print(f"warning: risky operation detected in {cfg.alias}: {risk}")
-                    response = input(RISK_CONFIRM_PROMPT).strip().lower()
-                    if response != "y":
-                        self._print_acknowledgement_required_and_exit()
-                self.server_manager.acknowledge_risk(
-                    cfg.alias,
+                self._acknowledge_single_risk(
+                    cfg,
                     risk,
-                    launch_attempt_id=launch_attempt_id,
-                    ack_token=ack_token,
+                    launch_attempt_id,
+                    ack_token,
+                    acknowledged,
                 )
         return has_risks
+
+    def _acknowledge_single_risk(
+        self,
+        cfg: ServerConfig,
+        risk: str,
+        launch_attempt_id: str,
+        ack_token: str,
+        acknowledged: bool,
+    ) -> None:
+        if self.server_manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
+            return
+
+        if not acknowledged:
+            self._build_risk_panel_required()
+            print(f"warning: risky operation detected in {cfg.alias}: {risk}")
+            response = input(RISK_CONFIRM_PROMPT).strip().lower()
+            if response != "y":
+                self._print_acknowledgement_required_and_exit()
+
+        self.server_manager.acknowledge_risk(
+            cfg.alias,
+            risk,
+            launch_attempt_id=launch_attempt_id,
+            ack_token=ack_token,
+        )
 
     def _update_risk_panel_state(self, has_risks: bool) -> None:
         if has_risks:

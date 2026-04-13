@@ -35,6 +35,9 @@ OWNER_ONLY_PERMISSIONS_FAILURE: Final[str] = (
 PERMISSION_SUPPORT_HINT: Final[str] = (
     "verify runtime path and permission support/chmod limitations before retry"
 )
+PERMISSION_WRITABILITY_HINT: Final[str] = (
+    "verify runtime path writability and filesystem permission support/chmod limitations"
+)
 INDETERMINATE_OWNER_MESSAGE: Final[str] = (
     "indeterminate_owner: lock exists but ownership verification is not definitive"
 )
@@ -292,7 +295,7 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked="lockfile persistence failed to enforce required owner-only permissions",
-                how_to_fix="verify runtime path writability and filesystem permission support/chmod limitations",
+                how_to_fix=PERMISSION_WRITABILITY_HINT,
             )
             raise ValidationException(MultiValidationError(errors=[error_detail]))
 
@@ -534,7 +537,7 @@ def write_artifact(runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload
             error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
             failed_check=ARTIFACT_CHECK_NAME,
             why_blocked=OWNER_ONLY_PERMISSIONS_FAILURE,
-            how_to_fix="verify runtime path writability and filesystem permission support/chmod limitations",
+            how_to_fix=PERMISSION_WRITABILITY_HINT,
         )
         raise ValidationException(MultiValidationError(errors=[error_detail]))
 
@@ -558,7 +561,7 @@ def write_artifact(runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload
                 error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
                 failed_check=ARTIFACT_CHECK_NAME,
                 why_blocked=OWNER_ONLY_PERMISSIONS_FAILURE,
-                how_to_fix="verify runtime path writability and filesystem permission support/chmod limitations",
+                how_to_fix=PERMISSION_WRITABILITY_HINT,
             )
             raise ValidationException(MultiValidationError(errors=[error_detail]))
 

@@ -140,5 +140,8 @@ jobs:
       - name: SonarCloud Scan
         if: env.SONAR_TOKEN != ''
         uses: SonarSource/sonarcloud-github-action@v3
+        with:
+          args: >
+            -Dsonar.python.version=3.12
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
