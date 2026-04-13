@@ -16,6 +16,9 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
     groups:
       github-actions:
         patterns:
@@ -37,7 +40,6 @@ updates:
       python-dev:
         patterns:
           - "pytest*"
-          - "pytest-cov"
           - "ruff"
           - "pyright"
           - "pre-commit"

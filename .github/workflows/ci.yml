@@ -6,8 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# Prevent duplicate runs on the same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
+  # Needed for SonarCloud analysis and dependency review
+  pull-requests: read
 
 jobs:
   lint:
@@ -84,7 +91,7 @@ jobs:
         with:
           name: coverage-xml
           path: coverage.xml
-          retention-days: 1
+          retention-days: 7
 
   audit:
     name: Dependency Audit

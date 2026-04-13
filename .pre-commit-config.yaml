@@ -16,4 +16,4 @@ repos:
     rev: v2.9.0
     hooks:
       - id: pip-audit
-        args: [--exit-level, "high", "--no-progress-bar"]
+        args: [--progress-spinner, "off"]
