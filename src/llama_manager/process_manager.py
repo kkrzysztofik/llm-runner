@@ -18,6 +18,11 @@ from pathlib import Path
 from types import FrameType
 from typing import Any, Final, TextIO, TypedDict, cast
 
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
+
 import psutil
 
 from .colors import Color
@@ -53,7 +58,7 @@ class LockMetadata:
     Attributes:
         pid: Process ID of the owner.
         port: Port the server is bound to.
-        started_at: Monotonic process start timestamp from ``time.monotonic()``.
+        started_at: Wall-clock process start timestamp from ``time.time()``.
 
     """
 
@@ -161,12 +166,34 @@ class DryRunArtifactPayload(TypedDict):
     environment_redacted: dict[str, Any]
 
 
-def _atomic_write_json(path: Path, data: dict, mode: int = FILE_MODE_OWNER_ONLY) -> None:
-    """Atomic JSON write with mode set at file creation (TOCTOU fix).
+def _fsync_directory(dir_path: Path) -> None:
+    """fsync a directory to ensure metadata durability.
 
-    Uses os.open() with O_CREAT|O_TRUNC to ensure atomic write while allowing
-    file overwrites. The mode is set at file creation time to prevent TOCTOU
-    vulnerabilities that would occur with a separate chmod() call.
+    Args:
+        dir_path: Directory path to fsync
+
+    """
+    if not dir_path.exists():
+        return
+    try:
+        fd = os.open(str(dir_path), os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        # Directory fsync is best-effort
+        pass
+
+
+def _atomic_write_json(path: Path, data: dict, mode: int = FILE_MODE_OWNER_ONLY) -> None:
+    """Truly atomic JSON write with fsync.
+
+    Implements atomic write via:
+    1. Write to temp file in same directory
+    2. Flush and fsync temp file
+    3. os.replace() for atomic rename
+    4. fsync directory for metadata durability
 
     Args:
         path: Path to write to
@@ -174,21 +201,36 @@ def _atomic_write_json(path: Path, data: dict, mode: int = FILE_MODE_OWNER_ONLY)
         mode: File permissions (default 0o600)
 
     Raises:
-        OSError: If file creation fails
+        OSError: If file creation, write, or sync fails
         TypeError: If data is not JSON-serializable
 
     """
     # Serialize JSON first (fail before writing file)
     json_text = json.dumps(data, indent=2)
 
-    # Atomic write: open with O_CREAT|O_TRUNC to ensure atomic write
-    # Mode is set at open() time to prevent TOCTOU permissions race
-    fd = os.open(str(path), os.O_CREAT | os.O_TRUNC | os.O_WRONLY, mode)
+    # Create temp file in same directory for atomic rename
+    temp_path = path.with_suffix(".tmp")
     try:
-        # Write the entire JSON content atomically
-        os.write(fd, json_text.encode("utf-8"))
-    finally:
-        os.close(fd)
+        # Open with O_CREAT|O_TRUNC to set mode at creation time
+        fd = os.open(str(temp_path), os.O_CREAT | os.O_TRUNC | os.O_WRONLY, mode)
+        try:
+            # Write content
+            os.write(fd, json_text.encode("utf-8"))
+            # Flush to OS buffer
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+        # Atomic rename
+        os.replace(str(temp_path), str(path))
+
+        # fsync directory to ensure directory entry is durable
+        _fsync_directory(path.parent)
+    except OSError:
+        # Clean up temp file if it exists
+        with contextlib.suppress(OSError):
+            temp_path.unlink()
+        raise
 
 
 def resolve_runtime_dir() -> Path:
@@ -274,7 +316,7 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
     if lock_path.exists():
         raise FileExistsError(f"Lockfile already exists: {lock_path}")
 
-    metadata = LockMetadata(pid=pid, port=port, started_at=time.monotonic())
+    metadata = LockMetadata(pid=pid, port=port, started_at=time.time())
 
     # Serialize metadata
     lock_data = {
@@ -380,7 +422,7 @@ def update_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> None:
     if not lock_path.exists():
         raise FileNotFoundError(f"Lockfile not found: {lock_path}")
 
-    metadata = LockMetadata(pid=pid, port=port, started_at=time.monotonic())
+    metadata = LockMetadata(pid=pid, port=port, started_at=time.time())
 
     lock_data = {
         "pid": metadata.pid,
@@ -1103,8 +1145,9 @@ class ServerManager:
             else:
                 # Slot is available - attempt to acquire lock and launch
                 try:
-                    # Create lock for this slot (simulating successful launch)
-                    create_lock(runtime_dir, slot.slot_id, pid=0, port=slot.port)
+                    # Create lock for this slot with actual PID (simulating successful launch)
+                    # Use os.getpid() for the actual process ID
+                    create_lock(runtime_dir, slot.slot_id, pid=os.getpid(), port=slot.port)
 
                     # Mock subprocess start (in real usage, this would start the actual server)
                     # For now, just record success

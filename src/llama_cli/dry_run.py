@@ -354,8 +354,8 @@ def dry_run(
                 "resolved_command": {p.slot_id: p.command_args for p in slot_payloads},
                 "validation_results": {
                     p.slot_id: {
-                        "passed": p.validation_results.passed,
-                        "checks": p.validation_results.checks,
+                        "passed": p.validation_results.passed if p.validation_results else False,
+                        "checks": p.validation_results.checks if p.validation_results else [],
                     }
                     for p in slot_payloads
                 },

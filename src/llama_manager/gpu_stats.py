@@ -1,8 +1,8 @@
 # GPU statistics collection via nvtop/psutil
 
-
 import json
 import subprocess
+import sys
 import time
 from typing import Any
 
@@ -36,6 +36,8 @@ class GPUStats:
                 text=True,
                 timeout=1,
             )
+            if result.returncode != 0:
+                raise RuntimeError(f"nvtop exited with code {result.returncode}: {result.stderr}")
             all_gpus = json.loads(result.stdout)
             if self.device_index < len(all_gpus):
                 gpu = all_gpus[self.device_index]
@@ -46,6 +48,12 @@ class GPUStats:
                     "temp": gpu.get("temp", "N/A"),
                     "power": gpu.get("power_draw", "N/A"),
                 }
+        except subprocess.TimeoutExpired:
+            pass
+        except json.JSONDecodeError as e:
+            print(f"warning: nvtop JSON parse error: {e}", file=sys.stderr)
+        except RuntimeError as e:
+            print(f"warning: nvtop error: {e}", file=sys.stderr)
         except Exception:
             pass
 

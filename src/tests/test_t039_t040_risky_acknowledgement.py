@@ -289,7 +289,12 @@ def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) ->
 
 
 def test_server_runner_main_dispatches_dry_run_mode() -> None:
-    parsed = Namespace(mode="dry-run", ports=[], acknowledge_risky=True)
+    parsed = Namespace(
+        mode="dry-run",
+        dry_run_mode="both",
+        ports=[8080, 8081],
+        acknowledge_risky=True,
+    )
     with (
         patch("llama_cli.server_runner.parse_args", return_value=parsed),
         patch("llama_cli.server_runner.check_prereqs"),
@@ -300,11 +305,12 @@ def test_server_runner_main_dispatches_dry_run_mode() -> None:
         code = server_runner.main(["dry-run", "both", "8080", "8081"])
 
     assert code == 0
-    mock_run.assert_called_once_with(["dry-run", "both", "8080", "8081"], True)
+    mock_run.assert_called_once_with(parsed, True)
 
 
 def test_server_runner_main_dry_run_without_target_mode_returns_one() -> None:
-    code = server_runner._run_dry_run_mode(["dry-run"], acknowledged=False)
+    parsed = Namespace(mode="dry-run", dry_run_mode=None, ports=[], acknowledge_risky=False)
+    code = server_runner._run_dry_run_mode(parsed, acknowledged=False)
     assert code == 1
 
 

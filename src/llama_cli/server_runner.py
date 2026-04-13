@@ -1,5 +1,6 @@
 # Server execution logic for CLI
 
+import argparse
 import atexit
 import os
 import signal
@@ -36,14 +37,22 @@ def usage() -> None:
   src/run_opencode_models.py summary-fast [port]
   src/run_opencode_models.py qwen35 [port]
   src/run_opencode_models.py both [summary_balanced_port qwen35_port]
-  src/run_opencode_models.py dry-run summary-balanced|summary-fast|qwen35|both [ports...]
+  src/run_opencode_models.py dry-run <mode> [ports...]
+
+Modes:
+  summary-balanced  Run summary-balanced model (Intel SYCL)
+  summary-fast      Run summary-fast model (Intel SYCL)
+  qwen35           Run qwen35-coding model (NVIDIA CUDA)
+  both             Run summary-balanced and qwen35 side-by-side
+  dry-run          Preview commands without executing
 
 Examples:
   src/run_opencode_models.py summary-balanced
   src/run_opencode_models.py summary-fast 8082
   src/run_opencode_models.py qwen35 8080
   src/run_opencode_models.py both 8080 8081
-  src/run_opencode_models.py dry-run both""")
+  src/run_opencode_models.py dry-run summary-balanced
+  src/run_opencode_models.py dry-run both 8080 8081""")
 
 
 def _print_backend_error_and_exit() -> None:
@@ -201,17 +210,22 @@ def _acknowledge_risk_if_required(
     )
 
 
-def _run_dry_run_mode(argv: list[str], acknowledged: bool) -> int:
-    if len(argv) < 2:
-        print("error: dry-run requires a mode argument", file=sys.stderr)
+def _run_dry_run_mode(parsed: argparse.Namespace, acknowledged: bool) -> int:
+    from llama_cli.dry_run import dry_run
+
+    # parsed.mode should be "dry-run"
+    # parsed.dry_run_mode is the actual mode to preview
+    target_mode = getattr(parsed, "dry_run_mode", None)
+    if target_mode is None:
+        print(
+            "error: dry-run requires a mode argument (summary-balanced|summary-fast|qwen35|both)",
+            file=sys.stderr,
+        )
         usage()
         return 1
 
-    from llama_cli.dry_run import dry_run
-
-    target_mode = argv[1]
-    primary_port = argv[2] if len(argv) > 2 else ""
-    secondary_port = argv[3] if len(argv) > 3 else ""
+    primary_port = str(parsed.ports[0]) if len(parsed.ports) > 0 else ""
+    secondary_port = str(parsed.ports[1]) if len(parsed.ports) > 1 else ""
     dry_run(target_mode, primary_port, secondary_port, acknowledged=acknowledged)
     return 0
 
@@ -282,7 +296,7 @@ def main(args: list[str] | None = None) -> int:
     os.environ["ZES_ENABLE_SYSMAN"] = "1"
 
     if parsed.mode == "dry-run":
-        return _run_dry_run_mode(argv, parsed.acknowledge_risky)
+        return _run_dry_run_mode(parsed, parsed.acknowledge_risky)
 
     cfg = Config()
     verify_risks(
