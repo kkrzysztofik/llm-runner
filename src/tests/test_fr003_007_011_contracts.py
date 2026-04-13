@@ -24,16 +24,21 @@ Tests use pytest conventions:
 """
 
 import json
+import os
+import re
+import stat
 from pathlib import Path
 
 import pytest
 
-from llama_manager.config import ErrorCode, ErrorDetail, ServerConfig
-from llama_manager.process_manager import write_artifact
+from llama_manager.config import ErrorCode, ErrorDetail, MultiValidationError, ServerConfig
+from llama_manager.process_manager import ValidationException, write_artifact
 from llama_manager.server import (
     ValidationResults,
     VllmEligibility,
     build_dry_run_slot_payload,
+    validate_backend_eligibility,
+    validate_server_config,
 )
 
 
@@ -351,8 +356,6 @@ class TestFR007ArtifactContract:
         assert filename.startswith("artifact-")
         assert filename.endswith(".json")
         # Should NOT contain UUID pattern (8-4-4-4-12 hex chars)
-        import re
-
         uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
         assert not re.search(uuid_pattern, filename), (
             f"Filename should not contain UUID: {filename}"
@@ -379,8 +382,6 @@ class TestFR007ArtifactContract:
             "timestamp": "2026-04-12T00:00:00Z",
             # Missing: slot_scope, resolved_command, validation_results, warnings, environment_redacted
         }
-        from llama_manager.config import MultiValidationError
-        from llama_manager.process_manager import ValidationException
 
         with pytest.raises(ValidationException) as exc_info:
             write_artifact(tmp_path, "slot", invalid_data)
@@ -485,9 +486,6 @@ class TestFR007ArtifactContract:
 
     def test_artifact_directory_permissions_0700(self, tmp_path: Path) -> None:
         """FR-007: artifacts directory should have 0700 permissions."""
-        import os
-        import stat
-
         data = {
             "timestamp": "2026-04-12T00:00:00Z",
             "slot_scope": ["slot1"],
@@ -502,9 +500,6 @@ class TestFR007ArtifactContract:
 
     def test_artifact_file_permissions_0600(self, tmp_path: Path) -> None:
         """FR-007: artifact file should have 0600 permissions."""
-        import os
-        import stat
-
         data = {
             "timestamp": "2026-04-12T00:00:00Z",
             "slot_scope": ["slot1"],
@@ -519,8 +514,6 @@ class TestFR007ArtifactContract:
 
     def test_artifact_timestamp_format(self, tmp_path: Path) -> None:
         """FR-007: artifact timestamp should be ISO format."""
-        import re
-
         data = {
             "timestamp": "2026-04-12T00:00:00Z",
             "slot_scope": ["slot1"],
@@ -540,8 +533,6 @@ class TestFR007ArtifactContract:
 
     def test_artifact_filename_timestamp_matches_content(self, tmp_path: Path) -> None:
         """FR-007: artifact filename timestamp should match content timestamp."""
-        import re
-
         data = {
             "timestamp": "2026-04-12T15:30:45Z",
             "slot_scope": ["slot1"],
@@ -591,7 +582,6 @@ class TestFR011VllmBlockingActionableFields:
 
     def test_validate_backend_eligibility_vllm_returns_error(self) -> None:
         """FR-011: validate_backend_eligibility should return ErrorDetail for vllm."""
-        from llama_manager.server import validate_backend_eligibility
 
         error = validate_backend_eligibility("vllm")
         assert error is not None
@@ -599,7 +589,6 @@ class TestFR011VllmBlockingActionableFields:
 
     def test_validate_backend_eligibility_vllm_error_code(self) -> None:
         """FR-011: validate_backend_eligibility for vllm should use BACKEND_NOT_ELIGIBLE."""
-        from llama_manager.server import validate_backend_eligibility
 
         error = validate_backend_eligibility("vllm")
         assert error is not None
@@ -607,7 +596,6 @@ class TestFR011VllmBlockingActionableFields:
 
     def test_validate_backend_eligibility_vllm_failed_check(self) -> None:
         """FR-011: validate_backend_eligibility for vllm should have failed_check=vllm_launch_eligibility."""
-        from llama_manager.server import validate_backend_eligibility
 
         error = validate_backend_eligibility("vllm")
         assert error is not None
@@ -615,7 +603,6 @@ class TestFR011VllmBlockingActionableFields:
 
     def test_validate_backend_eligibility_vllm_why_blocked(self) -> None:
         """FR-011: validate_backend_eligibility for vllm should have actionable why_blocked."""
-        from llama_manager.server import validate_backend_eligibility
 
         error = validate_backend_eligibility("vllm")
         assert error is not None
@@ -624,7 +611,6 @@ class TestFR011VllmBlockingActionableFields:
 
     def test_validate_backend_eligibility_vllm_how_to_fix(self) -> None:
         """FR-011: validate_backend_eligibility for vllm should have actionable how_to_fix."""
-        from llama_manager.server import validate_backend_eligibility
 
         error = validate_backend_eligibility("vllm")
         assert error is not None
@@ -632,14 +618,12 @@ class TestFR011VllmBlockingActionableFields:
 
     def test_validate_backend_eligibility_llama_cpp_passes(self) -> None:
         """FR-011: validate_backend_eligibility should return None for llama_cpp."""
-        from llama_manager.server import validate_backend_eligibility
 
         error = validate_backend_eligibility("llama_cpp")
         assert error is None
 
     def test_validate_backend_eligibility_case_insensitive(self) -> None:
         """FR-011: validate_backend_eligibility should be case insensitive."""
-        from llama_manager.server import validate_backend_eligibility
 
         assert validate_backend_eligibility("VLLM") is not None
         assert validate_backend_eligibility("Vllm") is not None
@@ -647,7 +631,6 @@ class TestFR011VllmBlockingActionableFields:
 
     def test_validate_server_config_vllm_returns_error(self) -> None:
         """FR-011: validate_server_config should return ErrorDetail for vllm backend."""
-        from llama_manager.server import validate_server_config
 
         cfg = ServerConfig(
             model="/model.gguf",
@@ -665,7 +648,6 @@ class TestFR011VllmBlockingActionableFields:
 
     def test_validate_server_config_llama_cpp_passes(self) -> None:
         """FR-011: validate_server_config should pass for llama_cpp backend."""
-        from llama_manager.server import validate_server_config
 
         cfg = ServerConfig(
             model="/model.gguf",

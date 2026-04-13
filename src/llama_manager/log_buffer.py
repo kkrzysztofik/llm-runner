@@ -5,6 +5,13 @@ import re
 import threading
 from collections import deque
 
+# Precompiled regex patterns for sensitive value redaction
+_PATTERN1 = re.compile(
+    r"(\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH)[A-Z0-9_]*)=(\S+)",
+    re.IGNORECASE,
+)
+_PATTERN2 = re.compile(r"\b(KEY|TOKEN|SECRET|PASSWORD|AUTH)=(\S+)", re.IGNORECASE)
+
 
 def _redact_sensitive_values(line: str) -> str:
     """Redact sensitive values from a log line.
@@ -21,12 +28,10 @@ def _redact_sensitive_values(line: str) -> str:
     """
     # Pattern 1: Matches env var names containing sensitive keywords followed by = and a value
     # Examples: API_KEY=secret123, TOKEN=abc, PASSWORD="hidden"
-    pattern1 = r"(\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH)[A-Z0-9_]*)=(\S+)"
-    line = re.sub(pattern1, r"\1=[REDACTED]", line, flags=re.IGNORECASE)
+    line = _PATTERN1.sub(r"\1=[REDACTED]", line)
 
     # Pattern 2: Matches standalone keywords followed by = and a value (for cases like 'auth=xyz')
-    pattern2 = r"\b(KEY|TOKEN|SECRET|PASSWORD|AUTH)=(\S+)"
-    line = re.sub(pattern2, r"\1=[REDACTED]", line, flags=re.IGNORECASE)
+    line = _PATTERN2.sub(r"\1=[REDACTED]", line)
 
     return line
 

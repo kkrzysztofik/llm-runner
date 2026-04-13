@@ -59,7 +59,7 @@ __all__ = [
     "MultiValidationError",
     "normalize_slot_id",
     "detect_duplicate_slots",
-    # FR-003: Dry-run payload types
+    # Dry-run payload types
     "DryRunSlotPayload",
     "VllmEligibility",
     "ValidationResults",

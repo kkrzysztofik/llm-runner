@@ -173,7 +173,7 @@ class TestPipeStreaming:
         manager._stream_pipe(None, "test_server", False, buffer.add_line)
         assert buffer.line_count == 0
 
-    def test_stream_pipe_without_handler_prints(self, capsys):
+    def test_stream_pipe_without_handler_prints(self, capsys) -> None:
         """_stream_pipe should print to stdout/stderr when no handler provided."""
         from llama_manager.process_manager import ServerManager
 

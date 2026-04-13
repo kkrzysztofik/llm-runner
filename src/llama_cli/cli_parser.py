@@ -1,4 +1,9 @@
-# CLI argument parsing
+"""CLI argument parsing for llm-runner.
+
+This module handles command-line argument parsing for both standard CLI
+and TUI modes, including special handling for dry-run mode which requires
+a second argument specifying the mode to preview.
+"""
 
 import argparse
 import sys
@@ -24,11 +29,10 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
             sys.exit(1)
 
         dry_run_mode = args[1]
-        allowed_modes = ["summary-balanced", "summary-fast", "qwen35", "both"]
-        if dry_run_mode not in allowed_modes:
+        if dry_run_mode not in ["summary-balanced", "summary-fast", "qwen35", "both"]:
             print(
-                f"error: invalid dry-run mode '{dry_run_mode}'. Valid modes:",
-                "summary-balanced, summary-fast, qwen35, both",
+                f"error: invalid dry-run mode '{dry_run_mode}'. "
+                "Valid modes: summary-balanced, summary-fast, qwen35, both",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -101,7 +105,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
 
 
 def parse_tui_args() -> argparse.Namespace:
-    """Parse TUI-specific command line arguments"""
+    """Parse TUI-specific command line arguments.
+
+    Returns:
+        Parsed arguments namespace with mode, port, port2, and acknowledge_risky.
+    """
     parser = argparse.ArgumentParser(
         description="TUI for managing multiple llama-server instances",
         formatter_class=argparse.RawDescriptionHelpFormatter,

@@ -1,4 +1,9 @@
-# Server execution logic for CLI
+"""Server execution logic for CLI.
+
+This module provides the main entry point for running llama-server instances
+via command-line interface, including signal handling, process management,
+and risk acknowledgment workflows.
+"""
 
 import argparse
 import atexit
@@ -57,13 +62,11 @@ Examples:
 
 
 def _print_backend_error_and_exit() -> NoReturn:
+    """Print backend error details and exit with code 1."""
     print("error: acknowledgement_required", file=sys.stderr)
-    print(
-        "  failed_check: acknowledgement_required",
-        "  why_blocked: risky operation detected and not acknowledged",
-        "  how_to_fix: use --acknowledge-risky flag or confirm with 'y'",
-        file=sys.stderr,
-    )
+    print("  failed_check: acknowledgement_required", file=sys.stderr)
+    print("  why_blocked: risky operation detected and not acknowledged", file=sys.stderr)
+    print("  how_to_fix: use --acknowledge-risky flag or confirm with 'y'", file=sys.stderr)
     raise SystemExit(1)
 
 
@@ -232,7 +235,16 @@ def _run_dry_run_mode(parsed: argparse.Namespace, acknowledged: bool) -> int:
 
 
 def _resolve_port(ports: list[int], index: int, default: int) -> int:
-    """Resolve port from ports list with default fallback."""
+    """Resolve port from ports list with default fallback.
+
+    Args:
+        ports: List of port numbers provided by user.
+        index: Index of port to retrieve (0 for primary, 1 for secondary).
+        default: Default port to use if index is out of range.
+
+    Returns:
+        The port number at the specified index, or the default if unavailable.
+    """
     return ports[index] if len(ports) > index else default
 
 

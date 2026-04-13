@@ -1,4 +1,9 @@
-# TUI application
+"""TUI application for llm-runner.
+
+This module provides a Rich-based live terminal interface for managing
+multiple llama-server instances with real-time log streaming, GPU stats,
+and configuration display.
+"""
 
 import signal
 import sys

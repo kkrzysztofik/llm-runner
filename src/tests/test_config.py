@@ -1,6 +1,8 @@
 """Tests for llama_manager.config and llama_manager.config_builder."""
 
 import os
+import re
+import time
 from unittest.mock import Mock, patch
 
 import psutil
@@ -417,15 +419,11 @@ class TestArtifactFilenameUniqueness:
         assert filename.startswith("artifact-")
         assert filename.endswith(".json")
         # Should NOT contain UUID pattern (8-4-4-4-12 hex chars)
-        import re
-
         uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
         assert not re.search(uuid_pattern, filename), "Filename should not contain UUID"
 
     def test_artifact_filename_unique_within_same_second(self, tmp_path) -> None:
         """write_artifact should produce unique filenames even within same second."""
-        import time
-
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
 
@@ -437,7 +435,7 @@ class TestArtifactFilenameUniqueness:
             path = write_artifact(runtime_dir, f"slot{i}", data)
             paths.append(path)
             # Small delay to ensure different timestamps (if possible)
-            time.sleep(0.1)  # 100ms delay
+            time.sleep(0.1)  # 100ms delay - acceptable for timestamp-based uniqueness test
 
         # All filenames should be unique (or at least most of them)
         # Note: If all writes happen within same second, filenames will be the same
@@ -458,7 +456,6 @@ class TestArtifactFilenameUniqueness:
 
         # FR-007: Format: artifact-{YYYYMMDDTHHMMSSZ}.json (no UUID)
         filename = artifact_path.name
-        import re
 
         # Should match artifact-YYYYMMDDTHHMMSSZ.json
         pattern = r"artifact-\d{4}\d{2}\d{2}T\d{2}\d{2}\d{2}Z\.json"

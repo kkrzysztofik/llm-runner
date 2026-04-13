@@ -1,5 +1,8 @@
-# Dry run functionality
+"""Dry run functionality for llm-runner.
 
+This module provides command preview without execution, including
+validation results, vLLM eligibility checks, and artifact persistence.
+"""
 
 import sys
 import time

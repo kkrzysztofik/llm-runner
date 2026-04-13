@@ -4,6 +4,7 @@
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 
 
 @dataclass
@@ -25,8 +26,6 @@ class Config:
 
     def __post_init__(self) -> None:
         """Compute derived paths from llama_cpp_root after dataclass init."""
-        from pathlib import Path
-
         self.llama_server_bin_intel = str(
             Path(self.llama_cpp_root) / "build" / "bin" / "llama-server"
         )
