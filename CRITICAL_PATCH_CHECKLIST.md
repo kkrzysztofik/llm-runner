@@ -8,7 +8,7 @@
 
 ## 1. pyproject.toml — Wheel Source Layout & Entrypoint
 
-**Finding:** Source layout inconsistent with wheel build; entrypoint may not resolve
+**Finding:** Verify wheel source layout and entrypoint resolution for src-layout packaging
 
 **Files:** `pyproject.toml`
 
@@ -26,8 +26,8 @@
    # ...
    
    [project.scripts]
-   llm-runner = "llama_cli.server_runner:main"
-   run-models-tui = "llama_cli.tui_app:main"
+   llm-runner = "llama_cli.server_runner:cli_main"
+   run-models-tui = "llama_cli.server_runner:main"
    
    [tool.hatch.build.targets.wheel]
    packages = ["src/llama_manager", "src/llama_cli"]

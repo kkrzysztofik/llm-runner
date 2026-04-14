@@ -86,7 +86,7 @@
   - `bind_address: str`
   - `port: int`
   - `environment_redacted: dict[str, str]`
-  - `openai_flag_bundle: dict[str, str | int | bool>`
+  - `openai_flag_bundle: dict[str, str | int | bool]`
   - `hardware_notes: HardwareNotes`
   - `vllm_eligibility: VllmEligibilityRow`
   - `warnings: list[str]`

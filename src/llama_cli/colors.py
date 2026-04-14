@@ -5,12 +5,12 @@ class Colors:
     """Terminal color configuration.
 
     Module-level color state that can be controlled independently of
-    Rich library availability. Color detection is disabled by default
-    to allow testing without tty requirements.
+    Rich library availability. Colors are enabled by default.
 
     Attributes:
         enabled: Global flag to enable/disable all color output.
                  When False, all color codes are stripped.
+        COLORS: Mapping of server aliases to Rich color names.
 
     """
 
@@ -32,28 +32,27 @@ class Colors:
         """
         cls.enabled = enabled
 
-    @staticmethod
-    def get_code(server_name: str) -> str | None:
-        """Get ANSI color code for a server name.
+    @classmethod
+    def get_code(cls, server_name: str) -> str | None:
+        """Get Rich color name for a server alias.
 
         Args:
             server_name: The server alias to get color for.
 
         Returns:
-            ANSI color code if server_name is in COLORS and Colors.enabled is True,
-            otherwise None.
+            Rich color name when colors are enabled and mapping exists, otherwise None.
 
         """
-        if not Colors.enabled:
+        if not cls.enabled:
             return None
-        return Colors.COLORS.get(server_name)
+        return cls.COLORS.get(server_name)
 
-    @staticmethod
-    def is_enabled() -> bool:
+    @classmethod
+    def is_enabled(cls) -> bool:
         """Check if colors are enabled.
 
         Returns:
-            True if Colors.enabled is True, otherwise False.
+            True if colors are enabled, otherwise False.
 
         """
-        return Colors.enabled
+        return cls.enabled

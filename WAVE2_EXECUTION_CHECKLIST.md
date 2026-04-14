@@ -32,37 +32,37 @@ git log --oneline | grep -E "(lock|monotonic|atomic|json.loads|validation_result
 
 #### Steps:
 1. [ ] Create `src/llama_cli/colors.py` with:
-   - Copy entire `Color` class from `src/llama_manager/colors.py`
+   - Copy entire `Colors` class from `src/llama_manager/colors.py`
    - Include `COLORS`, `get_code`, `is_enabled`, `set_enabled` methods
    - Remove `sys.stdout.isatty()` call from `is_enabled()`
    - Add module-level `Colors.enabled` flag (default: True)
    - Add `Colors.set_enabled(bool)` setter
 
 2. [ ] Update `src/llama_manager/__init__.py`:
-   - Remove `from .colors import Color`
-   - Remove `Color` from `__all__`
+   - Remove `from .colors import Colors`
+   - Remove `Colors` from `__all__`
 
 3. [ ] Update all `llama_cli/` imports:
-   - `from llama_manager.colors import Color` → `from llama_cli.colors import Color`
+   - `from llama_manager.colors import Colors` → `from llama_cli.colors import Colors`
    - Verify all usages: `server_runner.py`, `tui_app.py`
 
 4. [ ] Delete `src/llama_manager/colors.py`
 
-5. [ ] Update `Color.is_enabled()` usage in `server_runner.py:280`:
-   ```python
-   _ = Color.is_enabled()  # Initialize color detection
-   ```
+5. [ ] Update `Colors.is_enabled()` usage in `server_runner.py:280`:
+    ```python
+    _ = Colors.is_enabled()  # Initialize color detection
+    ```
 
 6. [ ] Add `Colors.set_enabled(True)` in CLI entrypoints if needed
 
 **Acceptance:**
 - [ ] `llama_manager` has no TUI/presentation code
-- [ ] `Color.get_code()` works without Rich dependency in tests
+- [ ] `Colors.get_code()` works without Rich dependency in tests
 - [ ] All imports resolve correctly
 
 **Verification:**
 ```bash
-uv run python -c "from llama_cli.colors import Color; print(Color.get_code('test'))"
+uv run python -c "from llama_cli.colors import Colors; print(Colors.get_code('test'))"
 uv run ruff check src/llama_manager/
 uv run pyright src/llama_manager/
 ```
@@ -79,18 +79,9 @@ uv run pyright src/llama_manager/
    - Paste before `detect_duplicate_slots()` function
    - Update forward references from `"ModelSlot"` to `ModelSlot`
 
-2. [ ] **Fix ErrorCode casing (Finding 116):**
-   - Update these enum values to UPPER_SNAKE_CASE:
-     - `INVALID_SLOT_ID = "invalid_slot_id"` (already correct)
-     - `DUPLICATE_SLOT = "duplicate_slot"` → `DUPLICATE_SLOT = "DUPLICATE_SLOT"`
-     - `RUNTIME_DIR_UNAVAILABLE = "runtime_dir_unavailable"` → `RUNTIME_DIR_UNAVAILABLE = "RUNTIME_DIR_UNAVAILABLE"`
-     - `LOCKFILE_INTEGRITY_FAILURE = "lockfile_integrity_failure"` → `LOCKFILE_INTEGRITY_FAILURE = "LOCKFILE_INTEGRITY_FAILURE"`
-     - `ARTIFACT_PERSISTENCE_FAILURE = "artifact_persistence_failure"` → `ARTIFACT_PERSISTENCE_FAILURE = "ARTIFACT_PERSISTENCE_FAILURE"`
-     - `BACKEND_NOT_ELIGIBLE = "backend_not_eligible"` → `BACKEND_NOT_ELIGIBLE = "BACKEND_NOT_ELIGIBLE"`
-   - Update all comparisons in codebase:
-     ```bash
-     grep -r "ErrorCode.DUPLICATE_SLOT\|ErrorCode.RUNTIME_DIR_UNAVAILABLE" src/ | grep -v "\.pyc"
-     ```
+2. [ ] **Validate ErrorCode naming consistency (Finding 116):**
+   - Keep external serialized values stable (do not change wire/report values without migration plan)
+   - Ensure enum member names remain clear and deterministic
 
 3. [ ] **Fix derived paths (Finding 158):**
    - Add `__post_init__` to `Config` dataclass:
@@ -113,7 +104,7 @@ uv run pyright src/llama_manager/
 
 **Acceptance:**
 - [ ] `ModelSlot` defined before `detect_duplicate_slots()`
-- [ ] All ErrorCode values are UPPER_SNAKE_CASE
+- [ ] ErrorCode member names are consistent and serialized values remain stable
 - [ ] `Config(llama_cpp_root="/custom")` computes derived paths correctly
 - [ ] `merge_config_overrides()` doesn't mutate original dict
 
