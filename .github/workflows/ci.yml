@@ -84,7 +84,13 @@ jobs:
         run: uv sync --extra dev
 
       - name: pytest
-        run: uv run pytest src/tests/ --cov --cov-report=term-missing
+        run: uv run pytest src/tests/ --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
 
   audit:
     name: Dependency Audit
@@ -110,7 +116,7 @@ jobs:
   sonarcloud:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
-    needs: [lint, typecheck]
+    needs: [lint, typecheck, test]
     # Skip on PRs from forks where secrets are not available
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     env:
@@ -133,8 +139,11 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --extra dev
 
-      - name: Generate fresh coverage report for Sonar
-        run: uv run pytest src/tests/ --cov --cov-report=xml --cov-report=term-missing
+      - name: Download coverage artifact from test job
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage
 
       - name: Skip notice when Sonar token unavailable
         if: env.SONAR_TOKEN == ''

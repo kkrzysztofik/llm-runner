@@ -36,7 +36,7 @@
 uv run llm-runner dry-run both
 ```
 
-**Meaning:** Prints resolved launch commands for all configured slots without starting servers.
+**Meaning:** Prints resolved launch commands for both slots (Intel B580 + NVIDIA 3090) without starting servers.
 
 Expected outcomes:
 
@@ -47,7 +47,7 @@ Expected outcomes:
 - `command_args` remains ordered argv tokens (stable order per slot)
 - `warnings` is present for each slot (empty list when none)
 - `validation_results` is present for each slot with `passed` and `checks`
-- `vllm_eligibility` is present and marks `eligible=false` for M1
+- `vllm_eligibility` is present and marks `eligible=false` (M1 does not support vllm)
 - Sensitive env values are redacted by key rule (`KEY|TOKEN|SECRET|PASSWORD|AUTH`);
   filesystem paths remain visible
 
@@ -88,7 +88,7 @@ Run with one unavailable slot (conflict/lock) and confirm:
 Check runtime outputs under resolved runtime directory:
 
 - Lockfiles at `slot-{slot_id}.lock` with owner metadata (`pid`, `port`, `started_at`)
-- JSON artifacts at `artifacts/artifact-{timestamp}.json` (one per dry-run/launch attempt)
+- JSON artifacts at `artifacts/artifact-{timestamp}.json` (one per dry-run/launch attempt; timestamp format: `YYYYMMDDTHHMMSSZ`)
 - Permissions: files `0600`, directories `0700`
 
 Runtime verification steps:
@@ -96,12 +96,12 @@ Runtime verification steps:
 1. Capture the runtime path resolution source:
    - `LLM_RUNNER_RUNTIME_DIR` if set, otherwise `$XDG_RUNTIME_DIR/llm-runner`
 2. Run dry-run and confirm a line like:
-   - `Artifact written: <runtime-dir>/artifacts/artifact-YYYYMMDDTHHMMSSZ.json`
+    - `Artifact written: <runtime-dir>/artifacts/artifact-YYYYMMDDTHHMMSSZ.json` (ISO 8601-like timestamp)
 3. Verify the file exists and naming matches `artifact-{timestamp}.json`
    in the `artifacts/` subdirectory.
 4. Verify permissions:
-   - **Linux**: `stat -c "%a" <file>` should show `600` for files, `700` for directories
-   - **macOS/BSD**: `stat -f "%Lp" <file>` should show `600` for files, `700` for directories
+- **Linux**: `stat -c "%a" <file>` shows `600` for files, `700` for directories
+    - **macOS/BSD**: `stat -f "%Lp" <file>` shows `600` for files, `700` for directories
 
 ## 5) Run required quality gates
 

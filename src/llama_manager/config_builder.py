@@ -124,6 +124,7 @@ def create_summary_fast_cfg(
 
     """
     cfg = Config()
+    # Note: summary_fast_chat_template_kwargs not available in Config; using balanced defaults
     return ServerConfig(
         model=cfg.model_summary_fast,
         alias="summary-fast",
@@ -289,8 +290,8 @@ def merge_config_overrides(
         use_jinja=merged["use_jinja"],
         cache_type_k=merged["cache_type_k"],
         cache_type_v=merged["cache_type_v"],
-        n_gpu_layers=merged.get("n_gpu_layers", defaults.default_n_gpu_layers),
-        server_bin=merged.get("server_bin", ""),
-        backend=merged.get("backend", "llama_cpp"),
-        risky_acknowledged=merged.get("risky_acknowledged", []),
+        n_gpu_layers=merged["n_gpu_layers"],
+        server_bin=merged["server_bin"],
+        backend=merged["backend"],
+        risky_acknowledged=merged["risky_acknowledged"],
     )

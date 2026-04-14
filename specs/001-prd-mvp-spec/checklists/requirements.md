@@ -29,6 +29,8 @@
 - [x] Feature meets measurable outcomes defined in Success Criteria
 - [x] No implementation details leak into specification
 
-## Notes
+## Metadata
 
-- Validation pass complete. Specification is ready for `/speckit.clarify` or `/speckit.plan`.
+- **validator**: Multi-agent checklist workflow (2026-04-08)
+- **validated**: true
+- **status**: ready for `/speckit.clarify` or `/speckit.plan`

@@ -41,11 +41,11 @@ class GPUStats:
         self,
         device_index: int = 0,
         collector: Callable[[], dict[str, Any]] | None = None,
-    ):
+    ) -> None:
         self.device_index = device_index
         self.stats: dict[str, Any] = {}
-        self.last_update = 0
-        self.update_interval = 0.5
+        self.last_update: float = 0.0
+        self.update_interval: float = 0.5
         # Injectable collector callable (defaults to psutil-only)
         self._collector: Callable[[], dict[str, Any]] = (
             collector if collector is not None else lambda: _psutil_only_collector(device_index)
@@ -78,7 +78,7 @@ class GPUStats:
         else:
             lines.append(f"CPU: {stats.get('cpu', 'N/A')} | Mem: {stats.get('mem', 'N/A')}")
 
-        if "temp" in stats:
+        if stats.get("temp", "N/A") != "N/A":
             lines.append(f"Temp: {stats.get('temp', 'N/A')}")
 
         if "power" in stats and stats["power"] != "N/A":
@@ -89,9 +89,11 @@ class GPUStats:
     @property
     def gpu_util(self) -> str:
         """Get GPU utilization string"""
+        self.update()
         return self.stats.get("gpu_util", "N/A")
 
     @property
     def memory_util(self) -> str:
         """Get memory utilization string"""
+        self.update()
         return self.stats.get("mem_util", "N/A")

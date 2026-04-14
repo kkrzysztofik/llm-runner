@@ -11,7 +11,7 @@ You own llama.cpp build and artifact workflows for llm-runner.
 
 ## Primary Ownership
 
-- TUI (terminal UI) / CLI (command-line interface) build orchestration for `intel-sycl` and `nvidia-cuda`
+- Build orchestration for `intel-sycl` and `nvidia-cuda` targets (TUI/CLI paths)
 - Serialized build execution policy
 - Toolchain preflight checks and repair guidance
 - Build artifact location and provenance metadata
@@ -20,14 +20,14 @@ You own llama.cpp build and artifact workflows for llm-runner.
 
 ### 1. Build Flow Design
 
-- Ensure serialized execution (no parallel target builds for MVP)
+- Ensure serialized execution (no parallel target builds; MVP mode only)
 - Provide clear target lifecycle states: preflight, running, success, failed
 - Support retry-failed-only behavior
 
 ### 2. Toolchain Validation
 
 - Detect missing build dependencies with actionable hints
-- Coordinate with `setup` contract for safe environment preparation
+- Coordinate with `setup` contract for safe environment preparation (no destructive cleanup)
 - Avoid destructive cleanup of successful build artifacts
 
 ### 3. Provenance

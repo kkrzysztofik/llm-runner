@@ -5,12 +5,12 @@ import re
 import threading
 from collections import deque
 
-# Precompiled regex patterns for sensitive value redaction
+# Precompiled regex pattern for sensitive value redaction
+# Matches KEY|TOKEN|SECRET|PASSWORD|AUTH patterns in env var names followed by = and value
 _PATTERN1 = re.compile(
     r"(\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH)[A-Z0-9_]*)=(\S+)",
     re.IGNORECASE,
 )
-_PATTERN2 = re.compile(r"\b(KEY|TOKEN|SECRET|PASSWORD|AUTH)=(\S+)", re.IGNORECASE)
 
 
 def _redact_sensitive_values(line: str) -> str:
@@ -26,14 +26,9 @@ def _redact_sensitive_values(line: str) -> str:
         Log line with sensitive values redacted
 
     """
-    # Pattern 1: Matches env var names containing sensitive keywords followed by = and a value
+    # Matches env var names containing sensitive keywords followed by = and a value
     # Examples: API_KEY=secret123, TOKEN=abc, PASSWORD="hidden"
-    line = _PATTERN1.sub(r"\1=[REDACTED]", line)
-
-    # Pattern 2: Matches standalone keywords followed by = and a value (for cases like 'auth=xyz')
-    line = _PATTERN2.sub(r"\1=[REDACTED]", line)
-
-    return line
+    return _PATTERN1.sub(r"\1=[REDACTED]", line)
 
 
 class LogBuffer:
@@ -43,8 +38,8 @@ class LogBuffer:
     - All public methods acquire self.lock before accessing self.lines
     - add_line(), clear(), get_lines(), get_text(), get_stats(), and line_count
       are all thread-safe via the internal threading.Lock
-    - The running flag is not protected by the lock and may be toggled by stop();
-      consumers should treat it as best-effort state
+    - The running, auto_scroll, and redact_sensitive flags are not protected by the lock
+      and may be toggled concurrently; consumers should treat them as best-effort state
     - Consumers should not access self.lines directly without holding the lock
     """
 

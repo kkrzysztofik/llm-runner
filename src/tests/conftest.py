@@ -8,6 +8,7 @@ Provides shared test fixtures for:
 import json
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -49,7 +50,9 @@ def sample_lockfile(tmp_runtime_dir: Path) -> Path:
 
 
 @pytest.fixture
-def artifact_writer(tmp_runtime_dir: Path) -> Callable[[str, str | bytes, str], Path]:
+def artifact_writer(
+    tmp_runtime_dir: Path,
+) -> Callable[[str, str | bytes, Literal["text", "binary"]], Path]:
     """Create an artifact writer utility for testing.
 
     Provides a simple utility to write test artifacts to the runtime directory
@@ -64,7 +67,11 @@ def artifact_writer(tmp_runtime_dir: Path) -> Callable[[str, str | bytes, str], 
 
     """
 
-    def write_artifact(filename: str, content: str | bytes, expected_type: str = "text") -> Path:
+    def write_artifact(
+        filename: str,
+        content: str | bytes,
+        expected_type: Literal["text", "binary"] = "text",
+    ) -> Path:
         """Write an artifact to the runtime directory.
 
         Args:

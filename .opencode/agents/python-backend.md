@@ -71,12 +71,12 @@ from .config import Config, ServerConfig
 ### Config Dataclass
 
 ```python
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 @dataclass
 class Config:
     """Server configuration defaults"""
-    llama_cpp_root: str = "src/llama.cpp"
+    llama_cpp_root: str = "src/llama.cpp"  # Relative to project root
     llama_server_bin_intel: str | None = None  # Computed in __post_init__
     
     def __post_init__(self) -> None:

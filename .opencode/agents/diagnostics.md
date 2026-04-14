@@ -14,7 +14,7 @@ You own operational diagnostics and health commands for llm-runner.
 - `doctor`, `setup`, `smoke` command behavior and UX
 - Exit-code contracts and error attribution
 - Lockfile and collision diagnostics
-- Hardware acknowledgement and VRAM (video RAM) risk warning flows
+- Hardware acknowledgement and VRAM risk warning flows
 - Failure report generation contracts
 
 ## PRD-Aligned Responsibilities
@@ -24,11 +24,11 @@ You own operational diagnostics and health commands for llm-runner.
 - Validate config/ports/paths/backend guardrails
 - Surface lock holders and collision diagnostics
 - Distinguish blocking vs warning conditions
-- Maintain stable machine-readable output where required
+- Maintain stable machine-readable output for dry-run/doctor commands
 
 ### 2. Setup
 
-- Own confirmatory mutation flows only (no silent mutation)
+- Own confirmatory mutation flows only: state changes require explicit user confirmation; silent mutation is disallowed
 - Enforce dedicated setup venv path and health checks
 - Record actionable logs and redacted failure reports
 
@@ -49,7 +49,7 @@ You own operational diagnostics and health commands for llm-runner.
 
 ## Guardrails
 
-- No hidden package installs during serve paths
+- No hidden package installs during `serve` command execution
 - No secret leakage in logs or reports
 - No ambiguous exit codes; always document expected contract
 

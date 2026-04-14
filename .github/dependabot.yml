@@ -51,7 +51,3 @@ updates:
         patterns:
           - "rich"
           - "psutil"
-      # Catch-all group for any ungrouped dependencies
-      python-other:
-        patterns:
-          - "*"

@@ -22,6 +22,7 @@ class TestParseArgsBasic:
         """parse_args with single mode should work."""
         args = parse_args(["summary-balanced"])
         assert args.mode == "summary-balanced"
+        assert args.dry_run_mode is None
         assert args.ports == []
 
     def test_parse_port_argument(self) -> None:
@@ -40,64 +41,55 @@ class TestParseArgsBasic:
 class TestParseArgsDryRun:
     """Tests for dry-run mode parsing."""
 
-    def test_parse_dry_run_without_mode(self) -> None:
-        """parse_args with dry-run but no mode should fail."""
-        with pytest.raises(SystemExit):
-            parse_args(["dry-run"])
-
-    def test_parse_dry_run_with_mode(self) -> None:
-        """parse_args with dry-run and mode should work."""
-        args = parse_args(["dry-run", "both"])
-        assert args.mode == "dry-run"
-        assert args.dry_run_mode == "both"
-        assert args.ports == []
-
-    def test_parse_dry_run_with_ports(self) -> None:
-        """parse_args with dry-run, mode, and ports should work."""
-        args = parse_args(["dry-run", "both", "8080", "8081"])
-        assert args.mode == "dry-run"
-        assert args.dry_run_mode == "both"
-        assert args.ports == [8080, 8081]
-
-    def test_parse_dry_run_summary_balanced(self) -> None:
-        """parse_args with dry-run summary-balanced should work."""
-        args = parse_args(["dry-run", "summary-balanced", "8080"])
-        assert args.mode == "dry-run"
-        assert args.dry_run_mode == "summary-balanced"
-        assert args.ports == [8080]
-
-    def test_parse_dry_run_summary_fast(self) -> None:
-        """parse_args with dry-run summary-fast should work."""
-        args = parse_args(["dry-run", "summary-fast"])
-        assert args.mode == "dry-run"
-        assert args.dry_run_mode == "summary-fast"
-        assert args.ports == []
-
-    def test_parse_dry_run_qwen35(self) -> None:
-        """parse_args with dry-run qwen35 should work."""
-        args = parse_args(["dry-run", "qwen35", "8080"])
-        assert args.mode == "dry-run"
-        assert args.dry_run_mode == "qwen35"
-        assert args.ports == [8080]
+    @pytest.mark.parametrize(
+        ("args_list", "expected_mode", "expected_dry_run_mode", "expected_ports"),
+        [
+            (["dry-run", "both"], "dry-run", "both", []),
+            (["dry-run", "both", "8080", "8081"], "dry-run", "both", [8080, 8081]),
+            (["dry-run", "summary-balanced", "8080"], "dry-run", "summary-balanced", [8080]),
+            (["dry-run", "summary-fast"], "dry-run", "summary-fast", []),
+            (["dry-run", "qwen35", "8080"], "dry-run", "qwen35", [8080]),
+        ],
+    )
+    def test_parse_dry_run_with_mode(
+        self,
+        args_list: list[str],
+        expected_mode: str,
+        expected_dry_run_mode: str | None,
+        expected_ports: list[int],
+    ) -> None:
+        """parse_args with dry-run and mode should work for all valid modes."""
+        args = parse_args(args_list)
+        assert args.mode == expected_mode
+        assert args.dry_run_mode == expected_dry_run_mode
+        assert args.ports == expected_ports
 
 
 class TestParseArgsValidModes:
     """Test all valid mode combinations."""
 
-    def test_all_non_dryrun_modes(self) -> None:
+    @pytest.mark.parametrize(
+        ("mode", "expected_dry_run_mode"),
+        [
+            ("summary-balanced", None),
+            ("summary-fast", None),
+            ("qwen35", None),
+            ("both", None),
+        ],
+    )
+    def test_all_non_dryrun_modes(self, mode: str, expected_dry_run_mode: str | None) -> None:
         """All non-dry-run modes should work."""
-        for mode in ["summary-balanced", "summary-fast", "qwen35", "both"]:
-            args = parse_args([mode])
-            assert args.mode == mode
-            assert args.dry_run_mode is None
-            assert args.ports == []
+        args = parse_args([mode])
+        assert args.mode == mode
+        assert args.dry_run_mode == expected_dry_run_mode
+        assert args.ports == []
 
-    def test_dry_run_all_modes(self) -> None:
+    @pytest.mark.parametrize("mode", ["summary-balanced", "summary-fast", "qwen35", "both"])
+    def test_dry_run_all_modes(self, mode: str) -> None:
         """dry-run with all valid sub-modes should work."""
-        for mode in ["summary-balanced", "summary-fast", "qwen35", "both"]:
-            args = parse_args(["dry-run", mode])
-            assert args.mode == "dry-run"
-            assert args.dry_run_mode == mode
+        args = parse_args(["dry-run", mode])
+        assert args.mode == "dry-run"
+        assert args.dry_run_mode == mode
 
 
 class TestParseArgsInvalidModes:

@@ -1,3 +1,4 @@
+import os
 import tempfile
 import time
 from math import ceil
@@ -19,7 +20,10 @@ def get_p95(data: list[float]) -> float:
     return sorted_data[idx]
 
 
-@patch("llama_cli.dry_run.write_artifact", return_value=tempfile.gettempdir() + "/fake_artifact")
+@patch(
+    "llama_cli.dry_run.write_artifact",
+    return_value=os.path.join(tempfile.gettempdir(), "fake_artifact"),
+)
 @patch("llama_cli.dry_run.resolve_runtime_dir", return_value=tempfile.gettempdir())
 @patch("llama_cli.dry_run.validate_server_config", return_value=None)
 @patch("sys.stdout", new_callable=MagicMock)
@@ -75,7 +79,10 @@ def test_performance_validation_paths() -> None:
     assert p95_conflict <= 0.150, f"p95 port conflict validation too slow: {p95_conflict:.4f}s"
 
 
-@patch("llama_cli.dry_run.write_artifact", return_value=tempfile.gettempdir() + "/fake_artifact")
+@patch(
+    "llama_cli.dry_run.write_artifact",
+    return_value=os.path.join(tempfile.gettempdir(), "fake_artifact"),
+)
 @patch("llama_cli.dry_run.resolve_runtime_dir", return_value=tempfile.gettempdir())
 @patch("llama_cli.dry_run.validate_server_config", return_value=None)
 @patch("sys.stdout", new_callable=MagicMock)

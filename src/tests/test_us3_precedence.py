@@ -30,7 +30,7 @@ def test_precedence_profile_wins() -> None:
 def test_precedence_slot_wins_over_defaults() -> None:
     """Slot/Workstation should win over defaults."""
     defaults = Config()
-    # Default is defaults.summary_balanced_port (8080)
+    # Default port is 8080
     slot_cfg: dict[str, object] = {"port": 9000}
 
     result = merge_config_overrides(defaults, slot_config=slot_cfg)
@@ -38,9 +38,8 @@ def test_precedence_slot_wins_over_defaults() -> None:
 
 
 def test_deep_merge_dict_fields() -> None:
-    """Dict fields in config overrides should be deep merged into the base dict."""
+    """List fields in config should concatenate across merge layers."""
     defaults = Config()
-    # List fields concatenate across merge layers
     slot_cfg: dict[str, list[str]] = {"risky_acknowledged": ["slot-risk"]}
     profile_cfg: dict[str, list[str]] = {"risky_acknowledged": ["profile-risk"]}
 
@@ -79,7 +78,9 @@ def test_merge_validates_threads_positive() -> None:
     assert "threads must be greater than 0" in str(exc.value)
 
 
-def test_model_path_validation_only_when_model_is_overridden(monkeypatch):
+def test_model_path_validation_only_when_model_is_overridden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     defaults = Config()
     monkeypatch.setattr("os.path.exists", lambda _: False)
 

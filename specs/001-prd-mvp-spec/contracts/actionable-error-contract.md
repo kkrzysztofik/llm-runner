@@ -30,9 +30,32 @@ Defines the launch/dry-run blocking error payload shared by CLI and TUI semantic
 
 ## Multi-Error Response
 
+### Example 1: Single blocker
+
 ```json
 {
   "errors": [
+    {
+      "error_code": "BACKEND_NOT_ELIGIBLE",
+      "failed_check": "vllm_launch_eligibility",
+      "how_to_fix": "change backend to 'llama_cpp' for M1",
+      "why_blocked": "vllm is not launch-eligible in PRD M1"
+    }
+  ]
+}
+```
+
+### Example 2: Multiple blockers
+
+```json
+{
+  "errors": [
+    {
+      "error_code": "DUPLICATE_SLOT",
+      "failed_check": "slot_uniqueness",
+      "how_to_fix": "ensure each slot has a unique slot_id",
+      "why_blocked": "slot 'summary' declared twice in configuration"
+    },
     {
       "error_code": "BACKEND_NOT_ELIGIBLE",
       "failed_check": "vllm_launch_eligibility",
@@ -89,6 +112,6 @@ Defines the launch/dry-run blocking error payload shared by CLI and TUI semantic
 - **error_code**: MUST be uppercase with underscores, no spaces or special characters.
 - **failed_check**: MUST be lowercase with underscores, no spaces or special characters.
 - **why_blocked/how_to_fix**: Plain text only; no markdown, no inline code ticks, no HTML.
-- **docs_ref**: If present, MUST be a relative path (e.g., `specs/001-prd-mvp-spec/spec.md`) or valid URL.
+- **docs_ref**: If present, MUST be a relative path (e.g., `specs/001-prd-mvp-spec/spec.md`) or valid URL (e.g., `https://github.com/...#section`); no URL fragments for relative paths.
 - **Field ordering**: JSON object keys in error objects MUST be serialized in alphabetical order.
 - **Error ordering**: When multiple errors exist, order by `failed_check` ascending, then by `error_code` ascending.
