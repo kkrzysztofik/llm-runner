@@ -72,5 +72,4 @@
 
 - **Mode**: Multi-agent revalidation after targeted requirement-wording patch set
 - **Scope**: CHK004, CHK007, CHK010, CHK011, CHK012, CHK013, CHK015, CHK018, CHK025, CHK026
-- **Result**: Targeted checks now pass after updates to `spec.md`, `data-model.md`, and
-  `contracts/dry-run-canonical-contract.md`
+- **Result**: Targeted checks now pass after updates to `spec.md`, `data-model.md`, and `contracts/dry-run-canonical-contract.md`

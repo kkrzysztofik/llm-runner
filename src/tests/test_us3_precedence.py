@@ -4,12 +4,12 @@ from llama_manager.config import Config
 from llama_manager.config_builder import merge_config_overrides
 
 
-def test_precedence_overrides_win():
+def test_precedence_overrides_win() -> None:
     """Overrides should take highest precedence over all other sources."""
     defaults = Config()
-    slot_cfg = {"port": 8080}
-    profile_cfg = {"port": 8081}
-    override_cfg = {"port": 8082}
+    slot_cfg: dict[str, object] = {"port": 8080}
+    profile_cfg: dict[str, object] = {"port": 8081}
+    override_cfg: dict[str, object] = {"port": 8082}
 
     result = merge_config_overrides(
         defaults, slot_config=slot_cfg, profile_config=profile_cfg, override_config=override_cfg
@@ -17,33 +17,33 @@ def test_precedence_overrides_win():
     assert result.port == 8082
 
 
-def test_precedence_profile_wins():
+def test_precedence_profile_wins() -> None:
     """Profile should win over slot and workstation configurations."""
     defaults = Config()
-    slot_cfg = {"port": 8080}
-    profile_cfg = {"port": 8081}
+    slot_cfg: dict[str, object] = {"port": 8080}
+    profile_cfg: dict[str, object] = {"port": 8081}
 
     result = merge_config_overrides(defaults, slot_config=slot_cfg, profile_config=profile_cfg)
     assert result.port == 8081
 
 
-def test_precedence_slot_wins_over_defaults():
+def test_precedence_slot_wins_over_defaults() -> None:
     """Slot/Workstation should win over defaults."""
     defaults = Config()
     # Default is defaults.summary_balanced_port (8080)
-    slot_cfg = {"port": 9000}
+    slot_cfg: dict[str, object] = {"port": 9000}
 
     result = merge_config_overrides(defaults, slot_config=slot_cfg)
     assert result.port == 9000
 
 
-def test_deep_merge_dict_fields():
+def test_deep_merge_dict_fields() -> None:
     """Dict fields in config overrides should be deep merged into the base dict."""
     defaults = Config()
     # chat_template_kwargs is stored as a string, but the merge process
     # deep merges dict fields in the intermediate representation
-    slot_cfg = {"risky_acknowledged": ["slot-risk"]}
-    profile_cfg = {"risky_acknowledged": ["profile-risk"]}
+    slot_cfg: dict[str, list[str]] = {"risky_acknowledged": ["slot-risk"]}
+    profile_cfg: dict[str, list[str]] = {"risky_acknowledged": ["profile-risk"]}
 
     result = merge_config_overrides(defaults, slot_config=slot_cfg, profile_config=profile_cfg)
 
@@ -51,12 +51,12 @@ def test_deep_merge_dict_fields():
     assert result.risky_acknowledged == ["slot-risk", "profile-risk"]
 
 
-def test_list_fields_concatenate_across_layers():
+def test_list_fields_concatenate_across_layers() -> None:
     """List fields should concatenate in precedence merge."""
     defaults = Config()
-    slot_cfg = {"risky_acknowledged": ["slot-risk"]}
-    profile_cfg = {"risky_acknowledged": ["profile-risk"]}
-    override_cfg = {"risky_acknowledged": ["override-risk"]}
+    slot_cfg: dict[str, list[str]] = {"risky_acknowledged": ["slot-risk"]}
+    profile_cfg: dict[str, list[str]] = {"risky_acknowledged": ["profile-risk"]}
+    override_cfg: dict[str, list[str]] = {"risky_acknowledged": ["override-risk"]}
 
     result = merge_config_overrides(
         defaults,

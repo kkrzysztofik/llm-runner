@@ -36,6 +36,8 @@
 uv run llm-runner dry-run both
 ```
 
+**Meaning:** Prints resolved launch commands for all configured slots without starting servers.
+
 Expected outcomes:
 
 - Per-slot FR-003 canonical payload includes all of:
@@ -51,12 +53,12 @@ Expected outcomes:
 
 ## 2) Verify launch-blocking validation contract
 
-Trigger known blockers (e.g., duplicate port or invalid backend) and verify FR-005 response includes:
+Trigger known blockers (e.g., duplicate port, invalid backend `vllm`, missing model file) and verify FR-005 response includes:
 
-- `error_code`
-- `failed_check`
-- `why_blocked`
-- `how_to_fix`
+- `error_code` (e.g., `PORT_CONFLICT`, `BACKEND_NOT_ELIGIBLE`, `MODEL_NOT_FOUND`)
+- `failed_check` (e.g., `port_availability`, `vllm_launch_eligibility`, `model_source`)
+- `why_blocked` (human-readable explanation)
+- `how_to_fix` (actionable correction message)
 - optional `docs_ref`
 
 For full-block failures (`launch blocked - no slots could be launched`), verify
@@ -97,6 +99,7 @@ Runtime verification steps:
    - `Artifact written: <runtime-dir>/artifacts/artifact-YYYYMMDDTHHMMSSZ.json`
 3. Verify the file exists and naming matches `artifact-{timestamp}.json`
    in the `artifacts/` subdirectory.
+4. Verify permissions: `stat -c "%a" <file>` should show `600` for files, `700` for directories.
 
 ## 5) Run required quality gates
 

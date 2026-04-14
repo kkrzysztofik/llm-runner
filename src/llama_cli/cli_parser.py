@@ -8,6 +8,8 @@ a second argument specifying the mode to preview.
 import argparse
 import sys
 
+VALID_MODES = ("summary-balanced", "summary-fast", "qwen35", "both")
+
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments.
@@ -29,10 +31,10 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
             sys.exit(1)
 
         dry_run_mode = args[1]
-        if dry_run_mode not in ["summary-balanced", "summary-fast", "qwen35", "both"]:
+        if dry_run_mode not in VALID_MODES:
             print(
                 f"error: invalid dry-run mode '{dry_run_mode}'. "
-                "Valid modes: summary-balanced, summary-fast, qwen35, both",
+                f"Valid modes: {', '.join(VALID_MODES)}",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -70,19 +72,19 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
       dry-run          Preview commands without executing
 
     Examples:
-      src/run_opencode_models.py summary-balanced
-      src/run_opencode_models.py summary-fast 8082
-      src/run_opencode_models.py qwen35 8080
-      src/run_opencode_models.py both 8080 8081
-      src/run_opencode_models.py dry-run summary-balanced
-      src/run_opencode_models.py dry-run both 8080 8081
+      %(prog)s summary-balanced
+      %(prog)s summary-fast 8082
+      %(prog)s qwen35 8080
+      %(prog)s both 8080 8081
+      %(prog)s dry-run summary-balanced
+      %(prog)s dry-run both 8080 8081
             """,
     )
 
     parser.add_argument(
         "mode",
         nargs="?",
-        choices=["summary-balanced", "summary-fast", "qwen35", "both"],
+        choices=VALID_MODES,
         help="Mode to run",
     )
     parser.add_argument(
@@ -104,11 +106,15 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     return parsed
 
 
-def parse_tui_args() -> argparse.Namespace:
+def parse_tui_args(args: list[str] | None = None) -> argparse.Namespace:
     """Parse TUI-specific command line arguments.
 
+    Args:
+        args: Optional list of command-line arguments. If None, uses sys.argv[1:].
+
     Returns:
-        Parsed arguments namespace with mode, port, port2, and acknowledge_risky.
+        Parsed arguments namespace with mode, port, port2, acknowledge_risky,
+        and dry_run_mode (always None for TUI mode).
     """
     parser = argparse.ArgumentParser(
         description="TUI for managing multiple llama-server instances",
@@ -127,11 +133,10 @@ GPU Mapping:
         """,
     )
 
-    modes = ["both", "summary-balanced", "summary-fast", "qwen35"]
     parser.add_argument(
         "mode",
-        choices=modes,
-        help=f"Mode to run: {' | '.join(modes)}",
+        choices=VALID_MODES,
+        help=f"Mode to run: {' | '.join(VALID_MODES)}",
     )
     parser.add_argument(
         "--port",
@@ -152,4 +157,7 @@ GPU Mapping:
         help="Acknowledge risky operations (privileged ports, etc.)",
     )
 
-    return parser.parse_args()
+    parsed = parser.parse_args(args)
+    # Add dry_run_mode attribute for consistency with parse_args
+    parsed.dry_run_mode = None
+    return parsed

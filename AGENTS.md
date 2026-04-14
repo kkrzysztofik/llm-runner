@@ -240,7 +240,7 @@ uv run pip-audit
 Quarterly (or before major releases), update all dependencies:
 
 ```bash
-uv pip compile pyproject.toml --upgrade
+uv lock --upgrade
 uv sync
 uv run pip-audit
 ```

@@ -20,11 +20,12 @@ from llama_manager.server import (
 
 
 @pytest.fixture
-def base_config():
+def base_config() -> Config:
+    """Return a default Config for testing."""
     return Config()
 
 
-def test_multi_validation_error_parity(base_config):
+def test_multi_validation_error_parity(base_config: Config) -> None:
     """T042: Verify MultiValidationError fields match canonical slot.validation_results.errors.
     We verify that the errors reported in MultiValidationError are consistent with
     the individual validation failures.
@@ -58,7 +59,7 @@ def test_multi_validation_error_parity(base_config):
         assert ErrorCode.FILE_NOT_FOUND in error_codes
 
 
-def test_slot_sequence_consistency_and_tiebreak():
+def test_slot_sequence_consistency_and_tiebreak() -> None:
     """T042: Verify slot sequence consistency and failed_check ascending tie-break.
     This test specifically checks if the sorting logic in MultiValidationError
     works when failed_check strings include slot information.

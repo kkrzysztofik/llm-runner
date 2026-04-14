@@ -6,8 +6,8 @@ Provides shared test fixtures for:
 """
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -42,13 +42,14 @@ def sample_lockfile(tmp_runtime_dir: Path) -> Path:
     """
     lockfile = tmp_runtime_dir / "llm-runner.lock"
     lockfile.write_text(
-        json.dumps({"version": "1", "pids": [12345], "started_at": "2026-04-10T00:00:00Z"})
+        json.dumps({"version": "1", "pids": [12345], "started_at": "2026-04-10T00:00:00Z"}),
+        encoding="utf-8",
     )
     return lockfile
 
 
 @pytest.fixture
-def artifact_writer(tmp_runtime_dir: Path) -> Any:
+def artifact_writer(tmp_runtime_dir: Path) -> Callable[[str, str | bytes, str], Path]:
     """Create an artifact writer utility for testing.
 
     Provides a simple utility to write test artifacts to the runtime directory
@@ -82,7 +83,7 @@ def artifact_writer(tmp_runtime_dir: Path) -> Any:
 
         artifact_path = tmp_runtime_dir / filename
         if isinstance(content, str):
-            artifact_path.write_text(content)
+            artifact_path.write_text(content, encoding="utf-8")
         else:
             artifact_path.write_bytes(content)
 

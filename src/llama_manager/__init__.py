@@ -1,5 +1,10 @@
-# llama_manager package
+"""llama_manager package - Core library for llm-runner.
 
+This package provides the core business logic for managing multiple
+llama-server instances, including configuration, server lifecycle,
+GPU statistics, log buffering, and lockfile management. It is a pure
+library with no I/O dependencies.
+"""
 
 from .config import (
     Config,
