@@ -77,22 +77,25 @@ We do not care about backwards compatibility—we're in early development with n
 
 ```bash
 llm-runner/
-├── llama_cli/              # CLI layer (entry points, argument parsing, TUI)
-│   ├── cli_parser.py       # argparse modes: both, summary-balanced, summary-fast, qwen35, dry-run
-│   ├── server_runner.py    # main() + cli_main() entry point
-│   ├── tui_app.py          # Rich Live TUI (signal handling, layout)
-│   └── dry_run.py          # Print resolved commands without launching
-├── llama_manager/          # Core library (no I/O except sys.stderr)
-│   ├── config.py           # Config + ServerConfig dataclasses
-│   ├── config_builder.py   # Factory functions: create_*_cfg()
-│   ├── server.py           # build_server_cmd() + validators
-│   ├── process_manager.py  # ServerManager — subprocess lifecycle
-│   ├── gpu_stats.py        # GPUStats (nvidia-smi / sycl-ls parsing)
-│   ├── log_buffer.py       # Thread-safe real-time log streaming
-│   └── colors.py           # Terminal colour constants
-├── tests/
-│   ├── test_config.py      # Config, ServerConfig, config builders
-│   └── test_server.py      # Validators, build_server_cmd
+├── src/
+│   ├── llama_cli/              # CLI layer (entry points, argument parsing, TUI)
+│   │   ├── cli_parser.py       # argparse modes: both, summary-balanced, summary-fast, qwen35, dry-run
+│   │   ├── server_runner.py    # main() + cli_main() entry point
+│   │   ├── tui_app.py          # Rich Live TUI (signal handling, layout)
+│   │   └── dry_run.py          # Print resolved commands without launching
+│   ├── llama_manager/          # Core library (no I/O except sys.stderr)
+│   │   ├── config.py           # Config + ServerConfig dataclasses
+│   │   ├── config_builder.py   # Factory functions: create_*_cfg()
+│   │   ├── server.py           # build_server_cmd() + validators
+│   │   ├── process_manager.py  # ServerManager — subprocess lifecycle
+│   │   ├── gpu_stats.py        # GPUStats (nvidia-smi / sycl-ls parsing)
+│   │   ├── log_buffer.py       # Thread-safe real-time log streaming
+│   │   └── colors.py           # Terminal colour constants
+│   ├── tests/
+│   │   ├── test_config.py      # Config, ServerConfig, config builders
+│   │   └── test_server.py      # Validators, build_server_cmd
+│   ├── run_models_tui.py       # TUI entry point
+│   └── run_opencode_models.py  # CLI entry point
 ├── pyproject.toml          # Build config, deps, ruff/pyright/pytest settings
 ├── .python-version         # 3.12
 ├── .pre-commit-config.yaml # ruff + pyright hooks
@@ -200,7 +203,49 @@ All three CI checks must pass before merging:
 2. **typecheck** — `pyright` (standard mode)
 3. **test** — `pytest` with coverage
 
+Additionally, an audit job runs `uv run pip-audit` to check for known CVEs in
+dependencies.
+
 Pre-commit hooks run the same ruff and pyright checks locally on every commit.
+
+---
+
+## Dependency Security Policy
+
+### CI Dependency Scan
+
+CI automatically runs `uv run pip-audit` on every push and pull request to detect
+known CVEs in dependencies. The audit job does not block merging but provides
+visibility into potential vulnerabilities.
+
+### Local Pre-release Check
+
+Before merging or releasing, run:
+
+```bash
+uv run pip-audit
+```
+
+### Vulnerability Response Cadence
+
+| Severity | Response Target |
+| -------- | --------------- |
+| Critical | Immediately — patch or pin within 24h |
+| High     | Within 1 week |
+| Medium   | Within 1 month |
+| Low      | Included in routine dependency refresh |
+
+### Routine Dependency Refresh
+
+Quarterly (or before major releases), update all dependencies:
+
+```bash
+uv lock --upgrade
+uv sync
+uv run pip-audit
+```
+
+Review `pip-audit` output and update dependencies via `uv add --upgrade-package <pkg>`.
 
 ---
 
@@ -334,3 +379,10 @@ ignoring comments/strings, and can **safely rewrite** code.
 
 - Model weights and binary paths are local to the developer's machine — do not hardcode new paths, use `Config` defaults.
 - GPU driver setup, SYCL environment variables (`ONEAPI_DEVICE_SELECTOR`), and CUDA library paths are handled by shell wrapper scripts (`run_opencode_models.sh`), not Python.
+
+## Active Technologies
+- Python 3.12+ + rich, psutil, pytest, ruff, pyright (001-prd-mvp-spec)
+- Local runtime files under resolved runtime dir (`LLM_RUNNER_RUNTIME_DIR` else `$XDG_RUNTIME_DIR/llm-runner`) for lockfiles + JSON artifacts (001-prd-mvp-spec)
+
+## Recent Changes
+- 001-prd-mvp-spec: Added Python 3.12+ + rich, psutil, pytest, ruff, pyright

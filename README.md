@@ -1,12 +1,17 @@
-# TUI for llama-server
+# llm-runner
 
 A terminal-based user interface for managing multiple llama-server instances
 with live logs, configuration display, and GPU monitoring.
 
+**Current Branch Scope:** The `001-prd-mvp-spec` branch implements **PRD Milestone M1 only**
+(slot-first orchestration, dry-run, validation), not the full PRD MVP. See
+[PRD Spec-001 Compliance Review](docs/reviews/prd-spec-001-compliance-review.md) for
+detailed scope and deferred items.
+
 ## Setup
 
 ```bash
-cd /home/kmk/llm-runner/tui
+cd /path/to/llm-runner
 source .venv/bin/activate
 ```
 
@@ -14,18 +19,21 @@ source .venv/bin/activate
 
 ```bash
 # Run both models side-by-side
-python run_models_tui.py both
+python src/run_models_tui.py both
 
 # Run with custom ports
-python run_models_tui.py both --port 8080 --port2 8081
+python src/run_models_tui.py both --port 8080 --port2 8081
 
 # Run single model
-python run_models_tui.py summary-balanced --port 8080
-python run_models_tui.py qwen35 --port 8081
-python run_models_tui.py summary-fast
+python src/run_models_tui.py summary-balanced --port 8080
+python src/run_models_tui.py qwen35 --port 8081
+python src/run_models_tui.py summary-fast
 
 # Get help
-python run_models_tui.py --help
+python src/run_models_tui.py --help
+
+# Or use the llm-runner CLI script (for CLI mode only)
+uv run llm-runner both
 ```
 
 ## Features
@@ -43,6 +51,54 @@ via nvtop
 
 - **NVIDIA (CUDA)**: GPU 0 (RTX 3090) - used by qwen35-coding
 - **Intel (SYCL)**: GPU 1 (Arc B580) - used by summary-balanced, summary-fast
+
+## Security
+
+### Dependency Security
+
+We take dependency security seriously. All CI runs include automated dependency
+auditing via `pip-audit`.
+
+#### CI Dependency Scan
+
+CI automatically runs `uv run pip-audit` on every push and pull request to detect
+known CVEs in dependencies. The audit job is part of the CI workflow but does not
+block merging — it provides visibility into potential vulnerabilities.
+
+#### Local Pre-release Check
+
+Before merging or releasing, run:
+
+```bash
+uv run pip-audit
+```
+
+#### Vulnerability Response Cadence
+
+| Severity | Response Target |
+| -------- | --------------- |
+| Critical | Immediately — patch or pin within 24h |
+| High     | Within 1 week |
+| Medium   | Within 1 month |
+| Low      | Included in routine dependency refresh |
+
+#### Routine Dependency Refresh
+
+Quarterly (or before major releases), update all dependencies:
+
+```bash
+uv pip compile pyproject.toml --upgrade
+uv sync
+uv run pip-audit
+```
+
+Review `pip-audit` output and update dependencies via `uv add --upgrade-package <pkg>`.
+
+---
+
+The inference servers bind to `127.0.0.1:8080` and `127.0.0.1:8081` by default,
+making them accessible only from localhost. Do not expose these ports to external
+networks without configuring proper authentication and firewall rules.
 
 ## Exit
 

@@ -35,14 +35,14 @@ GEMMA4_CHAT_TEMPLATE_KWARGS='{"enable_thinking":true}'
 
 # Server defaults
 DEFAULT_N_GPU_LAYERS=99                  # Max GPU layers for fastest inference
-DEFAULT_CTX_SIZE_SUMMARY=16144           # 16k with headroom for summary assistants
+DEFAULT_CTX_SIZE_SUMMARY=262144           # 256k with headroom for summary assistants
 DEFAULT_CTX_SIZE_QWEN35=262144           # Match NVIDIA qwen35 single-run config
 DEFAULT_CTX_SIZE_GEMMA4_E4B=131072       # Full 128k context for Gemma 4 E4B
 # 27B Q4_K_XL: validated llama-completion warmup + gen at 262144 on RTX 3090 (f16 KV, -np 1)
 DEFAULT_CTX_SIZE_GEMMA4_27B=262144
 # 31B IQ4_XS: max stable ctx with default batch/ubatch (see probe notes in script header paths)
 DEFAULT_CTX_SIZE_GEMMA4_31B=82176
-DEFAULT_CTX_SIZE_BOTH_SUMMARY=16144      # Keep summarizer at 16k in dual-run mode
+DEFAULT_CTX_SIZE_BOTH_SUMMARY=262144      # Keep summarizer at 256k in dual-run mode
 DEFAULT_CTX_SIZE_BOTH_QWEN35=262144      # Match NVIDIA qwen35 dual-run config
 DEFAULT_CTX_SIZE_BOTH_GEMMA4_27B=262144   # Same as single-GPU 27B when paired with E4B on Intel
 DEFAULT_N_GPU_LAYERS_QWEN35=all
@@ -68,13 +68,14 @@ DEFAULT_THREADS_GEMMA4_31B=24
 DEFAULT_THREADS_QWEN35_BOTH=12
 DEFAULT_THREADS_GEMMA4_27B_BOTH=8
 DEFAULT_POLL_MS_GEMMA4_E4B=0
+DEFAULT_POLL_MS_QWEN35=0
 DEFAULT_PARALLEL_GEMMA4_E4B=-1
 # Single slot minimizes VRAM for parallel KV / server batching (matches llama-completion -np 1 probes)
 DEFAULT_PARALLEL_GEMMA4_27B=1
 DEFAULT_PARALLEL_GEMMA4_31B=1
-# Intel SYCL: f16 KV (no q8 cache quant) — lower overhead than q8_0 on Arc for these profiles
-DEFAULT_CACHE_TYPE_SUMMARY_K=f16
-DEFAULT_CACHE_TYPE_SUMMARY_V=f16
+# Intel SYCL summary: q8_0 KV cache for 256k context (memory savings outweigh slight overhead vs f16)
+DEFAULT_CACHE_TYPE_SUMMARY_K=q8_0
+DEFAULT_CACHE_TYPE_SUMMARY_V=q8_0
 DEFAULT_CACHE_TYPE_QWEN35_K=q8_0
 DEFAULT_CACHE_TYPE_QWEN35_V=q8_0
 DEFAULT_CACHE_TYPE_QWEN35_BOTH_K=q8_0
@@ -88,6 +89,7 @@ DEFAULT_CACHE_TYPE_GEMMA4_27B_BOTH_K=f16
 DEFAULT_CACHE_TYPE_GEMMA4_27B_BOTH_V=f16
 DEFAULT_CACHE_TYPE_GEMMA4_31B_K=f16
 DEFAULT_CACHE_TYPE_GEMMA4_31B_V=f16
+DEFAULT_N_PREDICT=32768
 DEFAULT_SPEC_TYPE_GEMMA4_E4B=ngram-mod
 DEFAULT_SPEC_NGRAM_SIZE_N_GEMMA4_E4B=24
 DEFAULT_DRAFT_MIN_GEMMA4_E4B=48
@@ -277,6 +279,7 @@ build_server_cmd() {
   
   cmd_ref+=(
     --ctx-size "$ctx_size"
+    --n-predict "$DEFAULT_N_PREDICT"
     --flash-attn on
     --cache-type-k "$cache_type_k"
     --cache-type-v "$cache_type_v"
@@ -400,7 +403,9 @@ start_summary_balanced() {
   require_model "$MODEL_SUMMARY_BALANCED"
   build_server_cmd cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$port" \
     "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
-    "" on deepseek "$SUMMARY_BALANCED_CHAT_TEMPLATE_KWARGS" "" true "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+    "" off "" "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+  cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+  cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
 
   exec_server "summary-balanced" cmd
 }
@@ -413,6 +418,8 @@ start_summary_fast() {
   build_server_cmd cmd "$MODEL_SUMMARY_FAST" "summary-fast" "SYCL0" "$port" \
     "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_FAST" "$DEFAULT_THREADS_SUMMARY_FAST" \
     "" auto none "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+  cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+  cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
 
   exec_server "summary-fast" cmd
 }
@@ -449,8 +456,10 @@ start_qwen35() {
   require_executable "$LLAMA_SERVER_BIN_NVIDIA" "NVIDIA llama-server"
   build_server_cmd cmd "$MODEL_QWEN35" "qwen35-coding" "" "$port" \
     "$DEFAULT_CTX_SIZE_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35" "$DEFAULT_THREADS_QWEN35" \
-    "" "" "" "" "" false \
-    "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA"
+    "" on deepseek '{"enable_thinking":true}' "" "false" \
+    "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
+  cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+  cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   
   exec_server "qwen35-coding" cmd
 }
@@ -511,12 +520,16 @@ start_both_qwen35() {
 
   build_server_cmd summary_balanced_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
     "$DEFAULT_CTX_SIZE_BOTH_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
-    "" on deepseek "$SUMMARY_BALANCED_CHAT_TEMPLATE_KWARGS" "" true "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+    "" off "" "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+  summary_balanced_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+  summary_balanced_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   
   build_server_cmd qwen35_cmd "$MODEL_QWEN35_BOTH" "qwen35-coding" "" "$qwen35_port" \
     "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
-    "" "" "" "" "" false \
-    "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA"
+    "" on deepseek '{"enable_thinking":true}' "" "false" \
+    "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
+  qwen35_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+  qwen35_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   
   # Setup signal handlers BEFORE launching servers
   trap on_interrupt INT
@@ -657,13 +670,17 @@ dry_run() {
       echo "  Context: $DEFAULT_CTX_SIZE_SUMMARY"
       echo "  Threads: $DEFAULT_THREADS_SUMMARY_BALANCED"
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED"
-      echo "  Reasoning: on"
-      echo "  Reasoning Format: deepseek"
-      echo "  Jinja: true"
-      echo "  Chat Template Kwargs: $SUMMARY_BALANCED_CHAT_TEMPLATE_KWARGS"
+      echo "  Reasoning: off"
+      echo "  Reasoning Format: (disabled)"
+      echo "  Jinja: false"
+      echo "  Chat Template Kwargs: (none)"
+      echo "  Sampling: temperature=0.6 top-p=0.95 top-k=20 min-p=0.0"
+      echo "  Penalties: presence=0.0 repeat=1.0"
       build_server_cmd tmp_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
         "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
-        "" on deepseek "$SUMMARY_BALANCED_CHAT_TEMPLATE_KWARGS" "" true
+        "" off "" "" "" false
+      tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+      tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
@@ -674,8 +691,15 @@ dry_run() {
       echo "  Context: $DEFAULT_CTX_SIZE_SUMMARY"
       echo "  Threads: $DEFAULT_THREADS_SUMMARY_FAST"
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_SUMMARY_FAST"
+      echo "  Reasoning: auto"
+      echo "  Reasoning Format: none"
+      echo "  Sampling: temperature=0.6 top-p=0.95 top-k=20 min-p=0.0"
+      echo "  Penalties: presence=0.0 repeat=1.0"
       build_server_cmd tmp_cmd "$MODEL_SUMMARY_FAST" "summary-fast" "SYCL0" "$summary_fast_port" \
-        "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_FAST" "$DEFAULT_THREADS_SUMMARY_FAST"
+        "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_FAST" "$DEFAULT_THREADS_SUMMARY_FAST" \
+        "" auto none "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+      tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+      tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
@@ -781,10 +805,16 @@ dry_run() {
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_QWEN35"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_QWEN35_K/$DEFAULT_CACHE_TYPE_QWEN35_V"
       echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN35"
+      echo "  Reasoning: on"
+      echo "  Reasoning Format: deepseek"
+      echo "  Chat Template Kwargs: {\"enable_thinking\":true}"
+      echo "  Poll: $DEFAULT_POLL_MS_QWEN35"
       build_server_cmd tmp_cmd "$MODEL_QWEN35" "qwen35-coding" "" "$qwen35_port_single" \
         "$DEFAULT_CTX_SIZE_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35" "$DEFAULT_THREADS_QWEN35" \
-        "" "" "" "" "" false \
-        "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA"
+        "" on deepseek '{"enable_thinking":true}' "" "false" \
+        "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
+      tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+      tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
@@ -796,13 +826,17 @@ dry_run() {
       echo "  Threads: $DEFAULT_THREADS_SUMMARY_BALANCED"
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_SUMMARY_K/$DEFAULT_CACHE_TYPE_SUMMARY_V"
-      echo "  Reasoning: on"
-      echo "  Reasoning Format: deepseek"
-      echo "  Jinja: true"
-      echo "  Chat Template Kwargs: $SUMMARY_BALANCED_CHAT_TEMPLATE_KWARGS"
+      echo "  Reasoning: off"
+      echo "  Reasoning Format: (disabled)"
+      echo "  Jinja: false"
+      echo "  Chat Template Kwargs: (none)"
+      echo "  Sampling: temperature=0.6 top-p=0.95 top-k=20 min-p=0.0"
+      echo "  Penalties: presence=0.0 repeat=1.0"
       build_server_cmd tmp_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
         "$DEFAULT_CTX_SIZE_BOTH_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
-        "" on deepseek "$SUMMARY_BALANCED_CHAT_TEMPLATE_KWARGS" "" true "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+        "" off "" "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+      tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+      tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       echo ""
@@ -814,10 +848,16 @@ dry_run() {
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_QWEN35_BOTH"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_QWEN35_BOTH_K/$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V"
       echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN35_BOTH"
+      echo "  Reasoning: on"
+      echo "  Reasoning Format: deepseek"
+      echo "  Chat Template Kwargs: {\"enable_thinking\":true}"
+      echo "  Poll: $DEFAULT_POLL_MS_QWEN35"
       build_server_cmd tmp_cmd "$MODEL_QWEN35_BOTH" "qwen35-coding" "" "$qwen35_port_both" \
         "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
-        "" "" "" "" "" false \
-        "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA"
+        "" on deepseek '{"enable_thinking":true}' "" "false" \
+        "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
+      tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+      tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
@@ -889,12 +929,11 @@ dry_run() {
 
 # Initialize global state
 init_colors
-check_prereqs
 export ZES_ENABLE_SYSMAN=1
 
 # Parse and validate arguments
 mode="${1:-}"
-  if [[ "$mode" == "dry-run" ]]; then
+if [[ "$mode" == "dry-run" ]]; then
   mode="${2:-}"
   if [[ -z "$mode" ]]; then
     echo "error: dry-run requires a mode argument (summary-balanced|summary-fast|gemma4-e4b|gemma4-27b|gemma4-31b|qwen35|both-qwen35|both-gemma4-27b)" >&2
@@ -904,6 +943,10 @@ mode="${1:-}"
   dry_run "$mode" "${3:-}" "${4:-}"
   exit 0
 fi
+
+# Only check prerequisites for actual server starts, not dry-run
+check_prereqs
+
 case "$mode" in
   summary-balanced|llama32)
     port="${2:-$SUMMARY_BALANCED_PORT}"
@@ -963,7 +1006,7 @@ case "$mode" in
     port32="${2:-$SUMMARY_BALANCED_PORT}"
     port35="${3:-$QWEN35_PORT}"
 
-    if ! validate_port "$port32" "gemma4-e4b port"; then
+    if ! validate_port "$port32" "summary-balanced port"; then
       usage
       exit 1
     fi

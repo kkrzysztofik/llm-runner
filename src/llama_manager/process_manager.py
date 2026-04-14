@@ -1,0 +1,1182 @@
+# Server process management
+
+
+import contextlib
+import json
+import os
+import signal
+import stat
+import subprocess
+import sys
+import threading
+import time
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from types import FrameType
+from typing import Any, Final, TextIO, TypedDict, cast
+
+import psutil
+
+from .config import ErrorCode, ErrorDetail, ModelSlot, MultiValidationError, ServerConfig
+from .server import _SENSITIVE_KEY_PATTERN
+
+# File permission constants (owner-only access)
+FILE_MODE_OWNER_ONLY: Final[int] = 0o600
+DIR_MODE_OWNER_ONLY: Final[int] = 0o700
+LOCKFILE_CHECK_NAME: Final[str] = "lockfile_integrity"
+ARTIFACT_CHECK_NAME: Final[str] = "artifact_persistence"
+REDACTED_VALUE: Final[str] = "[REDACTED]"
+OWNER_ONLY_PERMISSIONS_FAILURE: Final[str] = (
+    "artifact persistence failed to enforce required owner-only permissions"
+)
+PERMISSION_SUPPORT_HINT: Final[str] = (
+    "verify runtime path and permission support/chmod limitations before retry"
+)
+PERMISSION_WRITABILITY_HINT: Final[str] = (
+    "verify runtime path writability and filesystem permission support/chmod limitations"
+)
+INDETERMINATE_OWNER_MESSAGE: Final[str] = (
+    "indeterminate_owner: lock exists but ownership verification is not definitive"
+)
+INDETERMINATE_OWNER_FIX: Final[str] = (
+    "verify owning process and clear lock only after confirmed stale ownership"
+)
+
+
+@dataclass
+class LockMetadata:
+    """Lockfile metadata persisted in `slot-{slot_id}.lock` files.
+
+    Attributes:
+        pid: Process ID of the owner.
+        port: Port the server is bound to.
+        started_at: Wall-clock process start timestamp from ``time.time()``
+                    (used for staleness checks with consistent timebase).
+
+    """
+
+    pid: int
+    port: int
+    started_at: float
+
+
+@dataclass
+class ProcessMetadata:
+    """Process ownership metadata for T001 security hardening.
+
+    Attributes:
+        pid: Process ID.
+        create_time: System creation time of the process.
+
+    """
+
+    pid: int
+    create_time: float
+
+
+@dataclass
+class ArtifactMetadata:
+    """FR-007: Artifact metadata for T012 persistence tracking.
+
+    Required top-level artifact fields are validated/persisted:
+    - timestamp, slot_scope, resolved_command, validation_results,
+      warnings, environment_redacted
+    """
+
+    artifact_type: str
+    created_at: float
+    slot_id: str | None = None
+    additional_fields: dict | None = None
+
+    def __post_init__(self) -> None:
+        if self.additional_fields is None:
+            self.additional_fields = {}
+
+
+class ValidationException(Exception):
+    """Exception wrapper for MultiValidationError to enable raising as exception.
+
+    Args:
+        multi_error: The underlying MultiValidationError containing detailed errors.
+
+    """
+
+    def __init__(self, multi_error: MultiValidationError) -> None:
+        self.multi_error = multi_error
+        # Include detailed error messages for easier debugging
+        if multi_error.errors:
+            details = "; ".join(e.why_blocked for e in multi_error.errors)
+            super().__init__(
+                f"Validation failed with {len(multi_error.errors)} error(s): {details}"
+            )
+        else:
+            super().__init__(f"Validation failed with {len(multi_error.errors)} error(s)")
+
+
+@dataclass
+class LaunchResult:
+    """Result of slot-based launch operation (T020).
+
+    Attributes:
+        status: One of 'success', 'degraded', or 'blocked'
+        launched: List of slot IDs that were successfully launched
+        warnings: List of warning messages for blocked slots (when status='degraded')
+        errors: MultiValidationError if all slots were blocked (when status='blocked')
+
+    """
+
+    status: str
+    launched: list[str] | None = None
+    warnings: list[str] | None = None
+    errors: MultiValidationError | None = None
+
+    @property
+    def launch_count(self) -> int:
+        """Return the number of successfully launched slots."""
+        return len(self.launched) if self.launched else 0
+
+    def is_blocked(self) -> bool:
+        """Check if launch was completely blocked."""
+        return self.status == "blocked"
+
+    def is_degraded(self) -> bool:
+        """Check if launch was partially successful (degraded)."""
+        return self.status == "degraded"
+
+    def is_success(self) -> bool:
+        """Check if launch was fully successful."""
+        return self.status == "success"
+
+
+class DryRunArtifactPayload(TypedDict):
+    """Dry-run artifact payload contract used by backend persistence."""
+
+    timestamp: str
+    slot_scope: list[str]
+    resolved_command: dict[str, Any]
+    validation_results: dict[str, Any]
+    warnings: list[Any]
+    environment_redacted: dict[str, Any]
+
+
+def _fsync_directory(dir_path: Path) -> None:
+    """fsync a directory to ensure metadata durability.
+
+    Args:
+        dir_path: Directory path to fsync
+
+    """
+    if not dir_path.exists():
+        return
+    try:
+        fd = os.open(str(dir_path), os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        # Directory fsync is best-effort
+        pass
+
+
+def _atomic_write_json(path: Path, data: dict, mode: int = FILE_MODE_OWNER_ONLY) -> None:
+    """Truly atomic JSON write with fsync.
+
+    Implements atomic write via:
+    1. Write to temp file in same directory
+    2. Flush and fsync temp file
+    3. os.replace() for atomic rename
+    4. fsync directory for metadata durability
+
+    Args:
+        path: Path to write to
+        data: Dictionary to serialize as JSON
+        mode: File permissions (default 0o600)
+
+    Raises:
+        OSError: If file creation, write, or sync fails
+        TypeError: If data is not JSON-serializable
+
+    """
+    # Serialize JSON first (fail before writing file)
+    json_text = json.dumps(data, indent=2)
+
+    # Create temp file in same directory for atomic rename
+    temp_path = path.with_suffix(".tmp")
+    try:
+        # Open with O_CREAT|O_TRUNC to set mode at creation time
+        fd = os.open(str(temp_path), os.O_CREAT | os.O_TRUNC | os.O_WRONLY, mode)
+        try:
+            # Write content
+            os.write(fd, json_text.encode("utf-8"))
+            # Flush to OS buffer
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+        # Atomic rename
+        os.replace(str(temp_path), str(path))
+
+        # fsync directory to ensure directory entry is durable
+        _fsync_directory(path.parent)
+    except OSError:
+        # Clean up temp file if it exists
+        with contextlib.suppress(OSError):
+            temp_path.unlink()
+        raise
+
+
+def resolve_runtime_dir() -> Path:
+    """FR-009: Resolve runtime directory for lockfiles and artifacts.
+
+    Fallback order:
+    1. LLM_RUNNER_RUNTIME_DIR environment variable
+    2. XDG_RUNTIME_DIR/llm-runner
+
+    Returns:
+        The writable runtime directory used for lockfiles and artifact persistence.
+
+    Raises:
+        ValidationException: If no usable runtime directory can be determined,
+                             with actionable FR-005 error details.
+
+    """
+    env_dir = os.environ.get("LLM_RUNNER_RUNTIME_DIR")
+    if env_dir:
+        candidate = Path(env_dir)
+        try:
+            candidate.mkdir(parents=True, exist_ok=True, mode=DIR_MODE_OWNER_ONLY)
+            if candidate.is_dir() and os.access(candidate, os.W_OK):
+                return candidate
+        except (OSError, RuntimeError):
+            pass
+
+    xdg_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg_dir:
+        candidate = Path(xdg_dir) / "llm-runner"
+        try:
+            candidate.mkdir(parents=True, exist_ok=True, mode=DIR_MODE_OWNER_ONLY)
+            if candidate.is_dir() and os.access(candidate, os.W_OK):
+                return candidate
+        except (OSError, RuntimeError):
+            pass
+
+    # Neither candidate usable - raise FR-005 actionable error
+    error_detail = ErrorDetail(
+        error_code=ErrorCode.RUNTIME_DIR_UNAVAILABLE,
+        failed_check="runtime_dir_resolution",
+        why_blocked="neither LLM_RUNNER_RUNTIME_DIR env var nor XDG_RUNTIME_DIR/llm-runner directory exists and directory creation required",
+        how_to_fix="set LLM_RUNNER_RUNTIME_DIR to writable path or create directory structure",
+    )
+    raise ValidationException(MultiValidationError(errors=[error_detail]))
+
+
+def _get_lock_path(runtime_dir: Path, slot_id: str) -> Path:
+    """Get lockfile path for a specific slot.
+
+    FR-009: Lock naming convention is `slot-{slot_id}.lock`.
+
+    Args:
+        runtime_dir: Runtime directory path.
+        slot_id: Slot identifier.
+
+    Returns:
+        The absolute Path to the lockfile.
+
+    """
+    return runtime_dir / f"slot-{slot_id}.lock"
+
+
+def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
+    """T011: Create lockfile with metadata and integrity checks.
+
+    Creates lockfile atomically using O_EXCL flag to prevent TOCTOU races.
+    Fails immediately if lockfile exists without any window for race conditions.
+
+    Args:
+        runtime_dir: Runtime directory path.
+        slot_id: Slot identifier.
+        pid: Process ID of the server.
+        port: Port number the server is bound to.
+
+    Returns:
+        Path to the created lockfile.
+
+    Raises:
+        FileExistsError: If a lockfile for the slot already exists.
+        ValidationException: If lockfile creation fails due to permissions or persistence issues.
+
+    """
+    lock_path = _get_lock_path(runtime_dir, slot_id)
+    metadata = LockMetadata(pid=pid, port=port, started_at=time.time())
+
+    # Serialize metadata
+    lock_data = {
+        "pid": metadata.pid,
+        "port": metadata.port,
+        "started_at": metadata.started_at,
+        "version": "1.0",
+    }
+
+    try:
+        # Atomic write with O_EXCL flag for exclusive creation (TOCTOU fix)
+        # O_EXCL ensures the call fails if file exists, with no race window
+        fd = os.open(
+            str(lock_path),
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            FILE_MODE_OWNER_ONLY,
+        )
+        try:
+            json_text = json.dumps(lock_data, indent=2)
+            os.write(fd, json_text.encode("utf-8"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+        # Verify permissions were set correctly
+        mode = stat.S_IMODE(os.stat(lock_path).st_mode)
+        if mode != FILE_MODE_OWNER_ONLY:
+            error_detail = ErrorDetail(
+                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+                failed_check=LOCKFILE_CHECK_NAME,
+                why_blocked="lockfile persistence failed to enforce required owner-only permissions",
+                how_to_fix=PERMISSION_WRITABILITY_HINT,
+            )
+            raise ValidationException(MultiValidationError(errors=[error_detail]))
+
+        return lock_path
+    except PermissionError as e:
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+            failed_check=LOCKFILE_CHECK_NAME,
+            why_blocked="lockfile creation failed due to permission denied",
+            how_to_fix="ensure runtime directory is writable and supports chmod",
+        )
+        raise ValidationException(MultiValidationError(errors=[error_detail])) from e
+    except FileExistsError as e:
+        # O_EXCL failed because file exists - this is expected for concurrent attempts
+        raise FileExistsError(f"Lockfile already exists: {lock_path}") from e
+    except OSError as e:
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+            failed_check=LOCKFILE_CHECK_NAME,
+            why_blocked=f"lockfile persistence failed: {e}",
+            how_to_fix="verify runtime path and filesystem permission support/chmod limitations before retry",
+        )
+        raise ValidationException(MultiValidationError(errors=[error_detail])) from e
+
+
+def read_lock(
+    runtime_dir: Path, slot_id: str, require_valid: bool = False
+) -> LockMetadata | ErrorDetail | None:
+    """T011: Read lockfile metadata for a slot.
+
+    FR-009: Malformed/unreadable lock content must be launch-blocking with
+    FR-005 actionable error (failed_check=lockfile_integrity) when require_valid=True.
+
+    Args:
+        runtime_dir: Runtime directory path
+        slot_id: Slot identifier
+        require_valid: If True, return ErrorDetail for malformed content (launch-blocking).
+                      If False, return None for malformed content (permissive).
+
+    Returns:
+        LockMetadata if lockfile exists and is valid.
+        ErrorDetail if lock exists but is malformed and require_valid=True.
+        None if no lock exists, or if lock is malformed and require_valid=False.
+
+    """
+    lock_path = _get_lock_path(runtime_dir, slot_id)
+
+    if not lock_path.exists():
+        return None
+
+    try:
+        lock_data = json.loads(lock_path.read_text())
+        return LockMetadata(
+            pid=lock_data["pid"],
+            port=lock_data["port"],
+            started_at=lock_data["started_at"],
+        )
+    except (json.JSONDecodeError, KeyError, OSError) as e:
+        if require_valid:
+            return ErrorDetail(
+                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+                failed_check=LOCKFILE_CHECK_NAME,
+                why_blocked=f"malformed_content: {e}",
+                how_to_fix="remove or repair the lockfile to proceed",
+            )
+        return None
+
+
+def update_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> None:
+    """T011: Update existing lockfile with new metadata.
+
+    Args:
+        runtime_dir: Runtime directory path
+        slot_id: Slot identifier
+        pid: Process ID of the server
+        port: Port number the server is bound to
+
+    Raises:
+        FileNotFoundError: If lockfile does not exist
+        ValidationException: If lockfile update fails
+
+    """
+    lock_path = _get_lock_path(runtime_dir, slot_id)
+
+    if not lock_path.exists():
+        raise FileNotFoundError(f"Lockfile not found: {lock_path}")
+
+    metadata = LockMetadata(pid=pid, port=port, started_at=time.time())
+
+    lock_data = {
+        "pid": metadata.pid,
+        "port": metadata.port,
+        "started_at": metadata.started_at,
+        "version": "1.0",
+    }
+
+    try:
+        # Atomic write with mode set at file creation (TOCTOU fix)
+        _atomic_write_json(lock_path, lock_data, FILE_MODE_OWNER_ONLY)
+    except OSError as e:
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+            failed_check=LOCKFILE_CHECK_NAME,
+            why_blocked=f"lockfile update failed: {e}",
+            how_to_fix="verify runtime path and permission support/chmod limitations before retry",
+        )
+        raise ValidationException(MultiValidationError(errors=[error_detail])) from e
+
+
+def release_lock(runtime_dir: Path, slot_id: str) -> None:
+    """T011: Release lockfile by deleting it.
+
+    Args:
+        runtime_dir: Runtime directory path.
+        slot_id: Slot identifier.
+
+    Returns:
+        None.
+
+    """
+    lock_path = _get_lock_path(runtime_dir, slot_id)
+
+    if lock_path.exists():
+        with contextlib.suppress(OSError):
+            lock_path.unlink()
+
+
+def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | None:
+    """T011: Check lockfile integrity and ownership.
+
+    Handles indeterminate owner states by mapping to LOCKFILE_INTEGRITY_FAILURE
+    with failed_check=lockfile_integrity.
+
+    FR-009: Malformed lock content is now launch-blocking with actionable error.
+
+    Args:
+        runtime_dir: Runtime directory path
+        slot_id: Slot identifier
+
+    Returns:
+        ErrorDetail if integrity check fails, None if valid
+
+    """
+    metadata_result = read_lock(runtime_dir, slot_id, require_valid=True)
+    if isinstance(metadata_result, ErrorDetail):
+        return metadata_result
+    if metadata_result is None:
+        return None
+    metadata: LockMetadata = metadata_result
+
+    # Use consistent wall-clock timebase (started_at uses time.time())
+    if time.time() - metadata.started_at > 300:
+        _clear_lockfile(runtime_dir, slot_id)
+        return None
+
+    if not psutil.pid_exists(metadata.pid):
+        _clear_lockfile(runtime_dir, slot_id)
+        return None
+
+    return _verify_lock_owner(runtime_dir, slot_id, metadata)
+
+
+def _clear_lockfile(runtime_dir: Path, slot_id: str) -> None:
+    lock_path = _get_lock_path(runtime_dir, slot_id)
+    with contextlib.suppress(OSError):
+        if lock_path.exists():
+            lock_path.unlink()
+
+
+def _build_indeterminate_owner_error(why_blocked: str = INDETERMINATE_OWNER_MESSAGE) -> ErrorDetail:
+    return ErrorDetail(
+        error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+        failed_check=LOCKFILE_CHECK_NAME,
+        why_blocked=why_blocked,
+        how_to_fix=INDETERMINATE_OWNER_FIX,
+    )
+
+
+def _verify_lock_owner(
+    runtime_dir: Path,
+    slot_id: str,
+    metadata: LockMetadata,
+) -> ErrorDetail | None:
+    try:
+        if not psutil.pid_exists(metadata.pid):
+            _clear_lockfile(runtime_dir, slot_id)
+            return None
+
+        try:
+            proc = psutil.Process(metadata.pid)
+        except psutil.NoSuchProcess:
+            _clear_lockfile(runtime_dir, slot_id)
+            return None
+
+        try:
+            connections = proc.connections()
+            port_matches = any(conn.laddr.port == metadata.port for conn in connections)
+
+            if not port_matches:
+                return _build_indeterminate_owner_error()
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            return _build_indeterminate_owner_error()
+    except (OSError, psutil.AccessDenied) as e:
+        return _build_indeterminate_owner_error(why_blocked=f"indeterminate_owner: {e}")
+
+    return None
+
+
+def write_artifact(runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload | dict) -> Path:
+    """T012: Write artifact with JSON serialization and 0700/0600 permission enforcement.
+
+    FR-007: Artifact directory is artifacts/. Filename format: artifact-{timestamp}.json
+    (no UUID suffix). Validates required top-level artifact fields:
+    - timestamp, slot_scope, resolved_command, validation_results, warnings,
+      environment_redacted
+
+    FR-005 actionable error mapping for ARTIFACT_PERSISTENCE_FAILURE with
+    failed_check=artifact_persistence.
+
+    Args:
+        runtime_dir: Runtime directory path
+        slot_id: Slot identifier for artifact naming
+        data: Artifact data to serialize (must contain required FR-007 fields)
+
+    Returns:
+        Path to the created artifact file
+
+    Raises:
+        ValidationException: If artifact persistence fails due to permission issues,
+                              missing required fields, or filesystem doesn't support
+                              required permissions
+
+    """
+    # FR-007: Validate required top-level artifact fields
+    _validate_artifact_fields(data)
+    artifact_dir = runtime_dir / "artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True, mode=DIR_MODE_OWNER_ONLY)
+
+    # Verify directory permissions
+    dir_mode = stat.S_IMODE(os.stat(artifact_dir).st_mode)
+    if dir_mode != DIR_MODE_OWNER_ONLY:
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
+            failed_check=ARTIFACT_CHECK_NAME,
+            why_blocked=OWNER_ONLY_PERMISSIONS_FAILURE,
+            how_to_fix=PERMISSION_WRITABILITY_HINT,
+        )
+        raise ValidationException(MultiValidationError(errors=[error_detail]))
+
+    # FR-007: Artifact filename format: artifact-{timestamp}.json (no UUID suffix)
+    timestamp_filename = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    artifact_filename = f"artifact-{timestamp_filename}.json"
+    artifact_path = artifact_dir / artifact_filename
+
+    # Handle collision for same-second writes - append numeric suffix if path exists
+    collision_counter = 1
+    while artifact_path.exists():
+        base_name = f"artifact-{timestamp_filename}"
+        artifact_filename = f"{base_name}-{collision_counter}.json"
+        artifact_path = artifact_dir / artifact_filename
+        collision_counter += 1
+
+    try:
+        # Redact sensitive environment variables in the data
+        # TypedDict is not recognized as dict by pyright, so we cast explicitly
+        redacted_data = _redact_sensitive_in_dict(cast(dict, data))
+
+        # Atomic write with mode set at file creation (TOCTOU fix)
+        _atomic_write_json(artifact_path, redacted_data, FILE_MODE_OWNER_ONLY)
+
+        # Verify file permissions
+        file_mode = stat.S_IMODE(os.stat(artifact_path).st_mode)
+        if file_mode != FILE_MODE_OWNER_ONLY:
+            error_detail = ErrorDetail(
+                error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
+                failed_check=ARTIFACT_CHECK_NAME,
+                why_blocked=OWNER_ONLY_PERMISSIONS_FAILURE,
+                how_to_fix=PERMISSION_WRITABILITY_HINT,
+            )
+            raise ValidationException(MultiValidationError(errors=[error_detail]))
+
+        return artifact_path
+    except PermissionError as e:
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
+            failed_check=ARTIFACT_CHECK_NAME,
+            why_blocked="artifact persistence failed due to permission denied",
+            how_to_fix=PERMISSION_SUPPORT_HINT,
+        )
+        raise ValidationException(MultiValidationError(errors=[error_detail])) from e
+    except OSError as e:
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
+            failed_check=ARTIFACT_CHECK_NAME,
+            why_blocked=f"artifact persistence failed: {e}",
+            how_to_fix=PERMISSION_SUPPORT_HINT,
+        )
+        raise ValidationException(MultiValidationError(errors=[error_detail])) from e
+    except TypeError as e:
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
+            failed_check=ARTIFACT_CHECK_NAME,
+            why_blocked=f"artifact serialization failed: {e}",
+            how_to_fix="ensure artifact data is JSON-serializable",
+        )
+        raise ValidationException(MultiValidationError(errors=[error_detail])) from e
+
+
+def _validate_artifact_fields(data: DryRunArtifactPayload | dict) -> None:
+    """FR-007: Validate required top-level artifact fields.
+
+    Required fields:
+    - timestamp: ISO timestamp or Unix epoch
+    - slot_scope: Slot identifier or scope
+    - resolved_command: Full command as list or string
+    - validation_results: Validation status dict
+    - warnings: List of warning strings
+    - environment_redacted: Dict of redacted environment variables
+
+    Args:
+        data: Artifact data to validate
+
+    Raises:
+        ValidationException: If required fields are missing
+
+    """
+    required_fields = [
+        "timestamp",
+        "slot_scope",
+        "resolved_command",
+        "validation_results",
+        "warnings",
+        "environment_redacted",
+    ]
+
+    missing_fields = [field for field in required_fields if field not in data]
+
+    if missing_fields:
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
+            failed_check="artifact_validation",
+            why_blocked=f"artifact missing required fields: {', '.join(missing_fields)}",
+            how_to_fix="ensure artifact data contains all required FR-007 fields",
+        )
+        raise ValidationException(MultiValidationError(errors=[error_detail]))
+
+    slot_scope = data.get("slot_scope")
+    if not isinstance(slot_scope, list) or not all(isinstance(item, str) for item in slot_scope):
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
+            failed_check="artifact_validation",
+            why_blocked="slot_scope must be list[str]",
+            how_to_fix="provide slot_scope as a list of slot IDs",
+        )
+        raise ValidationException(MultiValidationError(errors=[error_detail]))
+
+    resolved_command = data.get("resolved_command")
+    if not isinstance(resolved_command, dict):
+        error_detail = ErrorDetail(
+            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
+            failed_check="artifact_validation",
+            why_blocked="resolved_command must be an object mapping",
+            how_to_fix="provide resolved_command as a mapping keyed by slot ID",
+        )
+        raise ValidationException(MultiValidationError(errors=[error_detail]))
+
+
+def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
+    """Recursively redact sensitive environment variable values in a nested dict.
+
+    Matches keys containing KEY|TOKEN|SECRET|PASSWORD|AUTH (case-insensitive).
+
+    Args:
+        data: Dictionary to redact
+        env_key_prefix: Current key prefix for nested traversal
+
+    Returns:
+        Dictionary with sensitive values redacted
+
+    """
+    result = {}
+    for key, value in data.items():
+        full_key = f"{env_key_prefix}_{key}" if env_key_prefix else key
+        if isinstance(value, dict):
+            result[key] = _redact_sensitive_in_dict(value, full_key)
+        elif isinstance(value, str) and _SENSITIVE_KEY_PATTERN.search(key):
+            result[key] = REDACTED_VALUE
+        else:
+            result[key] = value
+    return result
+
+
+class ServerManager:
+    """Manages server processes with lifecycle audit trail."""
+
+    def __init__(self) -> None:
+        self.pids: list[int] = []
+        self.shutting_down: bool = False
+        self.servers: list[subprocess.Popen] = []
+        self.pid_metadata: dict[int, float] = {}
+        # In-memory lifecycle audit trail for start/cleanup/kill/skip decisions
+        self._lifecycle_audit: list[dict] = []
+        # Current-attempt acknowledgement cache for risky operations
+        self._risky_acknowledged_cache: dict[str, set[str]] = {}
+        self._current_launch_attempt_id: str | None = None
+
+    def begin_launch_attempt(self, launch_attempt_id: str | None = None) -> str:
+        """Create/select launch attempt and initialize per-attempt ack cache."""
+        attempt_id = launch_attempt_id or uuid.uuid4().hex
+        self._current_launch_attempt_id = attempt_id
+        self._risky_acknowledged_cache.setdefault(attempt_id, set())
+        return attempt_id
+
+    def issue_ack_token(self, launch_attempt_id: str | None = None) -> str:
+        """Issue deterministic ack token bound to a launch attempt."""
+        attempt_id = launch_attempt_id or self.begin_launch_attempt()
+        return f"ack:{attempt_id}"
+
+    def validate_ack_token(self, launch_attempt_id: str, ack_token: str | None) -> bool:
+        """Validate that ack_token is bound to launch_attempt_id."""
+        if ack_token is None:
+            return False
+        return ack_token == f"ack:{launch_attempt_id}"
+
+    def acknowledge_risk(
+        self,
+        slot_id: str,
+        risk_type: str,
+        launch_attempt_id: str | None = None,
+        ack_token: str | None = None,
+    ) -> None:
+        """Mark a risky operation as acknowledged for a specific slot.
+
+        Args:
+            slot_id: Slot identifier
+            risk_type: The type of risk (e.g., 'privileged_port')
+            launch_attempt_id: Launch attempt identifier (current attempt if omitted)
+            ack_token: Optional token that must match the attempt when provided
+
+        """
+        attempt_id = launch_attempt_id or self._current_launch_attempt_id
+        if attempt_id is None:
+            attempt_id = self.begin_launch_attempt()
+
+        if ack_token is not None and not self.validate_ack_token(attempt_id, ack_token):
+            raise ValueError("ack_token does not match launch_attempt_id")
+
+        self._risky_acknowledged_cache.setdefault(attempt_id, set()).add(f"{slot_id}:{risk_type}")
+
+    def is_risk_acknowledged(
+        self,
+        slot_id: str,
+        risk_type: str,
+        launch_attempt_id: str | None = None,
+    ) -> bool:
+        """Check if a risky operation has been acknowledged for a specific slot.
+
+        Args:
+            slot_id: Slot identifier
+            risk_type: The type of risk (e.g., 'privileged_port')
+            launch_attempt_id: Launch attempt identifier (current attempt if omitted)
+
+        """
+        attempt_id = launch_attempt_id or self._current_launch_attempt_id
+        if attempt_id is None:
+            return False
+        return f"{slot_id}:{risk_type}" in self._risky_acknowledged_cache.get(attempt_id, set())
+
+    def clear_risk_acknowledgements(self) -> None:
+        """Clear all in-memory risk acknowledgement state."""
+        self._risky_acknowledged_cache.clear()
+        self._current_launch_attempt_id = None
+
+    def cleanup_servers(self) -> None:
+        """Clean up all server processes with ownership verification and audit trail.
+
+        Handles shutdown sequence:
+        1. Mark as shutting down to prevent new starts.
+        2. Clear acknowledgement cache.
+        3. Verify ownership of each running PID.
+        4. Send SIGTERM to owned processes.
+        5. Wait and check for stubborn processes.
+        6. Send SIGKILL to stubborn processes.
+        """
+        if self.shutting_down:
+            self._record_lifecycle_event("skip", details="already_shutting_down")
+            return
+        self.shutting_down = True
+        # Clear acknowledgement cache on exit paths
+        self.clear_risk_acknowledgements()
+
+        self._record_lifecycle_event("cleanup", details="initiated")
+
+        # Filter PIDs by ownership verification
+        running_pids = []
+        for pid in self.pids:
+            if self._verify_process_ownership(pid):
+                running_pids.append(pid)
+            else:
+                self._record_lifecycle_event("skip", pid=pid, details="ownership_failed")
+
+        if not running_pids:
+            self._record_lifecycle_event("cleanup", details="no_running_pids")
+            return
+
+        print(
+            f"warning: Sending TERM to {len(running_pids)} server(s)...",
+            file=sys.stderr,
+        )
+
+        for pid in running_pids:
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGTERM)
+                self._record_lifecycle_event("kill", pid=pid, details="SIGTERM")
+
+        time.sleep(1)
+
+        # Re-verify ownership after TERM (stubborn processes that still exist)
+        stubborn_pids = []
+        for pid in running_pids:
+            if self._verify_process_ownership(pid):
+                stubborn_pids.append(pid)
+            else:
+                self._record_lifecycle_event("skip", pid=pid, details="graceful_exit")
+
+        if stubborn_pids:
+            print(
+                f"warning: Killing {len(stubborn_pids)} stubborn server(s)...",
+                file=sys.stderr,
+            )
+            for pid in stubborn_pids:
+                with contextlib.suppress(OSError):
+                    os.kill(pid, signal.SIGKILL)
+                    self._record_lifecycle_event("kill", pid=pid, details="SIGKILL")
+
+        for proc in self.servers:
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            except Exception:
+                pass
+
+    def on_interrupt(self, _signum: int, _frame: FrameType | None) -> None:
+        """Handle SIGINT signal.
+
+        Args:
+            signum: The signal number (SIGINT).
+            frame: The current stack frame.
+
+        """
+        self.cleanup_servers()
+        sys.exit(130)
+
+    def on_terminate(self, _signum: int, _frame: FrameType | None) -> None:
+        """Handle SIGTERM signal.
+
+        Args:
+            signum: The signal number (SIGTERM).
+            frame: The current stack frame.
+
+        """
+        self.cleanup_servers()
+        sys.exit(143)
+
+    def _stream_pipe(
+        self,
+        pipe: TextIO | None,
+        server_name: str,
+        is_stderr: bool = False,
+        log_handler: Callable[[str], None] | None = None,
+    ) -> None:
+        """Stream pipe output with timestamp and color, optionally to a log handler.
+
+        Args:
+            pipe: Pipe reader (stdout or stderr)
+            server_name: Server alias for log formatting
+            is_stderr: True if this is stderr output
+            log_handler: Optional callable(str) to append to instead of printing
+
+        """
+        if pipe is None:
+            return
+        try:
+            for line in iter(pipe.readline, ""):
+                formatted = self._format_output(server_name, line.rstrip("\n"))
+                if log_handler is not None:
+                    log_handler(formatted)
+                else:
+                    if is_stderr:
+                        print(formatted, file=sys.stderr, flush=True)
+                    else:
+                        print(formatted, flush=True)
+        finally:
+            pipe.close()
+
+    def _format_output(self, server_name: str, line: str) -> str:
+        """Format output line with timestamp."""
+        timestamp = time.strftime("%H:%M:%S")
+        return f"[{timestamp}][{server_name}] {line}"
+
+    def _verify_process_ownership(self, pid: int) -> bool:
+        """Verify process ownership using creation time metadata and UID.
+
+        Defense-in-depth verification:
+        1. If metadata is available, verify creation time matches (0.1s tolerance)
+        2. When metadata path is used, also verify owner UID matches current process
+        3. Falls back to existence check if metadata unavailable or UID check fails
+
+        Args:
+            pid: Process ID to verify
+
+        Returns:
+            True if ownership is verified, False otherwise
+
+        """
+        # If metadata is available, use creation time verification
+        if pid in self.pid_metadata:
+            try:
+                proc = psutil.Process(pid)
+                current_create_time = proc.create_time()
+                recorded_create_time = self.pid_metadata[pid]
+
+                # Allow 0.1 second tolerance for floating-point precision
+                if abs(current_create_time - recorded_create_time) > 0.1:
+                    return False
+
+                # Defense-in-depth: verify owner UID matches current process
+                try:
+                    current_uid = os.getuid()
+                    # Check if the process has a uid() method (may not be available in all environments)
+                    if hasattr(proc, "uids"):
+                        proc_uid = proc.uids().real
+                        if proc_uid != current_uid:
+                            return False
+                except (psutil.AccessDenied, AttributeError, TypeError):
+                    # UID check not available or denied - still accept if time matches
+                    pass
+
+                return True
+            except psutil.NoSuchProcess:
+                return False
+            except psutil.AccessDenied:
+                # If we can't read the process, fall back to existence check
+                pass
+
+        # Fallback: just check if process exists
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    def _record_lifecycle_event(
+        self, event: str, pid: int | None = None, details: str | None = None
+    ) -> None:
+        """Record a lifecycle event in the audit trail.
+
+        Args:
+            event: Event type (start, cleanup, kill, skip, etc.)
+            pid: Process ID involved in the event
+            details: Optional additional details
+
+        """
+        self._lifecycle_audit.append(
+            {
+                "event": event,
+                "pid": pid,
+                "details": details,
+                "timestamp": time.time(),
+            }
+        )
+
+    def start_server_background(
+        self,
+        server_name: str,
+        cmd: list[str],
+        log_handler: Callable[[str], None] | None = None,
+    ) -> subprocess.Popen:
+        """Start a server in background with output redirection.
+
+        Args:
+            server_name: Server alias for log formatting
+            cmd: Command to execute
+            log_handler: Optional callable(str) to append to instead of printing
+
+        Returns:
+            subprocess.Popen process object
+
+        """
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1
+        )
+
+        self.pids.append(proc.pid)
+        self.servers.append(proc)
+        self._record_lifecycle_event("start", pid=proc.pid, details=f"server={server_name}")
+
+        # Capture process creation time for ownership verification
+        try:
+            proc_obj = psutil.Process(proc.pid)
+            create_time = proc_obj.create_time()
+            self.pid_metadata[proc.pid] = create_time
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            # Metadata unavailable - will fall back to existence check later
+            pass
+
+        threading.Thread(
+            target=self._stream_pipe,
+            args=(proc.stdout, server_name, False, log_handler),
+            daemon=True,
+        ).start()
+        threading.Thread(
+            target=self._stream_pipe,
+            args=(proc.stderr, server_name, True, log_handler),
+            daemon=True,
+        ).start()
+
+        return proc
+
+    def run_server_foreground(self, server_name: str, cmd: list[str]) -> int:
+        """Start a server in the foreground and wait for it to finish.
+
+        Args:
+            server_name: Server alias for logging.
+            cmd: Command to execute.
+
+        Returns:
+            The exit code of the process.
+
+        """
+        proc = self.start_server_background(server_name, cmd)
+        return proc.wait()
+
+    def wait_for_any(self) -> int:
+        """Wait for any server to exit.
+
+        Returns:
+            The exit code of the first server that exits.
+
+        """
+        while True:
+            for proc in self.servers:
+                code = proc.poll()
+                if code is not None:
+                    # Clear acknowledgement cache when process lifecycle exits.
+                    self.clear_risk_acknowledgements()
+                    return code
+            time.sleep(0.2)
+
+    def start_servers(
+        self,
+        configs: list["ServerConfig"],
+        log_handlers: dict[str, Callable[[str], None]] | None = None,
+    ) -> list[subprocess.Popen]:
+        """Start multiple servers and return their processes.
+
+        Args:
+            configs: List of ServerConfig objects
+            log_handlers: Optional dict mapping server aliases to callables.
+                        If provided, logs are written via these handlers instead of stdout/stderr.
+
+        Returns:
+            List of subprocess.Popen process objects
+
+        """
+        from .server import build_server_cmd
+
+        log_handlers = log_handlers or {}
+        processes = []
+        for cfg in configs:
+            cmd = build_server_cmd(cfg)
+            handler = log_handlers.get(cfg.alias) if log_handlers else None
+            proc = self.start_server_background(cfg.alias, cmd, handler)
+            processes.append(proc)
+        return processes
+
+    def launch_all_slots(
+        self, slots: list[ModelSlot], runtime_dir: Path | None = None
+    ) -> LaunchResult:
+        """Launch model slots with lock collision detection (T017-T019).
+
+        Preflight/simulation mode: checks lockfile availability without spawning
+        real server processes or creating persistent lock entries. This allows
+        deterministic status behavior (blocked/degraded/success) for testing and
+        dry-run scenarios without leaving stale locks on disk.
+
+        Processes slots in deterministic order, collecting warnings for blocked slots
+        and errors when all slots are blocked.
+
+        Args:
+            slots: List of ModelSlot configurations to launch
+            runtime_dir: Runtime directory for lockfiles (uses resolve_runtime_dir() if None)
+
+        Returns:
+            LaunchResult with status ('success', 'degraded', or 'blocked'),
+            launched slot IDs, warnings, and/or errors
+
+        """
+        runtime_dir = runtime_dir or resolve_runtime_dir()
+
+        launched: list[str] = []
+        warnings: list[str] = []
+        errors: list[ErrorDetail] = []
+
+        # Process slots in deterministic order
+        for slot in slots:
+            # Check for blocking locks
+            block = check_lockfile_integrity(runtime_dir, slot.slot_id)
+
+            if block is not None:
+                # Slot is blocked
+                error_msg = f"slot {slot.slot_id}: {block.error_code.value} - {block.why_blocked}"
+                warnings.append(error_msg)
+                errors.append(block)
+            else:
+                # Slot is available - simulate successful launch without creating lock
+                # In real usage, this is where create_lock() and subprocess spawning
+                # would occur. For preflight/simulation mode, we just record success
+                # without persisting state to disk.
+                launched.append(slot.slot_id)
+
+        # Determine final status
+        if not launched:
+            # No slots could be launched - full block
+            if errors:
+                multi_error = MultiValidationError(errors=errors)
+                return LaunchResult(status="blocked", launched=[], errors=multi_error)
+            else:
+                # Should not happen, but handle gracefully
+                return LaunchResult(status="blocked", launched=[], errors=None)
+        elif len(launched) < len(slots):
+            # Some slots launched, some blocked - degraded
+            return LaunchResult(status="degraded", launched=launched, warnings=warnings)
+        else:
+            # All slots launched successfully
+            return LaunchResult(status="success", launched=launched)

@@ -118,7 +118,7 @@ server_cfg = create_qwen35_cfg(
     port=8081,
     device="",  # Auto-detect CUDA
     n_gpu_layers="all",  # Use GPU for all layers
-    server_bin="/home/kmk/src/llama.cpp/build_cuda/bin/llama-server",
+    server_bin="llama-server",
 )
 ```
 

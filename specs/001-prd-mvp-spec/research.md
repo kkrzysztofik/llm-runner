@@ -1,0 +1,96 @@
+# Phase 0 Research — PRD M1 Slot-First Launch & Dry-Run
+
+## 1) Runtime directory resolution behavior
+
+- **Decision**: Resolve runtime directory in this order: `LLM_RUNNER_RUNTIME_DIR` (if set and usable), then `$XDG_RUNTIME_DIR/llm-runner`; if neither is usable, return FR-005 launch-blocking error.
+- **Rationale**: Matches clarified requirement and preserves deterministic filesystem behavior for lockfiles/artifacts.
+- **Usable definition**: A runtime directory is "usable" if it exists, is writable by the current user, and has appropriate permissions (directory: `0700` or higher, file: `0600` or higher).
+- **Alternatives considered**:
+  - Fail immediately when `LLM_RUNNER_RUNTIME_DIR` is set but unusable (rejected: conflicts with clarified fallback order).
+  - Silent fallback to temp dir (rejected: non-deterministic and weak observability).
+
+## 2) FR-019 gendoc.py design (M0 documentation generation)
+
+- **Decision**: Use simple `<!-- readme:section-name -->` marker pairs in PRD.md; gendoc.py extracts and injects into README at `<!-- BEGIN readme:section-name -->` / `<!-- END readme:section-name -->` markers.
+- **Rationale**: Simple, ad-hoc tool for release-time documentation sync; not part of MVP runtime.
+- **Alternatives considered**:
+  - Full Sphinx documentation generation (rejected: overkill for MVP, adds build complexity).
+  - Auto-generated README from code (rejected: PRD markers provide explicit control over what's documented).
+- **Milestone**: M0 (separate from M1 implementation).
+
+## 3) Profile guidance precedence layer (FR-006)
+
+- **Decision**: Represent profile guidance as a structured preset layer that is merged after slot/workstation config and before explicit user overrides.
+- **Rationale**: Preserves the required precedence chain: defaults < slot/workstation < profile guidance < explicit override.
+- **Alternatives considered**:
+  - Treat profile guidance as part of slot config only (rejected: removes explicit precedence layer).
+  - Treat profile guidance as top-level override (rejected: would conflict with explicit user override priority).
+
+## 4) Canonical dry-run `openai_flag_bundle` shape
+
+- **Decision**: Use an object/map of OpenAI-compatibility flags and effective values derived from resolved launch intent.
+- **Rationale**: Machine-parseable contract supports deterministic outputs and parity across CLI/TUI presentations.
+- **Alternatives considered**:
+  - Flat joined string (rejected: not deterministic enough for contract tests).
+  - Unstructured free-text notes (rejected: cannot reliably validate).
+
+## 5) Canonical dry-run `vllm_eligibility` row
+
+- **Decision**: Use structured fields: backend, eligible (bool), failed_check/error_code (when blocked), why_blocked, how_to_fix.
+- **Rationale**: Aligns FR-003 matrix-row requirement with FR-011 canonical remediation fields.
+- **Alternatives considered**:
+  - Boolean-only eligibility (rejected: lacks actionable context).
+  - Human-only text row (rejected: weak machine validation).
+
+## 6) Slot ID normalization and validation
+
+- **Decision**: Enforce normalized, filesystem-safe `slot_id` values (lowercase canonical form, strict allowed characters) with duplicate detection at validation time.
+- **Canonical regex**: `^[a-z0-9_-]+$` — lowercase alphanumeric, hyphen, and underscore only; no spaces or special characters.
+- **Rationale**: Lockfile and artifact naming depend on predictable slot keys; strict normalization prevents collisions and ambiguity.
+- **Alternatives considered**:
+  - Accept arbitrary strings (rejected: unsafe/ambiguous filenames).
+  - Numeric-only slots (rejected: poor operator ergonomics and future extensibility).
+
+## 7) FR-007 redaction boundaries
+
+- **Decision**: Redact values for any environment key containing `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `AUTH` (case-insensitive); keep filesystem paths visible.
+- **Rationale**: Matches clarified redaction policy and balances security with operator troubleshooting needs.
+- **Alternatives considered**:
+  - Redact all environment values (rejected: too opaque for debugging).
+  - Redact only exact key names (rejected: misses many sensitive variants).
+
+## 8) Deterministic dry-run verification strategy (SC-003/SC-004)
+
+- **Decision**: Validate canonical schema completeness and deterministic equality via normalized machine-parseable output comparisons in pytest.
+- **Rationale**: Contract-first comparisons reduce presentation noise and directly enforce determinism for identical inputs.
+- **Alternatives considered**:
+  - Raw text snapshot-only testing (rejected: brittle to formatting differences).
+  - Manual-only verification (rejected: non-repeatable in CI).
+
+## 9) SC-002 denominator for actionable-error threshold
+
+- **Decision**: Use all FR-005 launch-blocking validation outcomes produced in launch and dry-run acceptance tests as the denominator.
+- **Rationale**: Directly matches clarified success-criteria scope and avoids inflated/ambiguous measurement populations.
+- **Alternatives considered**:
+  - Use number of failing test cases only (rejected: undercounts per-run multi-error outcomes).
+  - Use all validation checks including non-blocking warnings (rejected: violates SC-002 intent).
+
+## 10) Performance budget verification approach
+
+- **Decision**: Use deterministic benchmark-style test harnesses (mocked hardware/process dependencies) and reproducible percentile calculation for dry-run/lock validation.
+- **Rationale**: Keeps CI reliable while still measuring against FR-003/FR-009 p95 targets.
+- **Alternatives considered**:
+  - Real hardware timing in CI (rejected: non-deterministic and unavailable in standard runners).
+  - No automated timing checks (rejected: cannot demonstrate SC-006 evidence).
+
+## 11) FR-017 hardware fingerprint computation
+
+- **Decision**: Use `lspci` output hash for GPU devices combined with SYCL device enumeration (`sycl-ls`) to create deterministic machine identifier.
+- **Rationale**: Provides stable fingerprint across reboots while detecting hardware changes.
+- **Machine identifier fallback sequence**:
+  1. Primary: SHA256 hash of `lspci -vvv` GPU section + `sycl-ls` output
+  2. Fallback 1: If `lspci` unavailable, use `sycl-ls` only
+  3. Fallback 2: If both unavailable, use MAC address + hostname (least stable, documented as weak)
+- **Alternatives considered**:
+  - PCI device IDs only (rejected: doesn't capture full GPU topology).
+  - MAC address + hostname (rejected: changes with network config, not hardware; used only as last resort fallback).

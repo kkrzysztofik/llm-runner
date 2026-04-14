@@ -1,10 +1,12 @@
 # Module Split Plan
 
 ## Current State
+
 - `run_models_tui.py`: TUI-based server management (Rich UI, GPU monitoring)
 - `run_opencode_models.py`: CLI-based server management (ANSI colors, background/foreground modes)
 
 ## Shared Code Identified
+
 1. **Config dataclass** - Server defaults (paths, ports, model paths, parameters)
 2. **ServerConfig dataclass** - Individual server configuration
 3. **build_server_cmd()** - Command builder for llama-server
@@ -14,11 +16,13 @@
 ## Unique Code by File
 
 ### run_models_tui.py
+
 - **TUIApp class** - Main Rich-based TUI with dynamic 2-column layout
 - **LogBuffer class** - Thread-safe log buffer with autoscroll
 - **GPUStats class** - GPU monitoring via nvtop/psutil
 
 ### run_opencode_models.py
+
 - **ServerManager class** - Process management (start, stop, cleanup)
 - **dry_run() function** - Preview commands without executing
 - **CLI argument parsing** - Positional arguments (mode, ports)
@@ -26,7 +30,7 @@
 
 ## Proposed Package Structure
 
-```
+```python
 llm-runner/
 ├── llama_manager/              # Core package
 │   ├── __init__.py            # Package exports
@@ -63,6 +67,7 @@ llm-runner/
 ## Module Responsibilities
 
 ### llama_manager/
+
 - **config.py**: Configuration constants and dataclasses
 - **server.py**: Server command building and validation
 - **config_builder.py**: ServerConfig creation helpers
@@ -72,10 +77,12 @@ llm-runner/
 - **process_manager.py**: Process lifecycle management
 
 ### llama_cli/
+
 - **tui_app.py**: TUI application logic
 - **server_runner.py**: CLI execution logic (dry-run, background/foreground)
 
 ### Entry Points
+
 - Keep original filenames for backwards compatibility
 - Import and delegate to respective modules
 - Maintain original CLI interfaces

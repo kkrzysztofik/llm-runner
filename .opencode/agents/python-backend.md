@@ -71,11 +71,17 @@ from .config import Config, ServerConfig
 ### Config Dataclass
 
 ```python
+from dataclasses import dataclass
+
 @dataclass
 class Config:
     """Server configuration defaults"""
-    llama_cpp_root: str = "/home/kmk/src/llama.cpp"
-    llama_server_bin_intel: str = f"{llama_cpp_root}/build/bin/llama-server"
+    llama_cpp_root: str = "src/llama.cpp"  # Relative to project root
+    llama_server_bin_intel: str | None = None  # Computed in __post_init__
+    
+    def __post_init__(self) -> None:
+        if self.llama_server_bin_intel is None:
+            self.llama_server_bin_intel = f"{self.llama_cpp_root}/build/bin/llama-server"
     # ... more defaults
 ```
 
