@@ -80,7 +80,7 @@ class TestStaleLock:
         """Stale lock (age > 300s) should be auto-cleared.
 
         T017: Lock age check - treat lock as stale when
-        time.monotonic() - metadata.started_at > 300 seconds.
+        time.time() - metadata.started_at > 300 seconds (wall-clock timebase).
         """
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
@@ -96,8 +96,8 @@ class TestStaleLock:
         lock_path = runtime_dir / "slot-slot1.lock"
         lock_data = json.loads(lock_path.read_text())
 
-        # Set started_at to 301 seconds ago
-        lock_data["started_at"] = time.monotonic() - 301
+        # Set started_at to 301 seconds ago (using wall-clock time)
+        lock_data["started_at"] = time.time() - 301
         lock_path.write_text(json.dumps(lock_data))
 
         # Verify lock exists initially
@@ -130,7 +130,7 @@ class TestStaleLock:
 
         lock_path = runtime_dir / "slot-slot1.lock"
         lock_data = json.loads(lock_path.read_text())
-        lock_data["started_at"] = time.monotonic() - 301
+        lock_data["started_at"] = time.time() - 301
         lock_path.write_text(json.dumps(lock_data))
 
         # Mock psutil to simulate process exists with matching port

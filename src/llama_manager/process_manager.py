@@ -57,7 +57,8 @@ class LockMetadata:
     Attributes:
         pid: Process ID of the owner.
         port: Port the server is bound to.
-        started_at: Wall-clock process start timestamp from ``time.time()``.
+        started_at: Wall-clock process start timestamp from ``time.time()``
+                    (used for staleness checks with consistent timebase).
 
     """
 
@@ -484,7 +485,8 @@ def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | N
         return None
     metadata: LockMetadata = metadata_result
 
-    if time.monotonic() - metadata.started_at > 300:
+    # Use consistent wall-clock timebase (started_at uses time.time())
+    if time.time() - metadata.started_at > 300:
         _clear_lockfile(runtime_dir, slot_id)
         return None
 

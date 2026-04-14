@@ -15,9 +15,11 @@
 
 **Coverage Assessment:**
 
-- **Functional Requirements:** 3/19 fully covered (16%), 3/19 partially covered (16%), 13/19 missing (68%)
+- **Functional Requirements:** 3/19 fully covered (FR-001, FR-009, FR-011*), 3/19 partially covered (FR-003, FR-011, FR-016), 13/19 missing (68%)
 - **Non-Functional Requirements:** 0/7 fully covered, 4/7 partially covered (57%), 3/7 missing (43%)
-- **Acceptance Criteria:** 1/20 fully covered (5%), 3/20 partially covered (15%), 16/20 missing (80%)
+- **Acceptance Criteria:** 1/20 fully covered (AC-001), 3/20 partially covered (AC-005, AC-009, AC-016*), 16/20 missing (80%)
+
+**Note:** *FR-011 in spec-001 covers backend eligibility (vllm guard) but not full CLI scripting (exit codes, --json). AC-016* is partially covered via FR-008 risk acknowledgement but not full VRAM heuristics.
 
 **Current Branch Status (`001-prd-mvp-spec`):**
 - Implements **M1 Milestone only**: Slot-first orchestration, deterministic override precedence, basic validation, dry-run mode, lockfile handling, risk acknowledgement

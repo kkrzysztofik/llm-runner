@@ -19,7 +19,7 @@
   - `bind_address: str`
   - `port_base: int | None`
   - `environment: dict[str, str]`
-  - `openai_defaults: dict[str, str | bool | int>`
+  - `openai_defaults: dict[str, str | int | bool]`
 - **Validation rules**:
   - Backend value may include future backends, but M1 launch eligibility enforced later
   - Bind/port must pass network safety checks
