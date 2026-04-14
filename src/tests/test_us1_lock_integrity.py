@@ -8,12 +8,15 @@ Tests T015: Stale/live/indeterminate lock ownership tests:
 These tests target real check_lockfile_integrity() API which is already implemented.
 """
 
+import json
+import time
 from unittest.mock import Mock, patch
 
 import psutil
 
 from llama_manager.config import ErrorCode
 from llama_manager.process_manager import (
+    LockMetadata,
     check_lockfile_integrity,
     create_lock,
     read_lock,
@@ -125,9 +128,6 @@ class TestStaleLock:
         create_lock(runtime_dir, "slot1", pid=valid_pid, port=8080)
 
         # Manually update the lock's started_at to be > 300 seconds old
-        import json
-        import time
-
         lock_path = runtime_dir / "slot-slot1.lock"
         lock_data = json.loads(lock_path.read_text())
         lock_data["started_at"] = time.time() - 301
@@ -185,8 +185,12 @@ class TestLiveLock:
             result = check_lockfile_integrity(runtime_dir, "slot1")
             assert result is None
 
-    def test_live_lock_different_port_should_fail_mock(self, tmp_path) -> None:
-        """Test setup: when mocking psutil, ensure we can simulate port mismatch."""
+    def test_live_lock_different_port_returns_indeterminate_error(self, tmp_path) -> None:
+        """Live lock with different port should return LOCKFILE_INTEGRITY_FAILURE.
+
+        When mocking psutil, this test verifies we can simulate port mismatch
+        and get the expected indeterminate owner error.
+        """
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
 
@@ -344,7 +348,8 @@ class TestLockIntegrityEdgeCases:
 
         meta = read_lock(runtime_dir, "slot1")
         assert meta is not None
-        assert meta.port == 0  # type: ignore[union-attr]
+        assert isinstance(meta, LockMetadata)
+        assert meta.port == 0
 
     def test_lock_with_high_port(self, tmp_path) -> None:
         """Lock with maximum valid port should work."""
@@ -355,7 +360,8 @@ class TestLockIntegrityEdgeCases:
 
         meta = read_lock(runtime_dir, "slot1")
         assert meta is not None
-        assert meta.port == 65535  # type: ignore[union-attr]
+        assert isinstance(meta, LockMetadata)
+        assert meta.port == 65535
 
     def test_lock_metadata_persistence(self, tmp_path) -> None:
         """Lock metadata should persist across read operations."""
@@ -370,10 +376,12 @@ class TestLockIntegrityEdgeCases:
 
         assert meta1 is not None
         assert meta2 is not None
-        assert meta1.pid == meta2.pid == fake_pid  # type: ignore[union-attr]
-        assert meta1.port == meta2.port == 8080  # type: ignore[union-attr]
+        assert isinstance(meta1, LockMetadata)
+        assert isinstance(meta2, LockMetadata)
+        assert meta1.pid == meta2.pid == fake_pid
+        assert meta1.port == meta2.port == 8080
         # started_at should be approximately the same
-        assert abs(meta1.started_at - meta2.started_at) < 0.001  # type: ignore[union-attr]
+        assert abs(meta1.started_at - meta2.started_at) < 0.001
 
     def test_check_lockfile_integrity_with_no_psutil(self, tmp_path) -> None:
         """check_lockfile_integrity should handle missing psutil gracefully."""

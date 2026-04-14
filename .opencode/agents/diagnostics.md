@@ -12,7 +12,7 @@ You own operational diagnostics and health commands for llm-runner.
 ## Primary Ownership
 
 - `doctor`, `setup`, `smoke` command behavior and UX
-- Exit-code contracts and error attribution
+- Exit-code contracts and error attribution (see AGENTS.md → Common Pitfalls)
 - Lockfile and collision diagnostics
 - Hardware acknowledgement and VRAM risk warning flows
 - Failure report generation contracts

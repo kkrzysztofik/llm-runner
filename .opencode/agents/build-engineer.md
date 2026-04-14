@@ -27,7 +27,7 @@ You own llama.cpp build and artifact workflows for llm-runner.
 ### 2. Toolchain Validation
 
 - Detect missing build dependencies with actionable hints
-- Coordinate with `setup` contract for safe environment preparation (no destructive cleanup)
+- Coordinate with `setup` for safe environment preparation (no destructive cleanup)
 - Avoid destructive cleanup of successful build artifacts
 
 ### 3. Provenance

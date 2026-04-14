@@ -12,6 +12,11 @@ from typing import Any
 import psutil
 
 
+def _format_metric(value: Any) -> str:
+    """Normalize collector metrics to string values."""
+    return "N/A" if value is None else str(value)
+
+
 def collect_nvtop_stats(device_index: int = 0) -> dict[str, Any]:
     """Collect GPU stats using nvtop subprocess.
 
@@ -34,20 +39,20 @@ def collect_nvtop_stats(device_index: int = 0) -> dict[str, Any]:
         if 0 <= device_index < len(all_gpus):
             gpu = all_gpus[device_index]
             return {
-                "device": gpu.get("device_name", "Unknown"),
-                "gpu_util": gpu.get("gpu_util", "N/A"),
-                "mem_util": gpu.get("mem_util", "N/A"),
-                "temp": gpu.get("temp", "N/A"),
-                "power": gpu.get("power_draw", "N/A"),
-                "cpu": f"{psutil.cpu_percent():.0f}%",
-                "mem": f"{psutil.virtual_memory().percent:.0f}%",
+                "device": _format_metric(gpu.get("device_name", "Unknown")),
+                "gpu_util": _format_metric(gpu.get("gpu_util", "N/A")),
+                "mem_util": _format_metric(gpu.get("mem_util", "N/A")),
+                "temp": _format_metric(gpu.get("temp", "N/A")),
+                "power": _format_metric(gpu.get("power_draw", "N/A")),
+                "cpu": _format_metric(f"{psutil.cpu_percent():.0f}%"),
+                "mem": _format_metric(f"{psutil.virtual_memory().percent:.0f}%"),
             }
         print(
             f"warning: device_index {device_index} out of range for {len(all_gpus)} GPU(s)",
             file=sys.stderr,
         )
-    except subprocess.TimeoutExpired:
-        pass
+    except subprocess.TimeoutExpired as e:
+        print(f"warning: nvtop timeout: {e}", file=sys.stderr)
     except json.JSONDecodeError as e:
         print(f"warning: nvtop JSON parse error: {e}", file=sys.stderr)
     except RuntimeError as e:
@@ -57,11 +62,11 @@ def collect_nvtop_stats(device_index: int = 0) -> dict[str, Any]:
 
     # Fallback to psutil
     return {
-        "device": f"GPU {device_index}",
-        "gpu_util": "N/A",
-        "mem_util": "N/A",
-        "temp": "N/A",
-        "power": "N/A",
-        "cpu": f"{psutil.cpu_percent():.0f}%",
-        "mem": f"{psutil.virtual_memory().percent:.0f}%",
+        "device": _format_metric(f"GPU {device_index}"),
+        "gpu_util": _format_metric("N/A"),
+        "mem_util": _format_metric("N/A"),
+        "temp": _format_metric("N/A"),
+        "power": _format_metric("N/A"),
+        "cpu": _format_metric(f"{psutil.cpu_percent():.0f}%"),
+        "mem": _format_metric(f"{psutil.virtual_memory().percent:.0f}%"),
     }

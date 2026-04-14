@@ -15,6 +15,7 @@ import pytest
 
 from llama_manager.config import ModelSlot
 from llama_manager.process_manager import (
+    LockMetadata,
     check_lockfile_integrity,
     create_lock,
     read_lock,
@@ -50,13 +51,15 @@ class TestDualSlotSuccess:
         # Verify lock content
         meta1 = read_lock(runtime_dir, slot1.slot_id)
         assert meta1 is not None
-        assert meta1.pid == 12345  # type: ignore[union-attr]
-        assert meta1.port == slot1.port  # type: ignore[union-attr]
+        assert isinstance(meta1, LockMetadata)
+        assert meta1.pid == 12345
+        assert meta1.port == slot1.port
 
         meta2 = read_lock(runtime_dir, slot2.slot_id)
         assert meta2 is not None
-        assert meta2.pid == 12346  # type: ignore[union-attr]
-        assert meta2.port == slot2.port  # type: ignore[union-attr]
+        assert isinstance(meta2, LockMetadata)
+        assert meta2.pid == 12346
+        assert meta2.port == slot2.port
 
     def test_lock_metadata_timestamps(self, tmp_path) -> None:
         """Lock metadata should have valid started_at timestamps."""
@@ -67,10 +70,11 @@ class TestDualSlotSuccess:
 
         meta = read_lock(runtime_dir, "slot1")
         assert meta is not None
+        assert isinstance(meta, LockMetadata)
         # started_at should be a positive timestamp close to now
-        assert meta.started_at > 0  # type: ignore[union-attr]
+        assert meta.started_at > 0
         # Should be within last 60 seconds using wall-clock time.time()
-        assert time.time() - meta.started_at < 60  # type: ignore[union-attr]
+        assert time.time() - meta.started_at < 60
 
     def test_lockfile_permissions(self, tmp_path) -> None:
         """Lockfiles should have 0600 permissions."""

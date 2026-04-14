@@ -36,7 +36,7 @@
 uv run llm-runner dry-run both
 ```
 
-**Meaning:** Prints resolved launch commands for both slots (Intel B580 + NVIDIA 3090) without starting servers.
+**Meaning:** Prints resolved launch commands for both slots (Intel B580 + NVIDIA 3090) without starting servers. `both` launches all configured slots sequentially.
 
 Expected outcomes:
 
@@ -89,7 +89,7 @@ Check runtime outputs under resolved runtime directory:
 
 - Lockfiles at `slot-{slot_id}.lock` with owner metadata (`pid`, `port`, `started_at`)
 - JSON artifacts at `artifacts/artifact-{timestamp}.json` (one per dry-run/launch attempt; timestamp format: `YYYYMMDDTHHMMSSZ`)
-- Permissions: files `0600`, directories `0700`
+- Permissions: files `0600`, directories `0700` (see AGENTS.md → Common Pitfalls for verification commands)
 
 Runtime verification steps:
 
@@ -101,7 +101,7 @@ Runtime verification steps:
    in the `artifacts/` subdirectory.
 4. Verify permissions:
 - **Linux**: `stat -c "%a" <file>` shows `600` for files, `700` for directories
-    - **macOS/BSD**: `stat -f "%Lp" <file>` shows `600` for files, `700` for directories
+- **macOS/BSD**: `stat -f "%Lp" <file>` shows `600` for files, `700` for directories
 
 ## 5) Run required quality gates
 
