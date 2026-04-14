@@ -8,6 +8,8 @@ and configuration display.
 import signal
 import sys
 import time
+from collections.abc import Callable
+from typing import Any
 
 from rich.console import ConsoleDimensions, Group
 from rich.layout import Layout
@@ -16,6 +18,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from llama_cli.colors import Colors
+from llama_cli.gpu_collectors import collect_nvtop_stats
 from llama_manager import (
     Config,
     GPUStats,
@@ -60,7 +63,8 @@ class TUIApp:
         for cfg in configs:
             self.log_buffers[cfg.alias] = LogBuffer(redact_sensitive=True)
         for idx in gpu_indices:
-            self.gpu_stats.append(GPUStats(idx))
+            # Pass a bound collector callable with the device index
+            self.gpu_stats.append(GPUStats(idx, collector=self._make_collector(idx)))
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -68,6 +72,14 @@ class TUIApp:
     def _signal_handler(self, signum: int, frame: object | None) -> None:
         """Handle shutdown signals by stopping the TUI loop."""
         self.stop()
+
+    def _make_collector(self, device_index: int) -> Callable[[], dict[str, Any]]:
+        """Create a GPU collector bound to a specific device index."""
+
+        def collector() -> dict[str, Any]:
+            return collect_nvtop_stats(device_index)
+
+        return collector
 
     def on_resize(self, event: ConsoleDimensions) -> None:
         self.width = event.width

@@ -330,7 +330,11 @@ class TestDegradedVsFullBlockComparison:
         assert len(result.warnings) > 0
 
     def test_full_block_has_errors_not_warnings(self, tmp_path) -> None:
-        """Full block should have errors, not warnings."""
+        """Full block should have errors, not warnings.
+
+        Mock psutil to ensure fake PIDs are treated as running during
+        check_lockfile_integrity, making the test deterministic.
+        """
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
 
@@ -338,10 +342,30 @@ class TestDegradedVsFullBlockComparison:
         create_lock(runtime_dir, "slot2", pid=99998, port=8081)
 
         errors: list[ErrorDetail] = []
-        for slot_id in ["slot1", "slot2"]:
-            block = check_lockfile_integrity(runtime_dir, slot_id)
-            if block:
-                errors.append(block)
+
+        # Mock psutil to simulate live processes with indeterminate state
+        with patch("psutil.pid_exists") as mock_exists, patch("psutil.Process") as mock_process:
+            mock_exists.return_value = True
+
+            mock_proc = Mock()
+            mock_conn = Mock()
+            mock_conn.laddr.port = 8081  # Different port for slot1
+            mock_proc.connections.return_value = [mock_conn]
+            mock_process.return_value = mock_proc
+
+            # Check integrity for slot1
+            block1 = check_lockfile_integrity(runtime_dir, "slot1")
+            if block1:
+                errors.append(block1)
+
+            # Reset mock for slot2 with different port
+            mock_conn.laddr.port = 8080  # Different port for slot2
+            mock_proc.connections.return_value = [mock_conn]
+
+            # Check integrity for slot2
+            block2 = check_lockfile_integrity(runtime_dir, "slot2")
+            if block2:
+                errors.append(block2)
 
         multi_error = MultiValidationError(errors=errors)
         result = MockLaunchResult(status="blocked", errors=multi_error)
@@ -349,6 +373,14 @@ class TestDegradedVsFullBlockComparison:
         assert result.status == "blocked"
         assert result.errors is not None
         assert len(result.warnings) == 0
+        # Full block should have errors populated
+        assert len(result.errors.errors) == 2
+        # Each error should have proper fields
+        for error in result.errors.errors:
+            assert error.error_code is not None
+            assert error.failed_check is not None
+            assert error.why_blocked is not None
+            assert error.how_to_fix is not None
 
     def test_error_count_matches_blocked_slots(self, tmp_path) -> None:
         """MultiValidationError error_count should match number of blocked slots."""

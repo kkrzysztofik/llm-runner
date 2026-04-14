@@ -297,6 +297,9 @@ def _get_lock_path(runtime_dir: Path, slot_id: str) -> Path:
 def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
     """T011: Create lockfile with metadata and integrity checks.
 
+    Creates lockfile atomically using O_EXCL flag to prevent TOCTOU races.
+    Fails immediately if lockfile exists without any window for race conditions.
+
     Args:
         runtime_dir: Runtime directory path.
         slot_id: Slot identifier.
@@ -312,10 +315,6 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
 
     """
     lock_path = _get_lock_path(runtime_dir, slot_id)
-
-    if lock_path.exists():
-        raise FileExistsError(f"Lockfile already exists: {lock_path}")
-
     metadata = LockMetadata(pid=pid, port=port, started_at=time.time())
 
     # Serialize metadata
@@ -327,8 +326,19 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
     }
 
     try:
-        # Atomic write with mode set at file creation (TOCTOU fix)
-        _atomic_write_json(lock_path, lock_data, FILE_MODE_OWNER_ONLY)
+        # Atomic write with O_EXCL flag for exclusive creation (TOCTOU fix)
+        # O_EXCL ensures the call fails if file exists, with no race window
+        fd = os.open(
+            str(lock_path),
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            FILE_MODE_OWNER_ONLY,
+        )
+        try:
+            json_text = json.dumps(lock_data, indent=2)
+            os.write(fd, json_text.encode("utf-8"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
 
         # Verify permissions were set correctly
         mode = stat.S_IMODE(os.stat(lock_path).st_mode)
@@ -350,6 +360,9 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
             how_to_fix="ensure runtime directory is writable and supports chmod",
         )
         raise ValidationException(MultiValidationError(errors=[error_detail])) from e
+    except FileExistsError as e:
+        # O_EXCL failed because file exists - this is expected for concurrent attempts
+        raise FileExistsError(f"Lockfile already exists: {lock_path}") from e
     except OSError as e:
         error_detail = ErrorDetail(
             error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,

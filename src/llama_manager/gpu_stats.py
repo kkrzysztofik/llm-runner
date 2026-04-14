@@ -1,74 +1,64 @@
 # GPU statistics collection via nvtop/psutil
 
-import json
-import subprocess
-import sys
 import time
+from collections.abc import Callable
 from typing import Any
 
 import psutil
 
 
-class GPUStats:
-    """Collect GPU stats from nvtop and psutil"""
+def _psutil_only_collector(device_index: int) -> dict[str, Any]:
+    """Pure psutil-based GPU collector with no subprocess usage.
 
-    def __init__(self, device_index: int = 0):
+    This is the default collector when no custom collector is injected.
+    It provides basic CPU/memory stats without GPU-specific metrics.
+    """
+    return {
+        "device": f"GPU {device_index}",
+        "gpu_util": "N/A",
+        "mem_util": "N/A",
+        "temp": "N/A",
+        "power": "N/A",
+        "cpu": f"{psutil.cpu_percent():.0f}%",
+        "mem": f"{psutil.virtual_memory().percent:.0f}%",
+    }
+
+
+class GPUStats:
+    """Collect GPU stats from nvtop and psutil.
+
+    The GPU collector is injected via the collector parameter to allow
+    testing without actual subprocess calls. The default collector is
+    provided by llama_cli.gpu_collectors.collect_nvtop_stats.
+
+    Args:
+        device_index: Index of the GPU device to query.
+        collector: Optional callable that returns GPU stats dict.
+                   If None, uses a psutil-only fallback (no subprocess).
+    """
+
+    def __init__(
+        self,
+        device_index: int = 0,
+        collector: Callable[[], dict[str, Any]] | None = None,
+    ):
         self.device_index = device_index
         self.stats: dict[str, Any] = {}
         self.last_update = 0
         self.update_interval = 0.5
+        # Injectable collector callable (defaults to psutil-only)
+        self._collector: Callable[[], dict[str, Any]] = (
+            collector if collector is not None else lambda: _psutil_only_collector(device_index)
+        )
 
     def update(self) -> None:
-        """Update GPU stats from nvtop or psutil"""
+        """Update GPU stats from nvtop or psutil."""
         current_time = time.time()
         if current_time - self.last_update < self.update_interval:
             return
 
-        self.stats = self._get_nvtop_stats()
+        self.stats = self._collector()
         self.last_update = current_time
-
-    def _get_nvtop_stats(self) -> dict[str, Any]:
-        """Get stats from nvtop JSON output"""
-        try:
-            result = subprocess.run(
-                ["nvtop", "-s"],
-                capture_output=True,
-                text=True,
-                timeout=1,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"nvtop exited with code {result.returncode}: {result.stderr}")
-            all_gpus = json.loads(result.stdout)
-            if self.device_index < len(all_gpus):
-                gpu = all_gpus[self.device_index]
-                return {
-                    "device": gpu.get("device_name", "Unknown"),
-                    "gpu_util": gpu.get("gpu_util", "N/A"),
-                    "mem_util": gpu.get("mem_util", "N/A"),
-                    "temp": gpu.get("temp", "N/A"),
-                    "power": gpu.get("power_draw", "N/A"),
-                    "cpu": f"{psutil.cpu_percent():.0f}%",
-                    "mem": f"{psutil.virtual_memory().percent:.0f}%",
-                }
-        except subprocess.TimeoutExpired:
-            pass
-        except json.JSONDecodeError as e:
-            print(f"warning: nvtop JSON parse error: {e}", file=sys.stderr)
-        except RuntimeError as e:
-            print(f"warning: nvtop error: {e}", file=sys.stderr)
-        except (ValueError, OSError, subprocess.CalledProcessError) as e:
-            print(f"warning: nvtop error: {e}", file=sys.stderr)
-
-        # Fallback to psutil
-        return {
-            "device": f"GPU {self.device_index}",
-            "gpu_util": "N/A",
-            "mem_util": "N/A",
-            "temp": "N/A",
-            "power": "N/A",
-            "cpu": f"{psutil.cpu_percent():.0f}%",
-            "mem": f"{psutil.virtual_memory().percent:.0f}%",
-        }
 
     def get_stats_snapshot(self) -> dict[str, Any]:
         """Get current GPU stats as pure data."""

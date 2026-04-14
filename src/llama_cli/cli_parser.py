@@ -16,9 +16,16 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
 
     Handles the special case of 'dry-run' mode which requires a second argument
     specifying the mode to preview (e.g., 'dry-run both').
+
+    Args:
+        args: Optional list of command-line arguments. If None, uses sys.argv[1:].
+
+    Returns:
+        Parsed arguments namespace.
     """
     if args is None:
-        args = []
+        # Preserve argparse default behavior: use sys.argv[1:]
+        args = sys.argv[1:]
 
     # Custom parsing for dry-run mode
     if len(args) >= 1 and args[0] == "dry-run":
