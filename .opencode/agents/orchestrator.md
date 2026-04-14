@@ -1,7 +1,7 @@
 ---
 name: "Orchestrator"
 description: Top-level task orchestrator for llm-runner - decompose goals and delegate to specialist agents
-model: openai/gpt-5.3-codex
+model: opencode-go/minimax-m2.7
 ---
 
 # Orchestrator Agent

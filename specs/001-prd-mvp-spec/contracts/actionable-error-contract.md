@@ -92,7 +92,7 @@ Defines the launch/dry-run blocking error payload shared by CLI and TUI semantic
 - `failed_check` MUST be `vllm_launch_eligibility` (lowercase with underscores)
 - `why_blocked` MUST include "not launch-eligible in PRD M1" verbatim
 - `how_to_fix` MUST provide explicit correction to `llama_cpp`
-- `docs_ref` is optional but recommended pointing to `specs/001-prd-mvp-spec/spec.md#fr-011`
+- `docs_ref` is optional but recommended pointing to `specs/001-prd-mvp-spec/spec.md` or `https://github.com/...#fr-011`
 
 ## Canonical Error Code Reference (M1)
 
@@ -112,6 +112,6 @@ Defines the launch/dry-run blocking error payload shared by CLI and TUI semantic
 - **error_code**: MUST be uppercase with underscores, no spaces or special characters.
 - **failed_check**: MUST be lowercase with underscores, no spaces or special characters.
 - **why_blocked/how_to_fix**: Plain text only; no markdown, no inline code ticks, no HTML.
-- **docs_ref**: If present, MUST be a relative path (e.g., `specs/001-prd-mvp-spec/spec.md`) or valid URL (e.g., `https://github.com/...#section`); no URL fragments for relative paths.
+- **docs_ref**: If present, MUST be a relative path (e.g., `specs/001-prd-mvp-spec/spec.md`) or valid URL with fragment (e.g., `https://github.com/...#section`). Relative paths MUST NOT include fragments.
 - **Field ordering**: JSON object keys in error objects MUST be serialized in alphabetical order.
 - **Error ordering**: When multiple errors exist, order by `failed_check` ascending, then by `error_code` ascending.
