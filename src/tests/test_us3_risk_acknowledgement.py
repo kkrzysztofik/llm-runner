@@ -3,9 +3,13 @@ from unittest.mock import MagicMock
 import pytest
 
 # Detect risky operations is optional for M1 - skip tests if not implemented
-detect_risky_operations = pytest.importorskip(
-    "llama_manager.server", "detect_risky_operations not implemented in M1"
-).detect_risky_operations
+try:
+    server_module = pytest.importorskip(
+        "llama_manager.server", reason="detect_risky_operations not implemented in M1"
+    )
+    detect_risky_operations = server_module.detect_risky_operations
+except AttributeError:
+    pytest.skip("detect_risky_operations attribute not found in llama_manager.server")
 
 
 def test_privileged_port_requires_acknowledgement() -> None:

@@ -118,6 +118,28 @@ For each new sub-task delegation, start a **fresh subagent session**.
 - Use one new subagent invocation per sub-task so context is isolated and auditable.
 - Only resume an existing `task_id` when the user explicitly requests continuation of that exact in-progress sub-task.
 
+#### Migration for Existing Integrations
+
+If your integration currently reuses `task_id` across sub-tasks:
+
+1. **Migrate to fresh sessions**: Start each sub-task with a new `task_id`
+2. **User-initiated continuation**: Only reuse `task_id` when user explicitly asks to continue an in-progress sub-task
+3. **Update integration points**:
+   - Session management: Create new session per sub-task
+   - State persistence: Store `task_id` in state if you need to track across sub-tasks
+   - Logging: Ensure logs include `task_id` for traceability
+
+**Examples**:
+
+```bash
+# Start fresh session for each sub-task (recommended)
+opencode agent Backend "Refactor config parser"
+opencode agent TUI "Add progress bar display"
+
+# Resume same session for continuation (user-initiated)
+opencode agent Backend "Continue refactoring config parser" --task-id abc123
+```
+
 ### 5. Resolve Conflicts
 
 If agents conflict (e.g., Architect planned `llama_manager/` change but Backend
