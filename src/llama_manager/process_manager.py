@@ -17,11 +17,6 @@ from pathlib import Path
 from types import FrameType
 from typing import Any, Final, TextIO, TypedDict, cast
 
-try:
-    import fcntl
-except ImportError:
-    fcntl = None  # type: ignore[assignment]
-
 import psutil
 
 from .config import ErrorCode, ErrorDetail, ModelSlot, MultiValidationError, ServerConfig
@@ -601,6 +596,14 @@ def write_artifact(runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload
     timestamp_filename = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     artifact_filename = f"artifact-{timestamp_filename}.json"
     artifact_path = artifact_dir / artifact_filename
+
+    # Handle collision for same-second writes - append numeric suffix if path exists
+    collision_counter = 1
+    while artifact_path.exists():
+        base_name = f"artifact-{timestamp_filename}"
+        artifact_filename = f"{base_name}-{collision_counter}.json"
+        artifact_path = artifact_dir / artifact_filename
+        collision_counter += 1
 
     try:
         # Redact sensitive environment variables in the data

@@ -11,6 +11,8 @@ import os
 import time
 from unittest.mock import Mock, patch
 
+import pytest
+
 from llama_manager.config import ModelSlot
 from llama_manager.process_manager import (
     check_lockfile_integrity,
@@ -67,8 +69,8 @@ class TestDualSlotSuccess:
         assert meta is not None
         # started_at should be a positive timestamp close to now
         assert meta.started_at > 0  # type: ignore[union-attr]
-        # Should be within last 60 seconds
-        assert time.monotonic() - meta.started_at < 60  # type: ignore[union-attr]
+        # Should be within last 60 seconds using wall-clock time.time()
+        assert time.time() - meta.started_at < 60  # type: ignore[union-attr]
 
     def test_lockfile_permissions(self, tmp_path) -> None:
         """Lockfiles should have 0600 permissions."""
@@ -122,16 +124,9 @@ class TestLockCollision:
         # First slot acquires lock
         create_lock(runtime_dir, "slot1", pid=12345, port=8080)
 
-        # Second slot tries to use same port - should fail
-        # Note: The current implementation raises FileExistsError when lockfile exists
-        # The test verifies the collision behavior exists
-        try:
+        # Second slot tries to use same slot_id - should fail with FileExistsError
+        with pytest.raises(FileExistsError, match="already exists"):
             create_lock(runtime_dir, "slot1", pid=12346, port=8080)
-            # If we get here, the lock was created (unexpected)
-            raise AssertionError("Expected FileExistsError for duplicate lock")
-        except FileExistsError:
-            # Expected behavior - lock already exists
-            pass
 
     def test_lock_conflict_with_same_slot_id(self, tmp_path) -> None:
         """Creating a lock for the same slot_id should fail with FileExistsError."""
@@ -140,12 +135,11 @@ class TestLockCollision:
 
         create_lock(runtime_dir, "slot1", pid=12345, port=8080)
 
-        # Try to create another lock for the same slot
-        try:
+        # Try to create another lock for the same slot - should raise FileExistsError
+        with pytest.raises(FileExistsError) as exc_info:
             create_lock(runtime_dir, "slot1", pid=12346, port=8081)
-            raise AssertionError("Expected FileExistsError for duplicate lock")
-        except FileExistsError as e:
-            assert "already exists" in str(e)
+
+        assert "already exists" in str(exc_info.value)
 
     def test_different_ports_no_collision(self, tmp_path) -> None:
         """Different slots with different ports should not collide."""

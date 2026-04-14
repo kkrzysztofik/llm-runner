@@ -458,8 +458,10 @@ class TestFR007ArtifactPersistence:
         assert "artifacts" in str(artifact_path)
         assert artifact_path.parent.name == "artifacts"
 
-    def test_artifact_is_overwritable_on_subsequent_writes(self, tmp_path: Path) -> None:
-        """FR-007: artifacts should be overwriteable (filename based on timestamp only)."""
+    def test_artifact_collision_safe_same_second_writes(self, tmp_path: Path) -> None:
+        """FR-007: artifacts should be collision-safe - same-second writes get unique filenames."""
+        import re
+
         data1 = {
             "timestamp": "2026-04-12T00:00:00Z",
             "slot_scope": ["slot1"],
@@ -469,7 +471,7 @@ class TestFR007ArtifactPersistence:
             "environment_redacted": {},
         }
         data2 = {
-            "timestamp": "2026-04-12T00:00:00Z",  # Same timestamp
+            "timestamp": "2026-04-12T00:00:00Z",
             "slot_scope": ["slot2"],
             "resolved_command": {"cmd": ["echo", "test2"]},
             "validation_results": {"passed": True, "checks": []},
@@ -478,10 +480,28 @@ class TestFR007ArtifactPersistence:
         }
         # First write
         artifact_path1 = write_artifact(tmp_path, "slot1", data1)
-        # Second write (same timestamp - same filename)
+        # Second write (immediately after - same second timestamp)
         artifact_path2 = write_artifact(tmp_path, "slot2", data2)
-        # Should overwrite (same filename)
-        assert artifact_path1 == artifact_path2
+        # Should NOT overwrite - should have unique filenames with collision suffix
+        assert artifact_path1 != artifact_path2
+        # Both files should exist
+        assert artifact_path1.exists()
+        assert artifact_path2.exists()
+        # First file should have base pattern (artifact-YYYYMMDDTHHMMSSZ.json)
+        base_pattern = re.compile(r"^artifact-\d{4}\d{2}\d{2}T\d{2}\d{2}\d{2}Z\.json$")
+        # Second file should have collision suffix (artifact-YYYYMMDDTHHMMSSZ-1.json)
+        collision_pattern = re.compile(r"^artifact-\d{4}\d{2}\d{2}T\d{2}\d{2}\d{2}Z-1\.json$")
+        assert base_pattern.match(artifact_path1.name), (
+            f"Expected base pattern, got: {artifact_path1.name}"
+        )
+        assert collision_pattern.match(artifact_path2.name), (
+            f"Expected collision pattern, got: {artifact_path2.name}"
+        )
+        # Both files should have correct content
+        content1 = artifact_path1.read_text()
+        content2 = artifact_path2.read_text()
+        assert "test1" in content1
+        assert "test2" in content2
 
     def test_artifact_writes_to_correct_slot_directory(self, tmp_path: Path) -> None:
         """FR-007: artifacts should be written to runtime directory artifacts/."""

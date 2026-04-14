@@ -48,7 +48,7 @@ class LogBuffer:
     - Consumers should not access self.lines directly without holding the lock
     """
 
-    def __init__(self, max_lines: int = 50, redact_sensitive: bool = True):
+    def __init__(self, max_lines: int = 50, redact_sensitive: bool = True) -> None:
         self.lines: deque[str] = deque(maxlen=max_lines)
         self.lock = threading.Lock()
         self.running = True

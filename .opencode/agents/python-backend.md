@@ -72,13 +72,12 @@ from .config import Config, ServerConfig
 
 ```python
 from dataclasses import dataclass, field
-from typing import Optional
 
 @dataclass
 class Config:
     """Server configuration defaults"""
     llama_cpp_root: str = "src/llama.cpp"
-    llama_server_bin_intel: Optional[str] = None  # Computed in __post_init__
+    llama_server_bin_intel: str | None = None  # Computed in __post_init__
     
     def __post_init__(self) -> None:
         if self.llama_server_bin_intel is None:
