@@ -99,7 +99,9 @@ Runtime verification steps:
    - `Artifact written: <runtime-dir>/artifacts/artifact-YYYYMMDDTHHMMSSZ.json`
 3. Verify the file exists and naming matches `artifact-{timestamp}.json`
    in the `artifacts/` subdirectory.
-4. Verify permissions: `stat -c "%a" <file>` should show `600` for files, `700` for directories.
+4. Verify permissions:
+   - **Linux**: `stat -c "%a" <file>` should show `600` for files, `700` for directories
+   - **macOS/BSD**: `stat -f "%Lp" <file>` should show `600` for files, `700` for directories
 
 ## 5) Run required quality gates
 

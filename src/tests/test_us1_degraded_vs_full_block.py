@@ -111,17 +111,21 @@ class TestDegradedOneSlot:
         assert len(result.warnings) == 2
 
     def test_degraded_launch_all_available(self, tmp_path) -> None:
-        """Degraded launch should succeed when all slots are available."""
+        """Launch should succeed when all slots are available.
+
+        When no locks exist, all slots should launch successfully without
+        degraded status or warnings.
+        """
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
 
-        # No locks exist
+        # No locks exist - all slots available
         launched = ["slot1", "slot2", "slot3"]
         warnings: list[str] = []
 
-        result = MockLaunchResult(status="degraded", launched=launched, warnings=warnings)
+        result = MockLaunchResult(status="success", launched=launched, warnings=warnings)
 
-        assert result.status == "degraded"
+        assert result.status == "success"
         assert result.launch_count == 3
         assert len(result.warnings) == 0
 
@@ -221,7 +225,11 @@ class TestFullBlock:
         assert result.errors.error_count == 2
 
     def test_full_block_error_details(self, tmp_path) -> None:
-        """Full block errors should contain proper error details."""
+        """Full block errors should contain proper error details.
+
+        Mock psutil to ensure fake PIDs are treated as running with indeterminate
+        port state, making errors deterministic.
+        """
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
 
@@ -230,14 +238,29 @@ class TestFullBlock:
         create_lock(runtime_dir, "slot2", pid=99998, port=8081)
 
         errors: list[ErrorDetail] = []
-        for slot_id in ["slot1", "slot2"]:
-            block = check_lockfile_integrity(runtime_dir, slot_id)
-            if block:
-                errors.append(block)
+
+        # Mock psutil to simulate live processes with indeterminate port state
+        with patch("psutil.pid_exists") as mock_exists, patch("psutil.Process") as mock_process:
+            mock_exists.return_value = True
+
+            mock_proc = Mock()
+            mock_conn = Mock()
+            mock_conn.laddr.port = 9999  # Different port triggers indeterminate owner
+            mock_proc.connections.return_value = [mock_conn]
+            mock_process.return_value = mock_proc
+
+            # Check both slots deterministically
+            for slot_id in ["slot1", "slot2"]:
+                block = check_lockfile_integrity(runtime_dir, slot_id)
+                if block:
+                    errors.append(block)
+
+        # Should have exactly 2 errors (one per slot)
+        assert len(errors) == 2
 
         multi_error = MultiValidationError(errors=errors)
 
-        # Each error should have proper fields
+        # Each error should have proper fields populated
         for error in multi_error.errors:
             assert error.error_code is not None
             assert error.failed_check is not None
@@ -245,40 +268,35 @@ class TestFullBlock:
             assert error.how_to_fix is not None
 
     def test_full_block_mixed_error_types(self, tmp_path) -> None:
-        """Full block can have mixed error types (stale + indeterminate).
+        """Full block should have deterministic indeterminate errors.
 
-        Mock psutil to ensure fake PIDs are treated as running during
-        check_lockfile_integrity, making the test deterministic.
+        Mock psutil to ensure fake PIDs are treated as running with indeterminate
+        port state, making both slots return indeterminate errors deterministically.
         """
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
 
-        # slot1: stale lock (will be auto-cleared)
-        # slot2: indeterminate lock (will block)
+        # Create locks for both slots
         create_lock(runtime_dir, "slot1", pid=99999, port=8080)
         create_lock(runtime_dir, "slot2", pid=99998, port=8081)
 
         errors: list[ErrorDetail] = []
 
-        # Mock psutil to simulate live processes with indeterminate state
+        # Mock psutil to simulate live processes with indeterminate port state
         with patch("psutil.pid_exists") as mock_exists, patch("psutil.Process") as mock_process:
             mock_exists.return_value = True
 
             mock_proc = Mock()
             mock_conn = Mock()
-            mock_conn.laddr.port = 9999  # Different port for indeterminate state
+            mock_conn.laddr.port = 9999  # Different port triggers indeterminate owner
             mock_proc.connections.return_value = [mock_conn]
             mock_process.return_value = mock_proc
 
-            # slot1: stale lock - mocked as indeterminate
-            block1 = check_lockfile_integrity(runtime_dir, "slot1")
-            if block1:
-                errors.append(block1)
-
-            # slot2: indeterminate lock
-            block2 = check_lockfile_integrity(runtime_dir, "slot2")
-            if block2:
-                errors.append(block2)
+            # Check both slots deterministically
+            for slot_id in ["slot1", "slot2"]:
+                block = check_lockfile_integrity(runtime_dir, slot_id)
+                if block:
+                    errors.append(block)
 
         # Both slots should have indeterminate blocks when psutil is mocked
         assert len(errors) == 2
@@ -307,7 +325,11 @@ class TestDegradedVsFullBlockComparison:
         assert result.launch_count > 0
 
     def test_full_block_has_no_launched_slots(self, tmp_path) -> None:
-        """Full block status should have zero launched count."""
+        """Full block status should have zero launched count.
+
+        Mock psutil to ensure fake PIDs are treated as running with indeterminate
+        port state, making errors deterministic.
+        """
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
 
@@ -316,10 +338,22 @@ class TestDegradedVsFullBlockComparison:
         create_lock(runtime_dir, "slot2", pid=99998, port=8081)
 
         errors: list[ErrorDetail] = []
-        for slot_id in ["slot1", "slot2"]:
-            block = check_lockfile_integrity(runtime_dir, slot_id)
-            if block:
-                errors.append(block)
+
+        # Mock psutil to simulate live processes with indeterminate port state
+        with patch("psutil.pid_exists") as mock_exists, patch("psutil.Process") as mock_process:
+            mock_exists.return_value = True
+
+            mock_proc = Mock()
+            mock_conn = Mock()
+            mock_conn.laddr.port = 9999  # Different port triggers indeterminate owner
+            mock_proc.connections.return_value = [mock_conn]
+            mock_process.return_value = mock_proc
+
+            # Check both slots deterministically
+            for slot_id in ["slot1", "slot2"]:
+                block = check_lockfile_integrity(runtime_dir, slot_id)
+                if block:
+                    errors.append(block)
 
         multi_error = MultiValidationError(errors=errors)
         result = MockLaunchResult(status="blocked", errors=multi_error)

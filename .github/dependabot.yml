@@ -25,7 +25,7 @@ updates:
           - "*"
 
   # Python (pip/uv) - update Python dependencies
-  - package-ecosystem: "uv"
+  - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"

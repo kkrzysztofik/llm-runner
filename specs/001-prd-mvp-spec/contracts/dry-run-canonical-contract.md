@@ -24,8 +24,15 @@
 
 ## `vllm_eligibility` Contract (M1)
 
-- Includes eligibility status and actionable blocked details.
-- In M1, `vllm` is surfaced as non-eligible for launch with FR-011 remediation guidance.
+- **Type**: object (dict)
+- **Required fields**:
+  - `eligible` (bool): Whether the slot can launch this backend in M1
+  - `backend` (str): Backend name being evaluated (e.g., `vllm`, `llama.cpp`)
+  - `reason` (str): Human-readable explanation for eligibility decision
+- **Optional fields**:
+  - `remediation` (str): Actionable guidance if `eligible=false`
+  - `supported_backends` (array[str]): List of backends this slot supports
+- In M1, `vllm` is surfaced as `eligible=false` with FR-011 remediation guidance.
 
 ## Field Type Alignment
 
@@ -63,6 +70,8 @@ Type conversions MUST be explicit and deterministic; no implicit casting or type
 
 - Identical inputs must produce identical canonical output content.
 - Human-readable output and machine-parseable output both derive from this same canonical schema.
+- **Top-level per-slot ordering**: When multiple slots are present, slot entries in the output
+  are ordered by `slot_id` ascending (lexicographic sort on string values).
 - **errors[] ordering**: When FR-005 returns multiple errors in `validation_results.errors[]`,
   entries are ordered first by slot configuration sequence (slot_id iteration order), then by
   `failed_check` ascending within each slot.

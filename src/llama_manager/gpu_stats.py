@@ -70,7 +70,8 @@ class GPUStats:
         stats = self.get_stats_snapshot()
         lines = [f"Device: {stats.get('device', 'N/A')}"]
 
-        if "gpu_util" in stats:
+        # Value-based check: if gpu_util is "N/A", use CPU fallback branch
+        if stats.get("gpu_util", "N/A") != "N/A":
             lines.append(
                 f"GPU: {stats.get('gpu_util', 'N/A')} | Mem: {stats.get('mem_util', 'N/A')}"
             )

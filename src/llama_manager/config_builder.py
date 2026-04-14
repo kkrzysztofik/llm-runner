@@ -30,7 +30,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
         elif key in result and isinstance(result[key], list) and isinstance(value, list):
             result[key] = [*deepcopy(result[key]), *deepcopy(value)]
         else:
-            result[key] = value
+            result[key] = deepcopy(value)
     return result
 
 
@@ -132,6 +132,10 @@ def create_summary_fast_cfg(
         ctx_size=ctx_size or cfg.default_ctx_size_summary,
         ubatch_size=ubatch_size or cfg.default_ubatch_size_summary_fast,
         threads=threads or cfg.default_threads_summary_fast,
+        reasoning_mode="off",
+        reasoning_format="deepseek",
+        chat_template_kwargs=cfg.summary_balanced_chat_template_kwargs,
+        use_jinja=True,
         cache_type_k=cache_k or cfg.default_cache_type_summary_k,
         cache_type_v=cache_v or cfg.default_cache_type_summary_v,
         backend="llama_cpp",

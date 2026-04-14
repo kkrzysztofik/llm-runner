@@ -61,12 +61,26 @@
 - [x] CHK026 Is `openai_flag_bundle` sufficiently specified to support objective contract validation rather than ad-hoc formatting interpretations? [Ambiguity, Spec §FR-003, Research §3, Contract FR-003]
 - [x] CHK027 Do any plan artifacts introduce terminology drift between “session-only” and “current launch attempt only” acknowledgment scope? [Conflict, Spec §FR-008, Edge Cases]
 
+## Checklist Status Semantics
+
+| Status | Meaning |
+| ------ | ------- |
+| `PASS` | Requirement is fully captured, unambiguous, and measurable |
+| `PARTIAL` | Requirement is captured but needs wording refinement or missing edge cases |
+| `FAIL` | Requirement is missing, contradictory, or insufficiently defined |
+
+**Adjudication**: When a check is marked PARTIAL, the checklist records which specific aspect needs refinement. After targeted edits, revalidate only the affected checks.
+
 ## Validation Run — 2026-04-10
 
 - **Mode**: Multi-agent checklist validation (requirements-quality only)
-- **Final tally**: 17 PASS, 6 PARTIAL, 4 FAIL
+- **Total checks**: 27
+- **Final pass count**: 17
+- **Remaining partial**: CHK004, CHK015, CHK025, CHK026 (4 checks)
+- **Remaining fail**: CHK010, CHK011, CHK012, CHK021 (4 checks)
 - **Adjudication applied**: CHK010, CHK011, CHK012, CHK021
 - **Top remediation targets**: CHK004, CHK015, CHK025, CHK026
+- **Overall gate**: **FAIL** (requires all checks to be PASS before implementation)
 
 ## Revalidation Run — 2026-04-10 (Patch Set)
 
