@@ -36,8 +36,8 @@ Defines the launch/dry-run blocking error payload shared by CLI and TUI semantic
     {
       "error_code": "BACKEND_NOT_ELIGIBLE",
       "failed_check": "vllm_launch_eligibility",
-      "why_blocked": "vllm is not launch-eligible in PRD M1",
-      "how_to_fix": "change backend to 'llama_cpp' for M1"
+      "how_to_fix": "change backend to 'llama_cpp' for M1",
+      "why_blocked": "vllm is not launch-eligible in PRD M1"
     }
   ]
 }
@@ -57,8 +57,8 @@ Defines the launch/dry-run blocking error payload shared by CLI and TUI semantic
     {
       "error_code": "BACKEND_NOT_ELIGIBLE",
       "failed_check": "vllm_launch_eligibility",
-      "why_blocked": "vllm is not launch-eligible in PRD M1",
-      "how_to_fix": "change backend to 'llama_cpp' for M1"
+      "how_to_fix": "change backend to 'llama_cpp' for M1",
+      "why_blocked": "vllm is not launch-eligible in PRD M1"
     }
   ]
 }
