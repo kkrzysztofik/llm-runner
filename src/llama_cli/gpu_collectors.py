@@ -31,7 +31,7 @@ def collect_nvtop_stats(device_index: int = 0) -> dict[str, Any]:
         if result.returncode != 0:
             raise RuntimeError(f"nvtop exited with code {result.returncode}: {result.stderr}")
         all_gpus = json.loads(result.stdout)
-        if device_index < len(all_gpus):
+        if 0 <= device_index < len(all_gpus):
             gpu = all_gpus[device_index]
             return {
                 "device": gpu.get("device_name", "Unknown"),
@@ -42,13 +42,17 @@ def collect_nvtop_stats(device_index: int = 0) -> dict[str, Any]:
                 "cpu": f"{psutil.cpu_percent():.0f}%",
                 "mem": f"{psutil.virtual_memory().percent:.0f}%",
             }
+        print(
+            f"warning: device_index {device_index} out of range for {len(all_gpus)} GPU(s)",
+            file=sys.stderr,
+        )
     except subprocess.TimeoutExpired:
         pass
     except json.JSONDecodeError as e:
         print(f"warning: nvtop JSON parse error: {e}", file=sys.stderr)
     except RuntimeError as e:
         print(f"warning: nvtop error: {e}", file=sys.stderr)
-    except (ValueError, OSError, subprocess.CalledProcessError) as e:
+    except (ValueError, OSError) as e:
         print(f"warning: nvtop error: {e}", file=sys.stderr)
 
     # Fallback to psutil

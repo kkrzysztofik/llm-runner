@@ -2,6 +2,7 @@ import json
 
 from llama_manager.config import Config
 from llama_manager.config_builder import merge_config_overrides
+from llama_manager.server import build_server_cmd
 
 
 def test_resolution_is_deterministic() -> None:
@@ -34,8 +35,6 @@ def test_resolution_is_deterministic() -> None:
 
 def test_command_generation_is_deterministic() -> None:
     """Repeated command generation for the same config must be identical."""
-    from llama_manager.server import build_server_cmd
-
     defaults = Config()
     cfg = merge_config_overrides(defaults, slot_config={"port": 8080})
 

@@ -20,7 +20,7 @@ def test_privileged_port_requires_acknowledgement() -> None:
 
 
 def test_non_loopback_bind_requires_acknowledgement() -> None:
-    """Binding to 0.0.0.0 must be flagged as risky."""
+    """Binding to non-loopback address must be flagged as risky."""
     cfg = MagicMock()
     cfg.port = 8080
     cfg.bind_address = "192.168.1.1"

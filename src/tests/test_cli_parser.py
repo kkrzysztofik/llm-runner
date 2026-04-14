@@ -104,19 +104,22 @@ class TestParseArgsInvalidModes:
     """Test invalid mode combinations."""
 
     def test_dry_run_without_submode(self) -> None:
-        """dry-run without submode should fail."""
-        with pytest.raises(SystemExit):
+        """dry-run without submode should fail with exit code 1."""
+        with pytest.raises(SystemExit) as exc_info:
             parse_args(["dry-run"])
+        assert exc_info.value.code == 1
 
     def test_dry_run_with_invalid_submode(self) -> None:
-        """dry-run with invalid submode should fail."""
-        with pytest.raises(SystemExit):
+        """dry-run with invalid submode should fail with exit code 1."""
+        with pytest.raises(SystemExit) as exc_info:
             parse_args(["dry-run", "invalid-mode"])
+        assert exc_info.value.code == 1
 
     def test_port_without_mode(self) -> None:
-        """Port without mode should fail."""
-        with pytest.raises(SystemExit):
+        """Port without mode should fail with exit code 2 (argparse error)."""
+        with pytest.raises(SystemExit) as exc_info:
             parse_args(["8080"])
+        assert exc_info.value.code == 2
 
 
 class TestParseArgsAcknowledgeRisk:

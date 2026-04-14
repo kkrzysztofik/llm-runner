@@ -2,8 +2,17 @@
 
 This package provides the core business logic for managing multiple
 llama-server instances, including configuration, server lifecycle,
-GPU statistics, log buffering, and lockfile management. It is a pure
-library with no I/O dependencies.
+GPU statistics, log buffering, and lockfile management. It exports:
+
+- Config & ServerConfig dataclasses for hardware-specific defaults and
+  per-instance launch parameters
+- Factory functions (create_*_cfg) that translate Config into ServerConfig
+- GPU statistics collection via nvtop/psutil
+- Thread-safe real-time log streaming via LogBuffer
+- Subprocess lifecycle management via ServerManager
+- Lockfile and artifact I/O functions (create_lock, read_lock,
+  release_lock, update_lock, write_artifact, resolve_runtime_dir)
+- Server command building and validation utilities
 """
 
 from .config import (

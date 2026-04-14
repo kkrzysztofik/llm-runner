@@ -40,14 +40,12 @@ def test_precedence_slot_wins_over_defaults() -> None:
 def test_deep_merge_dict_fields() -> None:
     """Dict fields in config overrides should be deep merged into the base dict."""
     defaults = Config()
-    # chat_template_kwargs is stored as a string, but the merge process
-    # deep merges dict fields in the intermediate representation
+    # List fields concatenate across merge layers
     slot_cfg: dict[str, list[str]] = {"risky_acknowledged": ["slot-risk"]}
     profile_cfg: dict[str, list[str]] = {"risky_acknowledged": ["profile-risk"]}
 
     result = merge_config_overrides(defaults, slot_config=slot_cfg, profile_config=profile_cfg)
 
-    # List fields concatenate
     assert result.risky_acknowledged == ["slot-risk", "profile-risk"]
 
 

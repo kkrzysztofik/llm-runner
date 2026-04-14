@@ -153,7 +153,7 @@ GPU Mapping:
     )
     parser.add_argument(
         "--port2",
-        "-p2",
+        "-P",
         type=int,
         help="Port for secondary model",
     )

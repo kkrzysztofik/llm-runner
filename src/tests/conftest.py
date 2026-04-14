@@ -75,7 +75,12 @@ def artifact_writer(tmp_runtime_dir: Path) -> Callable[[str, str | bytes, str], 
         Returns:
             Path to the created artifact file.
 
+        Raises:
+            AssertionError: If expected_type is not "text" or "binary".
+
         """
+        if expected_type not in ("text", "binary"):
+            raise AssertionError(f"expected_type must be 'text' or 'binary', got '{expected_type}'")
         if expected_type == "text" and not isinstance(content, str):
             raise AssertionError("expected_type='text' requires str content")
         if expected_type == "binary" and not isinstance(content, bytes):
