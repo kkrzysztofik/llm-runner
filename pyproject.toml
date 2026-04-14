@@ -19,11 +19,11 @@ llm-runner = "llama_cli.server_runner:cli_main"
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.3",
-    "pytest-cov>=5.0",
-    "ruff>=0.9",
-    "pyright>=1.1.390",
-    "pre-commit>=4.0",
-    "pip-audit>=2.7",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.10",
+    "pyright>=1.1.408",
+    "pre-commit>=4.5.1",
+    "pip-audit>=2.10.0",
 ]
 
 [tool.hatch.build.targets.wheel]
