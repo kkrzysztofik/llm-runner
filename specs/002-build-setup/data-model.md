@@ -19,6 +19,7 @@
   - `retry_delay` must be > 0
   - `jobs` must be >= 1
   - `git_remote_url` must match `Config.build_git_remote` unless explicitly overridden
+  - Cmake flag names use `GGML_*` convention (e.g., `GGML_SYCL`, `GGML_CUDA`), matching current upstream
 
 ## Entity: BuildArtifact
 
@@ -45,7 +46,7 @@
 ## Entity: BuildProgress
 
 - **Fields**:
-  - `stage: Literal["preflight", "clone", "configure", "build", "install", "provenance"]`
+  - `stage: Literal["preflight", "clone", "configure", "build", "provenance"]`
   - `status: Literal["pending", "running", "success", "failed"]`
   - `message: str` — human-readable progress description
   - `progress_percent: float` — 0.0 to 100.0
@@ -53,7 +54,11 @@
 - **Validation rules**:
   - `progress_percent` must be between 0.0 and 100.0
   - `retries_remaining` must be >= 0
-  - Stage ordering: preflight → clone → configure → build → install → provenance
+  - Stage ordering: preflight → clone → configure → build → provenance
+  - The `build` stage includes binary verification after `make` completes
+  - During `build` stage, `progress_percent` is derived from make's `[N/M]` output pattern (N÷M×100)
+  - If make output contains no `[N/M]` pattern, `progress_percent` remains 0.0 until stage completion
+  - Progress resets to 0.0 on retry
 
 ## Entity: ToolchainStatus
 
@@ -102,10 +107,22 @@
   - `tool_name: str` — name of the missing tool (e.g., "cmake", "dpcpp")
   - `install_command: str` — apt-get command for Debian-derivatives (M2 scope; other platforms deferred)
   - `install_url: str` — documentation URL for manual installation
-  - `required_for: list[Literal["sycl", "cuda"]]` — which backends require this tool
+  - `required_for: list[Literal["sycl", "cuda"]]` — which backends require this tool (derived from module constants)
 - **Validation rules**:
   - At least one install instruction must be non-empty
   - `required_for` must not be empty
+  - `required_for` values MUST be derived from `SYCL_REQUIRED_TOOLS` and `CUDA_REQUIRED_TOOLS` constants
+
+## Module Constants: Required Tool Lists
+
+- **`SYCL_REQUIRED_TOOLS: frozenset[str]`** — tools required for SYCL backend builds:
+  - Common: `gcc`, `make`, `git`, `cmake`
+  - SYCL-specific: `dpcpp` (oneAPI compiler, provides icx/icpx)
+- **`CUDA_REQUIRED_TOOLS: frozenset[str]`** — tools required for CUDA backend builds:
+  - Common: `gcc`, `make`, `git`, `cmake`
+  - CUDA-specific: `nvcc` (CUDA toolkit compiler)
+- These constants are the authoritative source for "which tools are required per backend".
+  `ToolchainHint.required_for` is derived from these, not the other way around.
 
 ## Config Extensions (added to existing Config dataclass)
 
