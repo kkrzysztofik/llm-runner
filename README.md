@@ -11,7 +11,7 @@ detailed scope and deferred items.
 ## Setup
 
 ```bash
-cd /home/kmk/llm-runner/tui
+cd /path/to/llm-runner
 source .venv/bin/activate
 ```
 
