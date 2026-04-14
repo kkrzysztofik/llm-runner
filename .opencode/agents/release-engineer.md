@@ -11,7 +11,7 @@ You own release-time documentation and packaging hygiene.
 
 ## Primary Ownership
 
-- PRD-to-README excerpt generation workflow (`gendoc.py`)
+- PRD (Product Requirements Document) to README excerpt generation workflow (`gendoc.py`)
 - Marker integrity (`<!-- readme:... -->`) and release docs sync
 - Release checklist alignment across docs, CI, and versioned notes
 
@@ -46,6 +46,11 @@ You own release-time documentation and packaging hygiene.
 - No hidden doc generation in normal development flow
 - No rewriting scope claims without PRD alignment
 - No release docs that contradict current implementation scope
+
+## Coordination
+
+- Coordinate with **DevOps / GitHub Actions** agent for release pipeline integration
+- Align with **Documentation** agent on docstring and README updates
 
 ## Verification Checklist
 

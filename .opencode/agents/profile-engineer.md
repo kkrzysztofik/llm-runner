@@ -32,7 +32,7 @@ You own profiling workflows and profile-guided preset behavior.
 
 ### 3. Override Safety
 
-- Enforce deterministic precedence: preset < profile guidance < explicit override
+- Enforce deterministic precedence order: preset < profile guidance < explicit override
 - Never let profile guidance override explicit user intent
 
 ## Workflow
@@ -48,6 +48,11 @@ You own profiling workflows and profile-guided preset behavior.
 - No automatic profiling on first model load in MVP
 - No nondeterministic merge behavior across preset/profile/override
 - No opaque cache writes; format must be inspectable
+
+## Coordination
+
+- Report profile cache issues to **DevOps / GitHub Actions** agent for CI caching strategies
+- Coordinate with **Release Engineer** agent for profile-related release notes
 
 ## Verification Checklist
 

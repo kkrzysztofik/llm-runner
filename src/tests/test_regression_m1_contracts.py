@@ -110,7 +110,7 @@ def test_slot_sequence_consistency_and_tiebreak() -> None:
     assert mve.errors[3].failed_check == "unknown_err"
 
 
-def test_validate_slots_duplicate_detection():
+def test_validate_slots_duplicate_detection() -> None:
     """T042: Verify duplicate slot detection in validation."""
     slots = [
         ModelSlot(slot_id="slot1", model_path="/path/1", port=8080),
@@ -123,7 +123,7 @@ def test_validate_slots_duplicate_detection():
         assert any(e.error_code == ErrorCode.DUPLICATE_SLOT for e in mve.errors)
 
 
-def test_validate_slots_invalid_id():
+def test_validate_slots_invalid_id() -> None:
     """T042: Verify invalid slot IDs are rejected during duplicate precheck."""
     slots = [
         ModelSlot(slot_id="!!!", model_path="/path/1", port=8080),  # Invalid ID
@@ -142,7 +142,7 @@ class TestFR005FR003CanonicalParity:
     dry-run ValidationResults.errors field-level alignment.
     """
 
-    def test_error_code_field_alignment(self):
+    def test_error_code_field_alignment(self) -> None:
         """FR-005: MultiValidationError.error_code must align with ValidationResults.error_code."""
         # Create MultiValidationError with ErrorDetail
         errors = [
@@ -183,7 +183,7 @@ class TestFR005FR003CanonicalParity:
                 f"ErrorDetail={error_detail.error_code}, ValidationResult={vr.error_code}"
             )
 
-    def test_failed_check_field_alignment(self):
+    def test_failed_check_field_alignment(self) -> None:
         """FR-005: MultiValidationError.failed_check must align with ValidationResults.failed_check."""
         errors = [
             ErrorDetail(
@@ -223,7 +223,7 @@ class TestFR005FR003CanonicalParity:
                 f"ErrorDetail={error_detail.failed_check}, ValidationResult={vr.failed_check}"
             )
 
-    def test_validation_results_checks_alignment(self):
+    def test_validation_results_checks_alignment(self) -> None:
         """FR-003/FR-005: validation_results.checks must contain aligned error info."""
         errors = [
             ErrorDetail(
@@ -278,7 +278,7 @@ class TestFR003SlotConfigurationSequenceConsistency:
         defaults.update(kwargs)
         return ServerConfig(**defaults)  # type: ignore[arg-type]
 
-    def test_error_slot_order_matches_dry_run_slot_order(self):
+    def test_error_slot_order_matches_dry_run_slot_order(self) -> None:
         """FR-003: Error slot sequence order must match dry-run payload slot order."""
         # Create errors with specific slot order
         errors = [
@@ -332,7 +332,7 @@ class TestFR003SlotConfigurationSequenceConsistency:
             f"Slot sequence mismatch: errors={error_slot_sequence}, checks={check_slot_sequence}"
         )
 
-    def test_dry_run_payload_slot_scope_matches_error_slot_sequence(self):
+    def test_dry_run_payload_slot_scope_matches_error_slot_sequence(self) -> None:
         """FR-003: Dry-run slot_scope list order must match error slot sequence."""
         errors = [
             ErrorDetail(
@@ -399,7 +399,7 @@ class TestFR003FailedCheckAscendingTieBreak:
         defaults.update(kwargs)
         return ServerConfig(**defaults)  # type: ignore[arg-type]
 
-    def test_failed_check_ascending_tiebreak_within_slot(self):
+    def test_failed_check_ascending_tiebreak_within_slot(self) -> None:
         """FR-003: failed_check should be sorted ascending within each slot."""
         errors = [
             ErrorDetail(
@@ -473,7 +473,7 @@ class TestFR003NewArtifactShapeAssertions:
         defaults.update(kwargs)
         return ServerConfig(**defaults)  # type: ignore[arg-type]
 
-    def test_slot_scope_is_list_of_strings(self):
+    def test_slot_scope_is_list_of_strings(self) -> None:
         """FR-003: slot_scope must be a list of strings (slot IDs)."""
         errors = [
             ErrorDetail(
@@ -516,7 +516,7 @@ class TestFR003NewArtifactShapeAssertions:
             f"slot_scope length mismatch: expected {len(mve.errors)}, got {len(slot_scope)}"
         )
 
-    def test_resolved_command_is_mapping_of_slot_id_to_command_args(self):
+    def test_resolved_command_is_mapping_of_slot_id_to_command_args(self) -> None:
         """FR-003: resolved_command must be a dict mapping slot_id -> command_args list."""
         errors = [
             ErrorDetail(
@@ -558,7 +558,7 @@ class TestFR003NewArtifactShapeAssertions:
                 f"resolved_command[{slot_id}] must contain only strings"
             )
 
-    def test_slot_scope_and_resolved_command_keys_alignment(self):
+    def test_slot_scope_and_resolved_command_keys_alignment(self) -> None:
         """FR-003: resolved_command keys must exactly match slot_scope entries."""
         errors = [
             ErrorDetail(
@@ -603,7 +603,7 @@ class TestFR003NewArtifactShapeAssertions:
             f"resolved_command key order {ordered_keys} must match slot_scope order {slot_scope}"
         )
 
-    def test_resolved_command_contains_correct_command_args_for_each_slot(self):
+    def test_resolved_command_contains_correct_command_args_for_each_slot(self) -> None:
         """FR-003: resolved_command[<slot_id>] must contain the correct command_args."""
         cfg = self._cfg(slot_id="test-slot")
         payload = build_dry_run_slot_payload(

@@ -14,7 +14,7 @@ You own operational diagnostics and health commands for llm-runner.
 - `doctor`, `setup`, `smoke` command behavior and UX
 - Exit-code contracts and error attribution
 - Lockfile and collision diagnostics
-- Hardware acknowledgement and VRAM-risk warning flows
+- Hardware acknowledgement and VRAM (video RAM) risk warning flows
 - Failure report generation contracts
 
 ## PRD-Aligned Responsibilities
@@ -52,6 +52,11 @@ You own operational diagnostics and health commands for llm-runner.
 - No hidden package installs during serve paths
 - No secret leakage in logs or reports
 - No ambiguous exit codes; always document expected contract
+
+## Coordination
+
+- Report persistent issues to **Debugger** agent for root cause analysis
+- Coordinate with **DevOps / GitHub Actions** agent for CI health checks
 
 ## Verification Checklist
 
