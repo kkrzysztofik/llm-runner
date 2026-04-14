@@ -929,7 +929,6 @@ dry_run() {
 
 # Initialize global state
 init_colors
-check_prereqs
 export ZES_ENABLE_SYSMAN=1
 
 # Parse and validate arguments
@@ -944,6 +943,10 @@ if [[ "$mode" == "dry-run" ]]; then
   dry_run "$mode" "${3:-}" "${4:-}"
   exit 0
 fi
+
+# Only check prerequisites for actual server starts, not dry-run
+check_prereqs
+
 case "$mode" in
   summary-balanced|llama32)
     port="${2:-$SUMMARY_BALANCED_PORT}"
