@@ -402,7 +402,7 @@ This PRD is implementation-ready when:
 
 **`doctor`**: **`0`** warnings-only OK, **`1`** blocking error, **`2`** needs **`setup`** / missing prerequisites.
 
-**`smoke`**: use a **non-overlapping** band, e.g. **`1`** not ready, **`2`** HTTP/API error, **`3`** config validation failure (document final integers in CLI help at implementation time).
+**`smoke`**: use a **non-overlapping** band, e.g. **`10`** not ready, **`11`** HTTP/API error, **`12`** config validation failure (document final integers in CLI help at implementation time).
 
 ---
 

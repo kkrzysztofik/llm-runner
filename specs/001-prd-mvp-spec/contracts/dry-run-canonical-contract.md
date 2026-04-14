@@ -48,6 +48,7 @@ Type conversions MUST be explicit and deterministic; no implicit casting or type
   - `--port` (int): OpenAI-compatible port override
   - `--host` (str): OpenAI-compatible host override
   - `--chat-format` (str): chat template identifier (e.g., `chatml`, `qwen2`)
+  - `--jinja` (str): explicit chat template path or inline template content
   - `--openai` (bool): OpenAI compatibility mode flag
 - **Qwen-class template requirement**: For anchored workstation models (Qwen 3.5–35B class), bundle MUST include `--chat-format` or `--jinja` flag to ensure correct chat template rendering under OpenAI-compatible surface.
 - Keys MUST retain leading `--` and map directly to effective CLI-style OpenAI flags.

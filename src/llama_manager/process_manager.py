@@ -924,14 +924,8 @@ class ServerManager:
             pipe.close()
 
     def _format_output(self, server_name: str, line: str) -> str:
-        """Format output line with timestamp and color"""
+        """Format output line with timestamp."""
         timestamp = time.strftime("%H:%M:%S")
-        from llama_cli.colors import Colors
-
-        color_code = Colors.get_code(server_name)
-
-        if color_code:
-            return f"\033[1m[{timestamp}][{server_name}]\033[0m {line}"
         return f"[{timestamp}][{server_name}] {line}"
 
     def _verify_process_ownership(self, pid: int) -> bool:

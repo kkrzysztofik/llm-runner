@@ -57,7 +57,15 @@ When non-anchor hardware is detected, include:
   - `SECRET`
   - `PASSWORD`
   - `AUTH`
+- **Path-key exception and precedence**:
+  - Keys ending with `_PATH`, `_DIR`, or `_FILE` (case-insensitive suffix match) are treated as filesystem path keys.
+  - Path-key detection takes precedence over trigger patterns above.
+  - If a key matches both a trigger pattern and a path-key suffix, value remains visible.
 - **Redaction format**: Replace value with `"[REDACTED]"` (string literal).
 - **Visible fields**: Filesystem paths (e.g., `MODEL_PATH`, `CONFIG_DIR`) remain visible even if they contain sensitive-looking substrings.
+- **Examples**:
+  - `MODEL_PATH=/models/llama` → visible
+  - `SECRET_KEY=/etc/ssl/key` → redacted
+  - `API_KEY_PATH=/keys/api.key` → visible
 - **Timestamp format**: ISO 8601 UTC (`YYYY-MM-DDTHH:MM:SSZ`).
 - **Filename rules**: Artifact filenames must be filesystem-safe (alphanumeric, hyphen, underscore only; no spaces or special characters).
