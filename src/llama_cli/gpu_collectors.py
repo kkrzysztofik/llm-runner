@@ -52,8 +52,14 @@ def collect_nvtop_stats(device_index: int = 0) -> dict[str, Any]:
         if result.returncode != 0:
             raise RuntimeError(f"nvtop exited with code {result.returncode}: {result.stderr}")
         all_gpus = json.loads(result.stdout)
+        if not isinstance(all_gpus, list):
+            raise ValueError(f"nvtop JSON output is not a list, got {type(all_gpus).__name__}")
         if 0 <= device_index < len(all_gpus):
             gpu = all_gpus[device_index]
+            if not isinstance(gpu, dict):
+                raise ValueError(
+                    f"gpu entry at index {device_index} is not a dict, got {type(gpu).__name__}"
+                )
             return {
                 "device": _format_metric(gpu.get("device_name", "Unknown")),
                 "gpu_util": _format_metric(gpu.get("gpu_util", "N/A")),

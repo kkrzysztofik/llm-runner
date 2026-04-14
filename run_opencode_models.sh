@@ -691,8 +691,15 @@ dry_run() {
       echo "  Context: $DEFAULT_CTX_SIZE_SUMMARY"
       echo "  Threads: $DEFAULT_THREADS_SUMMARY_FAST"
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_SUMMARY_FAST"
+      echo "  Reasoning: auto"
+      echo "  Reasoning Format: none"
+      echo "  Sampling: temperature=0.6 top-p=0.95 top-k=20 min-p=0.0"
+      echo "  Penalties: presence=0.0 repeat=1.0"
       build_server_cmd tmp_cmd "$MODEL_SUMMARY_FAST" "summary-fast" "SYCL0" "$summary_fast_port" \
-        "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_FAST" "$DEFAULT_THREADS_SUMMARY_FAST"
+        "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_FAST" "$DEFAULT_THREADS_SUMMARY_FAST" \
+        "" auto none "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+      tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+      tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
@@ -927,7 +934,7 @@ export ZES_ENABLE_SYSMAN=1
 
 # Parse and validate arguments
 mode="${1:-}"
-  if [[ "$mode" == "dry-run" ]]; then
+if [[ "$mode" == "dry-run" ]]; then
   mode="${2:-}"
   if [[ -z "$mode" ]]; then
     echo "error: dry-run requires a mode argument (summary-balanced|summary-fast|gemma4-e4b|gemma4-27b|gemma4-31b|qwen35|both-qwen35|both-gemma4-27b)" >&2
@@ -996,7 +1003,7 @@ case "$mode" in
     port32="${2:-$SUMMARY_BALANCED_PORT}"
     port35="${3:-$QWEN35_PORT}"
 
-    if ! validate_port "$port32" "gemma4-e4b port"; then
+    if ! validate_port "$port32" "summary-balanced port"; then
       usage
       exit 1
     fi
