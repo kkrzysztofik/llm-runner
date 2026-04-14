@@ -16,7 +16,7 @@ def _get_cpu_percent() -> float:
     """Get CPU percentage with safe fallback on exception."""
     try:
         return float(psutil.cpu_percent(interval=0.1))
-    except (psutil.NoSuchProcess, psutil.AccessDenied, Exception):
+    except Exception:
         return 0.0
 
 
@@ -24,7 +24,7 @@ def _get_memory_percent() -> float:
     """Get memory percentage with safe fallback on exception."""
     try:
         return float(psutil.virtual_memory().percent)
-    except (psutil.NoSuchProcess, psutil.AccessDenied, Exception):
+    except Exception:
         return 0.0
 
 
