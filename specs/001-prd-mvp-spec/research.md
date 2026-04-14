@@ -4,6 +4,7 @@
 
 - **Decision**: Resolve runtime directory in this order: `LLM_RUNNER_RUNTIME_DIR` (if set and usable), then `$XDG_RUNTIME_DIR/llm-runner`; if neither is usable, return FR-005 launch-blocking error.
 - **Rationale**: Matches clarified requirement and preserves deterministic filesystem behavior for lockfiles/artifacts.
+- **Usable definition**: A runtime directory is "usable" if it exists, is writable by the current user, and has appropriate permissions (directory: `0700` or higher, file: `0600` or higher).
 - **Alternatives considered**:
   - Fail immediately when `LLM_RUNNER_RUNTIME_DIR` is set but unusable (rejected: conflicts with clarified fallback order).
   - Silent fallback to temp dir (rejected: non-deterministic and weak observability).
@@ -44,6 +45,7 @@
 ## 6) Slot ID normalization and validation
 
 - **Decision**: Enforce normalized, filesystem-safe `slot_id` values (lowercase canonical form, strict allowed characters) with duplicate detection at validation time.
+- **Canonical regex**: `^[a-z0-9_-]+$` — lowercase alphanumeric, hyphen, and underscore only; no spaces or special characters.
 - **Rationale**: Lockfile and artifact naming depend on predictable slot keys; strict normalization prevents collisions and ambiguity.
 - **Alternatives considered**:
   - Accept arbitrary strings (rejected: unsafe/ambiguous filenames).
@@ -85,6 +87,10 @@
 
 - **Decision**: Use `lspci` output hash for GPU devices combined with SYCL device enumeration (`sycl-ls`) to create deterministic machine identifier.
 - **Rationale**: Provides stable fingerprint across reboots while detecting hardware changes.
+- **Machine identifier fallback sequence**:
+  1. Primary: SHA256 hash of `lspci -vvv` GPU section + `sycl-ls` output
+  2. Fallback 1: If `lspci` unavailable, use `sycl-ls` only
+  3. Fallback 2: If both unavailable, use MAC address + hostname (least stable, documented as weak)
 - **Alternatives considered**:
   - PCI device IDs only (rejected: doesn't capture full GPU topology).
-  - MAC address + hostname (rejected: changes with network config, not hardware).
+  - MAC address + hostname (rejected: changes with network config, not hardware; used only as last resort fallback).

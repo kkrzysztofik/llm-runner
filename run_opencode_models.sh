@@ -68,6 +68,7 @@ DEFAULT_THREADS_GEMMA4_31B=24
 DEFAULT_THREADS_QWEN35_BOTH=12
 DEFAULT_THREADS_GEMMA4_27B_BOTH=8
 DEFAULT_POLL_MS_GEMMA4_E4B=0
+DEFAULT_POLL_MS_QWEN35=0
 DEFAULT_PARALLEL_GEMMA4_E4B=-1
 # Single slot minimizes VRAM for parallel KV / server batching (matches llama-completion -np 1 probes)
 DEFAULT_PARALLEL_GEMMA4_27B=1
@@ -455,8 +456,8 @@ start_qwen35() {
   require_executable "$LLAMA_SERVER_BIN_NVIDIA" "NVIDIA llama-server"
   build_server_cmd cmd "$MODEL_QWEN35" "qwen35-coding" "" "$port" \
     "$DEFAULT_CTX_SIZE_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35" "$DEFAULT_THREADS_QWEN35" \
-    "" "" "" "" "" false \
-    "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA"
+    "" on deepseek '{"enable_thinking":true}' "" "false" \
+    "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
   cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   
@@ -525,8 +526,8 @@ start_both_qwen35() {
   
   build_server_cmd qwen35_cmd "$MODEL_QWEN35_BOTH" "qwen35-coding" "" "$qwen35_port" \
     "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
-    "" "" "" "" "" false \
-    "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA"
+    "" on deepseek '{"enable_thinking":true}' "" "false" \
+    "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
   qwen35_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   qwen35_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   
@@ -797,10 +798,16 @@ dry_run() {
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_QWEN35"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_QWEN35_K/$DEFAULT_CACHE_TYPE_QWEN35_V"
       echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN35"
+      echo "  Reasoning: on"
+      echo "  Reasoning Format: deepseek"
+      echo "  Chat Template Kwargs: {\"enable_thinking\":true}"
+      echo "  Poll: $DEFAULT_POLL_MS_QWEN35"
       build_server_cmd tmp_cmd "$MODEL_QWEN35" "qwen35-coding" "" "$qwen35_port_single" \
         "$DEFAULT_CTX_SIZE_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35" "$DEFAULT_THREADS_QWEN35" \
-        "" "" "" "" "" false \
-        "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA"
+        "" on deepseek '{"enable_thinking":true}' "" "false" \
+        "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
+      tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+      tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
@@ -834,10 +841,16 @@ dry_run() {
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_QWEN35_BOTH"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_QWEN35_BOTH_K/$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V"
       echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN35_BOTH"
+      echo "  Reasoning: on"
+      echo "  Reasoning Format: deepseek"
+      echo "  Chat Template Kwargs: {\"enable_thinking\":true}"
+      echo "  Poll: $DEFAULT_POLL_MS_QWEN35"
       build_server_cmd tmp_cmd "$MODEL_QWEN35_BOTH" "qwen35-coding" "" "$qwen35_port_both" \
         "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
-        "" "" "" "" "" false \
-        "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA"
+        "" on deepseek '{"enable_thinking":true}' "" "false" \
+        "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
+      tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+      tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;

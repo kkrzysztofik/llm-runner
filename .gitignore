@@ -201,3 +201,7 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
+
+# CodeRabbit review files (local state with sensitive paths)
+coderabbit_review*.txt
+coderabbit_review*.json

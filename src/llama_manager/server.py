@@ -3,7 +3,6 @@
 
 import os
 import re
-import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -443,91 +442,107 @@ def build_dry_run_slot_payload(
     )
 
 
-def _error_detail_to_stderr(error_detail: ErrorDetail) -> None:
-    """FR-005: Print structured error detail to stderr.
-
-    Outputs consistent fields for easy parsing:
-    error_code=<code> failed_check=<check> why_blocked=<message> how_to_fix=<fix>
+def validate_port(port: int, name: str = "port") -> ErrorDetail | None:
+    """Validate port number.
 
     Args:
-        error_detail: ErrorDetail with error_code, failed_check, why_blocked, how_to_fix
+        port: Port number to validate
+        name: Name of the port for error messages
 
+    Returns:
+        ErrorDetail if validation fails, None if valid
     """
-    error_code = (
-        error_detail.error_code.value
-        if isinstance(error_detail.error_code, ErrorCode)
-        else str(error_detail.error_code)
-    )
-    print(
-        f"error: error_code={error_code} failed_check={error_detail.failed_check} "
-        f"why_blocked={error_detail.why_blocked} how_to_fix={error_detail.how_to_fix}",
-        file=sys.stderr,
-    )
-
-
-def validate_port(port: int, name: str = "port") -> None:
-    """Validate port number"""
     if not isinstance(port, int) or port < 1 or port > 65535:
-        error_detail = ErrorDetail(
+        return ErrorDetail(
             error_code=ErrorCode.PORT_INVALID,
             failed_check="port_validation",
             why_blocked=f"{name} must be between 1 and 65535, got: {port}",
             how_to_fix=f"ensure {name} is an integer between 1 and 65535",
         )
-        _error_detail_to_stderr(error_detail)
-        sys.exit(1)
+    return None
 
 
-def validate_threads(threads: int, name: str = "threads") -> None:
-    """Validate thread count"""
+def validate_threads(threads: int, name: str = "threads") -> ErrorDetail | None:
+    """Validate thread count.
+
+    Args:
+        threads: Thread count to validate
+        name: Name of the threads parameter for error messages
+
+    Returns:
+        ErrorDetail if validation fails, None if valid
+    """
     if not isinstance(threads, int) or threads < 1:
-        error_detail = ErrorDetail(
+        return ErrorDetail(
             error_code=ErrorCode.THREADS_INVALID,
             failed_check="thread_validation",
             why_blocked=f"{name} must be greater than 0, got: {threads}",
             how_to_fix=f"ensure {name} is a positive integer",
         )
-        _error_detail_to_stderr(error_detail)
-        sys.exit(1)
+    return None
 
 
-def require_model(model_path: str) -> None:
-    """Check if model file exists"""
+def require_model(model_path: str) -> ErrorDetail | None:
+    """Check if model file exists.
+
+    Args:
+        model_path: Path to the model file
+
+    Returns:
+        ErrorDetail if model not found, None if exists
+    """
     if not os.path.isfile(model_path):
-        error_detail = ErrorDetail(
+        return ErrorDetail(
             error_code=ErrorCode.FILE_NOT_FOUND,
             failed_check="model_path_exists",
             why_blocked=f"model not found: {model_path}",
             how_to_fix="verify model path exists and is accessible",
         )
-        _error_detail_to_stderr(error_detail)
-        sys.exit(1)
+    return None
 
 
-def require_executable(bin_path: str, name: str = "binary") -> None:
-    """Check if executable exists"""
+def require_executable(bin_path: str, name: str = "binary") -> ErrorDetail | None:
+    """Check if executable exists.
+
+    Args:
+        bin_path: Path to the executable
+        name: Name of the executable for error messages
+
+    Returns:
+        ErrorDetail if not executable, None if exists and executable
+    """
     if not os.access(bin_path, os.X_OK):
-        error_detail = ErrorDetail(
+        return ErrorDetail(
             error_code=ErrorCode.PERMISSION_DENIED,
             failed_check="executable_exists",
             why_blocked=f"{name} not found or not executable: {bin_path}",
             how_to_fix="verify executable path exists and has execute permissions",
         )
-        _error_detail_to_stderr(error_detail)
-        sys.exit(1)
+    return None
 
 
-def validate_ports(port1: int, port2: int, name1: str = "port1", name2: str = "port2") -> None:
-    """Validate ports are different"""
+def validate_ports(
+    port1: int, port2: int, name1: str = "port1", name2: str = "port2"
+) -> ErrorDetail | None:
+    """Validate ports are different.
+
+    Args:
+        port1: First port number
+        port2: Second port number
+        name1: Name of first port for error messages
+        name2: Name of second port for error messages
+
+    Returns:
+        ErrorDetail if ports are the same, None if different
+    """
     if port1 == port2:
-        error_detail = ErrorDetail(
+        return ErrorDetail(
             error_code=ErrorCode.PORT_CONFLICT,
             failed_check="port_uniqueness",
             why_blocked=f"{name1} and {name2} must be different, got: {port1}",
             how_to_fix="ensure both ports are unique values between 1 and 65535",
         )
-        _error_detail_to_stderr(error_detail)
-        sys.exit(1)
+    return None
 
 
 def _build_environment_redacted() -> dict[str, str]:

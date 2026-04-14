@@ -20,6 +20,7 @@ def get_p95(data: list[float]) -> float:
     return sorted_data[idx]
 
 
+@pytest.mark.slow
 @patch(
     "llama_cli.dry_run.write_artifact",
     return_value=os.path.join(tempfile.gettempdir(), "fake_artifact"),
@@ -38,6 +39,9 @@ def test_performance_dry_run_resolution(
     """T041: Benchmark dry-run resolution time."""
     iterations: int = 100
     times: list[float] = []
+
+    # Warmup to stabilize performance
+    dry_run("summary-balanced")
 
     for _ in range(iterations):
         start: float = time.perf_counter()
@@ -70,8 +74,8 @@ def test_performance_validation_paths() -> None:
     conflict_times: list[float] = []
     for _ in range(iterations):
         start: float = time.perf_counter()
-        with pytest.raises(SystemExit):
-            validate_ports(8080, 8080, "p1", "p2")
+        result = validate_ports(8080, 8080, "p1", "p2")
+        assert result is not None  # Should return ErrorDetail for conflicting ports
         end: float = time.perf_counter()
         conflict_times.append(end - start)
 

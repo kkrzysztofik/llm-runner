@@ -68,20 +68,12 @@ class TestParseArgsDryRun:
 class TestParseArgsValidModes:
     """Test all valid mode combinations."""
 
-    @pytest.mark.parametrize(
-        ("mode", "expected_dry_run_mode"),
-        [
-            ("summary-balanced", None),
-            ("summary-fast", None),
-            ("qwen35", None),
-            ("both", None),
-        ],
-    )
-    def test_all_non_dryrun_modes(self, mode: str, expected_dry_run_mode: str | None) -> None:
+    @pytest.mark.parametrize("mode", ["summary-balanced", "summary-fast", "qwen35", "both"])
+    def test_all_non_dryrun_modes(self, mode: str) -> None:
         """All non-dry-run modes should work."""
         args = parse_args([mode])
         assert args.mode == mode
-        assert args.dry_run_mode == expected_dry_run_mode
+        assert args.dry_run_mode is None
         assert args.ports == []
 
     @pytest.mark.parametrize("mode", ["summary-balanced", "summary-fast", "qwen35", "both"])

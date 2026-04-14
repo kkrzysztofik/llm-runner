@@ -93,9 +93,6 @@ class TestStaleLock:
         create_lock(runtime_dir, "slot1", pid=valid_pid, port=8080)
 
         # Manually update the lock's started_at to be > 300 seconds old
-        import json
-        import time
-
         lock_path = runtime_dir / "slot-slot1.lock"
         lock_data = json.loads(lock_path.read_text())
 

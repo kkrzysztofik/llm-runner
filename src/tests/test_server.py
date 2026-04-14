@@ -1,6 +1,5 @@
 """Tests for llama_manager.server — validation and command building."""
 
-import pytest
 
 from llama_manager.config import ErrorCode, ServerConfig, ValidationResult
 from llama_manager.server import (
@@ -14,90 +13,88 @@ from llama_manager.server import (
 
 class TestValidatePort:
     def test_valid_port_passes(self) -> None:
-        validate_port(8080)  # should not raise / exit
-        validate_port(1)
-        validate_port(65535)
+        result = validate_port(8080)
+        assert result is None
+        result = validate_port(1)
+        assert result is None
+        result = validate_port(65535)
+        assert result is None
 
-    def test_zero_exits(self, capsys: pytest.CaptureFixture[str]) -> None:
-        with pytest.raises(SystemExit) as exc:
-            validate_port(0)
-        assert exc.value.code == 1
-        captured = capsys.readouterr()
-        assert "port" in captured.err
+    def test_zero_returns_error_detail(self) -> None:
+        result = validate_port(0)
+        assert result is not None
+        assert result.error_code == ErrorCode.PORT_INVALID
+        assert result.failed_check == "port_validation"
+        assert "port" in result.why_blocked
 
-    def test_negative_exits(self) -> None:
-        with pytest.raises(SystemExit):
-            validate_port(-1)
+    def test_negative_returns_error_detail(self) -> None:
+        result = validate_port(-1)
+        assert result is not None
+        assert result.error_code == ErrorCode.PORT_INVALID
 
-    def test_above_max_exits(self) -> None:
-        with pytest.raises(SystemExit):
-            validate_port(65536)
+    def test_above_max_returns_error_detail(self) -> None:
+        result = validate_port(65536)
+        assert result is not None
+        assert result.error_code == ErrorCode.PORT_INVALID
 
-    def test_custom_name_in_error(self, capsys: pytest.CaptureFixture[str]) -> None:
-        with pytest.raises(SystemExit):
-            validate_port(0, "summary-balanced port")
-        captured = capsys.readouterr()
-        assert "summary-balanced port" in captured.err
+    def test_custom_name_in_error_detail(self) -> None:
+        result = validate_port(0, "summary-balanced port")
+        assert result is not None
+        assert "summary-balanced port" in result.why_blocked
 
-    def test_error_output_has_structured_fields(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """FR-005: Validation errors should have structured fields in stderr output."""
-        with pytest.raises(SystemExit):
-            validate_port(0, "port")
-        captured = capsys.readouterr()
-        err_text = captured.err
-        # FR-005 structured output should have error_code, failed_check, why_blocked, how_to_fix
-        assert "error_code=" in err_text
-        assert "failed_check=" in err_text
-        assert "why_blocked=" in err_text
-        assert "how_to_fix=" in err_text
-        assert ErrorCode.PORT_INVALID.value in err_text
+    def test_error_detail_has_structured_fields(self) -> None:
+        """FR-005: Validation errors should have structured fields."""
+        result = validate_port(0, "port")
+        assert result is not None
+        assert result.error_code == ErrorCode.PORT_INVALID
+        assert result.failed_check == "port_validation"
+        assert result.why_blocked is not None
+        assert result.how_to_fix is not None
 
 
 class TestValidatePorts:
     def test_different_ports_pass(self) -> None:
-        validate_ports(8080, 8081)  # should not raise
+        result = validate_ports(8080, 8081)
+        assert result is None
 
-    def test_same_ports_exit(self, capsys: pytest.CaptureFixture[str]) -> None:
-        with pytest.raises(SystemExit) as exc:
-            validate_ports(8080, 8080, "port1", "port2")
-        assert exc.value.code == 1
-        captured = capsys.readouterr()
-        assert "port1" in captured.err
-        assert "port2" in captured.err
+    def test_same_ports_returns_error_detail(self) -> None:
+        result = validate_ports(8080, 8080, "port1", "port2")
+        assert result is not None
+        assert result.error_code == ErrorCode.PORT_CONFLICT
+        assert "port1" in result.why_blocked
+        assert "port2" in result.why_blocked
 
 
 class TestValidateThreads:
     def test_valid_threads_pass(self) -> None:
-        validate_threads(1)
-        validate_threads(32)
+        result = validate_threads(1)
+        assert result is None
+        result = validate_threads(32)
+        assert result is None
 
-    def test_zero_exits(self, capsys: pytest.CaptureFixture[str]) -> None:
-        with pytest.raises(SystemExit) as exc:
-            validate_threads(0)
-        assert exc.value.code == 1
+    def test_zero_returns_error_detail(self) -> None:
+        result = validate_threads(0)
+        assert result is not None
+        assert result.error_code == ErrorCode.THREADS_INVALID
 
-    def test_negative_exits(self) -> None:
-        with pytest.raises(SystemExit):
-            validate_threads(-4)
+    def test_negative_returns_error_detail(self) -> None:
+        result = validate_threads(-4)
+        assert result is not None
+        assert result.error_code == ErrorCode.THREADS_INVALID
 
-    def test_custom_name_in_error(self, capsys: pytest.CaptureFixture[str]) -> None:
-        with pytest.raises(SystemExit):
-            validate_threads(0, "qwen35 threads")
-        captured = capsys.readouterr()
-        assert "qwen35 threads" in captured.err
+    def test_custom_name_in_error_detail(self) -> None:
+        result = validate_threads(0, "qwen35 threads")
+        assert result is not None
+        assert "qwen35 threads" in result.why_blocked
 
-    def test_error_output_has_structured_fields(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """FR-005: Validation errors should have structured fields in stderr output."""
-        with pytest.raises(SystemExit):
-            validate_threads(0, "threads")
-        captured = capsys.readouterr()
-        err_text = captured.err
-        # FR-005 structured output should have error_code, failed_check, why_blocked, how_to_fix
-        assert "error_code=" in err_text
-        assert "failed_check=" in err_text
-        assert "why_blocked=" in err_text
-        assert "how_to_fix=" in err_text
-        assert ErrorCode.THREADS_INVALID.value in err_text
+    def test_error_detail_has_structured_fields(self) -> None:
+        """FR-005: Validation errors should have structured fields."""
+        result = validate_threads(0, "threads")
+        assert result is not None
+        assert result.error_code == ErrorCode.THREADS_INVALID
+        assert result.failed_check == "thread_validation"
+        assert result.why_blocked is not None
+        assert result.how_to_fix is not None
 
 
 class TestBuildServerCmd:

@@ -58,6 +58,7 @@ Type conversions MUST be explicit and deterministic; no implicit casting or type
   - `--jinja` (str): explicit chat template path or inline template content
   - `--openai` (bool): OpenAI compatibility mode flag
 - **Qwen-class template requirement**: For anchored workstation models (Qwen 3.5–35B class), bundle MUST include `--chat-format` or `--jinja` flag to ensure correct chat template rendering under OpenAI-compatible surface.
+- **Qwen detection**: Models are detected as Qwen-class via case-insensitive substring match of `"Qwen"` in the model identifier (e.g., `model_id` or `general_name` from GGUF metadata). Detection is deterministic and documented in GGUF parsing (FR-014).
 - Keys MUST retain leading `--` and map directly to effective CLI-style OpenAI flags.
 - Unknown keys are FR-003 canonical-schema violations in M1.
 - **Deterministic serialization requirement**:
@@ -90,7 +91,7 @@ Type conversions MUST be explicit and deterministic; no implicit casting or type
   - `AUTH`
 - **Redaction format**: Replace value with `"[REDACTED]"` (string literal).
 - **Visible fields**: Filesystem paths remain visible in `model_path`, `binary_path`, and environment values.
-- **Token rules**: Environment values containing tokens are redacted regardless of key name if value pattern matches token format (e.g., `^[A-Za-z0-9_-]{20,}$`).
+- **Token rules**: Environment values containing tokens are redacted regardless of key name if value pattern matches token format (e.g., `^[A-Za-z0-9_-]{32,}$`). Minimum token length is 32 characters to reduce false positives.
 
 ## Filename Rules
 

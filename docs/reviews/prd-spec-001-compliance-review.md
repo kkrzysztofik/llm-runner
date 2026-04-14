@@ -307,6 +307,7 @@ All plans must address the following CI gates:
 | M2 | FR-004: Build pipeline, FR-006: Provenance, FR-005: Setup/venv |
 | M3 | FR-007, FR-008: Profiling & presets, GGUF parsing (FR-014) |
 | M4 | FR-015: Smoke verification, FR-010: TUI monitoring, FR-012: Graceful shutdown, FR-017: Hardware acknowledgment, FR-018: Logging & reports, FR-011: CLI scripting, FR-002: Backend abstraction, FR-013: Config schema |
+| M1 (Implemented) | FR-001: Slot-first orchestration, FR-002 (partial): Basic validation, FR-003 (partial): Basic dry-run, FR-006: Deterministic precedence, FR-008: Risk acknowledgement, FR-009: Lockfile handling |
 
 ### Key Takeaway
 

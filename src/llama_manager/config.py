@@ -1,6 +1,7 @@
 # Config & ServerConfig dataclasses
 
 
+import os
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -20,7 +21,9 @@ class Config:
     """
 
     # Paths
-    llama_cpp_root: str = "/home/kmk/src/llama.cpp"
+    llama_cpp_root: str = field(
+        default_factory=lambda: os.environ.get("LLAMA_CPP_ROOT", "src/llama.cpp")
+    )
     llama_server_bin_intel: str = ""
     llama_server_bin_nvidia: str = ""
 
@@ -34,15 +37,27 @@ class Config:
         )
 
     # Models
-    model_summary_balanced: str = "/home/kmk/models/unsloth/Qwen3.5-2B-GGUF/Qwen3.5-2B-IQ4_XS.gguf"
-    model_summary_fast: str = (
-        "/home/kmk/models/unsloth/unsloth/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q4_K_M.gguf"
+    model_summary_balanced: str = field(
+        default_factory=lambda: os.environ.get(
+            "MODEL_SUMMARY_BALANCED", "models/unsloth/Qwen3.5-2B-GGUF/Qwen3.5-2B-IQ4_XS.gguf"
+        )
     )
-    model_qwen35: str = (
-        "/home/kmk/models/unsloth/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-IQ4_XS.gguf"
+    model_summary_fast: str = field(
+        default_factory=lambda: os.environ.get(
+            "MODEL_SUMMARY_FAST",
+            "models/unsloth/unsloth/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q4_K_M.gguf",
+        )
     )
-    model_qwen35_both: str = (
-        "/home/kmk/models/unsloth/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-IQ4_XS.gguf"
+    model_qwen35: str = field(
+        default_factory=lambda: os.environ.get(
+            "MODEL_QWEN35", "models/unsloth/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-IQ4_XS.gguf"
+        )
+    )
+    model_qwen35_both: str = field(
+        default_factory=lambda: os.environ.get(
+            "MODEL_QWEN35_BOTH",
+            "models/unsloth/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-IQ4_XS.gguf",
+        )
     )
 
     # Network

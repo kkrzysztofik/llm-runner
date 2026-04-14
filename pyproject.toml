@@ -86,6 +86,9 @@ reportMissingModuleSource = false
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]
 addopts = "-v --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
 
 # ---------------------------------------------------------------------------
 # Coverage

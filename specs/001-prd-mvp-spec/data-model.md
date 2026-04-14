@@ -91,10 +91,32 @@
   - `vllm_eligibility: VllmEligibilityRow`
   - `warnings: list[str]`
   - `validation_results: ValidationReport`
+
+## Entity: HardwareNotes
+
+- **Fields**:
+  - `backend: str` (e.g., `llama.cpp`, `vllm`)
+  - `device_id: str` (SYCL device index or CUDA device ID)
+  - `device_name: str` (human-readable device name)
+  - `driver_version: str | None` (optional, when available)
+  - `runtime_version: str | None` (optional, when available)
 - **Validation rules**:
-  - Must include all FR-003 canonical required fields
-  - `command_args` preserves raw token boundaries
-  - `openai_flag_bundle` uses CLI-style flag keys (leading `--`) and only M1-allowed keys
+  - `backend` must be a supported backend value
+  - `device_id` must match enumeration from hardware discovery tools
+  - `driver_version` and `runtime_version` are optional but preferred for diagnostics
+
+## Entity: VllmEligibilityRow
+
+- **Fields**:
+  - `eligible: bool` (whether vllm backend can launch in M1)
+  - `backend: str` (backend name being evaluated, typically `vllm`)
+  - `reason: str` (human-readable explanation for eligibility decision)
+  - `remediation: str | None` (actionable guidance if `eligible=false`)
+  - `supported_backends: list[str] | None` (list of backends this slot supports)
+- **Validation rules**:
+  - In M1, `eligible` is always `false` for vllm backend
+  - `reason` must explicitly state M1 does not support vllm launches
+  - `remediation` must reference experimental gate or backend enablement steps
 
 ## Entity: ValidationError / ValidationReport
 

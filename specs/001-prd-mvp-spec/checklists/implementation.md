@@ -10,9 +10,10 @@
 ## Validation Summary
 
 - **Total items**: 32
-- **Completed**: 32
+- **Completed**: 27
+- **With gaps/ambiguities**: 5
 - **Incomplete**: 0
-- **Status**: PASS
+- **Status**: NEEDS_CLARIFICATION
 
 ## Requirement Completeness
 
@@ -78,3 +79,4 @@
 - Intended depth: **Standard PR reviewer gate**.
 - Scope: **M1 requirements quality** plus **dependency readiness checks** for deferred M0/M2-M4.
 - Items flagged `[Gap]`, `[Ambiguity]`, or `[Conflict]` are priority clarification candidates before `/speckit.plan`.
+- **Acknowledged gaps/ambiguities (5 items)**: CHK007 (hardware notes format), CHK008 (resolved command scoping), CHK010 (session scope terminology), CHK011 (explicit override terminology), CHK032 (canonical terminology glossary). These require clarification before implementation.

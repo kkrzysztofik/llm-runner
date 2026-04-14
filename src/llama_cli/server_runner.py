@@ -17,6 +17,8 @@ from llama_cli.cli_parser import parse_args
 from llama_cli.colors import Colors
 from llama_manager import (
     Config,
+    ErrorCode,
+    ErrorDetail,
     ModelSlot,
     ServerConfig,
     ServerManager,
@@ -75,54 +77,70 @@ def check_prereqs() -> None:
     require_executable(cfg.llama_server_bin_intel, "Intel llama-server")
 
 
+def _print_validation_error(error_detail: ErrorDetail) -> NoReturn:
+    """Print validation error and exit."""
+    error_code = (
+        error_detail.error_code.value
+        if isinstance(error_detail.error_code, ErrorCode)
+        else str(error_detail.error_code)
+    )
+    print(f"error: {error_code}", file=sys.stderr)
+    print(f"  failed_check: {error_detail.failed_check}", file=sys.stderr)
+    print(f"  why_blocked: {error_detail.why_blocked}", file=sys.stderr)
+    print(f"  how_to_fix: {error_detail.how_to_fix}", file=sys.stderr)
+    raise SystemExit(1)
+
+
 def run_summary_balanced(port: int, manager: ServerManager) -> int:
     cfg = Config()
-    validate_port(port, "summary-balanced port")
-    require_model(cfg.model_summary_balanced)
+    port_error = validate_port(port, "summary-balanced port")
+    if port_error is not None:
+        _print_validation_error(port_error)
+    model_error = require_model(cfg.model_summary_balanced)
+    if model_error is not None:
+        _print_validation_error(model_error)
     print(f"Starting summary-balanced at http://{cfg.host}:{port}/v1")
     server_cfg = create_summary_balanced_cfg(port)
     backend_error = validate_server_config(server_cfg)
     if backend_error is not None:
-        print(f"error: {backend_error.error_code}", file=sys.stderr)
-        print(f"  failed_check: {backend_error.failed_check}", file=sys.stderr)
-        print(f"  why_blocked: {backend_error.why_blocked}", file=sys.stderr)
-        print(f"  how_to_fix: {backend_error.how_to_fix}", file=sys.stderr)
-        raise SystemExit(1)
+        _print_validation_error(backend_error)
     cmd = build_server_cmd(server_cfg)
     return manager.run_server_foreground("summary-balanced", cmd)
 
 
 def run_summary_fast(port: int, manager: ServerManager) -> int:
     cfg = Config()
-    validate_port(port, "summary-fast port")
-    require_model(cfg.model_summary_fast)
+    port_error = validate_port(port, "summary-fast port")
+    if port_error is not None:
+        _print_validation_error(port_error)
+    model_error = require_model(cfg.model_summary_fast)
+    if model_error is not None:
+        _print_validation_error(model_error)
     print(f"Starting summary-fast at http://{cfg.host}:{port}/v1")
     server_cfg = create_summary_fast_cfg(port)
     backend_error = validate_server_config(server_cfg)
     if backend_error is not None:
-        print(f"error: {backend_error.error_code}", file=sys.stderr)
-        print(f"  failed_check: {backend_error.failed_check}", file=sys.stderr)
-        print(f"  why_blocked: {backend_error.why_blocked}", file=sys.stderr)
-        print(f"  how_to_fix: {backend_error.how_to_fix}", file=sys.stderr)
-        raise SystemExit(1)
+        _print_validation_error(backend_error)
     cmd = build_server_cmd(server_cfg)
     return manager.run_server_foreground("summary-fast", cmd)
 
 
 def run_qwen35(port: int, manager: ServerManager) -> int:
     cfg = Config()
-    validate_port(port, "qwen35 port")
-    require_model(cfg.model_qwen35)
-    require_executable(cfg.llama_server_bin_nvidia, "NVIDIA llama-server")
+    port_error = validate_port(port, "qwen35 port")
+    if port_error is not None:
+        _print_validation_error(port_error)
+    model_error = require_model(cfg.model_qwen35)
+    if model_error is not None:
+        _print_validation_error(model_error)
+    exec_error = require_executable(cfg.llama_server_bin_nvidia, "NVIDIA llama-server")
+    if exec_error is not None:
+        _print_validation_error(exec_error)
     print(f"Starting qwen35-coding at http://{cfg.host}:{port}/v1 (NVIDIA CUDA)")
     server_cfg = create_qwen35_cfg(port)
     backend_error = validate_server_config(server_cfg)
     if backend_error is not None:
-        print(f"error: {backend_error.error_code}", file=sys.stderr)
-        print(f"  failed_check: {backend_error.failed_check}", file=sys.stderr)
-        print(f"  why_blocked: {backend_error.why_blocked}", file=sys.stderr)
-        print(f"  how_to_fix: {backend_error.how_to_fix}", file=sys.stderr)
-        raise SystemExit(1)
+        _print_validation_error(backend_error)
     cmd = build_server_cmd(server_cfg)
     return manager.run_server_foreground("qwen35-coding", cmd)
 

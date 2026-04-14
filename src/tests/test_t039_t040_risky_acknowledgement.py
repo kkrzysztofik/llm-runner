@@ -320,7 +320,7 @@ def test_server_runner_main_returns_one_on_value_error() -> None:
 def test_run_summary_balanced_success_calls_foreground_manager() -> None:
     manager = ServerManager()
     with (
-        patch("llama_cli.server_runner.require_model"),
+        patch("llama_cli.server_runner.require_model", return_value=None),
         patch("llama_cli.server_runner.validate_server_config", return_value=None),
         patch("llama_cli.server_runner.build_server_cmd", return_value=["bin", "--x"]),
         patch.object(manager, "run_server_foreground", return_value=0) as run_fg,
@@ -352,8 +352,8 @@ def test_run_summary_fast_exits_on_backend_validation_error() -> None:
 def test_run_qwen35_success_calls_foreground_manager() -> None:
     manager = ServerManager()
     with (
-        patch("llama_cli.server_runner.require_model"),
-        patch("llama_cli.server_runner.require_executable"),
+        patch("llama_cli.server_runner.require_model", return_value=None),
+        patch("llama_cli.server_runner.require_executable", return_value=None),
         patch("llama_cli.server_runner.validate_server_config", return_value=None),
         patch("llama_cli.server_runner.build_server_cmd", return_value=["bin", "--y"]),
         patch.object(manager, "run_server_foreground", return_value=0) as run_fg,

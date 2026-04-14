@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 
 from llama_manager.config import Config
@@ -78,14 +80,11 @@ def test_merge_validates_threads_positive() -> None:
     assert "threads must be greater than 0" in str(exc.value)
 
 
-def test_model_path_validation_only_when_model_is_overridden(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_model_path_validation_only_when_model_is_overridden() -> None:
     defaults = Config()
-    monkeypatch.setattr("os.path.exists", lambda _: False)
-
-    # Should not validate defaults-only model path
-    merge_config_overrides(defaults, override_config={"port": 8088})
+    with patch("llama_manager.config_builder.os.path.exists", return_value=False):
+        # Should not validate defaults-only model path
+        merge_config_overrides(defaults, override_config={"port": 8088})
 
     # Should validate when model path is explicitly overridden
     with pytest.raises(ValueError) as exc:
