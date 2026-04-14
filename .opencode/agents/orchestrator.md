@@ -110,6 +110,14 @@ After each delegation, note:
 - What was found (constraints, new requirements)
 - What the next step is
 
+### 4.1 Subagent Session Isolation (Mandatory)
+
+For each new sub-task delegation, start a **fresh subagent session**.
+
+- Do **not** reuse prior `task_id` sessions by default.
+- Use one new subagent invocation per sub-task so context is isolated and auditable.
+- Only resume an existing `task_id` when the user explicitly requests continuation of that exact in-progress sub-task.
+
 ### 5. Resolve Conflicts
 
 If agents conflict (e.g., Architect planned `llama_manager/` change but Backend
