@@ -1125,6 +1125,11 @@ class ServerManager:
     ) -> LaunchResult:
         """Launch model slots with lock collision detection (T017-T019).
 
+        Preflight/simulation mode: checks lockfile availability without spawning
+        real server processes or creating persistent lock entries. This allows
+        deterministic status behavior (blocked/degraded/success) for testing and
+        dry-run scenarios without leaving stale locks on disk.
+
         Processes slots in deterministic order, collecting warnings for blocked slots
         and errors when all slots are blocked.
 
@@ -1154,31 +1159,11 @@ class ServerManager:
                 warnings.append(error_msg)
                 errors.append(block)
             else:
-                # Slot is available - attempt to acquire lock and launch
-                try:
-                    # Create lock for this slot with actual PID (simulating successful launch)
-                    # Use os.getpid() for the actual process ID
-                    create_lock(runtime_dir, slot.slot_id, pid=os.getpid(), port=slot.port)
-
-                    # Mock subprocess start (in real usage, this would start the actual server)
-                    # For now, just record success
-                    launched.append(slot.slot_id)
-
-                except (FileExistsError, ValidationException):
-                    # Lock acquisition failed - slot is blocked
-                    error_msg = (
-                        f"slot {slot.slot_id}: port_conflict - "
-                        f"lockfile already exists or could not be created"
-                    )
-                    warnings.append(error_msg)
-                    errors.append(
-                        ErrorDetail(
-                            error_code=ErrorCode.PORT_CONFLICT,
-                            failed_check="lockfile_creation",
-                            why_blocked="lockfile already exists or could not be created",
-                            how_to_fix="remove existing lockfile or wait for server to exit",
-                        )
-                    )
+                # Slot is available - simulate successful launch without creating lock
+                # In real usage, this is where create_lock() and subprocess spawning
+                # would occur. For preflight/simulation mode, we just record success
+                # without persisting state to disk.
+                launched.append(slot.slot_id)
 
         # Determine final status
         if not launched:

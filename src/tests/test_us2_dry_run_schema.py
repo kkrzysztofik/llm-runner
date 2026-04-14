@@ -547,7 +547,7 @@ class TestFR003HardwareNotes:
             warnings=[],
         )
         backend = payload.hardware_notes["backend"]
-        assert isinstance(backend, str | None)
+        assert isinstance(backend, (str, type(None)))
 
     def test_hardware_notes_device_id_is_string_or_none(self) -> None:
         """FR-003: hardware_notes.device_id should be str or None."""
@@ -558,7 +558,7 @@ class TestFR003HardwareNotes:
             warnings=[],
         )
         device_id = payload.hardware_notes["device_id"]
-        assert isinstance(device_id, str | None)
+        assert isinstance(device_id, (str, type(None)))
 
     def test_hardware_notes_device_name_is_string_or_none(self) -> None:
         """FR-003: hardware_notes.device_name should be str or None."""
@@ -569,7 +569,7 @@ class TestFR003HardwareNotes:
             warnings=[],
         )
         device_name = payload.hardware_notes["device_name"]
-        assert isinstance(device_name, str | None)
+        assert isinstance(device_name, (str, type(None)))
 
 
 class TestFR003VllmEligibility:
