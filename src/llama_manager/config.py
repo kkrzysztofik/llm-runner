@@ -53,6 +53,7 @@ class Config:
 
     # Model-specific defaults
     summary_balanced_chat_template_kwargs: str = '{"enable_thinking":false}'
+    summary_fast_chat_template_kwargs: str = '{"enable_thinking":false}'
 
     # Server defaults
     default_n_gpu_layers: int = 99

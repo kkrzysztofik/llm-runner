@@ -9,7 +9,10 @@ try:
     )
     detect_risky_operations = server_module.detect_risky_operations
 except AttributeError:
-    pytest.skip("detect_risky_operations attribute not found in llama_manager.server")
+    pytest.skip(
+        "detect_risky_operations attribute not found in llama_manager.server",
+        allow_module_level=True,
+    )
 
 
 def test_privileged_port_requires_acknowledgement() -> None:

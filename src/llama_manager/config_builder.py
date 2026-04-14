@@ -124,7 +124,6 @@ def create_summary_fast_cfg(
 
     """
     cfg = Config()
-    # Note: summary_fast_chat_template_kwargs not available in Config; using balanced defaults
     return ServerConfig(
         model=cfg.model_summary_fast,
         alias="summary-fast",
@@ -135,7 +134,7 @@ def create_summary_fast_cfg(
         threads=threads or cfg.default_threads_summary_fast,
         reasoning_mode="off",
         reasoning_format="deepseek",
-        chat_template_kwargs=cfg.summary_balanced_chat_template_kwargs,
+        chat_template_kwargs=cfg.summary_fast_chat_template_kwargs,
         use_jinja=True,
         cache_type_k=cache_k or cfg.default_cache_type_summary_k,
         cache_type_v=cache_v or cfg.default_cache_type_summary_v,
