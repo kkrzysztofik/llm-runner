@@ -21,6 +21,11 @@
 - Q: How should concurrent build attempts be handled? → A: File-based lock at `$XDG_CACHE_HOME/llm-runner/.build.lock`; second build attempt blocks with FR-005 error until first completes.
 - Q: Should build pipeline validate git remote URL? → A: Yes — only `https://github.com/ggerganov/llama.cpp` allowed by default. Configurable via `Config.build_git_remote` for forks.
 - Q: What happens on build interrupt (Ctrl+C)? → A: Clean up staging directory, preserve any already-successful artifacts, release build lock. Interrupted build does NOT produce a failure report (operator cancelled intentionally).
+- Q: When the source directory already exists with a git repo, what should the clone stage do? → A: Run `git fetch origin && git checkout <branch>` to update existing source to latest tip (incremental update). Re-clone only if source directory does not exist.
+- Q: How should cmake flags be specified for each backend? → A: Derive from `Config`/`BuildConfig` dataclass fields — no hardcoded flag strings. Flag names (`LLAMA_SYCL`, `LLAMA_CUDA`, compiler paths) defined as class constants on `BuildPipeline` or `BuildConfig`. The data model drives everything, consistent with M1 pattern.
+- Q: Should `build` and `setup` support `--json` machine-readable output? → A: Yes — `--json` on both `build` and `setup`. `build --json` outputs `BuildArtifact` JSON; `setup --json` outputs `ToolchainStatus` JSON. Consistent with M1's `dry-run --json` pattern.
+- Q: What platform scope for toolchain install hints? → A: Debian-derivatives only (apt-get). Matches target hardware (Ubuntu/Debian with Intel Arc SYCL + NVIDIA CUDA). Other platforms deferred post-MVP.
+- Q: Should M2 define performance targets (max build time, preflight duration)? → A: No explicit targets — build times are hardware-dependent and non-deterministic. Success criteria focus on correctness, not speed.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -125,6 +130,7 @@ fields are present. After a failed build, confirm the report directory exists wi
 ### Edge Cases
 
 - Serialized build order: SYCL first by default; `--build-order` overrides.
+- If source directory already exists with a git repo, clone stage runs `git fetch origin && git checkout <branch>` (incremental update); full clone only when source directory does not exist.
 - `build both` fails fast on first backend failure; successful backends retain their artifacts.
 - Preflight checks run before any build execution; missing toolchain is always fatal (no retry).
 - Network failures during git clone are retryable; compiler failures are fatal.
@@ -136,6 +142,10 @@ fields are present. After a failed build, confirm the report directory exists wi
 - Provenance files are written atomically; partial writes are treated as integrity failures.
 - Report rotation keeps the N most recent reports (default 50); oldest are deleted first.
 - Build output truncation: logs are capped at 10 KiB in failure reports; full logs remain in the build directory.
+- Cmake flags are derived from `BuildConfig` dataclass fields; flag names are class constants, not hardcoded strings.
+- `build --json` outputs `BuildArtifact` JSON; `setup --json` outputs `ToolchainStatus` JSON.
+- Toolchain install hints are Debian-derivatives only (apt-get); other platforms deferred post-MVP.
+- No explicit performance targets; success criteria focus on correctness, not speed.
 - `build --dry-run` runs preflight only; does not clone, configure, or build.
 - `build --full-clone` uses `git clone` without `--depth 1` for full history.
 - `build --jobs N` overrides `os.cpu_count()` for parallel make.
@@ -149,10 +159,20 @@ fields are present. After a failed build, confirm the report directory exists wi
 - **FR-004.1**: System MUST provide a CLI `build` subcommand that accepts a backend argument
   (`sycl` | `cuda` | `both`) and executes the llama.cpp build pipeline for the specified backend(s).
   When `both` is specified, builds MUST run sequentially (never in parallel). Default build order is
-  SYCL first; `--build-order` flag allows override.
+  SYCL first; `--build-order` flag allows override. The `--json` flag MUST produce machine-readable
+  `BuildArtifact` JSON output (consistent with M1's `dry-run --json` pattern).
 - **FR-004.2**: Build pipeline MUST execute the following stages in order: preflight → clone →
   configure → build → install → provenance. Each stage MUST report its status (`pending` | `running` |
-  `success` | `failed`) and progress percentage.
+  `success` | `failed`) and progress percentage. When the source directory already exists with a
+  valid git repository, the clone stage MUST run `git fetch origin && git checkout <branch>` instead
+  of a full clone. If the source directory does not exist, a full `git clone` is performed (shallow
+  by default per `--full-clone` flag).
+- **FR-004.2a**: The configure stage MUST derive cmake flags from `BuildConfig` dataclass fields
+  rather than hardcoded strings. Flag names (e.g., `LLAMA_SYCL`, `LLAMA_CUDA`, compiler paths) MUST
+  be defined as class constants. The specific flag set per backend:
+  - SYCL: `LLAMA_SYCL=ON`, `CMAKE_C_COMPILER=icx`, `CMAKE_CXX_COMPILER=icpx`
+  - CUDA: `LLAMA_CUDA=ON`
+  These are the standard llama.cpp cmake flags; additional flags may be added via `BuildConfig` fields.
 - **FR-004.3**: Build pipeline MUST implement retry logic for transient failures (network timeout,
   transient build tool errors). Retry-attempt count is configurable via `--retry-attempts` (default 3).
   Exponential backoff delay starts at `Config.build_retry_delay` seconds (default 5.0). Missing
@@ -167,7 +187,9 @@ fields are present. After a failed build, confirm the report directory exists wi
 - **FR-005.1**: System MUST provide a `setup --check` subcommand that detects installed toolchain
   components (gcc, make, git, cmake, sycl_compiler, cuda_toolkit, nvtop) and returns their version
   strings, or `None` for missing tools. Missing tools MUST produce FR-005 actionable errors with
-  platform-specific install instructions.
+  Debian-specific install instructions (apt-get only). The `--json` flag MUST produce machine-readable
+  `ToolchainStatus` JSON output (consistent with M1's `dry-run --json` pattern). Platform scope is
+  Debian-derivatives only in M2; other platforms deferred post-MVP.
 - **FR-005.2**: System MUST provide a `setup` subcommand (without `--check`) that creates or reuses
   a virtual environment at `$XDG_CACHE_HOME/llm-runner/venv` (fallback `~/.cache/llm-runner/venv`).
   The venv MUST NOT be auto-activated; the activation command MUST be printed to stdout.

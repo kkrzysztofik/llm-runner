@@ -100,7 +100,7 @@
 
 - **Fields**:
   - `tool_name: str` — name of the missing tool (e.g., "cmake", "dpcpp")
-  - `install_command_linux: str` — apt-get or other Linux package manager command
+  - `install_command: str` — apt-get command for Debian-derivatives (M2 scope; other platforms deferred)
   - `install_url: str` — documentation URL for manual installation
   - `required_for: list[Literal["sycl", "cuda"]]` — which backends require this tool
 - **Validation rules**:
