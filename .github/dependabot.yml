@@ -36,6 +36,9 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
     groups:
       python-dev:
         patterns:
@@ -48,3 +51,7 @@ updates:
         patterns:
           - "rich"
           - "psutil"
+      # Catch-all group for any ungrouped dependencies
+      python-other:
+        patterns:
+          - "*"

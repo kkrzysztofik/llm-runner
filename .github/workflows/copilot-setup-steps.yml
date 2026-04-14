@@ -21,7 +21,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: "0.5.21" # Pinned for reproducibility
+          version: "0.11.6" # Pinned to 0.11.x for reproducibility
           enable-cache: true
 
       - name: Set up Python 3.12

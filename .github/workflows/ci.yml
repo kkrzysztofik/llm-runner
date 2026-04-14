@@ -84,14 +84,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: pytest
-        run: uv run pytest src/tests/ --cov --cov-report=term-missing --cov-report=xml
-
-      - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-xml
-          path: coverage.xml
-          retention-days: 7
+        run: uv run pytest src/tests/ --cov --cov-report=term-missing
 
   audit:
     name: Dependency Audit
@@ -141,7 +134,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Generate fresh coverage report for Sonar
-        run: uv run pytest src/tests/ --cov --cov-report=xml --cov-report=term-missing -x
+        run: uv run pytest src/tests/ --cov --cov-report=xml --cov-report=term-missing
 
       - name: Skip notice when Sonar token unavailable
         if: env.SONAR_TOKEN == ''
