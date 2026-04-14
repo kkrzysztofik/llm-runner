@@ -231,6 +231,132 @@ def validate_server_config(cfg: ServerConfig) -> ErrorDetail | None:
     return validate_backend_eligibility(cfg.backend)
 
 
+def _validate_duplicate_slots(slots: list["ModelSlot"]) -> list[ValidationResult]:
+    """Validate for duplicate slot IDs.
+
+    Args:
+        slots: List of ModelSlot objects to check.
+
+    Returns:
+        List of validation results for duplicate slot errors.
+    """
+    from .config import detect_duplicate_slots
+
+    results: list[ValidationResult] = []
+    duplicates = detect_duplicate_slots(slots)
+    for dup_slot_id in duplicates:
+        results.append(
+            ValidationResult(
+                slot_id=dup_slot_id,
+                passed=False,
+                failed_check="duplicate_slot_detection",
+                error_code=ErrorCode.DUPLICATE_SLOT,
+                error_message=f"Duplicate slot_id detected: {dup_slot_id}",
+            )
+        )
+    return results
+
+
+def _validate_slot(slot: "ModelSlot") -> list[ValidationResult]:
+    """Validate a single slot configuration.
+
+    Args:
+        slot: ModelSlot to validate.
+
+    Returns:
+        List of validation results (empty if all checks pass).
+    """
+    from .config import normalize_slot_id
+
+    results: list[ValidationResult] = []
+
+    try:
+        normalized_id = normalize_slot_id(slot.slot_id)
+    except ValueError as e:
+        results.append(
+            ValidationResult(
+                slot_id=slot.slot_id,
+                passed=False,
+                failed_check="slot_id_validation",
+                error_code=ErrorCode.INVALID_SLOT_ID,
+                error_message=str(e),
+            )
+        )
+        return results
+
+    # Validate port
+    if not (1 <= slot.port <= 65535):
+        results.append(
+            ValidationResult(
+                slot_id=normalized_id,
+                passed=False,
+                failed_check="port_validation",
+                error_code=ErrorCode.PORT_INVALID,
+                error_message=f"port must be between 1 and 65535, got: {slot.port}",
+            )
+        )
+
+    # Validate model_path exists if specified
+    if slot.model_path:
+        if os.path.isfile(slot.model_path):
+            # Model file exists, validation passes
+            pass
+        elif os.path.isdir(slot.model_path):
+            # Directory not allowed
+            results.append(
+                ValidationResult(
+                    slot_id=normalized_id,
+                    passed=False,
+                    failed_check="model_path_validation",
+                    error_code=ErrorCode.FILE_NOT_FOUND,
+                    error_message="model_path must be a file, not a directory",
+                )
+            )
+        else:
+            # Path doesn't exist
+            results.append(
+                ValidationResult(
+                    slot_id=normalized_id,
+                    passed=False,
+                    failed_check="model_path_validation",
+                    error_code=ErrorCode.FILE_NOT_FOUND,
+                    error_message=f"model_path does not exist: {slot.model_path}",
+                )
+            )
+
+    return results
+
+
+def _convert_results_to_errors(validation_results: list[ValidationResult]) -> MultiValidationError:
+    """Convert validation results to MultiValidationError.
+
+    Args:
+        validation_results: List of validation results to convert.
+
+    Returns:
+        MultiValidationError with sorted error details.
+    """
+    failed = [r for r in validation_results if not r.passed]
+    if not failed:
+        return MultiValidationError(errors=[])
+
+    # Sort errors for deterministic output
+    sorted_results = sort_validation_errors(failed)
+
+    # Convert ValidationResult to ErrorDetail
+    error_details: list[ErrorDetail] = []
+    for result in sorted_results:
+        error_detail = ErrorDetail(
+            error_code=result.error_code or ErrorCode.CONFIG_ERROR,
+            failed_check=result.failed_check,
+            why_blocked=result.error_message,
+            how_to_fix=f"Fix {result.failed_check} for slot {result.slot_id}",
+        )
+        error_details.append(error_detail)
+
+    return MultiValidationError(errors=error_details)
+
+
 def validate_slots(slots: list["ModelSlot"]) -> MultiValidationError | None:
     """Validate ModelSlot configurations and return MultiValidationError if any fail.
 
@@ -247,100 +373,21 @@ def validate_slots(slots: list["ModelSlot"]) -> MultiValidationError | None:
         MultiValidationError if validation fails, None if all slots pass validation
 
     """
-    from .config import (
-        detect_duplicate_slots,
-        normalize_slot_id,
-    )
-
-    validation_results: list[ValidationResult] = []
-
     # Check for duplicate slot IDs first
-    duplicates = detect_duplicate_slots(slots)
-    for dup_slot_id in duplicates:
-        validation_results.append(
-            ValidationResult(
-                slot_id=dup_slot_id,
-                passed=False,
-                failed_check="duplicate_slot_detection",
-                error_code=ErrorCode.DUPLICATE_SLOT,
-                error_message=f"Duplicate slot_id detected: {dup_slot_id}",
-            )
-        )
+    duplicate_results = _validate_duplicate_slots(slots)
 
-    # Validate each slot
+    # Validate each slot individually
+    slot_results: list[ValidationResult] = []
     for slot in slots:
-        try:
-            normalized_id = normalize_slot_id(slot.slot_id)
-        except ValueError as e:
-            validation_results.append(
-                ValidationResult(
-                    slot_id=slot.slot_id,
-                    passed=False,
-                    failed_check="slot_id_validation",
-                    error_code=ErrorCode.INVALID_SLOT_ID,
-                    error_message=str(e),
-                )
-            )
-            continue
+        slot_results.extend(_validate_slot(slot))
 
-        # Validate port
-        if not (1 <= slot.port <= 65535):
-            validation_results.append(
-                ValidationResult(
-                    slot_id=normalized_id,
-                    passed=False,
-                    failed_check="port_validation",
-                    error_code=ErrorCode.PORT_INVALID,
-                    error_message=f"port must be between 1 and 65535, got: {slot.port}",
-                )
-            )
+    # Combine all validation results
+    all_results = duplicate_results + slot_results
 
-        # Validate model_path exists if specified
-        if slot.model_path:
-            if os.path.isfile(slot.model_path):
-                # Model file exists, validation passes
-                pass
-            elif os.path.isdir(slot.model_path):
-                # Directory not allowed
-                validation_results.append(
-                    ValidationResult(
-                        slot_id=normalized_id,
-                        passed=False,
-                        failed_check="model_path_validation",
-                        error_code=ErrorCode.FILE_NOT_FOUND,
-                        error_message="model_path must be a file, not a directory",
-                    )
-                )
-            else:
-                # Path doesn't exist
-                validation_results.append(
-                    ValidationResult(
-                        slot_id=normalized_id,
-                        passed=False,
-                        failed_check="model_path_validation",
-                        error_code=ErrorCode.FILE_NOT_FOUND,
-                        error_message=f"model_path does not exist: {slot.model_path}",
-                    )
-                )
-
-    # Convert validation results to MultiValidationError if any failed
-    failed = [r for r in validation_results if not r.passed]
-    if failed:
-        # Sort errors for deterministic output
-        sorted_results = sort_validation_errors(failed)
-
-        # Convert ValidationResult to ErrorDetail
-        error_details: list[ErrorDetail] = []
-        for result in sorted_results:
-            error_detail = ErrorDetail(
-                error_code=result.error_code or ErrorCode.CONFIG_ERROR,
-                failed_check=result.failed_check,
-                why_blocked=result.error_message,
-                how_to_fix=f"Fix {result.failed_check} for slot {result.slot_id}",
-            )
-            error_details.append(error_detail)
-
-        return MultiValidationError(errors=error_details)
+    # Return None if all passed, otherwise convert to error
+    if all_results:
+        return _convert_results_to_errors(all_results)
+    return None
 
 
 def detect_risky_operations(cfg: ServerConfig) -> list[str]:

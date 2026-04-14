@@ -38,6 +38,11 @@ from llama_manager.server import detect_risky_operations
 RISK_ACK_LABEL = "warning_bypass"
 RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
 
+# Port labels for validation error messages
+PORT_SUMMARY_BALANCED = "summary-balanced port"
+PORT_SUMMARY_FAST = "summary-fast port"
+PORT_QWEN35 = "qwen35 port"
+
 
 def usage() -> None:
     print("""Usage:
@@ -93,7 +98,7 @@ def _print_validation_error(error_detail: ErrorDetail) -> NoReturn:
 
 def run_summary_balanced(port: int, manager: ServerManager) -> int:
     cfg = Config()
-    port_error = validate_port(port, "summary-balanced port")
+    port_error = validate_port(port, PORT_SUMMARY_BALANCED)
     if port_error is not None:
         _print_validation_error(port_error)
     model_error = require_model(cfg.model_summary_balanced)
@@ -110,7 +115,7 @@ def run_summary_balanced(port: int, manager: ServerManager) -> int:
 
 def run_summary_fast(port: int, manager: ServerManager) -> int:
     cfg = Config()
-    port_error = validate_port(port, "summary-fast port")
+    port_error = validate_port(port, PORT_SUMMARY_FAST)
     if port_error is not None:
         _print_validation_error(port_error)
     model_error = require_model(cfg.model_summary_fast)
@@ -127,7 +132,7 @@ def run_summary_fast(port: int, manager: ServerManager) -> int:
 
 def run_qwen35(port: int, manager: ServerManager) -> int:
     cfg = Config()
-    port_error = validate_port(port, "qwen35 port")
+    port_error = validate_port(port, PORT_QWEN35)
     if port_error is not None:
         _print_validation_error(port_error)
     model_error = require_model(cfg.model_qwen35)
@@ -147,9 +152,9 @@ def run_qwen35(port: int, manager: ServerManager) -> int:
 
 def run_both(port32: int, port35: int, manager: ServerManager) -> int:
     cfg = Config()
-    validate_port(port32, "summary-balanced port")
-    validate_port(port35, "qwen35 port")
-    validate_ports(port32, port35, "summary-balanced port", "qwen35 port")
+    validate_port(port32, PORT_SUMMARY_BALANCED)
+    validate_port(port35, PORT_QWEN35)
+    validate_ports(port32, port35, PORT_SUMMARY_BALANCED, PORT_QWEN35)
     require_model(cfg.model_summary_balanced)
     require_model(cfg.model_qwen35_both)
     require_executable(cfg.llama_server_bin_nvidia, "NVIDIA llama-server")

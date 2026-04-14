@@ -11,62 +11,56 @@ import sys
 VALID_MODES = ("summary-balanced", "summary-fast", "qwen35", "both")
 
 
-def parse_args(args: list[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments.
-
-    Handles the special case of 'dry-run' mode which requires a second argument
-    specifying the mode to preview (e.g., 'dry-run both').
+def _parse_dry_run_args(args: list[str]) -> argparse.Namespace:
+    """Parse arguments for dry-run mode.
 
     Args:
-        args: Optional list of command-line arguments. If None, uses sys.argv[1:].
+        args: List of arguments starting from index 2 (after 'dry-run' and mode).
+
+    Returns:
+        Parsed arguments namespace.
+
+    Raises:
+        SystemExit: On invalid arguments.
+    """
+    dry_run_mode = args[1]
+    if dry_run_mode not in VALID_MODES:
+        print(
+            f"error: invalid dry-run mode '{dry_run_mode}'. Valid modes: {', '.join(VALID_MODES)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Remaining args after mode are ports (excluding --acknowledge-risky flag)
+    ports: list[int] = []
+    acknowledge_risky = False
+    for arg in args[2:]:
+        if arg == "--acknowledge-risky":
+            acknowledge_risky = True
+        else:
+            try:
+                ports.append(int(arg))
+            except ValueError:
+                print(f"error: invalid port '{arg}'", file=sys.stderr)
+                sys.exit(1)
+
+    return argparse.Namespace(
+        mode="dry-run",
+        dry_run_mode=dry_run_mode,
+        ports=ports,
+        acknowledge_risky=acknowledge_risky,
+    )
+
+
+def _parse_normal_mode_args(args: list[str]) -> argparse.Namespace:
+    """Parse arguments for normal modes.
+
+    Args:
+        args: List of command-line arguments.
 
     Returns:
         Parsed arguments namespace.
     """
-    if args is None:
-        # Preserve argparse default behavior: use sys.argv[1:]
-        args = sys.argv[1:]
-
-    # Custom parsing for dry-run mode
-    if len(args) >= 1 and args[0] == "dry-run":
-        # dry-run requires a second argument specifying the mode
-        if len(args) < 2:
-            print(
-                "error: dry-run requires a mode argument (summary-balanced|summary-fast|qwen35|both)",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        dry_run_mode = args[1]
-        if dry_run_mode not in VALID_MODES:
-            print(
-                f"error: invalid dry-run mode '{dry_run_mode}'. "
-                f"Valid modes: {', '.join(VALID_MODES)}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        # Remaining args after mode are ports (excluding --acknowledge-risky flag)
-        ports = []
-        acknowledge_risky = False
-        for arg in args[2:]:
-            if arg == "--acknowledge-risky":
-                acknowledge_risky = True
-            else:
-                try:
-                    ports.append(int(arg))
-                except ValueError:
-                    print(f"error: invalid port '{arg}'", file=sys.stderr)
-                    sys.exit(1)
-
-        return argparse.Namespace(
-            mode="dry-run",
-            dry_run_mode=dry_run_mode,
-            ports=ports,
-            acknowledge_risky=acknowledge_risky,
-        )
-
-    # Normal mode parsing
     parser = argparse.ArgumentParser(
         description="Manage multiple llama-server instances",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -108,9 +102,55 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
 
     parsed = parser.parse_args(args)
-    # Add dry_run_mode attribute for consistency
     parsed.dry_run_mode = None
     return parsed
+
+
+def _handle_dry_run_case(args: list[str]) -> argparse.Namespace | None:
+    """Handle dry-run mode special case.
+
+    Args:
+        args: List of command-line arguments.
+
+    Returns:
+        Parsed namespace if dry-run mode, None otherwise.
+
+    Raises:
+        SystemExit: On missing or invalid dry-run arguments.
+    """
+    if len(args) >= 1 and args[0] == "dry-run":
+        if len(args) < 2:
+            print(
+                "error: dry-run requires a mode argument (summary-balanced|summary-fast|qwen35|both)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        return _parse_dry_run_args(args)
+    return None
+
+
+def parse_args(args: list[str] | None = None) -> argparse.Namespace:
+    """Parse command line arguments.
+
+    Handles the special case of 'dry-run' mode which requires a second argument
+    specifying the mode to preview (e.g., 'dry-run both').
+
+    Args:
+        args: Optional list of command-line arguments. If None, uses sys.argv[1:].
+
+    Returns:
+        Parsed arguments namespace.
+    """
+    if args is None:
+        args = sys.argv[1:]
+
+    # Handle dry-run mode first (special case)
+    dry_run_result = _handle_dry_run_case(args)
+    if dry_run_result is not None:
+        return dry_run_result
+
+    # Normal mode parsing
+    return _parse_normal_mode_args(args)
 
 
 def parse_tui_args(args: list[str] | None = None) -> argparse.Namespace:

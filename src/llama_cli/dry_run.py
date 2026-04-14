@@ -271,20 +271,32 @@ def _run_both_mode(
     return has_error
 
 
-def dry_run(
-    mode: str,
-    primary_port: str | None = None,
-    secondary_port: str | None = None,
-    acknowledged: bool = False,
-) -> None:
-    """Print command without executing"""
+def _resolve_ports(primary_port: str | None, secondary_port: str | None) -> dict[str, int]:
+    """Resolve port values with defaults.
+
+    Args:
+        primary_port: Primary port string from user input.
+        secondary_port: Secondary port string from user input.
+
+    Returns:
+        Dict with resolved port values for each mode.
+    """
     cfg = Config()
+    return {
+        "summary_balanced_port": int(primary_port) if primary_port else cfg.summary_balanced_port,
+        "summary_fast_port": int(primary_port) if primary_port else cfg.summary_fast_port,
+        "qwen35_port": int(primary_port) if primary_port else cfg.qwen35_port,
+        "qwen35_port_both": int(secondary_port) if secondary_port else cfg.qwen35_port,
+    }
 
-    summary_balanced_port = int(primary_port) if primary_port else cfg.summary_balanced_port
-    summary_fast_port = int(primary_port) if primary_port else cfg.summary_fast_port
-    qwen35_port = int(primary_port) if primary_port else cfg.qwen35_port
-    qwen35_port_both = int(secondary_port) if secondary_port else cfg.qwen35_port
 
+def _print_dry_run_header(mode: str, cfg: Config) -> None:
+    """Print dry-run mode header information.
+
+    Args:
+        mode: The dry-run mode being executed.
+        cfg: Config instance with model paths and binary locations.
+    """
     print("=== DRY RUN MODE ===")
     print(f"Mode: {mode}")
     print(f"llama-server (Intel): {cfg.llama_server_bin_intel}")
@@ -295,6 +307,62 @@ def dry_run(
     print(f"qwen35 both model: {cfg.model_qwen35_both}")
     print()
 
+
+def _write_dry_run_artifact(mode: str, slot_payloads: list[DryRunSlotPayload]) -> None:
+    """Write dry-run artifact to runtime directory.
+
+    Args:
+        mode: The dry-run mode that was executed.
+        slot_payloads: List of slot payloads to include in artifact.
+
+    Raises:
+        SystemExit: On artifact persistence failure.
+    """
+    runtime_dir = resolve_runtime_dir()
+    canonical_payload = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "slot_scope": [p.slot_id for p in slot_payloads],
+        "resolved_command": {p.slot_id: p.command_args for p in slot_payloads},
+        "validation_results": {
+            p.slot_id: {
+                "passed": p.validation_results.passed if p.validation_results else False,
+                "checks": p.validation_results.checks if p.validation_results else [],
+            }
+            for p in slot_payloads
+        },
+        "warnings": [warning for p in slot_payloads for warning in p.warnings],
+        "environment_redacted": slot_payloads[0].environment_redacted if slot_payloads else {},
+    }
+    try:
+        artifact_path = write_artifact(runtime_dir, f"dryrun-{mode}", canonical_payload)
+        print(f"Artifact written: {artifact_path}")
+    except Exception as e:
+        print(f"error: artifact persistence failed: {e}", file=sys.stderr)
+        print("  failed_check: artifact_persistence", file=sys.stderr)
+        print(
+            "  why_blocked: artifact persistence failed to enforce required permissions",
+            file=sys.stderr,
+        )
+        print(
+            "  how_to_fix: verify runtime path and permission support before retry",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def dry_run(
+    mode: str,
+    primary_port: str | None = None,
+    secondary_port: str | None = None,
+    acknowledged: bool = False,
+) -> None:
+    """Print command without executing"""
+    cfg = Config()
+
+    ports = _resolve_ports(primary_port, secondary_port)
+
+    _print_dry_run_header(mode, cfg)
+
     slot_payloads: list[DryRunSlotPayload] = []
     has_error = False
     manager = ServerManager()
@@ -303,36 +371,36 @@ def dry_run(
         "summary-balanced": lambda: _run_summary_balanced_mode(
             cfg,
             manager,
-            summary_balanced_port,
+            ports["summary_balanced_port"],
             acknowledged,
             slot_payloads,
         ),
         "llama32": lambda: _run_summary_balanced_mode(
             cfg,
             manager,
-            summary_balanced_port,
+            ports["summary_balanced_port"],
             acknowledged,
             slot_payloads,
         ),
         "summary-fast": lambda: _run_summary_fast_mode(
             cfg,
             manager,
-            summary_fast_port,
+            ports["summary_fast_port"],
             acknowledged,
             slot_payloads,
         ),
         "qwen35": lambda: _run_qwen35_mode(
             cfg,
             manager,
-            qwen35_port,
+            ports["qwen35_port"],
             acknowledged,
             slot_payloads,
         ),
         "both": lambda: _run_both_mode(
             cfg,
             manager,
-            summary_balanced_port,
-            qwen35_port_both,
+            ports["summary_balanced_port"],
+            ports["qwen35_port_both"],
             acknowledged,
             slot_payloads,
         ),
@@ -352,39 +420,7 @@ def dry_run(
 
         # FR-007: Write artifact for dry-run attempt
         if not has_error and slot_payloads:
-            runtime_dir = resolve_runtime_dir()
-            # Build canonical top-level payload containing ordered slot payloads
-            canonical_payload = {
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "slot_scope": [p.slot_id for p in slot_payloads],
-                "resolved_command": {p.slot_id: p.command_args for p in slot_payloads},
-                "validation_results": {
-                    p.slot_id: {
-                        "passed": p.validation_results.passed if p.validation_results else False,
-                        "checks": p.validation_results.checks if p.validation_results else [],
-                    }
-                    for p in slot_payloads
-                },
-                "warnings": [warning for p in slot_payloads for warning in p.warnings],
-                "environment_redacted": slot_payloads[0].environment_redacted
-                if slot_payloads
-                else {},
-            }
-            try:
-                artifact_path = write_artifact(runtime_dir, f"dryrun-{mode}", canonical_payload)
-                print(f"Artifact written: {artifact_path}")
-            except Exception as e:
-                print(f"error: artifact persistence failed: {e}", file=sys.stderr)
-                print("  failed_check: artifact_persistence", file=sys.stderr)
-                print(
-                    "  why_blocked: artifact persistence failed to enforce required permissions",
-                    file=sys.stderr,
-                )
-                print(
-                    "  how_to_fix: verify runtime path and permission support before retry",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
+            _write_dry_run_artifact(mode, slot_payloads)
 
         if has_error:
             sys.exit(1)

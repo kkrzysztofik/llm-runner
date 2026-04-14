@@ -10,13 +10,13 @@ class Colors:
     Attributes:
         enabled: Global flag to enable/disable all color output.
                  When False, all color codes are stripped.
-        COLORS: Mapping of server aliases to Rich color names.
+        _COLORS: Mapping of server aliases to Rich color names.
 
     """
 
     enabled: bool = True
 
-    COLORS: dict[str, str] = {
+    _COLORS: dict[str, str] = {
         "summary-balanced": "blue",
         "summary-fast": "yellow",
         "qwen35-coding": "green",
@@ -45,7 +45,7 @@ class Colors:
         """
         if not cls.enabled:
             return None
-        return cls.COLORS.get(server_name)
+        return cls._COLORS.get(server_name)
 
     @classmethod
     def is_enabled(cls) -> bool:
