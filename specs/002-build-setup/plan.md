@@ -1,39 +1,39 @@
-# Implementation Plan: PRD M2 — Build Wizard + Setup Pipeline
+# Implementation Plan: PRD M2 - Build Wizard + Setup Pipeline
 
 **Branch**: `002-build-setup` | **Date**: 2026-04-15 | **Spec**: `/specs/002-build-setup/spec.md`
 **Input**: Feature specification from `/specs/002-build-setup/spec.md`
-**Milestone Scope**: M2 only — TUI build pipeline, toolchain diagnostics, setup venv, build provenance, failure reports. Not M0, M3, or M4.
 
 ## Summary
 
-Implement PRD M2 build wizard and setup pipeline with serialized SYCL/CUDA builds, preflight
-toolchain checks, structured failure reporting, build provenance tracking, and venv creation. The
-implementation must enforce serialized execution, produce FR-005 actionable errors for all failure
-paths, and maintain the core/CLI boundary established in M1.
-
-**Note**: This plan covers M2 milestone only. M0 (documentation), M1 (slot-first, completed),
-M3 (profiling), and M4 (operational) are deferred to follow-on specifications.
+Deliver PRD milestone M2 with a serialized llama.cpp build pipeline (SYCL/CUDA), toolchain
+diagnostics, setup venv management, provenance capture, and redacted failure reporting. The
+implementation follows spec decisions from `research.md`, models entities and invariants in
+`data-model.md`, and preserves M1 conventions for FR-005 actionable errors and CLI/TUI consistency.
 
 ## Technical Context
 
 **Language/Version**: Python 3.12+
-**Primary Dependencies**: rich, psutil, pytest, ruff, pyright (no new deps for M2)
-**Storage**: XDG directories — cache (`$XDG_CACHE_HOME/llm-runner/`), state (`$XDG_STATE_HOME/llm-runner/`), data (`$XDG_DATA_HOME/llm-runner/`)
-**Testing**: pytest unit tests with mocked subprocess calls; no GPU or real build tools in CI
-**Target Platform**: Linux workstation (Intel Arc SYCL + NVIDIA CUDA)
-**Project Type**: Python CLI/TUI application plus pure-library core
-**Performance Goals**: Preflight check p95 ≤2 seconds; build pipeline startup ≤1 second before subprocess
-**Constraints**: `llama_manager` remains pure library; no `argparse`/`Rich`/module-level subprocess; FR-005 multi-error contract; FR-007 redaction and permission rules
+**Primary Dependencies**: stdlib (`subprocess`, `pathlib`, `venv`, `json`, `dataclasses`, `threading`), rich, psutil
+**Storage**: Local filesystem only (source tree + XDG cache/state/data directories)
+**Testing**: pytest with mocking (`pytest.raises`, `capsys`, monkeypatch); no real GPU or subprocess dependence in tests
+**Target Platform**: Linux workstation (anchored Intel Arc B580 + NVIDIA RTX 3090)
+**Project Type**: Single-project Python CLI/TUI application
+**Performance Goals**: Correctness and determinism over throughput; no explicit latency/SLA target in M2
+**Constraints**: Serialized builds only, file lock required, no runtime venv mutation, no sudo automation, redacted/truncated failure logs, fail-fast on non-retryable errors
+**Scale/Scope**: Single-operator local workflow; two build backends (`sycl`, `cuda`) plus `both` orchestration
 
 ## Constitution Check
 
-*GATE: Must pass before implementation begins.*
+*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-- [x] Code quality impact is explicit: planned changes add new modules to `llama_manager/` (build_pipeline, toolchain, setup_venv, reports) and `llama_cli/` (build_cli, setup_cli); core/CLI boundary preserved; validation includes `ruff` + `pyright`.
-- [x] Testing plan is explicit: add/update deterministic tests for build pipeline, toolchain detection, provenance, failure reports, and setup venv using `uv run pytest` with mocked subprocess calls.
-- [x] UX consistency impact is explicit: new `build` and `setup` CLI subcommands follow M1 conventions; FR-005 structured errors reused from M1; exit codes follow PRD Appendix B.
-- [x] Runtime safety and observability impact is explicit: build locks prevent concurrent execution; provenance records build origin; failure reports with redaction; no auto-build on launch.
-- [x] Merge gates are explicit: `uv run ruff check .`, `uv run ruff format --check .`, and `uv run pyright` are mandatory validation steps.
+- [x] Code quality impact is explicit: changes stay within `llama_manager` (core) and `llama_cli` (I/O), with typed interfaces and no architecture boundary violations.
+- [x] Testing plan is explicit: each user story has deterministic unit/regression coverage and validation via `uv run pytest`.
+- [x] UX consistency impact is explicit: CLI/TUI use M1-aligned FR-005 structured errors, clear progress states, and explicit dry-run/setup behavior.
+- [x] Runtime safety and observability impact is explicit: lockfile serialization, signal-safe cleanup, redaction, provenance/failure artifacts, and documented exit semantics.
+- [x] Merge gates are explicit: `uv run ruff check .`, `uv run ruff format --check .`, and `uv run pyright` are part of completion criteria.
+
+**Gate Status (pre-design)**: PASS
+**Gate Status (post-design)**: PASS (validated against `research.md`, `data-model.md`, `quickstart.md`, and contracts)
 
 ## Project Structure
 
@@ -45,6 +45,8 @@ specs/002-build-setup/
 ├── research.md
 ├── data-model.md
 ├── quickstart.md
+├── contracts/
+│   └── cli-json-contract.md
 └── tasks.md
 ```
 
@@ -52,33 +54,31 @@ specs/002-build-setup/
 
 ```text
 src/
-├── llama_manager/
-│   ├── config.py              # MODIFY: add XDG paths, build config fields, new ErrorCodes
-│   ├── config_builder.py      # MODIFY: add build config factory functions
-│   ├── server.py              # EXISTING: ErrorDetail, redact_sensitive
-│   ├── process_manager.py     # EXISTING: lock patterns, runtime dir
-│   ├── build_pipeline.py      # NEW: BuildConfig, BuildArtifact, BuildProgress, BuildPipeline
-│   ├── toolchain.py           # NEW: ToolchainStatus, detect_toolchain(), get_toolchain_hints()
-│   ├── setup_venv.py          # NEW: get_venv_path(), create_venv(), check_venv_integrity()
-│   └── reports.py             # NEW: write_failure_report(), rotate_reports()
 ├── llama_cli/
-│   ├── cli_parser.py          # MODIFY: add build/setup subcommands
-│   ├── server_runner.py       # MODIFY: add subcommand dispatch
-│   ├── build_cli.py           # NEW: build_main() entry point
-│   └── setup_cli.py           # NEW: setup_main() entry point
+│   ├── cli_parser.py
+│   ├── server_runner.py
+│   ├── tui_app.py
+│   ├── build_cli.py          # planned M2 addition
+│   └── setup_cli.py          # planned M2 addition
+├── llama_manager/
+│   ├── config.py
+│   ├── build_pipeline.py     # planned M2 addition
+│   ├── toolchain.py          # planned M2 addition
+│   ├── setup_venv.py         # planned M2 addition
+│   ├── reports.py            # planned M2 addition
+│   └── [existing M1 modules]
 └── tests/
-    ├── test_build_pipeline.py # NEW: BuildPipeline unit tests (mocked subprocess)
-    ├── test_toolchain.py      # NEW: ToolchainStatus, detect_toolchain unit tests
-    ├── test_setup_venv.py     # NEW: venv creation/integrity tests
-    ├── test_reports.py        # NEW: failure report, rotation, redaction tests
-    ├── test_build_cli.py      # NEW: CLI integration tests (mocked pipeline)
-    └── test_setup_cli.py      # NEW: CLI integration tests (mocked setup)
+    ├── test_build_pipeline.py    # planned M2 addition
+    ├── test_toolchain.py         # planned M2 addition
+    ├── test_setup_venv.py        # planned M2 addition
+    ├── test_reports.py           # planned M2 addition
+    └── [existing M1 tests]
 ```
 
-**Structure Decision**: Keep the existing single-repo Python architecture; implement core build logic in
-`src/llama_manager/`, wire CLI flows in `src/llama_cli/`, and enforce behavior through deterministic
-tests in `src/tests/`.
+**Structure Decision**: Keep the existing single-project layout. Add M2 build/setup/report modules
+inside `llama_manager`, expose them via new CLI entry modules in `llama_cli`, and add focused test
+modules under `src/tests` to preserve the established architecture and test conventions.
 
 ## Complexity Tracking
 
-No constitution violations identified at planning time; no exceptions requested.
+No constitution violations require exception handling in this plan.
