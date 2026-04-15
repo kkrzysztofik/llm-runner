@@ -43,6 +43,7 @@
   - `exit_code` != 0 implies `failure_report_path` is not None
   - `git_commit_sha` must be a 40-character hex string
   - `build_duration_seconds` must be >= 0
+  - Provenance write failure does NOT fail the build; build remains successful with warning logged.
 
 ## Entity: BuildProgress
 
@@ -64,6 +65,7 @@
   - During `build` stage, `progress_percent` is derived from make's `[N/M]` output pattern (N÷M×100)
   - If make output contains no `[N/M]` pattern, `progress_percent` remains 0.0 until stage completion
   - Progress resets to 0.0 on retry (exponential backoff applies)
+  - Pipeline terminates on first `failed` stage, OR continues to next backend in `build both` mode with per-target retry semantics per spec.md Edge Cases.
 
 ## Entity: ToolchainStatus
 
@@ -128,7 +130,7 @@
   - `redaction_applied: bool` — whether redaction was applied to output
 - **Usage**:
   - Entries are appended to rotating log in `reports.py`
-  - Log file path: `$XDG_STATE_HOME/llm-runner/mutating_actions.log` (or equivalent runtime directory)
+  - Log file path: `$XDG_STATE_HOME/llm-runner/mutating_actions.log`
   - Rotation policy: count-based rotation (implementation-defined max, configurable via `Config.build_max_reports`)
 
 ## Entity: ToolchainHint
@@ -169,6 +171,7 @@
   - `build_retry_delay: float` — default: 5.0
   - `build_max_reports: int` — default: 50
   - `build_output_truncate_bytes: int` — default: 10240 (10 KiB)
+  - `toolchain_timeout_seconds: int` — default: 30 (seconds for tool detection subprocess timeout, per FR-005.4)
 - **Computed paths** (in `__post_init__`):
   - `venv_path: Path` — `$xdg_cache_base/llm-runner/venv`
   - `builds_dir: Path` — `$xdg_state_base/llm-runner/builds`
@@ -189,8 +192,8 @@
 
 ## ErrorCode Extensions (added to existing ErrorCode StrEnum)
 
-
 - **New values**:
+  - `PREFLIGHT_FAILURE = "PREFLIGHT_FAILURE"` — preflight check failed (generic preflight error)
   - `TOOLCHAIN_MISSING = "TOOLCHAIN_MISSING"` — a required build tool is not installed
   - `VENV_NOT_FOUND = "VENV_NOT_FOUND"` — setup venv does not exist (informational warning, not blocking)
   - `VENV_CORRUPT = "VENV_CORRUPT"` — setup venv exists but is unusable

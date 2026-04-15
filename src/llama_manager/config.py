@@ -93,6 +93,67 @@ class Config:
     default_cache_type_qwen35_both_k: str = "q8_0"
     default_cache_type_qwen35_both_v: str = "q8_0"
 
+    # M2 build setup XDG directories
+    xdg_cache_base: str = field(
+        default_factory=lambda: os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))
+    )
+    xdg_state_base: str = field(
+        default_factory=lambda: os.environ.get(
+            "XDG_STATE_HOME", str(Path.home() / ".local" / "state")
+        )
+    )
+    xdg_data_base: str = field(
+        default_factory=lambda: os.environ.get(
+            "XDG_DATA_HOME", str(Path.home() / ".local" / "share")
+        )
+    )
+
+    # M2 build pipeline configuration
+    build_git_remote: str = "https://github.com/ggerganov/llama.cpp.git"
+    build_git_branch: str = "stable"
+    build_retry_attempts: int = 3
+    build_retry_delay: int = 5
+    build_max_reports: int = 10
+    build_output_truncate_bytes: int = 8192
+    toolchain_timeout_seconds: int = 300
+
+    # M2 XDG path utilities
+    @property
+    def venv_path(self) -> Path:
+        """Return the virtual environment path.
+
+        Returns:
+            Path to $XDG_CACHE_HOME/llm-runner/venv or ~/.cache/llm-runner/venv
+        """
+        return Path(self.xdg_cache_base) / "llm-runner" / "venv"
+
+    @property
+    def builds_dir(self) -> Path:
+        """Return the builds directory path.
+
+        Returns:
+            Path to $XDG_DATA_BASE/llm-runner/builds
+        """
+        return Path(self.xdg_data_base) / "llm-runner" / "builds"
+
+    @property
+    def reports_dir(self) -> Path:
+        """Return the reports directory path.
+
+        Returns:
+            Path to $XDG_STATE_BASE/llm-runner/reports
+        """
+        return Path(self.xdg_state_base) / "llm-runner" / "reports"
+
+    @property
+    def build_lock_path(self) -> Path:
+        """Return the build lock file path.
+
+        Returns:
+            Path to $XDG_STATE_BASE/llm-runner/build.lock
+        """
+        return Path(self.xdg_state_base) / "llm-runner" / "build.lock"
+
 
 @dataclass
 class ServerConfig:
@@ -243,6 +304,18 @@ class ErrorCode(StrEnum):
     LOCKFILE_INTEGRITY_FAILURE = "LOCKFILE_INTEGRITY_FAILURE"
     ARTIFACT_PERSISTENCE_FAILURE = "ARTIFACT_PERSISTENCE_FAILURE"
     BACKEND_NOT_ELIGIBLE = "BACKEND_NOT_ELIGIBLE"
+    # M2 build setup error codes
+    TOOLCHAIN_MISSING = "TOOLCHAIN_MISSING"
+    BUILD_LOCK_HELD = "BUILD_LOCK_HELD"
+    VENV_CORRUPT = "VENV_CORRUPT"
+    PYTHON_NOT_FOUND = "PYTHON_NOT_FOUND"
+    BUILD_FAILED = "BUILD_FAILED"
+    PREFLIGHT_FAILURE = "PREFLIGHT_FAILURE"
+    GIT_CLONE_FAILED = "GIT_CLONE_FAILED"
+    GIT_CHECKOUT_FAILED = "GIT_CHECKOUT_FAILED"
+    REPORT_WRITE_FAILURE = "REPORT_WRITE_FAILURE"
+    TOOL_VERSION_MISMATCH = "TOOL_VERSION_MISMATCH"
+    CMAKE_INCOMPATIBLE = "CMAKE_INCOMPATIBLE"
 
 
 @dataclass

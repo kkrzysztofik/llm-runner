@@ -1,9 +1,9 @@
 ---
 name: Orchestrator
 description: Top-level task orchestrator for llm-runner - decompose goals and delegate to specialist agents
-mode: subagent
+mode: primary
 model: llama.cpp/qwen35-coding
-temperature: 0.1
+temperature: 1
 permission:
   bash:
     "*": "deny"

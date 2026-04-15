@@ -8,7 +8,7 @@ a second argument specifying the mode to preview.
 import argparse
 import sys
 
-VALID_MODES = ("summary-balanced", "summary-fast", "qwen35", "both")
+VALID_MODES = ("summary-balanced", "summary-fast", "qwen35", "both", "build")
 
 
 def _parse_dry_run_args(args: list[str]) -> argparse.Namespace:
@@ -106,6 +106,56 @@ def _parse_normal_mode_args(args: list[str]) -> argparse.Namespace:
     return parsed
 
 
+def _handle_build_case(args: list[str]) -> argparse.Namespace | None:
+    """Handle build command special case.
+
+    Args:
+        args: List of command-line arguments.
+
+    Returns:
+        Parsed namespace if build command, None otherwise.
+
+    Raises:
+        SystemExit: On missing or invalid build arguments.
+    """
+    if len(args) >= 1 and args[0] == "build":
+        if len(args) < 2:
+            print(
+                "error: build requires a backend argument (sycl|cuda)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        backend = args[1]
+        if backend not in ("sycl", "cuda"):
+            print(
+                f"error: invalid backend '{backend}'. Valid backends: sycl, cuda",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        # Parse additional build arguments
+        dry_run = "--dry-run" in args
+        jobs = None
+        for arg in args[2:]:
+            if arg == "--dry-run":
+                continue
+            elif arg.startswith("-j") or arg.startswith("--jobs"):
+                try:
+                    jobs = int(arg.split("=")[1] if "=" in arg else arg[2:])
+                except (ValueError, IndexError):
+                    print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+                    sys.exit(1)
+
+        return argparse.Namespace(
+            mode="build",
+            backend=backend,
+            dry_run=dry_run,
+            jobs=jobs,
+        )
+    return None
+
+
 def _handle_dry_run_case(args: list[str]) -> argparse.Namespace | None:
     """Handle dry-run mode special case.
 
@@ -144,7 +194,12 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     if args is None:
         args = sys.argv[1:]
 
-    # Handle dry-run mode first (special case)
+    # Handle build command first (special case)
+    build_result = _handle_build_case(args)
+    if build_result is not None:
+        return build_result
+
+    # Handle dry-run mode (special case)
     dry_run_result = _handle_dry_run_case(args)
     if dry_run_result is not None:
         return dry_run_result

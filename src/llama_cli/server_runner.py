@@ -33,6 +33,7 @@ from llama_manager import (
     validate_server_config,
     validate_slots,
 )
+from llama_manager.build_pipeline import BuildBackend
 from llama_manager.server import detect_risky_operations
 
 RISK_ACK_LABEL = "warning_bypass"
@@ -327,6 +328,10 @@ def main(args: list[str] | None = None) -> int:
         usage()
         return 1
 
+    # Handle build command
+    if parsed.mode == "build":
+        return run_build(parsed.backend, parsed.dry_run)
+
     manager = ServerManager()
     signal.signal(signal.SIGINT, manager.on_interrupt)
     signal.signal(signal.SIGTERM, manager.on_terminate)
@@ -354,6 +359,38 @@ def main(args: list[str] | None = None) -> int:
     except IndexError as e:
         print(f"error: index error: {e}", file=sys.stderr)
         return 1
+
+
+def run_build(backend: str, dry_run: bool = False) -> int:
+    """Run the build command.
+
+    Args:
+        backend: Build backend ("sycl" or "cuda")
+        dry_run: If True, print commands without executing
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    from llama_cli.tui_app import TUIApp
+    from llama_manager.config import Config
+
+    config = Config()
+
+    # Create a minimal TUIApp for build
+    # We need at least one config to initialize TUIApp
+    dummy_config = ServerConfig(
+        model=config.model_summary_balanced,
+        alias="build",
+        device="CPU",
+        port=8080,
+        ctx_size=4096,
+        ubatch_size=512,
+        threads=4,
+    )
+
+    app = TUIApp([dummy_config], [0])
+    success = app.build_llama_cpp(backend=backend, dry_run=dry_run)
+    return 0 if success else 1
 
 
 def cli_main() -> None:

@@ -118,7 +118,7 @@ This section maps PRD requirements to spec.md sections and implementation tasks.
 ### Phase 1: Toolchain Detection (Week 1–2)
 - **Goal**: `setup --check` with FR-005 actionable errors
 - **Tasks**:
-  - Implement `detect_tool()` with **30s default timeout** (configurable via `Config.toolchain_timeout_seconds`); test timeout policy explicitly
+  - Implement `detect_tool()` with **30s default timeout** (configurable via `Config.toolchain_timeout_seconds`); test timeout policy explicitly; align with FR-005.4 spec wording
   - Implement `check_toolchain(backend)` with platform-specific hints
   - Add `setup_cli.py` with `--check` + `--json`
   - Write `test_toolchain.py` with mocked `subprocess.run`
@@ -310,13 +310,13 @@ llm-runner doctor --repair
 ```
 
 **CLI Commitments**:
-- `--json` flag produces deterministic JSON (key order stable).
+- `--json` flag produces deterministic JSON (key-order agnostic; relies on presence/type checks, not ordering).
 - Exit codes per-command:
   - `build`: 0 success, 1 failure
   - `setup`: 0 success, 1 failure
   - `doctor --repair`: 0 = warnings-only/ok, 1 = blocking error, 2 = needs setup/prereqs
 - Non-mutating automation (build --dry-run, setup --check) remains non-interactive; mutating actions require explicit `--yes` or confirmatory UX (`setup` hard-required; `doctor --repair` implementation-defined per FR-004.7).
-- `build both` runs serialized with default order (SYCL first); `--build-order` override is post-MVP.
+- `build both` runs serialized with default order (SYCL first); `--build-order` override is post-MVP (not active in M2).
 
 ---
 
@@ -580,6 +580,6 @@ Reviewers can run this checklist to verify M2 completeness:
 
 ---
 
-**Plan Status**: Draft (ready for implementation)
+**Plan Status**: Draft (planning phase; not yet implemented)
 **Last Updated**: 2026-04-15
 **Next Review**: Post-Phase 0 research completion

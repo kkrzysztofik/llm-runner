@@ -2,7 +2,7 @@
 
 ## 1) Build serialization order
 
-- **Decision**: Default SYCL first, then CUDA; `--build-order` flag allows override.
+- **Decision**: Default SYCL first, then CUDA; `--build-order` override is deferred post-MVP (not active in M2).
 - **Rationale**: SYCL builds typically have lower GPU resource contention on the anchored workstation (Arc B580 is secondary GPU). Building SYCL first avoids potential CUDA driver interference during Intel oneAPI compilation.
 - **Alternatives considered**:
   - Always CUDA first (rejected: CUDA builds are longer; SYCL success is more fragile and should be validated first).
@@ -45,7 +45,8 @@
 ## 5) Sudo handling in M2
 
 - **Decision**: No `sudo` operations in M2. `setup` focuses on venv creation and toolchain detection
-  only. System package installation and sudo steps are deferred to M4+ (doctor --repair).
+  only. Sudo-requiring package installation steps are deferred post-MVP; `doctor --repair`
+  remains M2 and sudo-free.
 - **Rationale**: Sudo requires interactive confirmation and credential caching that adds significant
   UX complexity. M2's primary value is the build pipeline; sudo-free setup is safer and simpler.
   Toolchain detection can tell users what to install without performing the installation.
@@ -57,7 +58,7 @@
 
 - **Decision**: File-based lock at `$XDG_CACHE_HOME/llm-runner/.build.lock` containing PID and
   timestamp. Lock is acquired before build starts, released on completion/failure/interrupt.
-  Stale locks (PID not running) are auto-cleared.
+  Stale locks (PID not running) require manual remediation via `doctor --repair` in M2.
 - **Rationale**: File-based locks are simple, visible to operators, and survive process crashes
   (can be inspected and cleaned up manually). Stale lock detection uses the same pattern as M1
   lockfile ownership checks.

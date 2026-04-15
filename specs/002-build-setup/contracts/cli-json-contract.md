@@ -21,16 +21,16 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
 
 ## Input Semantics: Confirmatory UX for Mutating Actions
 
-- **`--yes` flag**: Required for all mutating setup actions (`setup` without `--check`, `doctor --repair`). When omitted, command exits with code 1 and prints interactive confirmation prompt (implementation-defined UX).
-- **Behavior when omitted**: Mutating actions require explicit confirmation via `--yes` flag or interactive TUI prompt. Non-mutating actions (`--check`, `--dry-run`) do not require confirmation.
-- **Error contract**: When mutating action is blocked due to missing confirmation, return FR-005 `ErrorDetail` with `error_code = "CONFIRMATION_REQUIRED"`, `failed_check = "missing_yes_flag"`, `how_to_fix = "Run with --yes flag to confirm"` in JSON output.
+- **`--yes` flag**: Required for `setup` (without `--check`) mutating actions. When omitted, command requires either interactive confirmation OR `--yes` flag. `doctor --repair` confirmation UX is implementation-defined (optional in M2); may support `--yes` but not required.
+- **Behavior when omitted**: `setup` (without `--check`) requires explicit confirmation via `--yes` flag or interactive TUI prompt. Non-mutating actions (`--check`, `--dry-run`) do not require confirmation. In non-interactive mode without `--yes`, return `CONFIRMATION_REQUIRED` error. `doctor --repair` confirmation is optional in M2.
+- **Error contract**: When `setup` mutating action is blocked due to missing confirmation, return FR-005 `ErrorDetail` with `error_code = "CONFIRMATION_REQUIRED"`, `failed_check = "missing_confirmation"`, `how_to_fix = "Run with --yes flag or confirm interactively"` in JSON output. `doctor --repair` may implement its own confirmation policy (implementation-defined).
 
 ## Command: `llm-runner doctor --repair --json`
 
 ### Input
 
 - `--repair`: Required flag to enable repair mode
-- Optional: `--yes` (confirmation flag, required for mutating action)
+- Optional: `--yes` (confirmation flag; optional in M2 per FR-004.7)
 
 ### Success Output (`DoctorRepairResult`)
 
@@ -50,7 +50,7 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
 
 ### Error Output
 
-- Missing `--yes` flag on mutating action returns FR-005 `ErrorDetail` with `error_code = "CONFIRMATION_REQUIRED"`.
+- `doctor --repair` confirmation policy is implementation-defined (optional in M2); may not require `--yes` flag.
 - Lock file not removable returns FR-005 `ErrorDetail` with `error_code = "LOCK_REMOVAL_FAILED"`.
 - Staging directory cleanup failure returns FR-005 `ErrorDetail` with `error_code = "STAGING_CLEANUP_FAILED"`.
 
@@ -61,9 +61,15 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
 ### Input
 
 - `backend`: `sycl | cuda | both`
-- Optional: `--dry-run`, `--retry-attempts <int>`, `--build-order <csv>`, `--full-clone`, `--jobs <int>`
+- Optional: `--dry-run`, `--retry-attempts <int>`, `--full-clone`, `--jobs <int>`
+- **Deferred (post-MVP)**: `--build-order <csv>` — explicit build ordering (e.g., `sycl,cuda`) is post-MVP/deferred in M2
 
 ### Success Output (`BuildArtifact`)
+
+**Single backend (`sycl` or `cuda`)**: Outputs single `BuildArtifact` JSON object.
+
+**Both backends (`both`)**: Outputs **NDJSON stream** — one `BuildArtifact` per line in execution order
+(SYCL first, then CUDA). Each line is a complete, valid JSON object. Consumer should process line-by-line.
 
 ```json
 {
@@ -78,7 +84,7 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
   "exit_code": 0,
   "binary_path": "/abs/path/src/llama.cpp/build/bin/llama-server",
   "binary_size_bytes": 123456789,
-  "build_log_path": "/abs/path/.cache/llm-runner/build-logs/sycl.log",
+  "build_log_path": "/abs/path/.local/state/llm-runner/build-logs/sycl.log",
   "failure_report_path": null
 }
 ```
@@ -128,11 +134,27 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
 
 - Corrupt venv returns FR-005 shape with `error.error_code = "VENV_CORRUPT"`.
 - Missing Python interpreter returns FR-005 shape with `error.error_code = "PYTHON_NOT_FOUND"`.
-- Missing confirmation (no `--yes` flag) returns FR-005 shape with `error.error_code = "CONFIRMATION_REQUIRED"`, `failed_check = "missing_yes_flag"`, `how_to_fix = "Run with --yes flag to confirm"`.
+- Missing confirmation (no `--yes` flag in non-interactive mode) returns FR-005 shape with `error.error_code = "CONFIRMATION_REQUIRED"`, `failed_check = "missing_confirmation"`, `how_to_fix = "Run with --yes flag or confirm interactively"`.
 
 ## Behavioral Guarantees
 
 - JSON output is stable and key-order agnostic.
 - Timestamp/path values are runtime-dependent but required keys are always present.
-- `build both --json` emits one backend result at a time in serialized order; never parallel.
-- Mutating actions (`setup` without `--check`, `doctor --repair`) require `--yes` flag or interactive confirmation; missing confirmation returns FR-005 `ErrorDetail` with `error_code = "CONFIRMATION_REQUIRED"`.
+- `build both --json` emits NDJSON stream: one `BuildArtifact` per line in serialized execution order
+  (SYCL first, then CUDA). Never parallel.
+- Mutating actions (`setup` without `--check`) require `--yes` flag or interactive confirmation;
+  in non-interactive mode without `--yes`, returns FR-005 `ErrorDetail` with `error_code = "CONFIRMATION_REQUIRED"`.
+  `doctor --repair` confirmation UX is implementation-defined (optional in M2).
+
+---
+
+## Summary
+
+| Command | Success Shape | Error Codes | Confirmation Required |
+| --- | --------- | --------- | --------- |
+| `build <backend> --json` | `BuildArtifact` (single) or NDJSON stream (both) | `BUILD_LOCK_HELD`, `TOOLCHAIN_MISSING`, `BUILD_FAILED` | No |
+| `setup --check --json` | `ToolchainStatus` | `TOOLCHAIN_MISSING` | No |
+| `setup --json` | `VenvResult` | `VENV_CORRUPT`, `PYTHON_NOT_FOUND`, `CONFIRMATION_REQUIRED` | Yes (`--yes` or interactive) |
+| `doctor --repair --json` | `DoctorRepairResult` | `LOCK_REMOVAL_FAILED`, `STAGING_CLEANUP_FAILED` | Optional (implementation-defined in M2) |
+
+(End of file - total 147 lines)

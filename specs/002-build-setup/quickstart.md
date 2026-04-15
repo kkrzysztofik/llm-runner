@@ -4,7 +4,7 @@
 
 **CRITICAL:** This branch (`002-build-setup`) implements **PRD Milestone M2 only** — not the full PRD MVP.
 
-**M2 Scope (Implemented):**
+**M2 Scope (Target Behavior):**
 - TUI build pipeline for llama.cpp (FR-004)
 - Toolchain diagnostics and actionable hints (FR-005)
 - Setup venv creation and integrity checking (FR-005)
@@ -13,7 +13,7 @@
 
 **Deferred to Future Milestones:**
 - M0: Documentation generation (FR-019)
-- M1: Slot-first launch, dry-run, lockfiles (COMPLETED in Spec 001)
+- M1: Slot-first launch, dry-run, lockfiles (planned in Spec 001)
 - M3: Profiling and presets (FR-007, FR-008, FR-009)
 - M4: Smoke tests, TUI monitoring, shutdown, GGUF parsing, hardware ack
 - Exit codes: `doctor` exit-code contract is already in scope (M1/MVP baseline); 002 quickstart references it rather than deferring.
@@ -27,13 +27,14 @@
 - Spec inputs prepared in `specs/002-build-setup/spec.md`
 - M1 infrastructure available and tested (441+ tests passing)
 
-## 1) Run build pipeline preflight checks
+## 1) Run build pipeline preflight checks (TUI or CLI)
 
 ```bash
 uv run llm-runner build sycl --dry-run
 ```
 
-**Meaning:** Runs preflight toolchain checks for SYCL backend without starting the build.
+**Meaning**: Runs preflight toolchain checks for SYCL backend without starting the build.
+TUI wizard is primary M2 interface; CLI provides parity for automation.
 
 Expected outcomes:
 
@@ -55,23 +56,25 @@ Expected outcomes:
 - Output shows toolchain status table with columns: Tool, Status, Version
 - Present tools show version string (e.g., `cmake 3.28.0`)
 - Missing tools show `MISSING` with platform-specific install hint
-- SYCL-specific tools (dpcpp/icpx) are only checked for SYCL backend
-- CUDA-specific tools (nvcc) are only checked for CUDA backend
+- Backend-specific requiredness is informational via `required_for` hints in error messages
+- Common tools (gcc, make, git, cmake) are required for both backends
 
 ## 3) Run setup venv creation
 
 ```bash
-uv run llm-runner setup
+uv run llm-runner setup --yes
 ```
 
-**Meaning:** Creates or reuses the Python virtual environment for build tools.
+**Meaning**: Creates or reuses the Python virtual environment for build tools.
+M2 `setup` is venv lifecycle + toolchain checks; does NOT install packages (network not required).
 
-Expected outcomes:
+**Expected outcomes:**
 
 - First run creates venv at `$XDG_CACHE_HOME/llm-runner/venv`
 - Output prints activation command: `source $XDG_CACHE_HOME/llm-runner/venv/bin/activate`
 - Subsequent runs reuse existing venv and print "Venv already exists at <path>"
 - Corrupted venv (missing pyvenv.cfg) produces FR-005 error with `error_code=VENV_CORRUPT`
+- Without `--yes` in non-interactive mode, returns `CONFIRMATION_REQUIRED` error with actionable hint
 
 ## 4) Execute a single-backend build
 
@@ -105,11 +108,10 @@ uv run llm-runner build both
 
 **Meaning:** Builds SYCL then CUDA sequentially with per-target semantics.
 
-Expected outcomes:
+**Expected outcomes:**
 
 - SYCL build completes first (success or failure)
-- If SYCL succeeds, CUDA build starts next
-- If SYCL fails, CUDA build does NOT start (serialized execution)
+- CUDA build starts next regardless of SYCL outcome (independent status)
 - Each backend tracks its own success/failure state independently
 - Failed backends may be retried without re-running successful ones
 - Both backends produce independent provenance records
@@ -130,7 +132,7 @@ Run two concurrent build attempts and verify:
 
 - Second attempt is blocked with FR-005 error (`error_code=BUILD_LOCK_HELD`)
 - Lock file at `$XDG_CACHE_HOME/llm-runner/.build.lock` contains PID and timestamp
-- Stale lock (PID not running) is NOT auto-cleared in M2; operator must run `llm-runner doctor --repair`
+- Stale lock (PID not running) requires manual remediation via `llm-runner doctor --repair` (no auto-clear in M2; future post-MVP may add auto-recovery)
 - Lock is released after build completes (success or failure)
 
 ## 8) Verify offline-continue on network loss
@@ -148,6 +150,8 @@ Run `uv run llm-runner setup --yes` and verify:
 - Rotating log entry created with: command, timestamp, exit code, truncated output, redaction
 - Log follows rotation policy (oldest entries deleted first when limit exceeded)
 - Secrets in output are redacted (`API_KEY=secret123` → `API_KEY=[REDACTED]`)
+
+Note: `doctor --repair` confirmation UX is implementation-defined (optional in M2 per FR-004.7); may or may not require `--yes`.
 
 ## 10) Run automated test suite
 

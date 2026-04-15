@@ -9,6 +9,7 @@ import signal
 import sys
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from rich.console import ConsoleDimensions, Group
@@ -27,6 +28,11 @@ from llama_manager import (
     ModelSlot,
     ServerConfig,
     ServerManager,
+)
+from llama_manager.build_pipeline import (
+    BuildBackend,
+    BuildConfig,
+    BuildPipeline,
 )
 from llama_manager.server import detect_risky_operations
 
@@ -66,12 +72,35 @@ class TUIApp:
             # Pass a bound collector callable with the device index
             self.gpu_stats.append(GPUStats(idx, collector=self._make_collector(idx)))
 
+        # Build pipeline state
+        self._build_pipeline: BuildPipeline | None = None
+        self._build_in_progress = False
+
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
     def _signal_handler(self, signum: int, frame: object | None) -> None:
-        """Handle shutdown signals by stopping the TUI loop."""
+        """Handle shutdown signals by stopping the TUI loop.
+
+        If a build is in progress, release the build lock before stopping.
+        """
+        # Release build lock if in progress
+        if self._build_in_progress and self._build_pipeline is not None:
+            self._build_pipeline._release_lock()
+            self._build_in_progress = False
+
         self.stop()
+
+    def _signal_handler_build(self, signum: int, frame: object | None) -> None:
+        """Signal handler specifically for build process.
+
+        Releases build lock and stops the build gracefully.
+        """
+        if self._build_in_progress and self._build_pipeline is not None:
+            print("\nBuild interrupted by user, releasing lock...", file=sys.stderr)
+            self._build_pipeline._release_lock()
+            self._build_in_progress = False
+            sys.exit(130)  # Standard exit code for Ctrl+C
 
     def _make_collector(self, device_index: int) -> Callable[[], dict[str, Any]]:
         """Create a GPU collector bound to a specific device index."""
@@ -325,6 +354,65 @@ class TUIApp:
             print("warning: launch degraded - some slots blocked", file=sys.stderr)
             for warning in launch_result.warnings or []:
                 print(f"  warning: {warning}", file=sys.stderr)
+
+    def build_llama_cpp(self, backend: str = "sycl", dry_run: bool = False) -> bool:
+        """Build llama.cpp using BuildPipeline.
+
+        Args:
+            backend: Build backend ("sycl" or "cuda")
+            dry_run: If True, print commands without executing
+
+        Returns:
+            True if build successful, False otherwise
+        """
+        from llama_manager.config import Config
+
+        config = Config()
+
+        # Determine paths
+        source_dir = Path(config.llama_cpp_root)
+        build_dir = source_dir / "build"
+        output_dir = config.builds_dir
+
+        # Create build config
+        build_backend = BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA
+        build_config = BuildConfig(
+            backend=build_backend,
+            source_dir=source_dir,
+            build_dir=build_dir,
+            output_dir=output_dir,
+            git_remote_url=config.build_git_remote,
+            git_branch=config.build_git_branch,
+            shallow_clone=True,
+            retry_attempts=config.build_retry_attempts,
+            retry_delay=config.build_retry_delay,
+        )
+
+        # Create and configure pipeline
+        self._build_pipeline = BuildPipeline(build_config)
+        self._build_pipeline.dry_run = dry_run
+        self._build_in_progress = True
+
+        # Set up signal handler for build
+        signal.signal(signal.SIGINT, self._signal_handler_build)
+
+        # Run pipeline
+        print(f"Building for {backend} backend...", file=sys.stderr)
+        if dry_run:
+            print("DRY RUN MODE - commands will not be executed", file=sys.stderr)
+
+        result = self._build_pipeline.run()
+
+        self._build_in_progress = False
+
+        if result.success:
+            print(f"Build completed successfully!", file=sys.stderr)
+            if result.artifact:
+                print(f"Artifact: {result.artifact.binary_path}", file=sys.stderr)
+            return True
+        else:
+            print(f"Build failed: {result.error_message}", file=sys.stderr)
+            return False
 
     def run(self, acknowledged: bool = False) -> None:
         slots = [
