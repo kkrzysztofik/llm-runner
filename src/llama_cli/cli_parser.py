@@ -8,7 +8,7 @@ a second argument specifying the mode to preview.
 import argparse
 import sys
 
-VALID_MODES = ("summary-balanced", "summary-fast", "qwen35", "both", "build")
+VALID_MODES = ("summary-balanced", "summary-fast", "qwen35", "both", "build", "setup")
 
 
 def _parse_dry_run_args(args: list[str]) -> argparse.Namespace:
@@ -156,6 +156,78 @@ def _handle_build_case(args: list[str]) -> argparse.Namespace | None:
     return None
 
 
+def _handle_setup_case(args: list[str]) -> argparse.Namespace | None:
+    """Handle setup command special case.
+
+    Args:
+        args: List of command-line arguments.
+
+    Returns:
+        Parsed namespace if setup command, None otherwise.
+
+    Raises:
+        SystemExit: On missing or invalid setup arguments.
+    """
+    if len(args) >= 1 and args[0] == "setup":
+        # Check for subcommands
+        if len(args) >= 2:
+            subcommand = args[1]
+            if subcommand == "check":
+                backend = "all"
+                json_output = False
+                # Parse remaining args
+                for arg in args[2:]:
+                    if arg in ("sycl", "cuda"):
+                        backend = arg
+                    elif arg == "--json":
+                        json_output = True
+                return argparse.Namespace(
+                    mode="setup",
+                    setup_command="check",
+                    backend=backend,
+                    json=json_output,
+                )
+            elif subcommand == "venv":
+                check_integrity = False
+                json_output = False
+                for arg in args[2:]:
+                    if arg == "--check-integrity":
+                        check_integrity = True
+                    elif arg == "--json":
+                        json_output = True
+                return argparse.Namespace(
+                    mode="setup",
+                    setup_command="venv",
+                    check_integrity=check_integrity,
+                    json=json_output,
+                )
+            elif subcommand == "clean-venv":
+                yes = False
+                for arg in args[2:]:
+                    if arg == "--yes":
+                        yes = True
+                return argparse.Namespace(
+                    mode="setup",
+                    setup_command="clean-venv",
+                    yes=yes,
+                )
+            else:
+                print(
+                    f"error: unknown setup subcommand '{subcommand}'. "
+                    f"Valid subcommands: check, venv, clean-venv",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+        else:
+            # No subcommand provided, show help
+            print(
+                "error: setup requires a subcommand (check|venv|clean-venv)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    return None
+
+
 def _handle_dry_run_case(args: list[str]) -> argparse.Namespace | None:
     """Handle dry-run mode special case.
 
@@ -198,6 +270,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     build_result = _handle_build_case(args)
     if build_result is not None:
         return build_result
+
+    # Handle setup command (special case)
+    setup_result = _handle_setup_case(args)
+    if setup_result is not None:
+        return setup_result
 
     # Handle dry-run mode (special case)
     dry_run_result = _handle_dry_run_case(args)

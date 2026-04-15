@@ -15,6 +15,7 @@ from typing import NoReturn
 
 from llama_cli.cli_parser import parse_args
 from llama_cli.colors import Colors
+from llama_cli.setup_cli import main as setup_main
 from llama_manager import (
     Config,
     ErrorCode,
@@ -52,6 +53,7 @@ def usage() -> None:
   src/run_opencode_models.py qwen35 [port]
   src/run_opencode_models.py both [summary_balanced_port qwen35_port]
   src/run_opencode_models.py dry-run <mode> [ports...]
+  src/run_opencode_models.py setup <subcommand>
 
 Modes:
   summary-balanced  Run summary-balanced model (Intel SYCL)
@@ -59,6 +61,12 @@ Modes:
   qwen35           Run qwen35-coding model (NVIDIA CUDA)
   both             Run summary-balanced and qwen35 side-by-side
   dry-run          Preview commands without executing
+  setup            Toolchain diagnostics and venv management
+
+Setup Subcommands:
+  check           Check toolchain availability (FR-005.1)
+  venv            Create or reuse virtual environment (FR-005.2)
+  clean-venv      Remove virtual environment (FR-005.3)
 
 Examples:
   src/run_opencode_models.py summary-balanced
@@ -66,7 +74,10 @@ Examples:
   src/run_opencode_models.py qwen35 8080
   src/run_opencode_models.py both 8080 8081
   src/run_opencode_models.py dry-run summary-balanced
-  src/run_opencode_models.py dry-run both 8080 8081""")
+  src/run_opencode_models.py dry-run both 8080 8081
+  src/run_opencode_models.py setup --check
+  src/run_opencode_models.py setup venv
+  src/run_opencode_models.py setup clean-venv --yes""")
 
 
 def _print_backend_error_and_exit() -> NoReturn:
@@ -331,6 +342,10 @@ def main(args: list[str] | None = None) -> int:
     # Handle build command
     if parsed.mode == "build":
         return run_build(parsed.backend, parsed.dry_run)
+
+    # Handle setup command
+    if parsed.mode == "setup":
+        return setup_main()
 
     manager = ServerManager()
     signal.signal(signal.SIGINT, manager.on_interrupt)
