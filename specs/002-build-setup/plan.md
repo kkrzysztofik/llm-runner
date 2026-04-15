@@ -97,7 +97,7 @@ This section maps PRD requirements to spec.md sections and implementation tasks.
 | Failure reports + rotation | FR-018.1–018.3 | `reports.py` | TBA | SC-004 |
 | JSON contract compliance | Addendum | `contracts/cli-json-contract.md` | TBA | Manual + test |
 
-**Traceability Rule**: Every FR-004.* through FR-006.* and FR-018.* requirement must have at least one test case and one acceptance scenario. No requirement can be marked complete without both.
+**Traceability Rule**: Every FR-004.* through FR-006.* and FR-018.* requirement must have at least one test case and one acceptance scenario across **all phases**. No requirement can be marked complete without both.
 
 ---
 
@@ -118,7 +118,7 @@ This section maps PRD requirements to spec.md sections and implementation tasks.
 ### Phase 1: Toolchain Detection (Week 1–2)
 - **Goal**: `setup --check` with FR-005 actionable errors
 - **Tasks**:
-  - Implement `detect_tool()` with timeout (tested; policy defined without hardcoding unnecessary values)
+  - Implement `detect_tool()` with **30s default timeout** (configurable via `Config.toolchain_timeout_seconds`); test timeout policy explicitly
   - Implement `check_toolchain(backend)` with platform-specific hints
   - Add `setup_cli.py` with `--check` + `--json`
   - Write `test_toolchain.py` with mocked `subprocess.run`
@@ -150,6 +150,15 @@ This section maps PRD requirements to spec.md sections and implementation tasks.
 - **Dependencies**: Phase 2 (failure paths)
 - **Deliverables**: `reports.py`, `test_reports.py`
 - **Requirement-to-implementation mapping**: FR-018 mutating-action log → rotating mutating-action log in `reports.py` + `test_reports.py::test_mutating_action_log`
+
+### Phase 2.5: Retry Failed Only (Week 2–3, after Phase 2)
+- **Goal**: Ensure retry applies only to failed targets when building multiple backends
+- **Tasks**:
+  - Add explicit requirement text to `build_pipeline.py` docstring
+  - Document behavior in `build_pipeline.py` comments and `test_build_pipeline.py`
+  - Add test case: `test_retry_failed_only` — verify successful backends are not retried
+- **Dependencies**: Phase 2 (build pipeline core)
+- **Deliverables**: Updated `build_pipeline.py`, updated `test_build_pipeline.py`
 
 ### Phase 4: Venv Lifecycle (Week 3–4)
 - **Goal**: `setup` command with integrity checks
@@ -195,7 +204,7 @@ This section maps PRD requirements to spec.md sections and implementation tasks.
 | **FR-004.2** (5-stage pipeline) | `build_pipeline.py` | `test_build_pipeline.py` | Scenario 1, 2, 8 |
 | **FR-004.2** incremental update | `build_pipeline.py` (clone stage branching logic) | `test_build_pipeline.py::test_clone_branch_behavior` | Existing valid git repo -> incremental update; absent/invalid repo -> fresh clone |
 | **FR-004.2a** (cmake flag names are class constants in BuildConfig) | `build_pipeline.py` (BuildConfig class with GGML_SYCL, GGML_CUDA, CMAKE_C_COMPILER, CMAKE_CXX_COMPILER constants) | `test_build_pipeline.py::test_cmake_flag_constants` | Unit test flag derivation |
-| **FR-004.3** (retry + backoff) | `build_pipeline.py` (retry logic) | `test_build_pipeline.py` | Scenario 4 (network retry) |
+| **FR-004.3** (retry + backoff) | `build_pipeline.py` (retry logic) | `test_build_pipeline.py` | Scenario 4 (network retry); test_retry_failed_only |
 | **FR-004.4** (build lock) | `build_pipeline.py` (BuildLock class) | `test_build_pipeline.py` | Scenario 6 (lock contention); lock path `$XDG_CACHE_HOME/llm-runner/.build.lock` |
 | **FR-004.5** (dry-run) | `build_pipeline.py` (preflight only) | `test_build_pipeline.py` | Scenario 7 (dry-run preflight) |
 | **master/tip SHA** | `build_pipeline.py` (git checkout + SHA recording) | `test_build_pipeline.py::test_branch_ref_and_sha` | Explicit task: `master` checkout targeting and tip-SHA recording in provenance |
@@ -210,7 +219,7 @@ This section maps PRD requirements to spec.md sections and implementation tasks.
 | **FR-018.1** (failure reports) | `reports.py` (FailureReport) | `test_reports.py` | Scenario 2 (User Story 3) |
 | **FR-018.2** (redaction) | `reports.py` (redact_sensitive) | `test_reports.py` | Scenario 3 (API_KEY redacted) |
 | **FR-018.3** (report rotation) | `reports.py` (ReportManager) | `test_reports.py` | Scenario 4 (>50 reports rotated) |
-| **FR-018** mutating-action log | `reports.py` (MutatingActionLog) | `test_reports.py::test_mutating_action_log` | Rotate `setup` and other mutating actions with command, timestamp, exit code, truncated output, redaction |
+| **FR-018** mutating-action log | `reports.py` (MutatingActionLog) | `test_reports.py::test_mutating_action_log` | Rotate `setup` and other mutating actions with command, timestamp, exit code, truncated output, redaction. This is complementary to build-failure report requirements (FR-018.1–018.3); FR-018.4 covers all mutating actions while FR-018.1–018.3 specifically address build-failure report structure and rotation.
 
 **Coverage Rule**: Every FR must have at least one test case that exercises the success path and one that exercises the failure path.
 
@@ -239,7 +248,7 @@ This section maps PRD requirements to spec.md sections and implementation tasks.
 
 ### M2 TUI Build Flow (Primary Interface)
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │  llm-runner build sycl (TUI)                            │
 ├─────────────────────────────────────────────────────────┤
@@ -278,6 +287,7 @@ This section maps PRD requirements to spec.md sections and implementation tasks.
 - Signal-safe cleanup: Ctrl+C releases lock, preserves successful artifacts.
 - CLI fallback: `llm-runner build sycl` provides non-TUI output (minimal progress to stdout).
 - **TUI ownership**: M2 TUI work extends existing `tui_app.py`; no new `build_tui.py` file. M2 does not alter M1 monitoring scope beyond M2 build-progress surface.
+- **M1 doctor foundation**: Includes venv health verification (interpreter path + basic import health); M2 adds `doctor --repair` for failed-target staging/lock remediation only (per PRD baseline, does not re-implement all doctor checks).
 
 ### Minimal CLI Parity (Automation)
 
@@ -305,8 +315,8 @@ llm-runner doctor --repair
   - `build`: 0 success, 1 failure
   - `setup`: 0 success, 1 failure
   - `doctor --repair`: 0 = warnings-only/ok, 1 = blocking error, 2 = needs setup/prereqs
-- Non-mutating automation (build --dry-run, setup --check) remains non-interactive; mutating actions (`setup`, `doctor --repair`) require explicit `--yes` or confirmatory UX.
-- `build both` runs serialized; `--build-order cuda,sycl` overrides default.
+- Non-mutating automation (build --dry-run, setup --check) remains non-interactive; mutating actions require explicit `--yes` or confirmatory UX (`setup` hard-required; `doctor --repair` implementation-defined per FR-004.7).
+- `build both` runs serialized with default order (SYCL first); `--build-order` override is post-MVP.
 
 ---
 
@@ -381,7 +391,7 @@ class ErrorDetail:
 
 | Scenario | ErrorCode | failed_check | how_to_fix Pattern |
 |----------|-----------|--------------|-------------------|
-| Missing cmake | `TOOLCHAIN_MISSING` | `cmake_not_found` | "Install cmake ≥3.29: `apt-get install cmake`" |
+| Missing cmake | `TOOLCHAIN_MISSING` | `cmake_not_found` | "Install cmake ≥3.24: `apt-get install cmake`" |
 | Build lock held | `BUILD_LOCK_HELD` | `build_lock_held` | "Wait for existing build to complete or run `llm-runner doctor --repair`" |
 | Corrupted venv | `VENV_CORRUPT` | `venv_missing_pyvenv_cfg` | "Remove corrupted venv: `rm -rf ~/.cache/llm-runner/venv` then run `llm-runner setup`" |
 | Python not found | `PYTHON_NOT_FOUND` | `python_interpreter_missing` | "Install Python 3.12+: `apt-get install python3.12`" |
@@ -395,7 +405,7 @@ class ErrorDetail:
 
 ### Report Directory Structure
 
-```
+```text
 ~/.local/share/llm-runner/reports/
 ├── 20260415_143022/
 │   ├── build-artifact.json    # Partial BuildArtifact with failure details (backend in file content)
@@ -434,7 +444,7 @@ class ErrorDetail:
 - **Build logs**: `$XDG_STATE_HOME/llm-runner/build-logs/<timestamp>-<backend>.log`
 - **Failure reports**: `~/.local/share/llm-runner/reports/<timestamp>/` (backend in file content, not directory name)
 - **Provenance**: `$XDG_STATE_HOME/llm-runner/builds/<timestamp>-<backend>.json` (backend-suffixed per spec)
-- **Mutating-action log**: `$XDG_STATE_HOME/llm-runner/mutating-actions.log` (rotating, max 10 entries)
+- **Mutating-action log**: `$XDG_STATE_HOME/llm-runner/mutating_actions.log` (rotating, max configurable via `Config.build_max_reports`)
 
 ---
 
@@ -451,9 +461,9 @@ class ErrorDetail:
 **Rationale**: Operators can adjust via config; no need for runtime flag in M2.
 
 ### Non-Debian Platform Policy
-**Decision**: M2 is anchored-workstation scoped (Debian/Ubuntu). For non-Debian platforms, detect when platform-specific hints cannot be provided and fall back to generic FR-005 errors with exit 0 for automation-friendly behavior.
+**Decision**: M2 is anchored-workstation scoped (Debian/Ubuntu). For non-Debian platforms, detection of missing required prerequisites/toolchain MUST still produce actionable FR-005 errors and fail safely (exit 1). Do not mask failures via forced success exit.
 
-**Rationale**: Document graceful degradation in `quickstart.md`; primary target remains Debian-based workstations.
+**Rationale**: PRD-safe behavior requires actionable diagnostics and safe failure even on non-Debian platforms; document platform-specific install hint limitations in `quickstart.md`.
 
 ### Venv Integrity Boundary (FR-005.3)
 **Decision**: M2 venv integrity checks are limited to:
@@ -541,7 +551,7 @@ Reviewers can run this checklist to verify M2 completeness:
 - [ ] FR-006.1 (provenance JSON) implemented with all 12 required fields; master/tip SHA recorded
 - [ ] FR-006.2 (predictable artifact paths + no silent auto-build on launch) implemented and tested
 - [ ] FR-006.3 (atomic provenance write + success-with-warning on write failure) implemented and tested
-- [ ] FR-018.1–018.3 (failure reports + rotation) implemented; rotating mutating-action log handled
+- [ ] FR-018.1–018.3 (build failure reports + rotation) implemented; FR-018.4 (mutating-action logs) implemented separately; complementary requirements clarified
 - [ ] Status transition assertions (`pending/running/success/failed`) + retry progress reset tested
 
 ### JSON Contracts

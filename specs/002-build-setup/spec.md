@@ -41,13 +41,10 @@ expected path. With a missing toolchain, confirm preflight fails with actionable
    attempt is blocked with FR-005 error `failed_check=build_lock_held`.
 7. **Given** `llm-runner build sycl --dry-run` is run, **When** preflight checks execute, **Then**
    only preflight results are displayed without starting the build.
-8. **Given** `llm-runner build both` with `--build-order cuda,sycl`, **When** the build pipeline
-   executes, **Then** CUDA build runs first, then SYCL.
-
 **Flow Classification (User Story 1)**:
 
 - **Primary flow**: Scenario 1 (single-backend build success).
-- **Alternate flow**: Scenarios 2 and 8 (both-backends build, custom order).
+- **Alternate flow**: Scenario 2 (both-backends build with default order).
 - **Exception flow**: Scenarios 3, 4, 5, 6 (toolchain missing, network retry, compilation failure, lock contention).
 
 ---
@@ -109,8 +106,9 @@ fields are present. After a failed build, confirm the report directory exists wi
 
 ### Edge Cases
 
-- Serialized build order: SYCL first by default; CLI may provide override.
+- Serialized build order: SYCL first by default; `--build-order` override is post-MVP.
 - `build both` fails fast on first backend failure; successful backends retain their artifacts.
+- When building multiple targets, retry operation applies only to failed targets (not successful ones).
 - Preflight checks run before any build execution; missing toolchain is always fatal (no retry).
 - Network failures during git clone are retryable; compiler failures are fatal.
 - Ctrl+C during build: clean up staging, preserve successful artifacts, release lock, no failure report.
@@ -122,27 +120,30 @@ fields are present. After a failed build, confirm the report directory exists wi
 - Report rotation maintains a maximum number of reports; oldest are deleted first.
 - Build output is truncated and redacted in failure reports; full logs remain in the build directory.
 - Cmake flags are derived from `BuildConfig` dataclass fields; flag names are class constants.
-- `build --json` outputs `BuildArtifact` JSON; `setup --json` outputs `ToolchainStatus` JSON.
-- Toolchain install hints are platform-specific; non-Debian platforms run detection with graceful degradation (exit 0).
+- `build --json` outputs `BuildArtifact` JSON; `setup --json` outputs `VenvResult` JSON; `setup --check --json` outputs `ToolchainStatus` JSON.
+- Toolchain install hints are platform-specific; non-Debian platforms run detection with graceful degradation but missing required build prerequisites/toolchain fails safely with actionable FR-005 diagnostics (no forced success status).
 - No explicit performance targets; success criteria focus on correctness, not speed.
 - `build --dry-run` runs preflight only; does not clone, configure, or build.
 - Build-stage progress reporting is implementation-defined.
 - `build --full-clone` (if supported) uses `git clone` without shallow clone.
 - `build --jobs N` (if supported) overrides parallel make job count.
+- On network loss during git clone, if local clone exists, `build` offers/allows offline continue path; otherwise fails with actionable diagnostics.
+- `setup` venv creation requires network for package install; no offline fallback in M2.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
 - **FR-004.1**: System MUST provide a CLI `build` subcommand that accepts a backend argument
-  (`sycl` | `cuda` | `both`) and executes the llama.cpp build pipeline for the specified backend(s).
-  When `both` is specified, builds MUST run sequentially (never in parallel). Default build order is
-  SYCL first; CLI may provide override. The `--json` flag produces machine-readable
-  `BuildArtifact` JSON output (consistent with M1's `dry-run --json` pattern).
+   (`sycl` | `cuda` | `both`) and executes the llama.cpp build pipeline for the specified backend(s).
+   When `both` is specified, builds MUST run sequentially (never in parallel). Default build order is
+   SYCL first; `--build-order` override is post-MVP. The `--json` flag produces machine-readable
+   `BuildArtifact` JSON output (consistent with M1's `dry-run --json` pattern).
 - **FR-004.6**: System MUST support M2 build workflow via TUI with minimal CLI parity as needed for automation.
   Full FR-010 operational monitoring remains M4.
 - **FR-004.7**: The `doctor --repair` command clears failed-target staging directories without
-  deleting artifacts from successful backends.
+   deleting artifacts from successful backends. Confirmation UX for `doctor --repair` is
+   implementation-defined (optional in M2).
 
 - **FR-004.2**: Build pipeline MUST execute the following stages in order: preflight → clone →
   configure → build → provenance (5 stages). Each stage MUST report its status (`pending` | `running` |
@@ -173,23 +174,25 @@ fields are present. After a failed build, confirm the report directory exists wi
   `ToolchainStatus` JSON output (consistent with M1's `dry-run --json` pattern).
   `setup --check` MUST NOT perform venv integrity checks — it is toolchain-only.
 - **FR-005.2**: System MUST provide a `setup` subcommand (without `--check`) that creates or reuses
-  a virtual environment at `$XDG_CACHE_HOME/llm-runner/venv` (fallback `~/.cache/llm-runner/venv`).
-  The venv MUST NOT be auto-activated; the activation command MUST be printed to stdout.
-  Runtime `llm-runner` MUST NOT mutate this venv during serve operations. When running `setup`
-  without `--check`, the system MUST also check venv integrity (FR-005.3) and report any issues.
-  The `--json` flag produces machine-readable `VenvResult` JSON.
+   a virtual environment at `$XDG_CACHE_HOME/llm-runner/venv` (fallback `~/.cache/llm-runner/venv`).
+   The venv MUST NOT be auto-activated; the activation command MUST be printed to stdout.
+   Runtime `llm-runner` MUST NOT mutate this venv during serve operations. When running `setup`
+   without `--check`, the system MUST also check venv integrity (FR-005.3) and report any issues.
+   Mutating actions under `setup` (without `--check`) MUST require confirmatory UX or explicit
+   `--yes` equivalent before proceeding. The `--json` flag produces machine-readable `VenvResult` JSON.
 - **FR-005.3**: System MUST detect corrupted venvs (missing `pyvenv.cfg`, broken interpreter symlink)
   and return FR-005 actionable error with `error_code=VENV_CORRUPT` and `how_to_fix` instructing
   removal and re-creation. Venv integrity is checked during `setup` (without `--check`), NOT during
   `setup --check` (which is toolchain-only).
 - **FR-005.4**: Toolchain detection MUST use `subprocess.run` with timeout to query `--version`
-  output. Detection failures (tool not found, timeout) return `None` for that tool and generate FR-005
-  actionable error if the tool is required for the requested backend. The set of required tools per
-  backend is defined as module-level constants (`SYCL_REQUIRED_TOOLS` and `CUDA_REQUIRED_TOOLS`) in
-  `toolchain.py`. `ToolchainHint.required_for` fields are derived from these constants. Common tools
-  (gcc, make, git, cmake) are required for both backends; cmake version is validated at preflight,
-  emitting FR-005 error if below upstream llama.cpp requirements; backend-specific tools (dpcpp/icx/icpx
-  for SYCL, nvcc for CUDA) are required only for their respective backend.
+   output. Detection failures (tool not found, timeout) return `None` for that tool and generate FR-005
+   actionable error if the tool is required for the requested backend. **Timeout policy**: default 30s,
+   configurable via `Config.toolchain_timeout_seconds`. The set of required tools per backend is defined
+   as module-level constants (`SYCL_REQUIRED_TOOLS` and `CUDA_REQUIRED_TOOLS`) in `toolchain.py`.
+   `ToolchainHint.required_for` fields are derived from these constants. Common tools (gcc, make, git,
+   cmake) are required for both backends; cmake version is validated at preflight, emitting FR-005 error
+   if below upstream llama.cpp requirements; backend-specific tools (dpcpp/icx/icpx for SYCL, nvcc for
+   CUDA) are required only for their respective backend.
 - **FR-006.1**: Every successful build MUST produce a provenance JSON file at
   `$XDG_STATE_HOME/llm-runner/builds/<timestamp>-<backend>.json` containing essential fields:
   `artifact_type`, `backend`, `created_at`, `git_remote_url`, `git_commit_sha`, `git_branch`,
@@ -198,8 +201,12 @@ fields are present. After a failed build, confirm the report directory exists wi
   Intel SYCL binary at `src/llama.cpp/build/bin/llama-server`, NVIDIA CUDA binary at
   `src/llama.cpp/build_cuda/bin/llama-server`. The system MUST NOT silently auto-build on launch.
 - **FR-006.3**: Provenance files SHOULD be written atomically (write to temp file, then rename).
-  If provenance write fails, the build is still considered successful but a warning is emitted
-  indicating the provenance recording failure.
+   If provenance write fails, the build is still considered successful but a warning is emitted
+   indicating the provenance recording failure.
+- **FR-006.4 (offline-continue)**: If a local clone exists and network is unavailable during
+   `build`, the pipeline offers an offline-continue path (skips clone/update, proceeds to configure
+   and build). If no local clone exists and network is unavailable, the pipeline fails with FR-005
+   actionable error (`error_code=NETWORK_UNAVAILABLE`, `failed_check=git_clone_blocked`).
 - **FR-018.1**: Build failures MUST produce a report directory at
   `~/.local/share/llm-runner/reports/<timestamp>/` containing: `build-artifact.json` (partial
   BuildArtifact with failure details), `build-output.log` (truncated, secrets redacted),
@@ -209,6 +216,14 @@ fields are present. After a failed build, confirm the report directory exists wi
 - **FR-018.3**: Report rotation MUST maintain a maximum number of report directories.
   When the limit is exceeded, the oldest reports (by directory timestamp) are deleted first.
   Default count is implementation-defined.
+- **FR-018.4**: Mutating actions (e.g., `setup` venv creation) MUST produce a rotating log entry
+   containing: command, timestamp, exit code, truncated output, and secret redaction.
+   Rotation policy applies consistently (oldest entries deleted first when limit is exceeded).
+   Default max entries is implementation-defined. **Path separation**: failure reports (FR-018.1–018.3)
+   live under `~/.local/share/llm-runner/reports/<timestamp>/` (data directory), while mutating-action
+   logs (FR-018.4) live under `$XDG_STATE_HOME/llm-runner/mutating_actions.log` (state directory);
+   these are complementary artifacts serving different operational purposes. FR-018.4 covers all mutating
+   actions while FR-018.1–018.3 specifically address build-failure report structure and rotation.
 
 ### Constitution Alignment *(mandatory)*
 
@@ -268,6 +283,7 @@ fields are present. After a failed build, confirm the report directory exists wi
 - The existing `Config.llama_cpp_root` path convention is used for source and build directories.
 - Build artifacts (binaries) remain at paths defined by the existing llama.cpp build system.
 - TUI build wizard/progress flow is included in M2 (target selection, stage progress, retry failed, report link). Full TUI monitoring (FR-010) remains M4.
+- M1 doctor foundation includes venv health verification (interpreter path + basic import health); M2 adds `doctor --repair` for failed-target staging/lock remediation only (per PRD baseline, does not re-implement all doctor checks).
 
 ### Plan Confirmation Items
 

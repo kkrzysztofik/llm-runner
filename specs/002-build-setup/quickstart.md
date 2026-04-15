@@ -15,7 +15,8 @@
 - M0: Documentation generation (FR-019)
 - M1: Slot-first launch, dry-run, lockfiles (COMPLETED in Spec 001)
 - M3: Profiling and presets (FR-007, FR-008, FR-009)
-- M4: Smoke tests, TUI monitoring, shutdown, GGUF parsing, hardware ack, exit codes
+- M4: Smoke tests, TUI monitoring, shutdown, GGUF parsing, hardware ack
+- Exit codes: `doctor` exit-code contract is already in scope (M1/MVP baseline); 002 quickstart references it rather than deferring.
 
 **Do not claim full PRD completion.** This branch is a milestone delivery, not MVP completion.
 
@@ -83,7 +84,7 @@ uv run llm-runner build sycl
 Expected outcomes (with valid toolchain):
 
 - Preflight checks pass
-- Build stages execute sequentially: clone → configure → build → install → provenance
+- Build stages execute sequentially: preflight → clone → configure → build → provenance
 - Each stage reports status and progress
 - On success: binary at `src/llama.cpp/build/bin/llama-server`
 - On success: provenance JSON at `~/.local/state/llm-runner/builds/<timestamp>-sycl.json`
@@ -102,15 +103,16 @@ Expected outcomes (with missing toolchain):
 uv run llm-runner build both
 ```
 
-**Meaning:** Builds SYCL then CUDA sequentially.
+**Meaning:** Builds SYCL then CUDA sequentially with per-target semantics.
 
 Expected outcomes:
 
-- SYCL build completes first (or fails fast)
+- SYCL build completes first (success or failure)
 - If SYCL succeeds, CUDA build starts next
-- If SYCL fails, CUDA build does NOT start (fail-fast policy)
+- If SYCL fails, CUDA build does NOT start (serialized execution)
+- Each backend tracks its own success/failure state independently
+- Failed backends may be retried without re-running successful ones
 - Both backends produce independent provenance records
-- `--build-order cuda,sycl` reverses the order
 
 ## 6) Verify failure reporting
 
@@ -128,10 +130,26 @@ Run two concurrent build attempts and verify:
 
 - Second attempt is blocked with FR-005 error (`error_code=BUILD_LOCK_HELD`)
 - Lock file at `$XDG_CACHE_HOME/llm-runner/.build.lock` contains PID and timestamp
-- Stale lock (PID not running) is auto-cleared on next build attempt
+- Stale lock (PID not running) is NOT auto-cleared in M2; operator must run `llm-runner doctor --repair`
 - Lock is released after build completes (success or failure)
 
-## 8) Run automated test suite
+## 8) Verify offline-continue on network loss
+
+Simulate network loss (e.g., disconnect internet) and verify:
+
+- If local clone exists, `build` offers/allows offline continue path
+- If no local clone exists, `build` fails with actionable diagnostics (FR-005)
+- Error message indicates how to proceed (clone source first, then retry)
+
+## 9) Verify mutating-action rotating logs
+
+Run `uv run llm-runner setup --yes` and verify:
+
+- Rotating log entry created with: command, timestamp, exit code, truncated output, redaction
+- Log follows rotation policy (oldest entries deleted first when limit exceeded)
+- Secrets in output are redacted (`API_KEY=secret123` → `API_KEY=[REDACTED]`)
+
+## 10) Run automated test suite
 
 ```bash
 uv run pytest --tb=short -q
