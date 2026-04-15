@@ -44,22 +44,22 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T013 Implement ToolchainErrorDetail dataclass extending M1 ErrorDetail pattern in `src/llama_manager/toolchain.py` (ensure FR-005 compliance with error_code, failed_check, why_blocked, how_to_fix, docs_ref)
-- [ ] T014 Implement redact_sensitive() utility function in `src/llama_manager/reports.py` (pattern: KEY|TOKEN|SECRET|PASSWORD|AUTH → [REDACTED])
-- [ ] T015 Implement XDG path utilities in `src/llama_manager/config.py` for computing venv_path, builds_dir, reports_dir, build_lock_path from Config
-- [ ] T016 Implement CMake version parser in `src/llama_manager/toolchain.py` (tuple comparison with suffix normalization)
-- [ ] T017 [P] Implement detect_tool() in `src/llama_manager/toolchain.py` with subprocess.run and 30s timeout (configurable via Config.toolchain_timeout_seconds)
-- [ ] T018 [P] Implement get_toolchain_hints() in `src/llama_manager/toolchain.py` returning list[ErrorDetail] for missing required tools with platform-specific install commands
-- [ ] T019 [P] Implement get_venv_path() in `src/llama_manager/setup_venv.py` returning $XDG_CACHE_HOME/llm-runner/venv with fallback to ~/.cache/llm-runner/venv
-- [ ] T020 [P] Implement create_venv() in `src/llama_manager/setup_venv.py` that creates venv at given path using venv module
-- [ ] T021 [P] Implement check_venv_integrity() in `src/llama_manager/setup_venv.py` validating pyvenv.cfg existence and interpreter symlink
-- [ ] T022 [P] Implement write_failure_report() in `src/llama_manager/reports.py` creating report directory with build-artifact.json, build-output.log (truncated and redacted), error-details.json, enforcing 0700/0600 permissions
-- [ ] T023 Implement rotate_reports() in `src/llama_manager/reports.py` deleting oldest report directories when count exceeds Config.build_max_reports
-- [ ] T024 [P] Write unit tests for dataclass validations in `src/tests/test_build_config.py`
-- [ ] T025 [P] Write unit tests for redact_sensitive() in `src/tests/test_reports.py`
-- [ ] T026 Add foundational regression tests for detect_toolchain(), get_toolchain_hints(), create_venv(), check_venv_integrity(), write_failure_report() in `src/tests/test_m2_foundation.py`
+- [X] T013 Implement ToolchainErrorDetail dataclass extending M1 ErrorDetail pattern in `src/llama_manager/toolchain.py` (ensure FR-005 compliance with error_code, failed_check, why_blocked, how_to_fix, docs_ref)
+- [X] T014 Implement redact_sensitive() utility function in `src/llama_manager/reports.py` (pattern: KEY|TOKEN|SECRET|PASSWORD|AUTH → [REDACTED])
+- [X] T015 Implement XDG path utilities in `src/llama_manager/config.py` for computing venv_path, builds_dir, reports_dir, build_lock_path from Config
+- [X] T016 Implement CMake version parser in `src/llama_manager/toolchain.py` (tuple comparison with suffix normalization)
+- [X] T017 [P] Implement detect_tool() in `src/llama_manager/toolchain.py` with subprocess.run and 30s timeout (configurable via Config.toolchain_timeout_seconds)
+- [X] T018 [P] Implement get_toolchain_hints() in `src/llama_manager/toolchain.py` returning list[ErrorDetail] for missing required tools with platform-specific install commands
+- [X] T019 [P] Implement get_venv_path() in `src/llama_manager/setup_venv.py` returning $XDG_CACHE_HOME/llm-runner/venv with fallback to ~/.cache/llm-runner/venv
+- [X] T020 [P] Implement create_venv() in `src/llama_manager/setup_venv.py` that creates venv at given path using venv module
+- [X] T021 [P] Implement check_venv_integrity() in `src/llama_manager/setup_venv.py` validating pyvenv.cfg existence and interpreter symlink
+- [X] T022 [P] Implement write_failure_report() in `src/llama_manager/reports.py` creating report directory with build-artifact.json, build-output.log (truncated and redacted), error-details.json, enforcing 0700/0600 permissions
+- [X] T023 Implement rotate_reports() in `src/llama_manager/reports.py` deleting oldest report directories when count exceeds Config.build_max_reports
+- [X] T024 [P] Write unit tests for dataclass validations in `src/tests/test_build_config.py`
+- [X] T025 [P] Write unit tests for redact_sensitive() in `src/tests/test_reports.py`
+- [X] T026 Add foundational regression tests for detect_toolchain(), get_toolchain_hints(), create_venv(), check_venv_integrity(), write_failure_report() in `src/tests/test_m2_foundation.py`
 
-**Checkpoint**: Foundation ready — user story implementation can now begin in parallel
+**Phase 2 Complete**: All 14 tasks implemented, tested (~110+ tests), and validated. Foundation ready — user story implementation can now begin in parallel.
 
 ---
 
