@@ -21,18 +21,20 @@
 
 **Note**: This project already has existing infrastructure from M1. Setup tasks focus on M2-specific additions.
 
-- [ ] T001 [P] Add ErrorCode extensions for M2 in `src/llama_manager/config.py` (TOOLCHAIN_MISSING, BUILD_LOCK_HELD, VENV_CORRUPT, PYTHON_NOT_FOUND, BUILD_FAILED, PREFLIGHT_FAILURE, GIT_CLONE_FAILED, GIT_CHECKOUT_FAILED, REPORT_WRITE_FAILURE, TOOL_VERSION_MISMATCH, CMAKE_INCOMPATIBLE)
-- [ ] T002 [P] Add Config extensions for M2 in `src/llama_manager/config.py` (xdg_cache_base, xdg_state_base, xdg_data_base, build_git_remote, build_git_branch, build_retry_attempts, build_retry_delay, build_max_reports, build_output_truncate_bytes, toolchain_timeout_seconds)
-- [ ] T003 [P] Create BuildConfig dataclass in `src/llama_manager/build_pipeline.py` with fields: backend, source_dir, build_dir, output_dir, git_remote_url, git_branch, retry_attempts, retry_delay, shallow_clone, jobs, plus class constants GGML_SYCL, GGML_CUDA, CMAKE_C_COMPILER, CMAKE_CXX_COMPILER
-- [ ] T004 [P] Create BuildArtifact dataclass in `src/llama_manager/build_pipeline.py` with fields: artifact_type, backend, created_at, git_remote_url, git_commit_sha, git_branch, build_command, build_duration_seconds, exit_code, binary_path, binary_size_bytes, build_log_path, failure_report_path
-- [ ] T005 [P] Create BuildProgress dataclass in `src/llama_manager/build_pipeline.py` with fields: stage, status, message, progress_percent, retries_remaining
-- [ ] T006 [P] Create ToolchainStatus dataclass in `src/llama_manager/toolchain.py` with fields: gcc, make, git, cmake, sycl_compiler, cuda_toolkit, nvtop
-- [ ] T007 [P] Create BuildLock dataclass in `src/llama_manager/build_pipeline.py` with fields: pid, started_at, backend
-- [ ] T008 [P] Create FailureReport dataclass in `src/llama_manager/reports.py` with fields: report_dir, timestamp, build_artifact_json, build_output_log, error_details_json
-- [ ] T009 [P] Create VenvResult dataclass in `src/llama_manager/setup_venv.py` with fields: venv_path, created, reused, activation_command
-- [ ] T010 [P] Create ToolchainHint dataclass in `src/llama_manager/toolchain.py` with fields: tool_name, install_command, install_url, required_for
-- [ ] T011 Add module constants in `src/llama_manager/toolchain.py`: SYCL_REQUIRED_TOOLS, CUDA_REQUIRED_TOOLS, CMAKE_MINIMUM_VERSION
-- [ ] T012 [P] Add MutatingActionLogEntry dataclass in `src/llama_manager/reports.py` with fields: command, timestamp, exit_code, truncated_output, redaction_applied
+- [X] T001 [P] Add ErrorCode extensions for M2 in `src/llama_manager/config.py` (TOOLCHAIN_MISSING, BUILD_LOCK_HELD, VENV_CORRUPT, PYTHON_NOT_FOUND, BUILD_FAILED, PREFLIGHT_FAILURE, GIT_CLONE_FAILED, GIT_CHECKOUT_FAILED, REPORT_WRITE_FAILURE, TOOL_VERSION_MISMATCH, CMAKE_INCOMPATIBLE)
+- [X] T002 [P] Add Config extensions for M2 in `src/llama_manager/config.py` (xdg_cache_base, xdg_state_base, xdg_data_base, build_git_remote, build_git_branch, build_retry_attempts, build_retry_delay, build_max_reports, build_output_truncate_bytes, toolchain_timeout_seconds)
+- [X] T003 [P] Create BuildConfig dataclass in `src/llama_manager/build_pipeline.py` with fields: backend, source_dir, build_dir, output_dir, git_remote_url, git_branch, retry_attempts, retry_delay, shallow_clone, jobs, plus class constants GGML_SYCL, GGML_CUDA, CMAKE_C_COMPILER, CMAKE_CXX_COMPILER
+- [X] T004 [P] Create BuildArtifact dataclass in `src/llama_manager/build_pipeline.py` with fields: artifact_type, backend, created_at, git_remote_url, git_commit_sha, git_branch, build_command, build_duration_seconds, exit_code, binary_path, binary_size_bytes, build_log_path, failure_report_path
+- [X] T005 [P] Create BuildProgress dataclass in `src/llama_manager/build_pipeline.py` with fields: stage, status, message, progress_percent, retries_remaining
+- [X] T006 [P] Create ToolchainStatus dataclass in `src/llama_manager/toolchain.py` with fields: gcc, make, git, cmake, sycl_compiler, cuda_toolkit, nvtop
+- [X] T007 [P] Create BuildLock dataclass in `src/llama_manager/build_pipeline.py` with fields: pid, started_at, backend
+- [X] T008 [P] Create FailureReport dataclass in `src/llama_manager/reports.py` with fields: report_dir, timestamp, build_artifact_json, build_output_log, error_details_json
+- [X] T009 [P] Create VenvResult dataclass in `src/llama_manager/setup_venv.py` with fields: venv_path, created, reused, activation_command
+- [X] T010 [P] Create ToolchainHint dataclass in `src/llama_manager/toolchain.py` with fields: tool_name, install_command, install_url, required_for
+- [X] T011 Add module constants in `src/llama_manager/toolchain.py`: SYCL_REQUIRED_TOOLS, CUDA_REQUIRED_TOOLS, CMAKE_MINIMUM_VERSION
+- [X] T012 [P] Add MutatingActionLogEntry dataclass in `src/llama_manager/reports.py` with fields: command, timestamp, exit_code, truncated_output, redaction_applied
+
+**Phase 1 Complete**: All 12 tasks implemented, tested (118 tests), and validated. Ready for Phase 2.
 
 ---
 
