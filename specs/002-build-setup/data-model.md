@@ -116,11 +116,12 @@
 ## Module Constants: Required Tool Lists
 
 - **`SYCL_REQUIRED_TOOLS: frozenset[str]`** — tools required for SYCL backend builds:
-  - Common: `gcc`, `make`, `git`, `cmake`
+  - Common: `gcc`, `make`, `git`, `cmake` (>= 3.24)
   - SYCL-specific: `dpcpp` (oneAPI compiler, provides icx/icpx)
 - **`CUDA_REQUIRED_TOOLS: frozenset[str]`** — tools required for CUDA backend builds:
-  - Common: `gcc`, `make`, `git`, `cmake`
+  - Common: `gcc`, `make`, `git`, `cmake` (>= 3.24)
   - CUDA-specific: `nvcc` (CUDA toolkit compiler)
+- **`CMAKE_MINIMUM_VERSION: tuple[int, int, int]`** — `(3, 24, 0)` — minimum cmake version required by llama.cpp
 - These constants are the authoritative source for "which tools are required per backend".
   `ToolchainHint.required_for` is derived from these, not the other way around.
 

@@ -31,6 +31,9 @@
 - Q: Should `setup --check` combine toolchain and venv integrity checks? → A: No — keep them separate. `setup --check` shows toolchain status only; venv integrity is checked when running `setup` (without `--check`). `--json` outputs the relevant structure for the active mode (`ToolchainStatus` for `--check`, venv path/integrity result for default mode).
 - Q: How should per-backend required tool lists be defined? → A: Explicit required-tools list: define `SYCL_REQUIRED_TOOLS` and `CUDA_REQUIRED_TOOLS` as module-level constants in `toolchain.py`. `ToolchainHint.required_for` is derived from these constants, not the other way around. The authoritative "which tools are required" lives in one place.
 - Q: Should the `install` pipeline stage remain separate? → A: No — remove `install` stage. Binary verification is merged into the `build` stage (verify binary exists after `make` completes). Pipeline stages become: preflight → clone → configure → build → provenance (5 stages, not 6).
+- Q: How should Non-Debian behavior work in `setup --check`? → A: Graceful degradation — non-Debian platforms exit 0 with `supported: false` in JSON output. No FR-005 errors emitted. Toolchain detection still runs and shows which tools are found, but install hints are omitted. FR-005 errors are reserved for explicit `--install` attempts or build-time toolchain failures.
+- Q: Should preflight check cmake version, and what minimum? → A: Yes — check cmake >= 3.24 at preflight (llama.cpp requirement as of 2024-2025). Emit FR-005 actionable error with `error_code=TOOLCHAIN_MISSING`, `failed_check=cmake_version_too_old`, and `how_to_fix` instructing to upgrade cmake to 3.24 or newer.
+- Q: What is the JSON schema for `setup --json` (default mode, venv creation)? → A: `VenvResult` JSON: `{path: string, created: bool, integrity_ok: bool, error: ErrorDetail|null}`. `created=true` for fresh create, `false` for reuse. `integrity_ok=false` if corrupted (then `error` contains `ErrorDetail`). `error=null` on success.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -150,7 +153,7 @@ fields are present. After a failed build, confirm the report directory exists wi
 - Build output truncation: logs are capped at 10 KiB in failure reports; full logs remain in the build directory.
 - Cmake flags are derived from `BuildConfig` dataclass fields; flag names are class constants, not hardcoded strings.
 - `build --json` outputs `BuildArtifact` JSON; `setup --json` outputs `ToolchainStatus` JSON.
-- Toolchain install hints are Debian-derivatives only (apt-get); other platforms deferred post-MVP.
+- Toolchain install hints are Debian-derivatives only (apt-get); non-Debian platforms run detection with graceful degradation (exit 0, `supported: false`).
 - No explicit performance targets; success criteria focus on correctness, not speed.
 - `build --dry-run` runs preflight only; does not clone, configure, or build.
 - Build-stage progress is calculated by parsing make's `[N/M]` parallel output pattern; if no `[N/M]` pattern is detected, progress remains at 0% until completion.
@@ -168,6 +171,10 @@ fields are present. After a failed build, confirm the report directory exists wi
   When `both` is specified, builds MUST run sequentially (never in parallel). Default build order is
   SYCL first; `--build-order` flag allows override. The `--json` flag MUST produce machine-readable
   `BuildArtifact` JSON output (consistent with M1's `dry-run --json` pattern).
+- **FR-004.6**: System MUST provide a TUI build wizard flow in M2 that displays: target backend
+  selection (sycl/cuda/both), per-stage progress updates (preflight → clone → configure → build →
+  provenance), retry status for transient failures, and a link to failure reports on build error.
+  Full TUI monitoring (FR-010) remains M4.
 - **FR-004.2**: Build pipeline MUST execute the following stages in order: preflight → clone →
   configure → build → provenance (5 stages). Each stage MUST report its status (`pending` | `running` |
   `success` | `failed`) and progress percentage. During the `build` stage, the pipeline MUST parse
@@ -196,14 +203,13 @@ fields are present. After a failed build, confirm the report directory exists wi
   MUST support `--jobs N` flag that overrides parallel make job count.
 - **FR-005.1**: System MUST provide a `setup --check` subcommand that detects installed toolchain
   components (gcc, make, git, cmake, sycl_compiler, cuda_toolkit, nvtop) and returns their version
-  strings, or `None` for missing tools. Missing tools MUST produce FR-005 actionable errors with
-  Debian-specific install instructions (apt-get only). The `--json` flag MUST produce machine-readable
-  `ToolchainStatus` JSON output (consistent with M1's `dry-run --json` pattern). `setup --check`
-  MUST NOT perform venv integrity checks — it is toolchain-only. Platform scope is
-  Debian-derivatives only in M2; other platforms deferred post-MVP.
-  **Non-Debian behavior**: When `setup --check` is run on a non-Debian system, the command MUST
-  detect the platform and still perform toolchain detection, but MUST omit Debian-specific install
-  hints. The `--json` output MUST include a `ToolchainStatus` JSON with the following shape:
+  strings, or `None` for missing tools. On Debian-derivatives, missing tools MUST produce FR-005
+  actionable errors with Debian-specific install instructions (apt-get only). The `--json` flag MUST
+  produce machine-readable `ToolchainStatus` JSON output (consistent with M1's `dry-run --json` pattern).
+  `setup --check` MUST NOT perform venv integrity checks — it is toolchain-only.
+  **Non-Debian behavior**: On non-Debian systems, `setup --check` MUST run toolchain detection normally
+  (showing which tools are found/missing) but MUST NOT emit FR-005 errors. The `--json` output MUST
+  include a `ToolchainStatus` JSON with the following shape:
 
   ```json
   {
@@ -223,7 +229,21 @@ fields are present. After a failed build, confirm the report directory exists wi
   The venv MUST NOT be auto-activated; the activation command MUST be printed to stdout.
   Runtime `llm-runner` MUST NOT mutate this venv during serve operations. When running `setup`
   without `--check`, the system MUST also check venv integrity (FR-005.3) and report any issues.
-  The `--json` flag MUST produce machine-readable output with venv path and integrity result.
+  The `--json` flag MUST produce machine-readable `VenvResult` JSON with the following shape:
+
+  ```json
+  {
+    "path": "/home/user/.cache/llm-runner/venv",
+    "created": false,
+    "integrity_ok": true,
+    "error": null
+  }
+  ```
+
+  The `created` field is `true` if a new venv was created, `false` if an existing venv was reused.
+  The `integrity_ok` field is `true` if the venv passed integrity checks, `false` if corrupted
+  (in which case `error` contains the `ErrorDetail` object). On success with no corruption,
+  `error` is `null`.
 - **FR-005.3**: System MUST detect corrupted venvs (missing `pyvenv.cfg`, broken interpreter symlink)
   and return FR-005 actionable error with `error_code=VENV_CORRUPT` and `how_to_fix` instructing
   removal and re-creation. Venv integrity is checked during `setup` (without `--check`), NOT during
@@ -233,9 +253,10 @@ fields are present. After a failed build, confirm the report directory exists wi
   tool and generate FR-005 actionable error if the tool is required for the requested backend. The
   set of required tools per backend MUST be defined as module-level constants (`SYCL_REQUIRED_TOOLS`
   and `CUDA_REQUIRED_TOOLS`) in `toolchain.py`. `ToolchainHint.required_for` fields MUST be derived
-  from these constants. Common tools (gcc, make, git, cmake) are required for both backends;
-  backend-specific tools (dpcpp/icx/icpx for SYCL, nvcc for CUDA) are required only for their
-  respective backend.
+  from these constants. Common tools (gcc, make, git, cmake >= 3.24) are required for both backends;
+  cmake version MUST be validated to be >= 3.24 at preflight, emitting FR-005 error
+  (`cmake_version_too_old`) if below minimum; backend-specific tools (dpcpp/icx/icpx for SYCL,
+  nvcc for CUDA) are required only for their respective backend.
 - **FR-006.1**: Every successful build MUST produce a provenance JSON file at
   `$XDG_STATE_HOME/llm-runner/builds/<timestamp>-<backend>.json` containing: `artifact_type`,
   `backend`, `created_at`, `git_remote_url`, `git_commit_sha`, `git_branch`, `build_command`,
@@ -301,6 +322,8 @@ fields are present. After a failed build, confirm the report directory exists wi
   never mutates the venv during serve operations.
 - **SC-006**: Build pipeline preflight detects all missing toolchain components before any build
   execution begins (clone, configure, build stages).
+- **SC-007**: TUI build wizard displays per-stage progress updates in real-time (0% → 100%) during
+  the `build` stage, with visible retry feedback and failure report link when applicable.
 
 ## Assumptions
 
@@ -312,7 +335,16 @@ fields are present. After a failed build, confirm the report directory exists wi
   and stable.
 - The existing `Config.llama_cpp_root` path convention is used for source and build directories.
 - Build artifacts (binaries) remain at paths defined by the existing llama.cpp build system.
-- TUI build visualization is deferred to M4; M2 provides CLI-only build output.
+- TUI build wizard/progress flow is included in M2 (target selection, stage progress, retry failed, report link). Full TUI monitoring (FR-010) remains M4.
+
+### Plan Confirmation Items
+
+The following items require explicit confirmation during `/speckit.plan`:
+
+- Build lock is mandatory in M2 (FR-004.4); planning to confirm stale-lock recovery behavior only.
+- Report rotation is count-based default 50 (FR-018.3); planning to confirm configurability only.
+- Non-Debian behavior is graceful degradation with `supported: false` and exit 0 (FR-005.1); planning to confirm whether to keep in M2 or defer.
+- Venv integrity checks in M2 are limited to pyvenv.cfg + interpreter symlink checks (FR-005.3); package validation deferred post-MVP.
 
 ## Addendum — Definitions & Measurement Notes (M2)
 
