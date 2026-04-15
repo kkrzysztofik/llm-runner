@@ -12,9 +12,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-from llama_manager.setup_venv import VenvResult, check_venv_integrity, create_venv, get_venv_path
+from llama_manager.setup_venv import VenvResult, create_venv
 from llama_manager.toolchain import ToolchainStatus
 
 

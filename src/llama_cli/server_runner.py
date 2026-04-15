@@ -34,7 +34,6 @@ from llama_manager import (
     validate_server_config,
     validate_slots,
 )
-from llama_manager.build_pipeline import BuildBackend
 from llama_manager.server import detect_risky_operations
 
 RISK_ACK_LABEL = "warning_bypass"

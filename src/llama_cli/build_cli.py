@@ -152,7 +152,7 @@ def run_build_command(args: argparse.Namespace) -> int:
     result = pipeline.run()
 
     if result.success:
-        print(f"Build completed successfully!", file=sys.stderr)
+        print("Build completed successfully!", file=sys.stderr)
         if result.artifact:
             print(f"Artifact: {result.artifact.binary_path}", file=sys.stderr)
         return 0

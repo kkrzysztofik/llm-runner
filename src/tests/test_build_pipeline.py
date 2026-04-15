@@ -18,24 +18,20 @@ Test Tasks:
 
 import json
 import os
-import signal
 import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
-
-import pytest
+from unittest.mock import Mock, patch
 
 from llama_manager.build_pipeline import (
     BuildArtifact,
     BuildBackend,
     BuildConfig,
     BuildLock,
-    BuildProgress,
     BuildPipeline,
+    BuildProgress,
 )
-from llama_manager.config import Config
 
 
 class TestNoAutobuildOnLaunch:
@@ -64,51 +60,51 @@ class TestNoAutobuildOnLaunch:
         pipeline = BuildPipeline(config)
 
         # Mock all stages to verify they are NOT called when sources exist
-        with patch.object(pipeline, "_check_toolchain", return_value=(True, [])) as mock_check:
-            with patch.object(
+        with (
+            patch.object(pipeline, "_run_preflight", return_value=(True, [])) as mock_check,
+            patch.object(
                 pipeline,
-                "_clone_repository",
+                "_run_clone",
                 return_value=BuildProgress(
                     stage="clone",
                     status="skipped",
                     message="Sources already exist",
                     progress_percent=0,
                 ),
-            ) as mock_clone:
-                with patch.object(
-                    pipeline,
-                    "_configure_source",
-                    return_value=BuildProgress(
-                        stage="configure",
-                        status="success",
-                        message="Configured",
-                        progress_percent=50,
-                    ),
-                ) as mock_configure:
-                    with patch.object(
-                        pipeline,
-                        "_build_source",
-                        return_value=BuildProgress(
-                            stage="build",
-                            status="success",
-                            message="Built",
-                            progress_percent=75,
-                        ),
-                    ) as mock_build:
-                        with patch.object(
-                            pipeline, "_write_provenance", return_value=True
-                        ) as mock_provenance:
-                            result = pipeline.run()
+            ) as mock_clone,
+            patch.object(
+                pipeline,
+                "_run_configure",
+                return_value=BuildProgress(
+                    stage="configure",
+                    status="success",
+                    message="Configured",
+                    progress_percent=50,
+                ),
+            ) as mock_configure,
+            patch.object(
+                pipeline,
+                "_run_build",
+                return_value=BuildProgress(
+                    stage="build",
+                    status="success",
+                    message="Built",
+                    progress_percent=75,
+                ),
+            ) as mock_build,
+            patch.object(pipeline, "_write_provenance", return_value=True) as mock_provenance,
+        ):
+            result = pipeline.run()
 
-                            # Verify stages were called
-                            assert mock_check.called
-                            assert mock_clone.called  # Should still be called but skipped
-                            assert mock_configure.called
-                            assert mock_build.called
-                            assert mock_provenance.called
+            # Verify stages were called
+            assert mock_check.called
+            assert mock_clone.called  # Should still be called but skipped
+            assert mock_configure.called
+            assert mock_build.called
+            assert mock_provenance.called
 
-                            # Verify result indicates success
-                            assert result.is_success is True
+            # Verify result indicates success
+            assert result.success is True
 
 
 class TestSerializedBuildOrder:
@@ -162,20 +158,20 @@ class TestSerializedBuildOrder:
 
             return decorator
 
-        sycl_pipeline._check_toolchain = Mock(return_value=(True, []))
-        sycl_pipeline._clone_repository = Mock(
+        sycl_pipeline._run_preflight = Mock(return_value=(True, []))
+        sycl_pipeline._run_clone = Mock(
             return_value=BuildProgress(
                 stage="clone", status="skipped", message="Exists", progress_percent=0
             )
         )
-        sycl_pipeline._configure_source = track_sycl_stage("configure")(
+        sycl_pipeline._run_configure = track_sycl_stage("configure")(
             Mock(
                 return_value=BuildProgress(
                     stage="configure", status="success", message="Configured", progress_percent=50
                 )
             )
         )
-        sycl_pipeline._build_source = track_sycl_stage("build")(
+        sycl_pipeline._run_build = track_sycl_stage("build")(
             Mock(
                 return_value=BuildProgress(
                     stage="build", status="success", message="Built", progress_percent=75
@@ -184,18 +180,18 @@ class TestSerializedBuildOrder:
         )
         sycl_pipeline._write_provenance = Mock(return_value=True)
 
-        cuda_pipeline._check_toolchain = Mock(return_value=(True, []))
-        cuda_pipeline._clone_repository = Mock(
+        cuda_pipeline._run_preflight = Mock(return_value=(True, []))
+        cuda_pipeline._run_clone = Mock(
             return_value=BuildProgress(
                 stage="clone", status="skipped", message="Exists", progress_percent=0
             )
         )
-        cuda_pipeline._configure_source = Mock(
+        cuda_pipeline._run_configure = Mock(
             return_value=BuildProgress(
                 stage="configure", status="success", message="Configured", progress_percent=50
             )
         )
-        cuda_pipeline._build_source = Mock(
+        cuda_pipeline._run_build = Mock(
             return_value=BuildProgress(
                 stage="build", status="success", message="Built", progress_percent=75
             )
@@ -353,14 +349,14 @@ class TestRetryExponentialBackoff:
                 stage="build", status="success", message="Succeeded", progress_percent=75
             )
 
-        pipeline._build_source = Mock(side_effect=failing_then_succeeding_stage)
-        pipeline._check_toolchain = Mock(return_value=(True, []))
-        pipeline._clone_repository = Mock(
+        pipeline._run_build = Mock(side_effect=failing_then_succeeding_stage)
+        pipeline._run_preflight = Mock(return_value=(True, []))
+        pipeline._run_clone = Mock(
             return_value=BuildProgress(
                 stage="clone", status="skipped", message="Exists", progress_percent=0
             )
         )
-        pipeline._configure_source = Mock(
+        pipeline._run_configure = Mock(
             return_value=BuildProgress(
                 stage="configure", status="success", message="Configured", progress_percent=50
             )
@@ -372,7 +368,7 @@ class TestRetryExponentialBackoff:
 
         # Verify retries occurred
         assert call_count[0] == 3, f"Expected 3 attempts, got {call_count[0]}"
-        assert result.is_success is True
+        assert result.success is True
 
 
 class TestRetryTransientFailures:
@@ -404,14 +400,14 @@ class TestRetryTransientFailures:
             failure_count[0] += 1
             raise subprocess.CalledProcessError(1, "test")
 
-        pipeline._build_source = Mock(side_effect=always_fails)
-        pipeline._check_toolchain = Mock(return_value=(True, []))
-        pipeline._clone_repository = Mock(
+        pipeline._run_build = Mock(side_effect=always_fails)
+        pipeline._run_preflight = Mock(return_value=(True, []))
+        pipeline._run_clone = Mock(
             return_value=BuildProgress(
                 stage="clone", status="skipped", message="Exists", progress_percent=0
             )
         )
-        pipeline._configure_source = Mock(
+        pipeline._run_configure = Mock(
             return_value=BuildProgress(
                 stage="configure", status="success", message="Configured", progress_percent=50
             )
@@ -423,7 +419,7 @@ class TestRetryTransientFailures:
 
         # Verify max retries were attempted
         assert failure_count[0] == 2, f"Expected 2 attempts (max retries), got {failure_count[0]}"
-        assert result.is_success is False
+        assert result.success is False
 
 
 class TestPreflightStageValidation:
@@ -450,13 +446,13 @@ class TestPreflightStageValidation:
         with patch("llama_manager.build_pipeline.detect_toolchain") as mock_detect:
             mock_status = Mock()
             mock_status.is_sycl_ready = False
-            mock_status.missing_tools = return_value = ["icpx", "sycl-ls"]
+            mock_status.missing_tools = ["icpx", "sycl-ls"]
             mock_detect.return_value = mock_status
 
             result = pipeline.run()
 
             # Should fail at preflight stage
-            assert result.is_success is False
+            assert result.success is False
 
 
 class TestConfigureStageCmakeFlags:
@@ -530,7 +526,7 @@ class TestBuildStageExecution:
         mock_result.stderr = ""
 
         with patch("subprocess.run", return_value=mock_result) as mock_run:
-            result = pipeline._build_source()
+            result = pipeline._run_build()
 
             # Verify subprocess was called with correct arguments
             assert mock_run.called
@@ -639,7 +635,7 @@ class TestProvenanceFailureWarning:
         )
 
         # Mock atomic write to fail
-        with patch.object(pipeline, "_atomic_write", return_value=False) as mock_write:
+        with patch.object(pipeline, "_atomic_write", return_value=False):
             # Should not raise exception
             result = pipeline._write_provenance(artifact)
 
@@ -682,18 +678,18 @@ class TestDryRunMode:
         # Mock subprocess to verify it's not called
         with patch("subprocess.run") as mock_run:
             # Mock other stages
-            pipeline._check_toolchain = Mock(return_value=(True, []))
-            pipeline._clone_repository = Mock(
+            pipeline._run_preflight = Mock(return_value=(True, []))
+            pipeline._run_clone = Mock(
                 return_value=BuildProgress(
                     stage="clone", status="skipped", message="Exists", progress_percent=0
                 )
             )
-            pipeline._configure_source = Mock(
+            pipeline._run_configure = Mock(
                 return_value=BuildProgress(
                     stage="configure", status="success", message="Configured", progress_percent=50
                 )
             )
-            pipeline._build_source = Mock(
+            pipeline._run_build = Mock(
                 return_value=BuildProgress(
                     stage="build", status="success", message="Built", progress_percent=75
                 )
@@ -704,7 +700,7 @@ class TestDryRunMode:
 
             # Verify subprocess was NOT called (dry-run)
             assert not mock_run.called
-            assert result.is_success is True
+            assert result.success is True
 
 
 class TestCloneModes:
@@ -736,7 +732,7 @@ class TestCloneModes:
         mock_result.stderr = ""
 
         with patch("subprocess.run", return_value=mock_result) as mock_run:
-            result = pipeline_shallow._clone_repository()
+            _ = pipeline_shallow._run_clone()
 
             # Verify shallow clone flags were used
             call_args = mock_run.call_args[0][0]
@@ -757,7 +753,7 @@ class TestCloneModes:
         pipeline_full = BuildPipeline(config_full)
 
         with patch("subprocess.run", return_value=mock_result) as mock_run:
-            result = pipeline_full._clone_repository()
+            _ = pipeline_full._run_clone()
 
             # Verify shallow clone flags were NOT used
             call_args = mock_run.call_args[0][0]

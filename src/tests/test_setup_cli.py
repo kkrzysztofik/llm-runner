@@ -9,7 +9,6 @@ Test Tasks:
 """
 
 import json
-import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -19,10 +18,12 @@ from llama_cli.setup_cli import (
     cmd_check,
     cmd_clean_venv,
     cmd_venv,
+)
+from llama_cli.setup_cli import (
     main as setup_main,
 )
-from llama_manager.setup_venv import VenvResult, check_venv_integrity, create_venv, get_venv_path
-from llama_manager.toolchain import ToolchainStatus, detect_toolchain
+from llama_manager.setup_venv import VenvResult
+from llama_manager.toolchain import ToolchainStatus
 
 
 class TestSetupCheck:
@@ -139,7 +140,7 @@ class TestSetupVenv:
 
     def test_setup_venv_creates_venv(self, tmp_path: Path, capsys) -> None:
         """setup venv should create venv at expected path."""
-        venv_path = tmp_path / "test-venv"
+        _ = tmp_path / "test-venv"
 
         with patch("llama_manager.setup_venv.venv.create"):
             exit_code = cmd_venv(MagicMock(check_integrity=False, json=False))
@@ -161,18 +162,22 @@ class TestSetupVenv:
 
     def test_setup_venv_json_output(self, tmp_path: Path, capsys) -> None:
         """setup venv --json should produce JSON output."""
-        venv_path = tmp_path / "test-venv"
+        _ = tmp_path / "test-venv"
 
-        with patch("llama_manager.setup_venv.venv.create"):
+        with patch("llama_manager.setup_venv.venv.create") as mock_create:
+            mock_create.return_value = VenvResult(
+                venv_path=tmp_path / "test-venv",
+                created=True,
+                reused=False,
+                activation_command="source test-venv/bin/activate",
+            )
             exit_code = cmd_venv(MagicMock(check_integrity=False, json=True))
 
         assert exit_code == 0
         captured = capsys.readouterr()
-
-        # Should be valid JSON
+        parsed = json.loads(captured.out)
+        assert "venv_path" in parsed
         try:
-            parsed = json.loads(captured.out)
-            assert "venv_path" in parsed
             assert "created" in parsed
             assert "reused" in parsed
             assert "activation_command" in parsed
@@ -181,7 +186,7 @@ class TestSetupVenv:
 
     def test_setup_venv_with_integrity_check(self, tmp_path: Path, capsys) -> None:
         """setup venv --check-integrity should validate venv after creation."""
-        venv_path = tmp_path / "test-venv"
+        _ = tmp_path / "test-venv"
 
         with patch("llama_manager.setup_venv.venv.create"):
             exit_code = cmd_venv(MagicMock(check_integrity=True, json=False))
@@ -213,10 +218,10 @@ class TestSetupCleanVenv:
 
     def test_clean_venv_handles_nonexistent_venv(self, tmp_path: Path, capsys) -> None:
         """setup clean-venv should handle nonexistent venv gracefully."""
-        venv_path = tmp_path / "nonexistent-venv"
+        _ = tmp_path / "nonexistent-venv"
 
         # Should not raise error even if venv doesn't exist
-        exit_code = cmd_clean_venv(MagicMock(yes=True))
+        exit_code = cmd_clean_venv(MagicMock())
 
         assert exit_code == 0
 
@@ -285,18 +290,20 @@ class TestSetupJsonOutput:
 
     def test_setup_venv_json_structure(self, tmp_path: Path, capsys) -> None:
         """setup venv --json should have correct structure."""
-        venv_path = tmp_path / "test-venv"
+        _ = tmp_path / "test-venv"
 
-        with patch("llama_manager.setup_venv.venv.create"):
+        with patch("llama_manager.setup_venv.venv.create") as mock_create:
+            mock_create.return_value = VenvResult(
+                venv_path=tmp_path / "test-venv",
+                created=True,
+                reused=False,
+                activation_command="source test-venv/bin/activate",
+            )
             exit_code = cmd_venv(MagicMock(check_integrity=False, json=True))
 
         assert exit_code == 0
         captured = capsys.readouterr()
-
         parsed = json.loads(captured.out)
-
-        # Verify structure
-        assert isinstance(parsed, dict)
         assert "venv_path" in parsed
         assert "created" in parsed
         assert "reused" in parsed
@@ -320,7 +327,7 @@ class TestSetupErrorHandling:
 
     def test_setup_venv_handles_creation_errors(self, tmp_path: Path, capsys) -> None:
         """setup venv should handle venv creation errors gracefully."""
-        venv_path = tmp_path / "test-venv"
+        _ = tmp_path / "test-venv"
 
         with patch("llama_manager.setup_venv.venv.create") as mock_create:
             mock_create.side_effect = PermissionError("Permission denied")

@@ -406,7 +406,7 @@ class TUIApp:
         self._build_in_progress = False
 
         if result.success:
-            print(f"Build completed successfully!", file=sys.stderr)
+            print("Build completed successfully!", file=sys.stderr)
             if result.artifact:
                 print(f"Artifact: {result.artifact.binary_path}", file=sys.stderr)
             return True

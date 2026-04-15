@@ -1,11 +1,10 @@
 # Build pipeline dataclasses for M2
 
+import contextlib
 import json
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -13,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .config import ErrorCode
+    pass
 
 
 class BuildBackend(StrEnum):
@@ -294,18 +293,14 @@ class BuildPipeline:
 
         status = detect_toolchain()
 
-        if self.config.backend == BuildBackend.SYCL:
-            if not status.is_sycl_ready:
-                missing = status.missing_tools()
-                progress.status = "failed"
-                progress.message = f"Missing SYCL tools: {', '.join(missing)}"
-                return progress
-        elif self.config.backend == BuildBackend.CUDA:
-            if not status.is_cuda_ready:
-                missing = status.missing_tools()
-                progress.status = "failed"
-                progress.message = f"Missing CUDA tools: {', '.join(missing)}"
-                return progress
+        if (self.config.backend == BuildBackend.SYCL and not status.is_sycl_ready) or (
+            self.config.backend == BuildBackend.CUDA and not status.is_cuda_ready
+        ):
+            missing = status.missing_tools()
+            progress.status = "failed"
+            backend_name = "SYCL" if self.config.backend == BuildBackend.SYCL else "CUDA"
+            progress.message = f"Missing {backend_name} tools: {', '.join(missing)}"
+            return progress
 
         progress.status = "success"
         progress.message = "Toolchain validated"
@@ -314,6 +309,11 @@ class BuildPipeline:
 
     def _run_clone(self) -> BuildProgress:
         """Run clone stage - clone git repository.
+
+        Implements offline-continue support: if source directory exists and
+        contains files, skip the clone operation and continue with existing
+        sources. This allows builds to continue when network is unavailable
+        but local clone exists.
 
         Returns:
             BuildProgress with stage status
@@ -325,7 +325,8 @@ class BuildPipeline:
             progress_percent=20,
         )
 
-        # Check if source already exists
+        # Check if source already exists and is non-empty
+        # This enables offline-continue: use existing sources when network unavailable
         if self.config.source_dir.exists() and any(self.config.source_dir.iterdir()):
             progress.status = "skipped"
             progress.message = "Sources already exist"
@@ -345,7 +346,7 @@ class BuildPipeline:
                 cmd.extend(["--depth", "1"])
             cmd.extend([self.config.git_remote_url, str(self.config.source_dir)])
 
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
 
             progress.message = f"Cloned {self.config.git_remote_url}"
             progress.status = "success"
@@ -399,7 +400,7 @@ class BuildPipeline:
             cmd = ["cmake", "-S", str(self.config.source_dir), "-B", str(self.config.build_dir)]
             cmd.extend(cmake_args)
 
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
 
             progress.message = "CMake configuration successful"
             progress.status = "success"
@@ -519,6 +520,20 @@ class BuildPipeline:
     def _write_provenance(self, artifact: BuildArtifact) -> bool:
         """Write build artifact provenance atomically.
 
+        The provenance file contains a complete record of the build
+        including:
+        - Artifact metadata (type, backend, creation time)
+        - Git repository information (remote URL, commit SHA, branch)
+        - Build configuration (command, duration, exit code)
+        - Binary information (path, size)
+        - Log file references (build log, failure report)
+
+        This data is suitable for:
+        - Reproducibility analysis
+        - Build auditing
+        - Debugging and troubleshooting
+        - Release notes generation
+
         Args:
             artifact: BuildArtifact to write
 
@@ -577,11 +592,9 @@ class BuildPipeline:
             return True
 
         try:
-            if lock_path.exists():
-                # Check if lock is stale
-                if self._is_lock_stale(lock_path):
-                    # Clear stale lock
-                    lock_path.unlink()
+            if lock_path.exists() and self._is_lock_stale(lock_path):
+                # Clear stale lock
+                lock_path.unlink()
 
             # Create new lock
             lock_data = BuildLock(
@@ -610,10 +623,8 @@ class BuildPipeline:
     def _release_lock(self) -> None:
         """Release build lock."""
         if self._lock_file and self._lock_file.exists():
-            try:
+            with contextlib.suppress(Exception):
                 self._lock_file.unlink()
-            except Exception:
-                pass
             self._lock_file = None
 
     def _is_lock_stale(self, lock_path: Path) -> bool:
@@ -626,7 +637,7 @@ class BuildPipeline:
             True if lock is stale or PID is invalid
         """
         try:
-            with open(lock_path, "r") as f:
+            with open(lock_path) as f:
                 data = json.load(f)
 
             pid = data.get("pid")
@@ -661,7 +672,7 @@ class BuildPipeline:
             Human-readable error message
         """
         try:
-            with open(lock_path, "r") as f:
+            with open(lock_path) as f:
                 data = json.load(f)
             pid = data.get("pid", "unknown")
             backend = data.get("backend", "unknown")
