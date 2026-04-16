@@ -197,8 +197,11 @@ class TestVenvResultContract:
         assert result.was_reused is False
 
         # Verify is_valid property works (path exists in tmp)
-        # Create the directory so is_valid returns True
+        # Create a minimal valid venv structure so check_venv_integrity passes
         result.venv_path.mkdir(parents=True, exist_ok=True)
+        (result.venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+        (result.venv_path / "bin").mkdir(exist_ok=True)
+        (result.venv_path / "bin" / "python").touch()
         assert result.is_valid is True
 
     def test_venv_result_contract_reused(self, tmp_path: Path) -> None:
