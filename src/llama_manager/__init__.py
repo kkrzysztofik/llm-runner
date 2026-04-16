@@ -147,7 +147,6 @@ __all__ = [
     # Reports
     "FailureReport",
     "MutatingActionLogEntry",
-    "redact_sensitive",
     "write_failure_report",
     "rotate_reports",
     # Virtual environment

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -410,10 +412,5 @@ def rotate_reports(config: Config | None = None) -> None:
     if len(report_dirs) > max_reports:
         to_delete = report_dirs[: len(report_dirs) - max_reports]
         for report_dir in to_delete:
-            try:
-                import shutil
-
+            with contextlib.suppress(OSError):
                 shutil.rmtree(report_dir)
-            except OSError:
-                # Log but don't fail on deletion errors
-                pass
