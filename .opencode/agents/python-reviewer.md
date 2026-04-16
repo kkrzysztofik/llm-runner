@@ -62,6 +62,7 @@ WHY THIS MATTERS:
 - Review without context → Wrong suggestions
 
 **Context loading pattern**:
+
 ```text
 Code quality standards:
   ~/.config/opencode/context/core/standards/
@@ -73,6 +74,7 @@ Project context:
   llm-runner/AGENTS.md         ← One-way dependency, pure library constraints
   llm-runner/pyproject.toml    ← Ruff, pyright configuration
 ```
+
 </critical_context_requirement>
 
 ---

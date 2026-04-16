@@ -207,4 +207,4 @@ coderabbit_review*.txt
 coderabbit_review*.json
 
 # Review/analysis output files (temporary)
-out.json
+/out.json

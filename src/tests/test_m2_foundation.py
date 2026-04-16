@@ -10,6 +10,7 @@ Integration tests for:
 
 import json
 import os
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -104,7 +105,7 @@ class TestGetToolchainHintsIntegration:
             errors = get_toolchain_hints("sycl")
 
             assert isinstance(errors, list)
-            assert len(errors) == 3  # sycl-ls, icpx, syclpp
+            assert len(errors) == 7  # gcc, make, git, cmake, dpcpp, icx, icpx
             for error in errors:
                 assert isinstance(error, ToolchainErrorDetail)
                 assert error.error_code.value == "TOOLCHAIN_MISSING"
@@ -121,7 +122,7 @@ class TestGetToolchainHintsIntegration:
             errors = get_toolchain_hints("cuda")
 
             assert isinstance(errors, list)
-            assert len(errors) == 3  # nvcc, nvidia-smi, nvtop
+            assert len(errors) == 6  # gcc, make, git, cmake, nvcc, nvidia-smi
             for error in errors:
                 assert isinstance(error, ToolchainErrorDetail)
                 assert error.error_code.value == "TOOLCHAIN_MISSING"
@@ -176,7 +177,7 @@ class TestCreateVenvIntegration:
         (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
         bin_dir = venv_path / "bin"
         bin_dir.mkdir()
-        (bin_dir / "python").symlink_to("/usr/bin/python3")
+        (bin_dir / "python").symlink_to(sys.executable)
 
         result = create_venv(venv_path)
 
@@ -211,7 +212,7 @@ class TestCheckVenvIntegrityIntegration:
         (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
         bin_dir = venv_path / "bin"
         bin_dir.mkdir()
-        (bin_dir / "python").symlink_to("/usr/bin/python3")
+        (bin_dir / "python").symlink_to(sys.executable)
 
         is_valid, error = check_venv_integrity(venv_path)
 
@@ -237,7 +238,7 @@ class TestCheckVenvIntegrityIntegration:
         (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
         bin_dir = venv_path / "bin"
         bin_dir.mkdir()
-        (bin_dir / "python").symlink_to("/usr/bin/python3")
+        (bin_dir / "python").symlink_to(sys.executable)
 
         # Now test with the real path - no need to mock Path.exists globally
         is_valid, error = check_venv_integrity(venv_path)
@@ -427,12 +428,16 @@ class TestPhase2Comprehensive:
             sycl_tools = {e.failed_check for e in sycl_errors}
             cuda_tools = {e.failed_check for e in cuda_errors}
 
-            # No overlap
-            assert sycl_tools.isdisjoint(cuda_tools)
+            # Common tools overlap (gcc, make, git, cmake)
+            common = sycl_tools & cuda_tools
+            assert "gcc" in common
+            assert "make" in common
 
-            # Should have expected tools
-            assert sycl_tools == {"sycl-ls", "icpx", "syclpp"}
-            assert cuda_tools == {"nvcc", "nvidia-smi", "nvtop"}
+            # SYCL-specific tools
+            assert sycl_tools == {"gcc", "make", "git", "cmake", "dpcpp", "icx", "icpx"}
+
+            # CUDA-specific tools (no nvtop)
+            assert cuda_tools == {"gcc", "make", "git", "cmake", "nvcc", "nvidia-smi"}
 
     def test_report_security(self, tmp_path: Path) -> None:
         """Test that failure reports properly handle sensitive data."""

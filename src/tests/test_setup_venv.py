@@ -12,6 +12,7 @@ Test Tasks:
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -193,7 +194,7 @@ class TestVenvLifecycle:
 
         is_valid, error = check_venv_integrity(venv_path)
         assert is_valid is False
-        assert error == "interpreter symlink missing"
+        assert error == "interpreter not found in venv"
 
     def test_venv_lifecycle_integrity_check_missing_pyvenv_cfg(self, tmp_path: Path) -> None:
         """Venv lifecycle integrity check should detect missing pyvenv.cfg."""
@@ -214,7 +215,7 @@ class TestVenvLifecycle:
         (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
         bin_dir = venv_path / "bin"
         bin_dir.mkdir()
-        (bin_dir / "python").symlink_to("/usr/bin/python3")
+        (bin_dir / "python").symlink_to(sys.executable)
 
         # Now verify create_venv recognizes it as reused
         result = create_venv(venv_path)
@@ -310,7 +311,7 @@ class TestCMakeTooOldError:
 class TestSetupCheckSkipsVenvIntegrity:
     """T061: Tests for setup --check skipping venv integrity."""
 
-    def test_setup_check_skips_venv_integrity_by_default(self, capsys) -> None:
+    def test_setup_check_skips_venv_integrity_by_default(self) -> None:
         """setup --check should skip venv integrity check by default."""
         # This test documents the expected behavior:
         # setup --check should only check toolchain availability
@@ -378,7 +379,7 @@ class TestVenvCorruptionDetection:
 
         is_valid, error = check_venv_integrity(venv_path)
         assert is_valid is False
-        assert error == "interpreter symlink missing"
+        assert error == "interpreter not found in venv"
 
     def test_venv_corruption_detection_empty_venv(self, tmp_path: Path) -> None:
         """check_venv_integrity should detect empty venv directory."""

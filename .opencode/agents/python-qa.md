@@ -62,7 +62,8 @@ WHY THIS MATTERS:
 - Tests without mocking → Integration tests, not unit tests
 
 **Context loading pattern**:
-```
+
+```text
 Testing standards:
   ~/.config/opencode/context/core/standards/
     ├── test-coverage.md         ← Test structure, coverage goals
@@ -72,6 +73,7 @@ Project context:
   llm-runner/AGENTS.md         ← Test conventions for validators
   llm-runner/tests/            ← Existing test patterns
 ```
+
 </critical_context_requirement>
 
 ---

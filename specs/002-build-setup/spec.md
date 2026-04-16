@@ -206,9 +206,13 @@ fields are present. After a failed build, confirm the report directory exists wi
 - **FR-006.2**: Build artifacts MUST live at predictable paths determined by `Config`:
   Intel SYCL binary at `src/llama.cpp/build/bin/llama-server`, NVIDIA CUDA binary at
   `src/llama.cpp/build_cuda/bin/llama-server`. The system MUST NOT silently auto-build on launch.
-- **FR-006.3**: Provenance files SHOULD be written atomically (write to temp file, then rename).
-   If provenance write fails, the build is still considered successful but a warning is emitted
-   indicating the provenance recording failure.
+- **FR-006.3**: Provenance files MUST be written atomically. Implementation:
+   1. Write the provenance JSON to a temporary file in the same directory as the final destination
+   2. Rename the temp file into place as the final file
+   A "failed write" is defined as any write or rename operation that returns an error.
+   On write/rename failure, the temp file MUST be cleaned up (deleted if it exists), the build
+   result remains `success`, and the code MUST emit a warning indicating the provenance recording
+   failure (e.g., `logger.warning("failed to write provenance: %s", e)`).
 - **FR-006.4 (offline-continue)**: If a local clone exists and network is unavailable during
     `build`, the pipeline offers an offline-continue path (skips clone/update, proceeds to configure
     and build). If no local clone exists and network is unavailable, the pipeline fails with FR-005

@@ -217,26 +217,47 @@ def cmd_clean_venv(args: argparse.Namespace) -> int:
 
     # Check if venv exists
     if not venv_path.exists():
-        _print_success(f"Virtual environment does not exist at: {venv_path}")
+        if args.json:
+            _print_json({"status": "not_found", "venv_path": str(venv_path)})
+        else:
+            _print_success(f"Virtual environment does not exist at: {venv_path}")
         return 0
 
     # Confirm removal if --yes not provided
     if not args.yes:
-        _print_error(f"Virtual environment exists at: {venv_path}")
-        _print_error("Use --yes to confirm removal, or run without --yes to see this message")
+        if args.json:
+            _print_json(
+                {
+                    "status": "exists",
+                    "venv_path": str(venv_path),
+                    "message": "Use --yes to confirm removal",
+                }
+            )
+        else:
+            _print_error(f"Virtual environment exists at: {venv_path}")
+            _print_error("Use --yes to confirm removal, or run without --yes to see this message")
         return 1
 
     # Remove venv
     try:
         shutil.rmtree(venv_path)
-        _print_success(f"Removed virtual environment at: {venv_path}")
+        if args.json:
+            _print_json({"status": "removed", "venv_path": str(venv_path)})
+        else:
+            _print_success(f"Removed virtual environment at: {venv_path}")
         return 0
     except PermissionError as e:
-        _print_error(f"Permission denied removing virtual environment: {e}")
-        _print_error("Check file ownership/permissions, consult system documentation")
+        if args.json:
+            _print_json({"status": "error", "error": str(e)})
+        else:
+            _print_error(f"Permission denied removing virtual environment: {e}")
+            _print_error("Check file ownership/permissions, consult system documentation")
         return 1
     except Exception as e:
-        _print_error(f"Error removing virtual environment: {e}")
+        if args.json:
+            _print_json({"status": "error", "error": str(e)})
+        else:
+            _print_error(f"Error removing virtual environment: {e}")
         return 1
 
 
@@ -252,14 +273,14 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --check              Check toolchain availability
-  %(prog)s --check --backend sycl  Check SYCL toolchain only
+  %(prog)s check                Check toolchain availability
+  %(prog)s check --backend sycl  Check SYCL toolchain only
   %(prog)s venv                 Create or reuse virtual environment
   %(prog)s clean-venv           Remove virtual environment
   %(prog)s clean-venv --yes     Remove without confirmation
 
 FR-005: Actionable error messages for missing tools
-FR-005.1: setup --check command
+FR-005.1: setup check command
 FR-005.2: setup venv command
 FR-005.3: setup clean-venv command
         """,
@@ -314,6 +335,11 @@ FR-005.3: setup clean-venv command
         "--yes",
         action="store_true",
         help="Confirm removal without prompting",
+    )
+    clean_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output in JSON format",
     )
     clean_parser.set_defaults(func=cmd_clean_venv)
 

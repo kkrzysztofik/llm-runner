@@ -9,6 +9,7 @@ Test Tasks:
 """
 
 import json
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -162,7 +163,7 @@ class TestSetupVenv:
         (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
         bin_dir = venv_path / "bin"
         bin_dir.mkdir()
-        (bin_dir / "python").symlink_to("/usr/bin/python3")
+        (bin_dir / "python").symlink_to(sys.executable)
 
         with patch("llama_cli.setup_cli.get_venv_path", return_value=venv_path):
             exit_code = cmd_venv(MagicMock(check_integrity=False, json=False))
@@ -204,7 +205,7 @@ class TestSetupVenv:
         venv_path.mkdir()
         (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
         (venv_path / "bin").mkdir()
-        (venv_path / "bin" / "python").symlink_to("/usr/bin/python3")
+        (venv_path / "bin" / "python").symlink_to(sys.executable)
 
         with (
             patch("llama_cli.setup_cli.get_venv_path", return_value=venv_path),
@@ -233,7 +234,7 @@ class TestSetupCleanVenv:
         (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
         bin_dir = venv_path / "bin"
         bin_dir.mkdir()
-        (bin_dir / "python").symlink_to("/usr/bin/python3")
+        (bin_dir / "python").symlink_to(sys.executable)
 
         # Verify venv exists
         assert venv_path.exists()
@@ -251,7 +252,7 @@ class TestSetupCleanVenv:
 
         with patch("llama_cli.setup_cli.get_venv_path", return_value=nonexistent_path):
             # Should not raise error even if venv doesn't exist
-            exit_code = cmd_clean_venv(MagicMock())
+            exit_code = cmd_clean_venv(MagicMock(yes=False))
 
         assert exit_code == 0
 
@@ -266,12 +267,28 @@ class TestSetupCleanVenv:
             assert exit_code == 0
 
     def test_clean_venv_json_output(self, tmp_path: Path, capsys) -> None:
-        """setup clean-venv should produce success message."""
+        """setup clean-venv --json should produce JSON output."""
         venv_path = tmp_path / "test-venv"
         venv_path.mkdir()
 
         with patch("llama_cli.setup_cli.get_venv_path", return_value=venv_path):
-            exit_code = cmd_clean_venv(MagicMock(yes=True))
+            exit_code = cmd_clean_venv(MagicMock(yes=True, json=True))
+
+        assert exit_code == 0
+        captured = capsys.readouterr()
+
+        # Should print JSON output
+        data = json.loads(captured.out)
+        assert data["status"] == "removed"
+        assert data["venv_path"] == str(venv_path)
+
+    def test_clean_venv_human_output(self, tmp_path: Path, capsys) -> None:
+        """setup clean-venv should produce human-readable success message."""
+        venv_path = tmp_path / "test-venv"
+        venv_path.mkdir()
+
+        with patch("llama_cli.setup_cli.get_venv_path", return_value=venv_path):
+            exit_code = cmd_clean_venv(MagicMock(yes=True, json=False))
 
         assert exit_code == 0
         captured = capsys.readouterr()

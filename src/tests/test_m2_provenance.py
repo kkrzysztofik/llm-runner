@@ -233,8 +233,8 @@ class TestOfflineContinue:
             # Verify subprocess was called with shallow clone flags
             assert mock_run.called
             call_args = mock_run.call_args[0][0]
-            assert "git" in call_args[0]
-            assert "clone" in call_args
+            assert call_args[0] == "git"
+            assert call_args[1] == "clone"
             # Verify shallow clone flags are present
             assert "--depth" in call_args
             assert "1" in call_args

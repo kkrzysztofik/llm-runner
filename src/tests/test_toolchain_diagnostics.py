@@ -453,7 +453,7 @@ class TestToolchainStatusIsCudaReady:
         assert status.is_cuda_ready is False
 
     def test_is_cuda_ready_missing_nvtop(self) -> None:
-        """is_cuda_ready should be False when nvtop is missing."""
+        """is_cuda_ready should be True when only nvtop is missing (nvtop not required)."""
         status = ToolchainStatus(
             gcc="11.4.0",
             make="4.3",
@@ -463,7 +463,7 @@ class TestToolchainStatusIsCudaReady:
             cuda_toolkit="12.2.0",
             nvtop=None,
         )
-        assert status.is_cuda_ready is False
+        assert status.is_cuda_ready is True
 
     def test_is_cuda_ready_missing_common_tools(self) -> None:
         """is_cuda_ready should be False when common tools are missing."""

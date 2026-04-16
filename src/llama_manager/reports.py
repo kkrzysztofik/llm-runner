@@ -3,9 +3,9 @@
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Forward reference for Config
 from .config import Config  # noqa: F401
@@ -218,7 +218,7 @@ def write_failure_report(
         report_dir = config.reports_dir
 
     # Create timestamp-only directory name (no backend suffix)
-    timestamp = datetime.now()
+    timestamp = datetime.now(UTC)
     timestamp_dir = report_dir / timestamp.strftime("%Y%m%d_%H%M%S")
     timestamp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -299,7 +299,7 @@ def log_mutating_action(
     from .config import Config
 
     config = Config()
-    timestamp = datetime.now()
+    timestamp = datetime.now(UTC)
 
     # Redact sensitive information
     redaction_applied = False
@@ -366,7 +366,7 @@ def _rotate_mutating_log(log_path: Path, max_entries: int = 1000) -> None:
         pass
 
 
-def rotate_reports(config: Optional["Config"] = None) -> None:
+def rotate_reports(config: Config | None = None) -> None:
     """Rotate old report directories.
 
     Scans the reports directory and deletes oldest report directories
@@ -378,10 +378,9 @@ def rotate_reports(config: Optional["Config"] = None) -> None:
     """
     from .config import Config
 
-    if config is None:
-        config = Config()
+    cfg = config if config is not None else Config()
 
-    reports_path = config.reports_dir
+    reports_path = cfg.reports_dir
 
     if not reports_path.exists():
         return
@@ -401,7 +400,7 @@ def rotate_reports(config: Optional["Config"] = None) -> None:
     report_dirs.sort(key=lambda p: p.name)
 
     # Delete oldest directories if count exceeds max
-    max_reports = config.build_max_reports  # type: ignore[union-attr]
+    max_reports = cfg.build_max_reports
     if len(report_dirs) > max_reports:
         to_delete = report_dirs[: len(report_dirs) - max_reports]
         for report_dir in to_delete:

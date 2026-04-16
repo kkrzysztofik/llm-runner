@@ -60,7 +60,8 @@ WHY THIS MATTERS:
 - Security review without focus → Missing primary risks (injection)
 
 **Context loading pattern**:
-```
+
+```text
 Security patterns:
   ~/.config/opencode/context/core/standards/
     ├── security-patterns.md     ← OWASP Top 10, injection prevention
@@ -70,6 +71,7 @@ Project context:
   llm-runner/AGENTS.md         ← Security surface, subprocess patterns
   llm-runner/pyproject.toml    ← Dependency audit configuration
 ```
+
 </critical_context_requirement>
 
 ---

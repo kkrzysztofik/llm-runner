@@ -29,7 +29,7 @@
 #### 2. ✅ Ruff Format (Formatting)
 **Status:** FAIL - Syntax error in test_reports.py
 
-```
+```text
 error: Failed to parse src/tests/test_reports.py:602:1: unindent does not match any outer indentation level
 53 files already formatted
 ```

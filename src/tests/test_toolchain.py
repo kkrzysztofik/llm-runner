@@ -217,11 +217,11 @@ class TestVersionAtLeast:
         assert version_at_least("3.19", "3.20") is False
 
     def test_version_at_least_cmake_minimum(self) -> None:
-        """version_at_least should work with CMAKE_MINIMUM_VERSION."""
-        # CMAKE_MINIMUM_VERSION is "3.14"
-        assert version_at_least("3.20.1", CMAKE_MINIMUM_VERSION) is True
-        assert version_at_least("3.14.0", CMAKE_MINIMUM_VERSION) is True
-        assert version_at_least("3.13.0", CMAKE_MINIMUM_VERSION) is False
+        """version_at_least should work with CMAKE_MINIMUM_VERSION string."""
+        # CMAKE_MINIMUM_VERSION tuple is (3, 24, 0), string form is "3.24.0"
+        assert version_at_least("3.25.0", "3.24.0") is True
+        assert version_at_least("3.24.0", "3.24.0") is True
+        assert version_at_least("3.23.0", "3.24.0") is False
 
     def test_version_at_least_edge_cases(self) -> None:
         """version_at_least should handle edge cases."""
@@ -235,7 +235,7 @@ class TestVersionAtLeast:
 class TestDetectTool:
     """T017: Tests for detect_tool() function."""
 
-    def test_detect_tool_found(self, capsys) -> None:
+    def test_detect_tool_found(self) -> None:
         """detect_tool should return (True, version) for found tools."""
         # Mock subprocess.run to simulate a found tool
         with patch("subprocess.run") as mock_run:
@@ -355,10 +355,10 @@ class TestGetToolchainHints:
     def test_get_toolchain_hints_sycl_all_missing(self) -> None:
         """get_toolchain_hints should return errors for all missing SYCL tools."""
         with patch("llama_manager.toolchain.detect_tool") as mock_detect:
-            # All tools missing
+            # All tools missing — SYCL_REQUIRED_TOOLS has 7 tools
             mock_detect.return_value = (False, None)
             errors = get_toolchain_hints("sycl")
-            assert len(errors) == 3  # sycl-ls, icpx, syclpp
+            assert len(errors) == 7  # gcc, make, git, cmake, dpcpp, icx, icpx
             for error in errors:
                 assert isinstance(error, ToolchainErrorDetail)
                 assert error.error_code == ErrorCode.TOOLCHAIN_MISSING  # type: ignore
@@ -366,10 +366,10 @@ class TestGetToolchainHints:
     def test_get_toolchain_hints_cuda_all_missing(self) -> None:
         """get_toolchain_hints should return errors for all missing CUDA tools."""
         with patch("llama_manager.toolchain.detect_tool") as mock_detect:
-            # All tools missing
+            # All tools missing — CUDA_REQUIRED_TOOLS has 6 tools (no nvtop)
             mock_detect.return_value = (False, None)
             errors = get_toolchain_hints("cuda")
-            assert len(errors) == 3  # nvcc, nvidia-smi, nvtop
+            assert len(errors) == 6  # gcc, make, git, cmake, nvcc, nvidia-smi
             for error in errors:
                 assert isinstance(error, ToolchainErrorDetail)
                 assert error.error_code == ErrorCode.TOOLCHAIN_MISSING  # type: ignore
@@ -377,31 +377,41 @@ class TestGetToolchainHints:
     def test_get_toolchain_hints_sycl_some_present(self) -> None:
         """get_toolchain_hints should only return errors for missing tools."""
         with patch("llama_manager.toolchain.detect_tool") as mock_detect:
-            # sycl-ls present, others missing
+            # dpcpp present, others missing (7 SYCL tools total)
             mock_detect.side_effect = [
-                (True, "2023.1.0"),  # sycl-ls
+                (False, None),  # gcc
+                (False, None),  # make
+                (False, None),  # git
+                (False, None),  # cmake
+                (True, "1.0.0"),  # dpcpp
+                (False, None),  # icx
                 (False, None),  # icpx
-                (False, None),  # syclpp
             ]
             errors = get_toolchain_hints("sycl")
-            assert len(errors) == 2  # Only icpx and syclpp
+            assert len(errors) == 6  # All except dpcpp
             failed_checks = [e.failed_check for e in errors]
-            assert "sycl-ls" not in failed_checks
-            assert "icpx" in failed_checks
-            assert "syclpp" in failed_checks
+            assert "dpcpp" not in failed_checks
+            assert "gcc" in failed_checks
+            assert "make" in failed_checks
 
     def test_get_toolchain_hints_cuda_some_present(self) -> None:
         """get_toolchain_hints should only return errors for missing CUDA tools."""
         with patch("llama_manager.toolchain.detect_tool") as mock_detect:
-            # nvcc present, others missing
+            # nvcc present, others missing (6 CUDA tools total)
             mock_detect.side_effect = [
+                (False, None),  # gcc
+                (False, None),  # make
+                (False, None),  # git
+                (False, None),  # cmake
                 (True, "12.2.0"),  # nvcc
                 (False, None),  # nvidia-smi
-                (False, None),  # nvtop
             ]
             errors = get_toolchain_hints("cuda")
-            assert len(errors) == 2  # Only nvidia-smi and nvtop
+            assert len(errors) == 5  # All except nvcc
             failed_checks = [e.failed_check for e in errors]
+            assert "nvcc" not in failed_checks
+            assert "gcc" in failed_checks
+            assert "make" in failed_checks
             assert "nvcc" not in failed_checks
             assert "nvidia-smi" in failed_checks
             assert "nvtop" in failed_checks

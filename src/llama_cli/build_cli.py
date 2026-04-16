@@ -6,6 +6,7 @@ using the BuildPipeline.
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -162,10 +163,10 @@ def run_build_command(args: argparse.Namespace) -> int:
     if result.success:
         if args.json and result.artifact:
             artifact_dict = asdict(result.artifact)
-            # Explicitly convert Path fields to str
-            for key in ["binary_path", "build_log_path", "failure_report_path"]:
-                if key in artifact_dict and artifact_dict[key] is not None:
-                    artifact_dict[key] = str(artifact_dict[key])
+            # Convert all Path-like values to strings generically
+            for key, value in list(artifact_dict.items()):
+                if isinstance(value, (Path, os.PathLike)):
+                    artifact_dict[key] = str(value)
             print(json.dumps(artifact_dict, indent=2))
         else:
             print("Build completed successfully!", file=sys.stderr)

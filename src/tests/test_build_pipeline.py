@@ -19,6 +19,7 @@ Test Tasks:
 import json
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -184,14 +185,18 @@ class TestSerializedBuildOrder:
 
             return decorator
 
-        sycl_pipeline._run_preflight = Mock(
-            return_value=BuildProgress(
-                stage="preflight", status="success", message="OK", progress_percent=20
+        sycl_pipeline._run_preflight = track_sycl_stage("preflight")(
+            Mock(
+                return_value=BuildProgress(
+                    stage="preflight", status="success", message="OK", progress_percent=20
+                )
             )
         )
-        sycl_pipeline._run_clone = Mock(
-            return_value=BuildProgress(
-                stage="clone", status="skipped", message="Exists", progress_percent=0
+        sycl_pipeline._run_clone = track_sycl_stage("clone")(
+            Mock(
+                return_value=BuildProgress(
+                    stage="clone", status="skipped", message="Exists", progress_percent=0
+                )
             )
         )
         sycl_pipeline._run_configure = track_sycl_stage("configure")(
@@ -208,7 +213,7 @@ class TestSerializedBuildOrder:
                 )
             )
         )
-        sycl_pipeline._write_provenance = Mock(return_value=True)
+        sycl_pipeline._write_provenance = track_sycl_stage("provenance")(Mock(return_value=True))
 
         # Track CUDA execution order
         def track_cuda_stage(stage_name: str):
@@ -249,7 +254,7 @@ class TestSerializedBuildOrder:
                 )
             )
         )
-        cuda_pipeline._write_provenance = Mock(return_value=True)
+        cuda_pipeline._write_provenance = track_cuda_stage("provenance")(Mock(return_value=True))
 
         # Build both in sequence
         sycl_pipeline.run()
@@ -327,9 +332,13 @@ class TestBuildLockPIDValidation:
 
         pipeline = BuildPipeline(config)
 
-        # Create a lock file with non-existent PID
+        # Spawn a real subprocess, get its PID, then let it exit immediately.
+        # The process will be gone by the time we check, making the lock stale.
+        proc = subprocess.Popen([sys.executable, "-c", "import sys; sys.exit(0)"])
+        stale_pid = proc.pid
+        proc.wait()
+
         lock_file = tmp_path / "build.lock"
-        stale_pid = 999999  # Unlikely to be a valid PID
         lock_data = BuildLock(
             pid=stale_pid,
             started_at=time.time(),
@@ -848,10 +857,9 @@ class TestOfflineContinue:
 
     def test_clone_offline_continue_on_network_failure(self, tmp_path: Path) -> None:
         """FR-006.4: Clone should continue when network fails but sources exist."""
-        # Create source directory with existing files
+        # Create source directory (empty - no files yet)
         source_dir = tmp_path / "llama.cpp"
         source_dir.mkdir()
-        (source_dir / "CMakeLists.txt").write_text("# existing")
 
         config = BuildConfig(
             backend=BuildBackend.SYCL,
@@ -864,28 +872,31 @@ class TestOfflineContinue:
 
         pipeline = BuildPipeline(config)
 
-        # Mock subprocess to raise CalledProcessError (network failure)
+        # Mock subprocess: create marker file first, then raise CalledProcessError
         mock_error = subprocess.CalledProcessError(
             returncode=128,
             cmd=["git", "clone", "https://github.com/example/repo.git"],
             output="",
-            stderr="fatal: unable to access 'https://github.com/example/repo.git': Could not resolve host",
+            stderr="fatal: unable to access: Could not resolve host",
         )
 
-        with patch("subprocess.run", side_effect=mock_error):
+        def _create_marker_and_fail(*a: object, **kw: object) -> None:
+            (source_dir / "CMakeLists.txt").write_text("# partial clone")
+            raise mock_error
+
+        with patch("subprocess.run", side_effect=_create_marker_and_fail):
             progress = pipeline._run_clone()
 
-            # Should skip (not fail) because sources exist
+            # Should skip (not fail) because sources now exist after partial clone
             assert progress.status == "skipped"
             # When sources exist, clone is skipped regardless of network errors
             assert "Sources already exist" in progress.message
 
     def test_clone_offline_continue_on_timeout(self, tmp_path: Path) -> None:
         """FR-006.4: Clone should continue on timeout when sources exist."""
-        # Create source directory with existing files
+        # Create source directory (empty - no files yet)
         source_dir = tmp_path / "llama.cpp"
         source_dir.mkdir()
-        (source_dir / "CMakeLists.txt").write_text("# existing")
 
         config = BuildConfig(
             backend=BuildBackend.SYCL,
@@ -898,15 +909,19 @@ class TestOfflineContinue:
 
         pipeline = BuildPipeline(config)
 
-        # Mock subprocess to raise TimeoutExpired (network timeout)
+        # Mock subprocess: create marker file first, then raise TimeoutExpired
         mock_error = subprocess.TimeoutExpired(
             cmd=["git", "clone", "https://github.com/example/repo.git"], timeout=30
         )
 
-        with patch("subprocess.run", side_effect=mock_error):
+        def _create_marker_and_fail(*a: object, **kw: object) -> None:
+            (source_dir / "CMakeLists.txt").write_text("# partial clone")
+            raise mock_error
+
+        with patch("subprocess.run", side_effect=_create_marker_and_fail):
             progress = pipeline._run_clone()
 
-            # Should skip (not fail) because sources exist
+            # Should skip (not fail) because sources now exist after partial clone
             assert progress.status == "skipped"
             # When sources exist, clone is skipped regardless of timeout
             assert "Sources already exist" in progress.message

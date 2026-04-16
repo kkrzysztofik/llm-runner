@@ -4,7 +4,6 @@ import contextlib
 import json
 import logging
 import os
-import sys
 import time
 import warnings
 from collections.abc import Callable
@@ -25,13 +24,21 @@ class BuildBackend(StrEnum):
 
 
 # Build backend constants (deprecated - use BuildConfig class constants instead)
-warnings.warn(
-    "GGML_SYCL and GGML_CUDA are deprecated, use BuildConfig.GGML_SYCL and BuildConfig.GGML_CUDA instead",
-    DeprecationWarning,
-    stacklevel=2,
-)
-GGML_SYCL = "sycl"
-GGML_CUDA = "cuda"
+_DEPRECATED_BACKEND_CONSTANTS: dict[str, str] = {
+    "GGML_SYCL": "sycl",
+    "GGML_CUDA": "cuda",
+}
+
+
+def __getattr__(name: str) -> str:
+    if name in _DEPRECATED_BACKEND_CONSTANTS:
+        warnings.warn(
+            f"{name} is deprecated, use BuildConfig.{name} instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return _DEPRECATED_BACKEND_CONSTANTS[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @dataclass
@@ -66,10 +73,12 @@ class BuildConfig:
     jobs: int | None = None
 
     def __post_init__(self) -> None:
-        """Ensure Path objects are Path instances."""
+        """Ensure Path objects are Path instances and validate constraints."""
         self.source_dir = Path(self.source_dir)
         self.build_dir = Path(self.build_dir)
         self.output_dir = Path(self.output_dir)
+        if self.retry_attempts < 1:
+            raise ValueError("retry_attempts must be >= 1")
 
 
 @dataclass
@@ -529,21 +538,22 @@ class BuildPipeline:
             progress.status = "success"
             progress.progress_percent = 30
 
-        except subprocess.CalledProcessError as e:
-            # Network failure - check if sources exist to enable offline continue
+        except subprocess.SubprocessError as e:
+            # Network/subprocess failure - check if sources exist to enable offline continue
             if self._source_exists():
                 progress.status = "skipped"
-                progress.message = f"Network failure but sources exist: {e.stderr}"
+                progress.message = "Sources already exist"
                 progress.progress_percent = 30
             else:
+                stderr = getattr(e, "stderr", str(e))
                 progress.status = "failed"
-                progress.message = f"Git clone failed: {e.stderr}"
+                progress.message = f"Git clone failed: {stderr}"
             return progress
         except Exception as e:
-            # Network timeout or other errors - check if sources exist
+            # Other errors (TimeoutExpired, etc.) - check if sources exist
             if self._source_exists():
                 progress.status = "skipped"
-                progress.message = f"Network error but sources exist: {str(e)}"
+                progress.message = "Sources already exist"
                 progress.progress_percent = 30
             else:
                 progress.status = "failed"
@@ -790,7 +800,7 @@ class BuildPipeline:
             artifact_data = {
                 "artifact_type": artifact.artifact_type,
                 "backend": artifact.backend,
-                "created_at": time.time(),
+                "created_at": artifact.created_at,
                 "git_remote_url": artifact.git_remote_url,
                 "git_commit_sha": artifact.git_commit_sha,
                 "git_branch": artifact.git_branch,
@@ -869,16 +879,13 @@ class BuildPipeline:
 
         except FileExistsError:
             # Another process holds the lock
-            print(
-                f"error: build lock already held by another process: {lock_path}",
-                file=sys.stderr,
-            )
+            logger.error("build lock already held by another process: %s", lock_path)
             return False
         except OSError as e:
-            print(f"error: failed to acquire build lock: {e}", file=sys.stderr)
+            logger.error("failed to acquire build lock: %s", e)
             return False
         except Exception as e:
-            print(f"error: failed to acquire build lock: {e}", file=sys.stderr)
+            logger.error("failed to acquire build lock: %s", e)
             return False
 
     def release_lock(self) -> None:

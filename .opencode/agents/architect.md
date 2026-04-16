@@ -58,7 +58,8 @@ WHY THIS MATTERS:
 - Architectures without codebase understanding → Conflicts with existing design
 
 **Context loading pattern**:
-```
+
+```text
 Global context: ~/.config/opencode/context/
   ├── core/navigation.md (standards, workflows)
   ├── core/standards/code-quality.md
@@ -69,10 +70,11 @@ Project context: llm-runner/
 ```
 
 **Use ContextScout to discover**:
+
 - `core/standards/code-quality.md` for coding patterns
 - `development/ui-navigation.md` for TUI patterns
 - `development/backend-navigation.md` for backend patterns
-```
+```text
 </critical_context_requirement>
 
 ---
@@ -169,14 +171,14 @@ Project context: llm-runner/
 
 When proposing architecture:
 
-```markdown
+````markdown
 ## Architecture Proposal
 
 ### Overview
 [1-2 sentence summary]
 
 ### Component Diagram
-```
+```text
 [ASCII diagram or Mermaid]
 ```
 
@@ -185,7 +187,7 @@ When proposing architecture:
 - **Component B**: Responsibility, interfaces, dependencies
 
 ### File Structure
-```
+```text
 path/to/
   file1.py  # description
   file2.py  # description
@@ -200,7 +202,7 @@ path/to/
 - [ ] Unit tests pass
 - [ ] No type errors
 - [ ] Follows separation of concerns
-```
+````
 
 ---
 

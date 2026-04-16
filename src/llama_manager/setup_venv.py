@@ -155,6 +155,6 @@ def check_venv_integrity(path: str | Path) -> tuple[bool, str | None]:
         interpreter = venv_path / "bin" / "python"
 
     if not interpreter.exists():
-        return (False, "interpreter symlink missing")
+        return (False, "interpreter not found in venv")
 
     return (True, None)

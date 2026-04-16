@@ -7,19 +7,15 @@ from .build_pipeline import BuildBackend
 from .config import ErrorCode
 
 # Module constants for required tools by backend
-SYCL_REQUIRED_TOOLS: list[str] = [
-    "sycl-ls",
-    "icpx",
-    "syclpp",
-]
+SYCL_REQUIRED_TOOLS: frozenset[str] = frozenset(
+    {"gcc", "make", "git", "cmake", "dpcpp", "icx", "icpx"}
+)
 
-CUDA_REQUIRED_TOOLS: list[str] = [
-    "nvcc",
-    "nvidia-smi",
-    "nvtop",
-]
+CUDA_REQUIRED_TOOLS: frozenset[str] = frozenset(
+    {"gcc", "make", "git", "cmake", "nvcc", "nvidia-smi"}
+)
 
-CMAKE_MINIMUM_VERSION: str = "3.14"
+CMAKE_MINIMUM_VERSION: tuple[int, int, int] = (3, 24, 0)
 
 
 @dataclass
@@ -61,7 +57,7 @@ class ToolchainStatus:
         """Check if all CUDA backend tools are available.
 
         Returns:
-            True if gcc, make, git, cmake, cuda_toolkit, and nvtop are all available.
+            True if gcc, make, git, cmake, and cuda_toolkit are all available.
         """
         return all(
             [
@@ -70,7 +66,6 @@ class ToolchainStatus:
                 self.git is not None,
                 self.cmake is not None,
                 self.cuda_toolkit is not None,
-                self.nvtop is not None,
             ]
         )
 
@@ -117,14 +112,10 @@ class ToolchainStatus:
             return missing
 
         # Check backend-specific tools
-        if backend == BuildBackend.SYCL:
-            if self.sycl_compiler is None:
-                missing.append("sycl_compiler")
-        elif backend == BuildBackend.CUDA:
-            if self.cuda_toolkit is None:
-                missing.append("cuda_toolkit")
-            if self.nvtop is None:
-                missing.append("nvtop")
+        if backend == BuildBackend.SYCL and self.sycl_compiler is None:
+            missing.append("sycl_compiler")
+        elif backend == BuildBackend.CUDA and self.cuda_toolkit is None:
+            missing.append("cuda_toolkit")
 
         return missing
 
@@ -284,21 +275,28 @@ def get_toolchain_hints(backend: str) -> list["ToolchainErrorDetail"]:
         ValueError: If backend is not "sycl" or "cuda"
     """
     # Map backend to required tools and hints
-    backend_map: dict[str, tuple[list[str], dict[str, ToolchainHint]]] = {
+    backend_map: dict[str, tuple[frozenset[str], dict[str, ToolchainHint]]] = {
         "sycl": (
             SYCL_REQUIRED_TOOLS,
             {
-                "sycl-ls": SYCL_HINT,
+                "gcc": GCC_HINT,
+                "make": MAKE_HINT,
+                "git": GIT_HINT,
+                "cmake": CMAKE_HINT,
+                "dpcpp": SYCL_HINT,
+                "icx": SYCL_HINT,
                 "icpx": SYCL_HINT,
-                "syclpp": SYCL_HINT,
             },
         ),
         "cuda": (
             CUDA_REQUIRED_TOOLS,
             {
+                "gcc": GCC_HINT,
+                "make": MAKE_HINT,
+                "git": GIT_HINT,
+                "cmake": CMAKE_HINT,
                 "nvcc": CUDA_HINT,
                 "nvidia-smi": CUDA_HINT,
-                "nvtop": NVTOP_HINT,
             },
         ),
     }

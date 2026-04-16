@@ -354,13 +354,13 @@ def main(args: list[str] | None = None) -> int:
 
     # Handle setup command
     if parsed.mode == "setup":
-        return setup_main()
+        return setup_main(argv[1:])
 
     # Handle doctor command (FR-004.7)
     if parsed.mode == "doctor":
         from llama_cli.doctor_cli import main as doctor_main
 
-        return doctor_main(sys.argv[2:])
+        return doctor_main(argv[2:])
 
     manager = ServerManager()
     signal.signal(signal.SIGINT, manager.on_interrupt)

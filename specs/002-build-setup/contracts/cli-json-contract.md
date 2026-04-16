@@ -27,12 +27,12 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
 
 ## Command: `llm-runner doctor --repair --json`
 
-### Input
+### Doctor Repair Input
 
 - `--repair`: Required flag to enable repair mode
 - Optional: `--yes` (confirmation flag; optional in M2 per FR-004.7)
 
-### Success Output (`DoctorRepairResult`)
+### Doctor Repair Success Output (`DoctorRepairResult`)
 
 ```json
 {
@@ -48,7 +48,7 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
 }
 ```
 
-### Error Output
+### Doctor Repair Error Output
 
 - `doctor --repair` confirmation policy is implementation-defined (optional in M2); may not require `--yes` flag.
 - Lock file not removable returns FR-005 `ErrorDetail` with `error_code = "LOCK_REMOVAL_FAILED"`.
@@ -58,13 +58,13 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
 
 ## Command: `llm-runner build <backend> --json`
 
-### Input
+### Build Input
 
 - `backend`: `sycl | cuda | both`
 - Optional: `--dry-run`, `--retry-attempts <int>`, `--full-clone`, `--jobs <int>`
 - **Deferred (post-MVP)**: `--build-order <csv>` — explicit build ordering (e.g., `sycl,cuda`) is post-MVP/deferred in M2
 
-### Success Output (`BuildArtifact`)
+### Build Success Output (`BuildArtifact`)
 
 **Single backend (`sycl` or `cuda`)**: Outputs single `BuildArtifact` JSON object.
 
@@ -89,7 +89,7 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
 }
 ```
 
-### Error Output
+### Build Error Output
 
 - Non-zero process exit code.
 - JSON payload includes `error` as FR-005 `ErrorDetail` object.
@@ -98,7 +98,7 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
 
 ## Command: `llm-runner setup --check --json`
 
-### Success Output (`ToolchainStatus`)
+### Setup Check Success Output (`ToolchainStatus`)
 
 ```json
 {
@@ -112,14 +112,14 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
 }
 ```
 
-### Error Output
+### Setup Check Error Output
 
 - Missing required tool(s) still returns structured FR-005 errors (single or list).
 - For required-missing tools: `error.error_code = "TOOLCHAIN_MISSING"`.
 
 ## Command: `llm-runner setup --json`
 
-### Success Output (`VenvResult`)
+### Setup Success Output (`VenvResult`)
 
 ```json
 {
@@ -130,7 +130,7 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
 }
 ```
 
-### Error Output
+### Setup Error Output
 
 - Corrupt venv returns FR-005 shape with `error.error_code = "VENV_CORRUPT"`.
 - Missing Python interpreter returns FR-005 shape with `error.error_code = "PYTHON_NOT_FOUND"`.

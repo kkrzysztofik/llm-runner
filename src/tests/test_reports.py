@@ -759,9 +759,9 @@ class TestRotateReports:
 
     def test_rotate_reports_only_timestamp_directories(self, tmp_path: Path) -> None:
         """rotate_reports should only delete directories with timestamp format."""
-        # Create timestamp directories
+        # Create timestamp directories with valid dates (Jan 1-5)
         for i in range(5):
-            report_dir = tmp_path / f"2026010{i:02d}_120000"
+            report_dir = tmp_path / f"202601{(i + 1):02d}_120000"
             report_dir.mkdir()
 
         # Create non-timestamp directory (should not be deleted)
@@ -781,9 +781,9 @@ class TestRotateReports:
 
     def test_rotate_reports_invalid_timestamp_format_skipped(self, tmp_path: Path) -> None:
         """rotate_reports should skip directories with invalid timestamp format."""
-        # Create valid timestamp directories
+        # Create valid timestamp directories with valid dates (Jan 1-3)
         for i in range(3):
-            report_dir = tmp_path / f"2026010{i:02d}_120000"
+            report_dir = tmp_path / f"202601{(i + 1):02d}_120000"
             report_dir.mkdir()
 
         # Create invalid format directory
@@ -830,8 +830,8 @@ class TestRotateReports:
         assert len(remaining) == 3
         # Check that the oldest directories were deleted
         remaining_names = {d.name for d in remaining}
-        assert "20260100_120000" not in remaining_names  # Oldest
-        assert "20260101_120000" not in remaining_names  # Second oldest
+        assert "20260101_120000" not in remaining_names  # Oldest
+        assert "20260102_120000" not in remaining_names  # Second oldest
         # Newest should remain
         assert "20260103_120000" in remaining_names
         assert "20260104_120000" in remaining_names
@@ -847,9 +847,9 @@ class TestRotateReports:
         """
         import time
 
-        # Create valid timestamp directories
+        # Create valid timestamp directories with valid dates (Jan 1-3)
         for i in range(3):
-            report_dir = tmp_path / f"2026010{i:02d}_120000"
+            report_dir = tmp_path / f"202601{(i + 1):02d}_120000"
             report_dir.mkdir()
             time.sleep(0.01)
 
@@ -880,8 +880,8 @@ class TestRotateReports:
 
         # Only valid timestamp directories should be considered for rotation
         remaining = [d for d in tmp_path.iterdir() if d.is_dir()]
-        # Should have: 3 valid + 5 invalid = 8 total
-        assert len(remaining) == 8
+        # Should have: 2 valid (oldest deleted) + 5 invalid = 7 total
+        assert len(remaining) == 7
 
     def test_rotate_reports_empty_directory(self, tmp_path: Path) -> None:
         """T073: rotate_reports should handle empty reports directory."""

@@ -61,7 +61,8 @@ WHY THIS MATTERS:
 - TUI/CLI without understanding → console.print() in Live context bugs
 
 **Context loading pattern**:
-```
+
+```text
 UI/UX patterns:
   ~/.config/opencode/context/
     ├── development/ui-navigation.md    ← UI development patterns (if exists)
@@ -75,6 +76,7 @@ Project context:
   llm-runner/AGENTS.md                 ← Rich Live pitfalls, TUI architecture
   llm-runner/src/llama_cli/tui_app.py  ← Existing TUI patterns
 ```
+
 </critical_context_requirement>
 
 ---

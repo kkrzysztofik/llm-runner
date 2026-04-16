@@ -132,7 +132,7 @@ def cmd_doctor_check(parsed: argparse.Namespace) -> int:
         Exit code (0 for healthy, 1 for issues found).
     """
     backend = parsed.backend if hasattr(parsed, "backend") else None
-    json_output = parsed.json_output if hasattr(parsed, "json_output") else False
+    json_output = getattr(parsed, "json", False)
 
     config = Config()
     result = DoctorCheckResult(
@@ -190,7 +190,7 @@ def cmd_doctor_check(parsed: argparse.Namespace) -> int:
                 started_at=float(lock_data["started_at"]),
                 backend=lock_data["backend"],
             )
-            if lock.is_stale(timeout_seconds=config.toolchain_timeout_seconds):
+            if lock.is_stale():
                 result.is_healthy = False
                 result.errors.append(
                     f"Stale build lock detected (PID {lock.pid}, "
@@ -280,7 +280,7 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
         DoctorRepairResult with actions performed.
     """
     dry_run = parsed.dry_run if hasattr(parsed, "dry_run") else False
-    json_output = parsed.json_output if hasattr(parsed, "json_output") else False
+    json_output = getattr(parsed, "json", False)
 
     config = Config()
     result = DoctorRepairResult(actions=[], performed_actions=[], failures=[])
@@ -326,11 +326,20 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
         if not is_valid:
             result.actions.append(
                 RepairAction(
-                    action_type="recreate_venv",
-                    description=f"Recreate virtual environment ({error})",
-                    command=f"rm -rf '{venv_path}' && python3 -m venv '{venv_path}'",
-                    dry_run_command=f"# rm -rf '{venv_path}' && python3 -m venv '{venv_path}'",
+                    action_type="remove_venv",
+                    description=f"Remove broken virtual environment ({error})",
+                    command=f"rm -rf '{venv_path}'",
+                    dry_run_command=f"# rm -rf '{venv_path}'",
                     requires_confirmation=True,
+                )
+            )
+            result.actions.append(
+                RepairAction(
+                    action_type="create_venv",
+                    description="Recreate virtual environment",
+                    command=f"python3 -m venv '{venv_path}'",
+                    dry_run_command=f"# python3 -m venv '{venv_path}'",
+                    requires_confirmation=False,
                 )
             )
 
@@ -374,7 +383,7 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                 started_at=float(lock_data["started_at"]),
                 backend=lock_data["backend"],
             )
-            if lock.is_stale(timeout_seconds=config.toolchain_timeout_seconds):
+            if lock.is_stale():
                 result.actions.append(
                     RepairAction(
                         action_type="remove_stale_lock",

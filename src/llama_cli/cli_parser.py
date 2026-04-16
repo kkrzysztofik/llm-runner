@@ -11,6 +11,31 @@ import sys
 VALID_MODES = ("summary-balanced", "summary-fast", "qwen35", "both", "build", "setup", "doctor")
 
 
+def parse_jobs_arg(arg: str) -> int:
+    """Parse a jobs argument in various forms (-jN, --jobs=N).
+
+    Args:
+        arg: The current argument being parsed.
+
+    Returns:
+        Parsed jobs integer value.
+
+    Raises:
+        SystemExit: On invalid jobs value.
+    """
+    try:
+        if "=" in arg:
+            return int(arg.split("=")[1])
+        elif arg.startswith("-j"):
+            return int(arg[2:])
+        else:
+            print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+            sys.exit(1)
+    except (ValueError, IndexError):
+        print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+        sys.exit(1)
+
+
 def _parse_dry_run_args(args: list[str]) -> argparse.Namespace:
     """Parse arguments for dry-run mode.
 
@@ -148,19 +173,7 @@ def _handle_build_case(args: list[str]) -> argparse.Namespace | None:
             if arg == "--dry-run":
                 continue
             elif arg.startswith("-j") or arg.startswith("--jobs"):
-                # Support: -jN, --jobs=N, -j N, --jobs N
-                try:
-                    if "=" in arg:
-                        jobs = int(arg.split("=")[1])
-                    elif arg.startswith("-j"):
-                        jobs = int(arg[2:])
-                    else:
-                        # Space-separated form, need next arg
-                        print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
-                        sys.exit(1)
-                except (ValueError, IndexError):
-                    print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
-                    sys.exit(1)
+                jobs = parse_jobs_arg(arg)
 
         return argparse.Namespace(
             mode="build",
@@ -198,18 +211,7 @@ def _handle_setup_case(args: list[str]) -> argparse.Namespace | None:
                     elif arg == "--json":
                         json_output = True
                     elif arg.startswith("-j") or arg.startswith("--jobs"):
-                        # Support: -jN, --jobs=N, -j N, --jobs N
-                        try:
-                            if "=" in arg:
-                                jobs = int(arg.split("=")[1])
-                            elif arg.startswith("-j"):
-                                jobs = int(arg[2:])
-                            else:
-                                print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
-                                sys.exit(1)
-                        except (ValueError, IndexError):
-                            print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
-                            sys.exit(1)
+                        jobs = parse_jobs_arg(arg)
                 return argparse.Namespace(
                     mode="setup",
                     setup_command="check",
@@ -227,18 +229,7 @@ def _handle_setup_case(args: list[str]) -> argparse.Namespace | None:
                     elif arg == "--json":
                         json_output = True
                     elif arg.startswith("-j") or arg.startswith("--jobs"):
-                        # Support: -jN, --jobs=N, -j N, --jobs N
-                        try:
-                            if "=" in arg:
-                                jobs = int(arg.split("=")[1])
-                            elif arg.startswith("-j"):
-                                jobs = int(arg[2:])
-                            else:
-                                print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
-                                sys.exit(1)
-                        except (ValueError, IndexError):
-                            print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
-                            sys.exit(1)
+                        jobs = parse_jobs_arg(arg)
                 return argparse.Namespace(
                     mode="setup",
                     setup_command="venv",
@@ -253,18 +244,7 @@ def _handle_setup_case(args: list[str]) -> argparse.Namespace | None:
                     if arg == "--yes":
                         yes = True
                     elif arg.startswith("-j") or arg.startswith("--jobs"):
-                        # Support: -jN, --jobs=N, -j N, --jobs N
-                        try:
-                            if "=" in arg:
-                                jobs = int(arg.split("=")[1])
-                            elif arg.startswith("-j"):
-                                jobs = int(arg[2:])
-                            else:
-                                print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
-                                sys.exit(1)
-                        except (ValueError, IndexError):
-                            print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
-                            sys.exit(1)
+                        jobs = parse_jobs_arg(arg)
                 return argparse.Namespace(
                     mode="setup",
                     setup_command="clean-venv",
@@ -315,18 +295,7 @@ def _handle_doctor_case(args: list[str]) -> argparse.Namespace | None:
                     elif arg == "--json":
                         json_output = True
                     elif arg.startswith("-j") or arg.startswith("--jobs"):
-                        # Support: -jN, --jobs=N, -j N, --jobs N
-                        try:
-                            if "=" in arg:
-                                jobs = int(arg.split("=")[1])
-                            elif arg.startswith("-j"):
-                                jobs = int(arg[2:])
-                            else:
-                                print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
-                                sys.exit(1)
-                        except (ValueError, IndexError):
-                            print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
-                            sys.exit(1)
+                        jobs = parse_jobs_arg(arg)
                 return argparse.Namespace(
                     mode="doctor",
                     doctor_command="check",
@@ -348,18 +317,7 @@ def _handle_doctor_case(args: list[str]) -> argparse.Namespace | None:
                     elif arg == "--yes":
                         yes = True
                     elif arg.startswith("-j") or arg.startswith("--jobs"):
-                        # Support: -jN, --jobs=N, -j N, --jobs N
-                        try:
-                            if "=" in arg:
-                                jobs = int(arg.split("=")[1])
-                            elif arg.startswith("-j"):
-                                jobs = int(arg[2:])
-                            else:
-                                print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
-                                sys.exit(1)
-                        except (ValueError, IndexError):
-                            print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
-                            sys.exit(1)
+                        jobs = parse_jobs_arg(arg)
                 return argparse.Namespace(
                     mode="doctor",
                     doctor_command="repair",

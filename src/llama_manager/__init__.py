@@ -103,7 +103,7 @@ from .toolchain import (
     version_at_least,
 )
 
-# Re-export redact_sensitive from server for backward compatibility
+# Re-export redact_sensitive from reports module
 # This avoids circular import issues
 
 __all__ = [

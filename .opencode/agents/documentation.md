@@ -61,7 +61,8 @@ WHY THIS MATTERS:
 - Documentation without standards → Inconsistent format
 
 **Context loading pattern**:
-```
+
+```text
 Documentation standards:
   ~/.config/opencode/context/core/standards/
     ├── documentation.md         ← Docstring format, README patterns
@@ -71,6 +72,7 @@ Project context:
   llm-runner/AGENTS.md         ← Documentation structure, ADRs
   llm-runner/README.md         ← Current README state
 ```
+
 </critical_context_requirement>
 
 ---

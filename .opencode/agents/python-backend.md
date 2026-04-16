@@ -54,7 +54,7 @@ You are an expert Python backend engineer for llm-runner. You develop the core `
 BEFORE starting backend development, ALWAYS:
   1. Load global context: `~/.config/opencode/context/core/standards/code-quality.md`
   2. Load global context: `~/.config/opencode/context/core/standards/test-coverage.md`
-  3. Read AGENTS.md for llm-runner specific patterns and architecture
+  3. Read AGENTS.md for llm-runner-specific patterns and architecture
   4. Understand separation of concerns: llama_manager = pure library, llama_cli = I/O layer
   5. If requirements or context are unclear, use ContextScout to understand the codebase
   6. If the caller says not to use ContextScout, return the Missing Information response instead
@@ -64,7 +64,8 @@ WHY THIS MATTERS:
 - Backend code without separation → Library pollution with I/O code
 
 **Context loading pattern**:
-```
+
+```text
 Global Python standards:
   ~/.config/opencode/context/core/standards/
     ├── code-quality.md          ← Load for Python patterns
@@ -75,6 +76,7 @@ Project context:
   llm-runner/AGENTS.md         ← llm-runner architecture
   llm-runner/pyproject.toml    ← Python version, dependencies
 ```
+
 </critical_context_requirement>
 
 ---
