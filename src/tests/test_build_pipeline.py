@@ -203,7 +203,10 @@ class TestSerializedBuildOrder:
             self._run_configure = track_stage(backend_name, "configure")(
                 Mock(
                     return_value=BuildProgress(
-                        stage="configure", status="success", message="Configured", progress_percent=50
+                        stage="configure",
+                        status="success",
+                        message="Configured",
+                        progress_percent=50,
                     )
                 )
             )
@@ -214,7 +217,9 @@ class TestSerializedBuildOrder:
                     )
                 )
             )
-            self._write_provenance = track_stage(backend_name, "provenance")(Mock(return_value=True))
+            self._write_provenance = track_stage(backend_name, "provenance")(
+                Mock(return_value=True)
+            )
 
         with patch.object(BuildPipeline, "__init__", patched_init):
             # Call run_both_backends to exercise SC-003 serialization logic

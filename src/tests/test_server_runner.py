@@ -176,7 +176,7 @@ class TestRunDryRunMode:
         exit_code = _run_dry_run_mode(parsed, acknowledged=False)
         assert exit_code == 1
 
-    @patch("llama_cli.server_runner.dry_run")
+    @patch("llama_cli.dry_run.dry_run")
     def test_dry_run_with_valid_mode(self, mock_dry_run: MagicMock) -> None:
         """_run_dry_run_mode should call dry_run with correct args."""
         parsed = argparse.Namespace(
@@ -189,7 +189,7 @@ class TestRunDryRunMode:
         assert exit_code == 0
         mock_dry_run.assert_called_once_with("both", "8080", "8081", acknowledged=True)
 
-    @patch("llama_cli.server_runner.dry_run")
+    @patch("llama_cli.dry_run.dry_run")
     def test_dry_run_with_single_port(self, mock_dry_run: MagicMock) -> None:
         """_run_dry_run_mode should handle single port."""
         parsed = argparse.Namespace(
@@ -223,7 +223,7 @@ class TestRunBuild:
             mock_config.build_retry_delay = 5
             mock_config_cls.return_value = mock_config
 
-            with patch("llama_cli.server_runner.BuildPipeline") as mock_pipeline_cls:
+            with patch("llama_manager.build_pipeline.BuildPipeline") as mock_pipeline_cls:
                 mock_result = BuildResult(success=True)
                 mock_pipeline_cls.return_value.run.return_value = mock_result
                 mock_pipeline_cls.return_value.dry_run = False
@@ -249,7 +249,7 @@ class TestRunBuild:
             mock_config.build_retry_delay = 5
             mock_config_cls.return_value = mock_config
 
-            with patch("llama_cli.server_runner.BuildPipeline") as mock_pipeline_cls:
+            with patch("llama_manager.build_pipeline.BuildPipeline") as mock_pipeline_cls:
                 mock_pipeline_cls.return_value.run.return_value = BuildResult(success=True)
                 mock_pipeline_cls.return_value.dry_run = False
 
@@ -274,7 +274,7 @@ class TestRunBuild:
             mock_config.build_retry_delay = 5
             mock_config_cls.return_value = mock_config
 
-            with patch("llama_cli.server_runner.BuildPipeline") as mock_pipeline_cls:
+            with patch("llama_manager.build_pipeline.BuildPipeline") as mock_pipeline_cls:
                 mock_pipeline_cls.return_value.run.return_value = BuildResult(
                     success=False,
                     error_message="Build failed",
@@ -297,7 +297,7 @@ class TestRunBuild:
             mock_config.build_retry_delay = 5
             mock_config_cls.return_value = mock_config
 
-            with patch("llama_cli.server_runner.BuildPipeline") as mock_pipeline_cls:
+            with patch("llama_manager.build_pipeline.BuildPipeline") as mock_pipeline_cls:
                 mock_pipeline_cls.return_value.run.return_value = BuildResult(success=True)
 
                 run_build("sycl", dry_run=True)

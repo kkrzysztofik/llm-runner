@@ -177,10 +177,10 @@ class TestHandleBuildCase:
         assert result.dry_run is True
 
     def test_handle_build_with_jobs(self) -> None:
-        """_handle_build_case should parse -j flag."""
+        """_handle_build_case should parse -jN flag."""
         from llama_cli.cli_parser import _handle_build_case
 
-        result = _handle_build_case(["build", "sycl", "-j", "8"])
+        result = _handle_build_case(["build", "sycl", "-j8"])
         assert result is not None
         assert result.jobs == 8
 

@@ -38,6 +38,7 @@ packages = ["src/llama_cli", "src/llama_manager"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+exclude = ["src/llama.cpp"]
 
 [tool.ruff.lint]
 select = [

@@ -217,7 +217,7 @@ def _format_success_json(results: list[tuple[BuildBackend, BuildResult]]) -> str
             artifact_dict = asdict(result.artifact)
             # Convert all Path-like values to strings generically
             for key, value in artifact_dict.items():
-                if isinstance(value, (Path, os.PathLike)):
+                if isinstance(value, Path | os.PathLike):
                     artifact_dict[key] = str(value)
             artifacts.append(artifact_dict)
     return json.dumps({"success": True, "artifacts": artifacts}, indent=2)
