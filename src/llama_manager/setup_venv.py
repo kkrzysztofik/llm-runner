@@ -37,7 +37,8 @@ class VenvResult:
         Returns:
             True if the venv exists and is functional.
         """
-        return self.venv_path.exists() and self.venv_path.is_dir()
+        valid, _ = check_venv_integrity(self.venv_path)
+        return valid
 
     def get_python_path(self) -> Path:
         """Get the Python interpreter path for this virtual environment.

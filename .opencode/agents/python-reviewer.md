@@ -86,7 +86,7 @@ Project context:
 - [ ] No `from llama_cli import` inside `llama_manager/` — dependency is one-way
 - [ ] No `argparse`, `Rich`, or `subprocess` at module level in `llama_manager/`
 - [ ] All new functions have type annotations (params + return type)
-- [ ] No forceful error-unwrapping patterns — prefer explicit exception handling (try/except) or explicit error propagation
+- [ ] No forceful error-extraction patterns — prefer explicit exception handling (try/except) or explicit error propagation
 - [ ] No hardcoded secrets or credentials
 - [ ] Validators use `sys.exit(1)` after printing to `sys.stderr`
 

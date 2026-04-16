@@ -36,8 +36,10 @@
   CUDA binary at `src/llama.cpp/build_cuda/bin/llama-server`. Provenance at
   `$XDG_STATE_HOME/llm-runner/builds/<timestamp>-<backend>.json`.
 - **Rationale**: Preserves backward compatibility with existing `Config.llama_server_bin_intel` and
-  `Config.llama_server_bin_nvidia` computed paths. Provenance in XDG_STATE_HOME follows the
-  XDG Base Directory Specification for application state data.
+  `Config.llama_server_bin_nvidia` computed paths. Provenance is stored in XDG_STATE_HOME
+  (not XDG_DATA_HOME) because provenance files are transient build artifacts that represent
+  application state rather than persistent user data — this aligns with the XDG Base Directory
+  Specification where STATE_HOME is for "history, logs, and similar stateful data".
 - **Alternatives considered**:
   - Store binaries in XDG directories (rejected: breaks existing Config paths and run scripts).
   - Provenance alongside binaries (rejected: mixes build output with metadata; harder to rotate/clean).

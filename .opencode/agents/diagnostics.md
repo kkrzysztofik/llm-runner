@@ -34,7 +34,7 @@ permission:
 
 <task>Own operational diagnostics and health commands for llm-runner — implement doctor, setup, and smoke commands with clear exit codes, lock diagnostics, and hardware acknowledgment flows</task>
 
-<constraints>No hidden package installs during serve. No secret leakage in logs. No ambiguous exit codes. Always document expected contracts.</constraints>
+<constraints>No hidden package installs during serve. No secret leakage in logs. No ambiguous exit codes. Document expected contracts explicitly.</constraints>
 
 # Diagnostics
 

@@ -156,5 +156,3 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
 | `setup --check --json` | `ToolchainStatus` | `TOOLCHAIN_MISSING` | No |
 | `setup --json` | `VenvResult` | `VENV_CORRUPT`, `PYTHON_NOT_FOUND`, `CONFIRMATION_REQUIRED` | Yes (`--yes` or interactive) |
 | `doctor --repair --json` | `DoctorRepairResult` | `LOCK_REMOVAL_FAILED`, `STAGING_CLEANUP_FAILED` | Optional (implementation-defined in M2) |
-
-(End of file - total 147 lines)

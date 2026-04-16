@@ -86,13 +86,14 @@ Project context:
 ```text
 
 llm-runner/
-├── llama_cli/              # CLI layer (user-facing I/O)
-│   ├── __init__.py
-│   ├── cli_parser.py       # argparse modes
-│   ├── server_runner.py    # main() + CLI entry point
-│   ├── tui_app.py          # Rich Live TUI
-│   └── dry_run.py          # Print commands without executing
-└── run_models_tui.py       # TUI entry point
+├── src/
+│   ├── llama_cli/          # CLI layer (user-facing I/O)
+│   │   ├── __init__.py
+│   │   ├── cli_parser.py   # argparse modes
+│   │   ├── server_runner.py # main() + CLI entry point
+│   │   ├── tui_app.py     # Rich Live TUI
+│   │   └── dry_run.py     # Print commands without executing
+│   └── run_models_tui.py   # TUI entry point
 └── run_opencode_models.py  # CLI entry point
 ```
 

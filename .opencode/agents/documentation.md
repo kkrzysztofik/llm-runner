@@ -184,7 +184,7 @@ Keep `README.md` in sync with code changes:
 - New entry point commands
 - New features (GPU stats, TUI layout changes)
 
-### AGENTS.md Updates
+---
 
 Keep `AGENTS.md` updated with:
 

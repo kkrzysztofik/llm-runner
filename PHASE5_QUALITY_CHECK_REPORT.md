@@ -71,7 +71,7 @@ IndentationError: unindent does not match any outer indentation level
 ### Files to Verify
 
 #### ✅ src/tests/test_m2_provenance.py
-**Status:** EXISTS - File present at `/home/kmk/llm-runner/src/tests/test_m2_provenance.py`
+**Status:** EXISTS - File present at `src/tests/test_m2_provenance.py`
 
 #### ⚠️ src/tests/test_reports.py
 **Status:** CRITICAL - Syntax errors preventing test collection
@@ -126,8 +126,9 @@ IndentationError: unindent does not match any outer indentation level
 ### Recommendations
 
 1. **IMMEDIATE:** Fix syntax errors in test_reports.py
-   - Restore file from git or manually fix indentation at lines 602, 908, 889
+   - Manually fix indentation at lines 602, 908, 889
    - Ensure assert statements have correct 8-space indentation
+   - Note: Always backup files before making manual edits
 
 2. **HIGH PRIORITY:** Run `uv run ruff check --fix .` to auto-fix 23 fixable errors
 
