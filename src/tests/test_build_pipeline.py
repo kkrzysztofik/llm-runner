@@ -37,12 +37,15 @@ from llama_manager.build_pipeline import (
 class TestNoAutobuildOnLaunch:
     """T028: Test launch path does not trigger build (FR-006.2)."""
 
-    def test_no_autobuild_on_launch(self, tmp_path: Path) -> None:
+    def test_no_autobuild_on_launch(self, tmp_path: Path, monkeypatch) -> None:
         """FR-006.2: Launch should not trigger build if sources exist.
 
         When llama.cpp sources already exist in source_dir, launch should
         skip the build pipeline and use existing sources.
         """
+        # Disable sleep to speed up tests with retry logic
+        monkeypatch.setattr(time, "sleep", lambda x: None)
+
         # Create source directory with existing files
         source_dir = tmp_path / "llama.cpp"
         source_dir.mkdir()
@@ -137,12 +140,15 @@ class TestNoAutobuildOnLaunch:
 class TestSerializedBuildOrder:
     """T029: Test serialized build order (SC-003)."""
 
-    def test_serialized_build_order(self, tmp_path: Path) -> None:
+    def test_serialized_build_order(self, tmp_path: Path, monkeypatch) -> None:
         """SC-003: SYCL build should complete before CUDA build starts.
 
         When building both backends, SYCL should be built first, then CUDA.
         This test verifies the serialized execution order.
         """
+        # Disable sleep to speed up tests with retry logic
+        monkeypatch.setattr(time, "sleep", lambda x: None)
+
         # Create source directories for both backends
         sycl_source = tmp_path / "sycl_source"
         cuda_source = tmp_path / "cuda_source"
@@ -366,12 +372,15 @@ class TestBuildLockPIDValidation:
 class TestNoRetryBehavior:
     """T032: Test that pipeline does not retry on failure (no retry logic in run method)."""
 
-    def test_no_retry_on_failure(self, tmp_path: Path) -> None:
+    def test_no_retry_on_failure(self, tmp_path: Path, monkeypatch) -> None:
         """Pipeline.run() should not retry on failure.
 
         The current implementation does not have retry logic in the run method.
         This test verifies that only one attempt is made before failing.
         """
+        # Disable sleep to speed up tests with retry logic
+        monkeypatch.setattr(time, "sleep", lambda x: None)
+
         config = BuildConfig(
             backend=BuildBackend.SYCL,
             source_dir=tmp_path / "source",
@@ -714,7 +723,7 @@ class TestProvenanceFailureWarning:
 class TestDryRunMode:
     """T039: Test dry-run mode."""
 
-    def test_dry_run_mode(self, tmp_path: Path) -> None:
+    def test_dry_run_mode(self, tmp_path: Path, monkeypatch) -> None:
         """Dry-run mode should print commands without executing.
 
         In dry-run mode, the pipeline should:
@@ -722,6 +731,9 @@ class TestDryRunMode:
         - Not actually run subprocess commands
         - Still return success status
         """
+        # Disable sleep to speed up tests with retry logic
+        monkeypatch.setattr(time, "sleep", lambda x: None)
+
         config = BuildConfig(
             backend=BuildBackend.SYCL,
             source_dir=tmp_path / "source",
