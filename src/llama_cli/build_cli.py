@@ -15,6 +15,7 @@ from llama_manager.build_pipeline import (
     BuildBackend,
     BuildConfig,
     BuildPipeline,
+    BuildResult,
 )
 from llama_manager.config import Config
 
@@ -120,6 +121,150 @@ Examples:
     return parser.parse_args(args)
 
 
+def _get_backends(backend_arg: str) -> list[BuildBackend]:
+    """Determine which backends to build based on user argument.
+
+    Args:
+        backend_arg: The backend argument from command line (sycl, cuda, or both)
+
+    Returns:
+        List of BuildBackend enums to build
+    """
+    backend_map = {
+        "sycl": [BuildBackend.SYCL],
+        "cuda": [BuildBackend.CUDA],
+        "both": [BuildBackend.SYCL, BuildBackend.CUDA],
+    }
+    return backend_map.get(backend_arg, [BuildBackend.SYCL])
+
+
+def _create_build_config(
+    args: argparse.Namespace,
+    backend: BuildBackend,
+    source_dir: Path,
+    build_dir: Path,
+    output_dir: Path,
+) -> BuildConfig:
+    """Create BuildConfig from command-line arguments.
+
+    Args:
+        args: Parsed command-line arguments
+        backend: Backend to build for
+        source_dir: Source directory path
+        build_dir: Build directory path
+        output_dir: Output directory path
+
+    Returns:
+        Configured BuildConfig instance
+    """
+    return BuildConfig(
+        backend=backend,
+        source_dir=source_dir,
+        build_dir=build_dir,
+        output_dir=output_dir,
+        git_remote_url=args.git_remote,
+        git_branch=args.git_branch,
+        shallow_clone=not args.no_shallow_clone,
+        jobs=args.jobs,
+        retry_attempts=args.retry_attempts,
+        retry_delay=args.retry_delay,
+    )
+
+
+def _build_single_backend(
+    backend: BuildBackend,
+    args: argparse.Namespace,
+    source_dir: Path,
+    build_dir: Path,
+    output_dir: Path,
+) -> tuple[BuildBackend, BuildResult]:
+    """Build for a single backend.
+
+    Args:
+        backend: Backend to build for
+        args: Command-line arguments
+        source_dir: Source directory path
+        build_dir: Build directory path
+        output_dir: Output directory path
+
+    Returns:
+        Tuple of (backend, build_result)
+    """
+    build_config = _create_build_config(args, backend, source_dir, build_dir, output_dir)
+    pipeline = BuildPipeline(build_config)
+    pipeline.dry_run = args.dry_run
+
+    print(f"Building for {backend.value} backend...", file=sys.stderr)
+    if args.dry_run:
+        print("DRY RUN MODE - commands will not be executed", file=sys.stderr)
+
+    result = pipeline.run()
+    return (backend, result)
+
+
+def _format_success_json(results: list[tuple[BuildBackend, BuildResult]]) -> str:
+    """Format successful build results as JSON.
+
+    Args:
+        results: List of (backend, result) tuples
+
+    Returns:
+        JSON string with artifacts
+    """
+    artifacts = []
+    for _backend, result in results:
+        if result.artifact:
+            artifact_dict = asdict(result.artifact)
+            # Convert all Path-like values to strings generically
+            for key, value in artifact_dict.items():
+                if isinstance(value, (Path, os.PathLike)):
+                    artifact_dict[key] = str(value)
+            artifacts.append(artifact_dict)
+    return json.dumps({"success": True, "artifacts": artifacts}, indent=2)
+
+
+def _format_success_text(results: list[tuple[BuildBackend, BuildResult]]) -> None:
+    """Print successful build results as text.
+
+    Args:
+        results: List of (backend, result) tuples
+    """
+    print("Build completed successfully!", file=sys.stderr)
+    for backend, result in results:
+        if result.artifact:
+            print(f"  {backend.value}: {result.artifact.binary_path}", file=sys.stderr)
+
+
+def _format_error_json(results: list[tuple[BuildBackend, BuildResult]]) -> str:
+    """Format failed build results as JSON.
+
+    Args:
+        results: List of (backend, result) tuples
+
+    Returns:
+        JSON string with errors
+    """
+    errors = []
+    for backend, result in results:
+        if not result.success:
+            errors.append(
+                {"backend": backend.value, "error": result.error_message or "Unknown error"}
+            )
+    return json.dumps({"success": False, "errors": errors}, indent=2)
+
+
+def _format_error_text(results: list[tuple[BuildBackend, BuildResult]]) -> None:
+    """Print failed build results as text.
+
+    Args:
+        results: List of (backend, result) tuples
+    """
+    print("Build failed:", file=sys.stderr)
+    for backend, result in results:
+        if not result.success:
+            print(f"  {backend.value}: {result.error_message}", file=sys.stderr)
+
+
 def run_build_command(args: argparse.Namespace) -> int:
     """Execute build command.
 
@@ -129,90 +274,34 @@ def run_build_command(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for failure)
     """
-    # Determine backend(s)
-    backends = []
-    if args.backend == "sycl":
-        backends = [BuildBackend.SYCL]
-    elif args.backend == "cuda":
-        backends = [BuildBackend.CUDA]
-    elif args.backend == "both":
-        backends = [BuildBackend.SYCL, BuildBackend.CUDA]
-
-    # Determine paths
+    # Determine backend(s) and paths
+    backends = _get_backends(args.backend)
     config = Config()
     source_dir = args.source_dir or Path(config.llama_cpp_root)
     build_dir = args.build_dir or (source_dir / "build")
     output_dir = args.output_dir or config.builds_dir
 
     # Build each backend sequentially
-    results = []
-    all_success = True
-
+    results: list[tuple[BuildBackend, BuildResult]] = []
     for backend in backends:
-        # Create build config for this backend
-        build_config = BuildConfig(
-            backend=backend,
-            source_dir=source_dir,
-            build_dir=build_dir,
-            output_dir=output_dir,
-            git_remote_url=args.git_remote,
-            git_branch=args.git_branch,
-            shallow_clone=not args.no_shallow_clone,
-            jobs=args.jobs,
-            retry_attempts=args.retry_attempts,
-            retry_delay=args.retry_delay,
-        )
+        result = _build_single_backend(backend, args, source_dir, build_dir, output_dir)
+        results.append(result)
 
-        # Create and run pipeline
-        pipeline = BuildPipeline(build_config)
-        pipeline.dry_run = args.dry_run
-
-        print(f"Building for {backend.value} backend...", file=sys.stderr)
-        if args.dry_run:
-            print("DRY RUN MODE - commands will not be executed", file=sys.stderr)
-
-        result = pipeline.run()
-        results.append((backend, result))
-
-        if not result.success:
-            all_success = False
-            # Continue to next backend if this one fails
+    # Check if all builds succeeded
+    all_success = all(result.success for _backend, result in results)
 
     # Output results
     if all_success:
         if args.json:
-            # Output JSON array of all artifacts
-            artifacts = []
-            for _backend, result in results:
-                if result.artifact:
-                    artifact_dict = asdict(result.artifact)
-                    # Convert all Path-like values to strings generically
-                    for key, value in artifact_dict.items():
-                        if isinstance(value, (Path, os.PathLike)):
-                            artifact_dict[key] = str(value)
-                    artifacts.append(artifact_dict)
-            print(json.dumps({"success": True, "artifacts": artifacts}, indent=2))
+            print(_format_success_json(results))
         else:
-            print("Build completed successfully!", file=sys.stderr)
-            for backend, result in results:
-                if result.artifact:
-                    print(f"  {backend.value}: {result.artifact.binary_path}", file=sys.stderr)
+            _format_success_text(results)
         return 0
     else:
         if args.json:
-            # Output JSON error
-            errors = []
-            for backend, result in results:
-                if not result.success:
-                    errors.append(
-                        {"backend": backend.value, "error": result.error_message or "Unknown error"}
-                    )
-            print(json.dumps({"success": False, "errors": errors}, indent=2))
+            print(_format_error_json(results))
         else:
-            print("Build failed:", file=sys.stderr)
-            for backend, result in results:
-                if not result.success:
-                    print(f"  {backend.value}: {result.error_message}", file=sys.stderr)
+            _format_error_text(results)
         return 1
 
 

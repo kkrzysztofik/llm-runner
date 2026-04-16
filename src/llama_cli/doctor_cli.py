@@ -19,7 +19,11 @@ from typing import Any
 from llama_manager.build_pipeline import BuildBackend, BuildLock
 from llama_manager.config import Config
 from llama_manager.setup_venv import check_venv_integrity, get_venv_path
-from llama_manager.toolchain import detect_toolchain, get_toolchain_hints
+from llama_manager.toolchain import (
+    ToolchainStatus,
+    detect_toolchain,
+    get_toolchain_hints,
+)
 
 
 @dataclass
@@ -51,7 +55,6 @@ class DoctorCheckResult:
         }
 
 
-@dataclass
 @dataclass
 class RepairAction:
     """Represents a repair action to be performed."""
@@ -95,67 +98,35 @@ class DoctorRepairResult:
 
 
 def _print_error(message: str) -> None:
-    """Print error message to stderr.
-
-    Args:
-        message: Error message to print.
-    """
+    """Print error message to stderr."""
     print(f"error: {message}", file=sys.stderr)
 
 
 def _print_success(message: str) -> None:
-    """Print success message to stdout.
-
-    Args:
-        message: Success message to print.
-    """
+    """Print success message to stdout."""
     print(message)
 
 
 def _print_json(data: dict[str, Any]) -> None:
-    """Print JSON data to stdout.
-
-    Args:
-        data: Dictionary to serialize to JSON.
-    """
+    """Print JSON data to stdout."""
     print(json.dumps(data, indent=2, default=str))
 
 
-def cmd_doctor_check(parsed: argparse.Namespace) -> int:
-    """Execute doctor check command.
+def _get_backend(backend_str: str | None) -> BuildBackend | None:
+    """Convert backend string to BuildBackend enum."""
+    if backend_str is None:
+        return None
+    with contextlib.suppress(ValueError):
+        return BuildBackend(backend_str)
+    return None
 
-    Validates toolchain, venv, build directories, and lock status.
-    Returns exit code 0 if healthy, 1 if any issues found.
 
-    Args:
-        parsed: Parsed command-line arguments namespace.
-
-    Returns:
-        Exit code (0 for healthy, 1 for issues found).
-    """
-    backend = parsed.backend if hasattr(parsed, "backend") else None
-    json_output = getattr(parsed, "json", False)
-
-    config = Config()
-    result = DoctorCheckResult(
-        is_healthy=True,
-        toolchain_complete=False,
-        venv_exists=False,
-        venv_intact=False,
-        build_lock_free=False,
-        staging_dirs_clean=False,
-        reports_dir_exists=False,
-    )
-
-    # Check toolchain
-    toolchain_status = detect_toolchain()
-
-    # Convert backend string to BuildBackend enum if provided
-    if backend is not None:
-        with contextlib.suppress(ValueError):
-            backend = BuildBackend(backend)
-
-    # Check if toolchain is complete for the specified backend
+def _check_toolchain(
+    result: DoctorCheckResult,
+    toolchain_status: ToolchainStatus,
+    backend: BuildBackend | None,
+) -> None:
+    """Check toolchain completeness and update result."""
     if backend == BuildBackend.SYCL:
         result.toolchain_complete = toolchain_status.is_sycl_ready
     elif backend == BuildBackend.CUDA:
@@ -169,7 +140,9 @@ def cmd_doctor_check(parsed: argparse.Namespace) -> int:
         if missing:
             result.errors.append(f"Missing tools: {', '.join(missing)}")
 
-    # Check venv
+
+def _check_venv(result: DoctorCheckResult) -> None:
+    """Check virtual environment status and update result."""
     venv_path = get_venv_path()
     result.venv_exists = venv_path.exists()
 
@@ -182,41 +155,42 @@ def cmd_doctor_check(parsed: argparse.Namespace) -> int:
     else:
         result.warnings.append("Virtual environment does not exist")
 
-    # Check build lock
-    lock_path = config.build_lock_path
-    if lock_path.exists():
-        try:
-            lock_data = json.loads(lock_path.read_text())
-            lock = BuildLock(
-                pid=lock_data["pid"],
-                started_at=float(lock_data["started_at"]),
-                backend=lock_data["backend"],
-            )
-            if lock.is_stale():
-                result.is_healthy = False
-                result.errors.append(
-                    f"Stale build lock detected (PID {lock.pid}, "
-                    f"held for {lock.elapsed_seconds:.0f}s)"
-                )
-            else:
-                result.build_lock_free = False
-                result.warnings.append(
-                    f"Build lock held by PID {lock.pid} (backend: {lock.backend})"
-                )
-        except (json.JSONDecodeError, KeyError) as e:
-            result.is_healthy = False
-            result.errors.append(f"Build lock file corrupted: {e}")
-    else:
-        result.build_lock_free = True
 
-    # Check staging directories
+def _check_build_lock(result: DoctorCheckResult, config: Config) -> None:
+    """Check build lock status and update result."""
+    lock_path = config.build_lock_path
+    if not lock_path.exists():
+        result.build_lock_free = True
+        return
+
+    try:
+        lock_data = json.loads(lock_path.read_text())
+        lock = BuildLock(
+            pid=lock_data["pid"],
+            started_at=float(lock_data["started_at"]),
+            backend=lock_data["backend"],
+        )
+        if lock.is_stale():
+            result.is_healthy = False
+            result.errors.append(
+                f"Stale build lock detected (PID {lock.pid}, held for {lock.elapsed_seconds:.0f}s)"
+            )
+        else:
+            result.build_lock_free = False
+            result.warnings.append(f"Build lock held by PID {lock.pid} (backend: {lock.backend})")
+    except (json.JSONDecodeError, KeyError) as e:
+        result.is_healthy = False
+        result.errors.append(f"Build lock file corrupted: {e}")
+
+
+def _check_staging_dirs(result: DoctorCheckResult, config: Config) -> None:
+    """Check for failed staging directories and update result."""
     build_dir = Path(config.llama_cpp_root) / "build"
     build_cuda_dir = Path(config.llama_cpp_root) / "build_cuda"
     staging_dirs = [d for d in [build_dir, build_cuda_dir] if d.exists()]
 
-    failed_staging = []
+    failed_staging: list[str] = []
     for staging_dir in staging_dirs:
-        # Look for .failed marker files or directories
         failed_markers = list(staging_dir.glob("**/.failed"))
         if failed_markers:
             failed_staging.extend([str(m) for m in failed_markers])
@@ -231,16 +205,20 @@ def cmd_doctor_check(parsed: argparse.Namespace) -> int:
     else:
         result.staging_dirs_clean = True
 
-    # Check reports directory
+
+def _check_reports_dir(result: DoctorCheckResult, config: Config) -> None:
+    """Check reports directory status and update result."""
     result.reports_dir_exists = config.reports_dir.exists()
     if not result.reports_dir_exists:
         result.warnings.append("Reports directory does not exist")
 
-    # Print output
-    if json_output:
-        _print_json(result.to_dict())
-        return 0 if result.is_healthy else 1
 
+def _print_check_results(result: DoctorCheckResult) -> int:
+    """Print doctor check results in human-readable format.
+
+    Returns:
+        Exit code (0 if healthy, 1 otherwise)
+    """
     _print_success("Doctor Check Results:")
     _print_success(f"  Toolchain complete: {'YES' if result.toolchain_complete else 'NO'}")
     _print_success(f"  Venv exists: {'YES' if result.venv_exists else 'NO'}")
@@ -270,48 +248,72 @@ def cmd_doctor_check(parsed: argparse.Namespace) -> int:
         return 1
 
 
-def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
-    """Execute doctor --repair command.
+def cmd_doctor_check(parsed: argparse.Namespace) -> int:
+    """Execute doctor check command.
 
-    Attempts to fix detected issues automatically. Returns list of fix commands.
-
-    Args:
-        parsed: Parsed command-line arguments namespace.
-
-    Returns:
-        DoctorRepairResult with actions performed.
+    Validates toolchain, venv, build directories, and lock status.
+    Returns exit code 0 if healthy, 1 if any issues found.
     """
-    dry_run = parsed.dry_run if hasattr(parsed, "dry_run") else False
+    backend_str = parsed.backend if hasattr(parsed, "backend") else None
     json_output = getattr(parsed, "json", False)
 
     config = Config()
-    result = DoctorRepairResult(actions=[], performed_actions=[], failures=[])
+    result = DoctorCheckResult(
+        is_healthy=True,
+        toolchain_complete=False,
+        venv_exists=False,
+        venv_intact=False,
+        build_lock_free=False,
+        staging_dirs_clean=False,
+        reports_dir_exists=False,
+    )
 
-    # Check toolchain issues
+    backend = _get_backend(backend_str)
     toolchain_status = detect_toolchain()
-    if not toolchain_status.is_complete:
-        # Deduplicate hints (both backends may return the same hints)
-        sycl_hints = get_toolchain_hints("sycl")
-        cuda_hints = get_toolchain_hints("cuda")
-        # Use a set to deduplicate based on failed_check (tool name)
-        seen_tools = set()
-        hints = []
-        for hint in sycl_hints + cuda_hints:
-            if hint.failed_check not in seen_tools:
-                seen_tools.add(hint.failed_check)
-                hints.append(hint)
-        for hint in hints:
-            result.actions.append(
-                RepairAction(
-                    action_type="install_tool",
-                    description=f"Install missing tool: {hint.how_to_fix}",
-                    command=None,
-                    dry_run_command=f"# {hint.how_to_fix}",
-                    requires_confirmation=True,
-                )
-            )
 
-    # Check venv issues
+    _check_toolchain(result, toolchain_status, backend)
+    _check_venv(result)
+    _check_build_lock(result, config)
+    _check_staging_dirs(result, config)
+    _check_reports_dir(result, config)
+
+    if json_output:
+        _print_json(result.to_dict())
+        return 0 if result.is_healthy else 1
+
+    return _print_check_results(result)
+
+
+def _collect_toolchain_repair_actions(result: DoctorRepairResult) -> None:
+    """Collect repair actions for toolchain issues."""
+    toolchain_status = detect_toolchain()
+    if toolchain_status.is_complete:
+        return
+
+    # Deduplicate hints (both backends may return the same hints)
+    sycl_hints = get_toolchain_hints("sycl")
+    cuda_hints = get_toolchain_hints("cuda")
+    seen_tools: set[str] = set()
+    hints = []
+    for hint in sycl_hints + cuda_hints:
+        if hint.failed_check not in seen_tools:
+            seen_tools.add(hint.failed_check)
+            hints.append(hint)
+
+    for hint in hints:
+        result.actions.append(
+            RepairAction(
+                action_type="install_tool",
+                description=f"Install missing tool: {hint.how_to_fix}",
+                command=None,
+                dry_run_command=f"# {hint.how_to_fix}",
+                requires_confirmation=True,
+            )
+        )
+
+
+def _collect_venv_repair_actions(result: DoctorRepairResult) -> None:
+    """Collect repair actions for venv issues."""
     venv_path = get_venv_path()
     if not venv_path.exists():
         result.actions.append(
@@ -323,135 +325,144 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                 requires_confirmation=True,
             )
         )
-    else:
-        is_valid, error = check_venv_integrity(venv_path)
-        if not is_valid:
-            result.actions.append(
-                RepairAction(
-                    action_type="remove_venv",
-                    description=f"Remove broken virtual environment ({error})",
-                    command="rm",
-                    args=["-rf", str(venv_path)],
-                    dry_run_command=f"# rm -rf '{venv_path}'",
-                    requires_confirmation=True,
-                )
-            )
-            result.actions.append(
-                RepairAction(
-                    action_type="create_venv",
-                    description="Recreate virtual environment",
-                    command=[sys.executable, "-m", "venv", str(venv_path)],
-                    dry_run_command=f"# {sys.executable} -m venv '{venv_path}'",
-                    requires_confirmation=False,
-                )
-            )
+        return
 
-    # Check and clean failed staging directories
+    is_valid, error = check_venv_integrity(venv_path)
+    if is_valid:
+        return
+
+    result.actions.append(
+        RepairAction(
+            action_type="remove_venv",
+            description=f"Remove broken virtual environment ({error})",
+            command="rm",
+            args=["-rf", str(venv_path)],
+            dry_run_command=f"# rm -rf '{venv_path}'",
+            requires_confirmation=True,
+        )
+    )
+    result.actions.append(
+        RepairAction(
+            action_type="create_venv",
+            description="Recreate virtual environment",
+            command=[sys.executable, "-m", "venv", str(venv_path)],
+            dry_run_command=f"# {sys.executable} -m venv '{venv_path}'",
+            requires_confirmation=False,
+        )
+    )
+
+
+def _collect_staging_repair_actions(result: DoctorRepairResult, config: Config) -> None:
+    """Collect repair actions for failed staging directories."""
     build_dir = Path(config.llama_cpp_root) / "build"
     build_cuda_dir = Path(config.llama_cpp_root) / "build_cuda"
     staging_dirs = [d for d in [build_dir, build_cuda_dir] if d.exists()]
 
     for staging_dir in staging_dirs:
         failed_markers = list(staging_dir.glob("**/.failed"))
-        if failed_markers:
-            for marker in failed_markers:
-                parent_dir = marker.parent
-                result.actions.append(
-                    RepairAction(
-                        action_type="clean_failed_staging",
-                        description=f"Remove failed staging directory: {parent_dir}",
-                        command="rm",
-                        args=["-rf", str(parent_dir)],
-                        dry_run_command=f"# rm -rf '{parent_dir}'",
-                        requires_confirmation=True,
-                    )
-                )
-                # Also remove .failed marker
-                result.actions.append(
-                    RepairAction(
-                        action_type="remove_failed_marker",
-                        description=f"Remove .failed marker: {marker}",
-                        command="rm",
-                        args=[str(marker)],
-                        dry_run_command=f"# rm '{marker}'",
-                        requires_confirmation=False,
-                    )
-                )
-
-    # Check stale build locks
-    lock_path = config.build_lock_path
-    if lock_path.exists():
-        try:
-            lock_data = json.loads(lock_path.read_text())
-            lock = BuildLock(
-                pid=lock_data["pid"],
-                started_at=float(lock_data["started_at"]),
-                backend=lock_data["backend"],
-            )
-            if lock.is_stale():
-                result.actions.append(
-                    RepairAction(
-                        action_type="remove_stale_lock",
-                        description=f"Remove stale build lock (PID {lock.pid})",
-                        command="rm",
-                        args=[str(lock_path)],
-                        dry_run_command=f"# rm '{lock_path}'",
-                        requires_confirmation=True,
-                    )
-                )
-        except (json.JSONDecodeError, KeyError):
+        for marker in failed_markers:
+            parent_dir = marker.parent
             result.actions.append(
                 RepairAction(
-                    action_type="remove_corrupt_lock",
-                    description="Remove corrupted build lock file",
+                    action_type="clean_failed_staging",
+                    description=f"Remove failed staging directory: {parent_dir}",
+                    command="rm",
+                    args=["-rf", str(parent_dir)],
+                    dry_run_command=f"# rm -rf '{parent_dir}'",
+                    requires_confirmation=True,
+                )
+            )
+            result.actions.append(
+                RepairAction(
+                    action_type="remove_failed_marker",
+                    description=f"Remove .failed marker: {marker}",
+                    command="rm",
+                    args=[str(marker)],
+                    dry_run_command=f"# rm '{marker}'",
+                    requires_confirmation=False,
+                )
+            )
+
+
+def _collect_lock_repair_actions(result: DoctorRepairResult, config: Config) -> None:
+    """Collect repair actions for stale/corrupted build locks."""
+    lock_path = config.build_lock_path
+    if not lock_path.exists():
+        return
+
+    try:
+        lock_data = json.loads(lock_path.read_text())
+        lock = BuildLock(
+            pid=lock_data["pid"],
+            started_at=float(lock_data["started_at"]),
+            backend=lock_data["backend"],
+        )
+        if lock.is_stale():
+            result.actions.append(
+                RepairAction(
+                    action_type="remove_stale_lock",
+                    description=f"Remove stale build lock (PID {lock.pid})",
                     command="rm",
                     args=[str(lock_path)],
                     dry_run_command=f"# rm '{lock_path}'",
                     requires_confirmation=True,
                 )
             )
+    except (json.JSONDecodeError, KeyError):
+        result.actions.append(
+            RepairAction(
+                action_type="remove_corrupt_lock",
+                description="Remove corrupted build lock file",
+                command="rm",
+                args=[str(lock_path)],
+                dry_run_command=f"# rm '{lock_path}'",
+                requires_confirmation=True,
+            )
+        )
 
-    # Execute repairs (if not dry run)
-    if not dry_run:
-        for action in result.actions:
-            if action.command:
-                try:
-                    # Handle both string commands and list commands
-                    if isinstance(action.command, list):
-                        cmd_list = action.command
-                    else:
-                        cmd_list = [action.command]
 
-                    # Add args if present
-                    if action.args:
-                        cmd_list = cmd_list + action.args
+def _execute_repair_action(action: RepairAction, result: DoctorRepairResult) -> None:
+    """Execute a single repair action and update result."""
+    if not action.command:
+        return
 
-                    subprocess.run(
-                        cmd_list,
-                        shell=False,
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                    )
-                    result.performed_actions.append(action.description)
-                except subprocess.CalledProcessError as e:
-                    result.failures.append(f"Failed to {action.description}: {e.stderr or str(e)}")
-                    result.success = False
-                except Exception as e:
-                    result.failures.append(f"Failed to {action.description}: {e}")
-                    result.success = False
+    try:
+        # Handle both string commands and list commands
+        cmd_list = action.command if isinstance(action.command, list) else [action.command]
 
-    # Print output
-    if json_output:
-        _print_json(result.to_dict())
-        return result
+        # Add args if present
+        if action.args:
+            cmd_list = cmd_list + action.args
 
-    # Human-readable output
+        subprocess.run(
+            cmd_list,
+            shell=False,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result.performed_actions.append(action.description)
+    except subprocess.CalledProcessError as e:
+        result.failures.append(f"Failed to {action.description}: {e.stderr or str(e)}")
+        result.success = False
+    except Exception as e:
+        result.failures.append(f"Failed to {action.description}: {e}")
+        result.success = False
+
+
+def _execute_repair_actions(result: DoctorRepairResult) -> None:
+    """Execute all repair actions."""
+    for action in result.actions:
+        _execute_repair_action(action, result)
+
+
+def _print_repair_results(result: DoctorRepairResult) -> None:
+    """Print repair results in human-readable format."""
     _print_success("Doctor Repair Actions:")
 
     if not result.actions:
         _print_success("  No repairs needed. System is healthy.")
-        return result
+        return
 
     for i, action in enumerate(result.actions, 1):
         confirm_marker = " [CONFIRMATION REQUIRED]" if action.requires_confirmation else ""
@@ -471,15 +482,36 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
         for failure in result.failures:
             _print_error(f"  - {failure}")
 
+
+def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
+    """Execute doctor --repair command.
+
+    Attempts to fix detected issues automatically. Returns list of fix commands.
+    """
+    dry_run = parsed.dry_run if hasattr(parsed, "dry_run") else False
+    json_output = getattr(parsed, "json", False)
+
+    config = Config()
+    result = DoctorRepairResult(actions=[], performed_actions=[], failures=[])
+
+    _collect_toolchain_repair_actions(result)
+    _collect_venv_repair_actions(result)
+    _collect_staging_repair_actions(result, config)
+    _collect_lock_repair_actions(result, config)
+
+    if not dry_run:
+        _execute_repair_actions(result)
+
+    if json_output:
+        _print_json(result.to_dict())
+        return result
+
+    _print_repair_results(result)
     return result
 
 
 def create_parser() -> argparse.ArgumentParser:
-    """Create argument parser for doctor commands.
-
-    Returns:
-        Configured ArgumentParser instance.
-    """
+    """Create argument parser for doctor commands."""
     parser = argparse.ArgumentParser(
         prog="doctor",
         description="System diagnostics and repair commands",
