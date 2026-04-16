@@ -5,7 +5,7 @@ for the build artifact contract.
 """
 
 import json
-from datetime import datetime
+import time
 from pathlib import Path
 
 import pytest
@@ -31,7 +31,7 @@ class TestBuildArtifactContract:
         artifact = BuildArtifact(
             artifact_type="binary",
             backend="sycl",
-            created_at=datetime(2026, 4, 15, 12, 0, 0),
+            created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123def456",
             git_branch="main",
@@ -48,7 +48,7 @@ class TestBuildArtifactContract:
         artifact_dict = {
             "artifact_type": artifact.artifact_type,
             "backend": artifact.backend,
-            "created_at": artifact.created_at.isoformat(),
+            "created_at": artifact.created_at,
             "git_remote_url": artifact.git_remote_url,
             "git_commit_sha": artifact.git_commit_sha,
             "git_branch": artifact.git_branch,
@@ -89,7 +89,7 @@ class TestBuildArtifactContract:
         # Verify field types
         assert isinstance(parsed["artifact_type"], str)
         assert isinstance(parsed["backend"], str)
-        assert isinstance(parsed["created_at"], str)
+        assert isinstance(parsed["created_at"], float)
         assert isinstance(parsed["git_remote_url"], str)
         assert isinstance(parsed["git_commit_sha"], str)
         assert isinstance(parsed["git_branch"], str)

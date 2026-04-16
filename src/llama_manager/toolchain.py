@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .config import ErrorCode
 
+from .config import ErrorCode
 
 # Module constants for required tools by backend
 SYCL_REQUIRED_TOOLS: list[str] = [
@@ -295,7 +296,7 @@ def get_toolchain_hints(backend: str) -> list["ToolchainErrorDetail"]:
             hint = hints_map.get(tool, ToolchainHint(tool, f"install {tool}"))
             missing.append(
                 ToolchainErrorDetail(
-                    error_code="TOOLCHAIN_MISSING",  # type: ignore
+                    error_code=ErrorCode.TOOLCHAIN_MISSING,
                     failed_check=tool,
                     why_blocked=f"Required for {backend} backend",
                     how_to_fix=hint.install_command,

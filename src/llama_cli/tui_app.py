@@ -33,6 +33,7 @@ from llama_manager.build_pipeline import (
     BuildBackend,
     BuildConfig,
     BuildPipeline,
+    BuildProgress,
 )
 from llama_manager.server import detect_risky_operations
 
@@ -75,6 +76,7 @@ class TUIApp:
         # Build pipeline state
         self._build_pipeline: BuildPipeline | None = None
         self._build_in_progress = False
+        self._build_progress: BuildProgress | None = None
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -339,6 +341,45 @@ class TUIApp:
             border_style="dim",
         )
 
+    def _handle_build_progress(self, progress: BuildProgress) -> None:
+        """Handle build progress updates from pipeline.
+
+        Args:
+            progress: BuildProgress from the pipeline
+        """
+        self._build_progress = progress
+
+        # Update status panel if build is in progress
+        if self._build_in_progress:
+            if progress.is_retrying:
+                status_text = Text()
+                status_text.append("STATUS: ", style="bold yellow")
+                status_text.append("RETRYING", style="bold yellow")
+                status_text.append(f" - {progress.message}\n", style="dim")
+                if progress.retries_remaining is not None:
+                    status_text.append(
+                        f"Retries remaining: {progress.retries_remaining}",
+                        style="dim",
+                    )
+                self.status_panel = Panel(
+                    status_text,
+                    title="[yellow]Build In Progress[/yellow]",
+                    border_style="yellow",
+                )
+            elif progress.status == "failed":
+                status_text = Text()
+                status_text.append("STATUS: ", style="bold red")
+                status_text.append("FAILED", style="bold red")
+                status_text.append(f" - {progress.message}\n", style="dim")
+                self.status_panel = Panel(
+                    status_text,
+                    title="[red]Build Failed[/red]",
+                    border_style="red",
+                )
+            elif progress.status == "success":
+                # Clear status panel on success
+                self.status_panel = None
+
     def _handle_launch_result(self, launch_result: LaunchResult) -> None:
         if launch_result.is_blocked():
             print("error: launch blocked - no slots could be launched", file=sys.stderr)
@@ -388,8 +429,10 @@ class TUIApp:
             retry_delay=config.build_retry_delay,
         )
 
-        # Create and configure pipeline
-        self._build_pipeline = BuildPipeline(build_config)
+        # Create and configure pipeline with progress callback
+        self._build_pipeline = BuildPipeline(
+            build_config, progress_callback=self._handle_build_progress
+        )
         self._build_pipeline.dry_run = dry_run
         self._build_in_progress = True
 

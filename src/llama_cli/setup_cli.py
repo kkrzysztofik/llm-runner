@@ -64,85 +64,69 @@ def cmd_check(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for failure).
     """
-    # Detect toolchain status
-    status = detect_toolchain()
+    try:
+        # Detect toolchain status
+        status = detect_toolchain()
 
-    # Build status report
-    report: dict[str, Any] = {
-        "gcc": status.gcc,
-        "make": status.make,
-        "git": status.git,
-        "cmake": status.cmake,
-        "sycl_compiler": status.sycl_compiler,
-        "cuda_toolkit": status.cuda_toolkit,
-        "nvtop": status.nvtop,
-        "is_complete": status.is_complete,
-        "is_sycl_ready": status.is_sycl_ready,
-        "is_cuda_ready": status.is_cuda_ready,
-        "missing_tools": status.missing_tools(),
-    }
+        # Build status report (contract fields only)
+        output: dict[str, Any] = {
+            "gcc": status.gcc,
+            "make": status.make,
+            "git": status.git,
+            "cmake": status.cmake,
+            "sycl_compiler": status.sycl_compiler,
+            "cuda_toolkit": status.cuda_toolkit,
+            "nvtop": status.nvtop,
+        }
 
-    # Get actionable hints for missing tools
-    if args.backend == "sycl":
-        hints = get_toolchain_hints("sycl")
-        report["backend"] = "sycl"
-    elif args.backend == "cuda":
-        hints = get_toolchain_hints("cuda")
-        report["backend"] = "cuda"
-    else:
-        hints = []
-        report["backend"] = "all"
+        # Get actionable hints for missing tools
+        if args.backend == "sycl":
+            hints = get_toolchain_hints("sycl")
+        elif args.backend == "cuda":
+            hints = get_toolchain_hints("cuda")
+        else:
+            hints = []
 
-    # Add hints to report
-    if hints:
-        report["hints"] = [
-            {
-                "error_code": h.error_code.value,  # type: ignore
-                "failed_check": h.failed_check,
-                "why_blocked": h.why_blocked,
-                "how_to_fix": h.how_to_fix,
-                "docs_ref": h.docs_ref,
-            }
-            for h in hints
-        ]
+        # Print JSON output if requested (contract fields only)
+        if args.json:
+            _print_json(output)
+            return 0 if status.is_complete else 1
 
-    # Print JSON output if requested
-    if args.json:
-        _print_json(report)
-        return 0 if status.is_complete else 1
+        # Print human-readable output
+        _print_success("Toolchain Status:")
+        _print_success(f"  gcc: {status.gcc or 'MISSING'}")
+        _print_success(f"  make: {status.make or 'MISSING'}")
+        _print_success(f"  git: {status.git or 'MISSING'}")
+        _print_success(f"  cmake: {status.cmake or 'MISSING'}")
+        _print_success(f"  sycl_compiler: {status.sycl_compiler or 'MISSING'}")
+        _print_success(f"  cuda_toolkit: {status.cuda_toolkit or 'MISSING'}")
+        _print_success(f"  nvtop: {status.nvtop or 'MISSING'}")
 
-    # Print human-readable output
-    _print_success("Toolchain Status:")
-    _print_success(f"  gcc: {status.gcc or 'MISSING'}")
-    _print_success(f"  make: {status.make or 'MISSING'}")
-    _print_success(f"  git: {status.git or 'MISSING'}")
-    _print_success(f"  cmake: {status.cmake or 'MISSING'}")
-    _print_success(f"  sycl_compiler: {status.sycl_compiler or 'MISSING'}")
-    _print_success(f"  cuda_toolkit: {status.cuda_toolkit or 'MISSING'}")
-    _print_success(f"  nvtop: {status.nvtop or 'MISSING'}")
-
-    _print_success("")
-    _print_success(f"SYCL ready: {'YES' if status.is_sycl_ready else 'NO'}")
-    _print_success(f"CUDA ready: {'YES' if status.is_cuda_ready else 'NO'}")
-    _print_success(f"Complete: {'YES' if status.is_complete else 'NO'}")
-
-    if status.missing_tools():
         _print_success("")
-        _print_error(f"Missing tools: {', '.join(status.missing_tools())}")
+        _print_success(f"SYCL ready: {'YES' if status.is_sycl_ready else 'NO'}")
+        _print_success(f"CUDA ready: {'YES' if status.is_cuda_ready else 'NO'}")
+        _print_success(f"Complete: {'YES' if status.is_complete else 'NO'}")
 
-        if hints:
+        if status.missing_tools():
             _print_success("")
-            _print_success("Installation hints:")
-            for hint in hints:
-                _print_success(f"  - {hint.how_to_fix}")
-                if hint.docs_ref:
-                    _print_success(f"    Docs: {hint.docs_ref}")
+            _print_error(f"Missing tools: {', '.join(status.missing_tools())}")
 
+            if hints:
+                _print_success("")
+                _print_success("Installation hints:")
+                for hint in hints:
+                    _print_success(f"  - {hint.how_to_fix}")
+                    if hint.docs_ref:
+                        _print_success(f"    Docs: {hint.docs_ref}")
+
+            return 1
+
+        _print_success("")
+        _print_success("All required tools are available!")
+        return 0
+    except Exception as e:
+        _print_error(f"Toolchain detection failed: {e}")
         return 1
-
-    _print_success("")
-    _print_success("All required tools are available!")
-    return 0
 
 
 def cmd_venv(args: argparse.Namespace) -> int:
@@ -157,41 +141,44 @@ def cmd_venv(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for failure).
     """
-    # Get venv path
-    venv_path = get_venv_path()
+    try:
+        # Get venv path
+        venv_path = get_venv_path()
 
-    # Create or reuse venv
-    result = create_venv(venv_path)
+        # Create or reuse venv
+        result = create_venv(venv_path)
 
-    # Check integrity if requested
-    if args.check_integrity:
-        is_valid, error = check_venv_integrity(venv_path)
-        if not is_valid:
-            _print_error(f"Venv integrity check failed: {error}")
-            return 1
+        # Check integrity if requested
+        if args.check_integrity:
+            is_valid, error = check_venv_integrity(venv_path)
+            if not is_valid:
+                _print_error(f"Venv integrity check failed: {error}")
+                return 1
 
-    # Build result
-    output: dict[str, Any] = {
-        "venv_path": str(result.venv_path),
-        "created": result.created,
-        "reused": result.reused,
-        "activation_command": result.activation_command,
-    }
+        # Print JSON output if requested (VenvResult fields only)
+        if args.json:
+            _print_json(
+                {
+                    "venv_path": str(result.venv_path),
+                    "created": result.created,
+                    "reused": result.reused,
+                    "activation_command": result.activation_command,
+                }
+            )
+            return 0
 
-    # Print JSON output if requested
-    if args.json:
-        _print_json(output)
+        # Print human-readable output
+        if result.was_created:
+            _print_success(f"Created virtual environment at: {venv_path}")
+        elif result.was_reused:
+            _print_success(f"Reused existing virtual environment at: {venv_path}")
+
+        _print_success(f"Activation command: {result.activation_command}")
+
         return 0
-
-    # Print human-readable output
-    if result.was_created:
-        _print_success(f"Created virtual environment at: {venv_path}")
-    elif result.was_reused:
-        _print_success(f"Reused existing virtual environment at: {venv_path}")
-
-    _print_success(f"Activation command: {result.activation_command}")
-
-    return 0
+    except Exception as e:
+        _print_error(f"Venv creation failed: {e}")
+        return 1
 
 
 def cmd_clean_venv(args: argparse.Namespace) -> int:

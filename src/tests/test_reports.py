@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, patch
 from llama_manager.reports import (
     FailureReport,
     MutatingActionLogEntry,
+    log_mutating_action,
     redact_sensitive,
     rotate_reports,
     write_failure_report,
@@ -465,8 +466,12 @@ class TestRedactSensitive:
 
     def test_redact_sensitive_only_sensitive_word(self) -> None:
         """redact_sensitive should redact lines that are only sensitive words."""
-        assert redact_sensitive("API_KEY") == "API_[REDACTED]"
+        # Standalone sensitive words should be fully redacted
+        assert redact_sensitive("API_KEY") == "[REDACTED]"
         assert redact_sensitive("TOKEN") == "[REDACTED]"
+        assert redact_sensitive("SECRET") == "[REDACTED]"
+        assert redact_sensitive("PASSWORD") == "[REDACTED]"
+        assert redact_sensitive("AUTH") == "[REDACTED]"
 
 
 class TestWriteFailureReport:
@@ -485,9 +490,10 @@ class TestWriteFailureReport:
         assert report.report_dir.is_dir()
         # Directory name should be timestamp format YYYYMMDD_HHMMSS
         assert len(report.report_dir.name) == 15  # YYYYMMDD_HHMMSS
-        assert report.report_dir.name[4] == "M"  # Month separator
-        assert report.report_dir.name[7] == "D"  # Day separator
-        assert report.report_dir.name[10] == "_"  # Time separator
+        # Format: YYYYMMDD_HHMMSS, check structure
+        assert report.report_dir.name[4] in "0123456789"  # Month is numeric
+        assert report.report_dir.name[7] in "0123456789"  # Day is numeric
+        assert report.report_dir.name[8] == "_"  # Time separator
 
     def test_write_failure_report_creates_all_files(self, tmp_path: Path) -> None:
         """write_failure_report should create all 3 required files."""
@@ -699,6 +705,7 @@ class TestRotateReports:
     def test_rotate_reports_no_reports_dir(self, tmp_path: Path) -> None:
         """rotate_reports should handle missing reports directory."""
         reports_path = tmp_path / "nonexistent"
+        # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
             mock_config_instance.reports_dir = reports_path
@@ -715,6 +722,7 @@ class TestRotateReports:
             # Set different modification times
             report_dir.touch()
 
+        # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
             mock_config_instance.reports_dir = tmp_path
@@ -730,7 +738,10 @@ class TestRotateReports:
         """rotate_reports should delete oldest when count > max_reports."""
         # Create 15 report directories (more than max of 10)
         for i in range(15):
-            report_dir = tmp_path / f"2026010{i:02d}_120000"
+            # Use valid timestamp format: YYYYMMDD_HHMMSS
+            # Days 01-15, time 12:00:00
+            day = i + 1
+            report_dir = tmp_path / f"202601{day:02d}_120000"
             report_dir.mkdir()
             # Set different modification times (oldest first)
             report_dir.touch()
@@ -739,6 +750,7 @@ class TestRotateReports:
 
             time.sleep(0.01)
 
+        # Mock Config class properly - patch where it's used, not where it's defined
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
             mock_config_instance.reports_dir = tmp_path
@@ -761,6 +773,7 @@ class TestRotateReports:
         other_dir = tmp_path / "other-directory"
         other_dir.mkdir()
 
+        # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
             mock_config_instance.reports_dir = tmp_path
@@ -782,6 +795,7 @@ class TestRotateReports:
         invalid_dir = tmp_path / "not-a-timestamp"
         invalid_dir.mkdir()
 
+        # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
             mock_config_instance.reports_dir = tmp_path
@@ -800,11 +814,14 @@ class TestRotateReports:
         # Create directories with different modification times
         directories = []
         for i in range(5):
-            report_dir = tmp_path / f"2026010{i:02d}_120000"
+            # Use valid timestamp format: YYYYMMDD_HHMMSS
+            day = i + 1
+            report_dir = tmp_path / f"202601{day:02d}_120000"
             report_dir.mkdir()
             directories.append(report_dir)
             time.sleep(0.01)  # Ensure different mtime
 
+        # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
             mock_config_instance.reports_dir = tmp_path
@@ -852,6 +869,7 @@ class TestRotateReports:
         for invalid_dir in invalid_dirs:
             invalid_dir.mkdir()
 
+        # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
             mock_config_instance.reports_dir = tmp_path
@@ -872,6 +890,7 @@ class TestRotateReports:
 
     def test_rotate_reports_empty_directory(self, tmp_path: Path) -> None:
         """T073: rotate_reports should handle empty reports directory."""
+        # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
             mock_config_instance.reports_dir = tmp_path
@@ -893,6 +912,7 @@ class TestRotateReports:
         report_dir = tmp_path / "20260101_120000"
         report_dir.mkdir()
 
+        # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
             mock_config_instance.reports_dir = tmp_path
@@ -911,9 +931,12 @@ class TestRotateReports:
         """
         # Create 5 timestamp directories
         for i in range(5):
-            report_dir = tmp_path / f"2026010{i:02d}_120000"
+            # Use valid timestamp format: YYYYMMDD_HHMMSS
+            day = i + 1
+            report_dir = tmp_path / f"202601{day:02d}_120000"
             report_dir.mkdir()
 
+        # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
             mock_config_instance.reports_dir = tmp_path
@@ -946,9 +969,12 @@ class TestMutatingActionLogEntryRotation:
 
         # Add entries up to max
         for i in range(max_entries):
+            # Use hours to avoid minute overflow (0-59)
+            hour = 12 + (i // 60)
+            minute = i % 60
             entry = MutatingActionLogEntry(
                 command=["git", "clone", f"repo{i}"],
-                timestamp=datetime(2026, 4, 15, 12, i, 0),
+                timestamp=datetime(2026, 4, 15, hour, minute, 0),
                 exit_code=0,
                 truncated_output=f"Output {i}",
             )
@@ -957,9 +983,11 @@ class TestMutatingActionLogEntryRotation:
         assert len(entries) == max_entries
 
         # Add one more entry (should trigger rotation)
+        new_hour = 12 + (max_entries // 60)
+        new_minute = max_entries % 60
         new_entry = MutatingActionLogEntry(
             command=["git", "clone", "repo100"],
-            timestamp=datetime(2026, 4, 15, 12, max_entries, 0),
+            timestamp=datetime(2026, 4, 15, new_hour, new_minute, 0),
             exit_code=0,
             truncated_output="Output 100",
         )
@@ -1057,3 +1085,170 @@ class TestMutatingActionLogEntryRotation:
         # Should only have the newest entry
         assert len(entries) == 1
         assert entries[0].command[1] == "2"  # Only entry 2 (newest)
+
+
+class TestLogMutatingAction:
+    """Tests for log_mutating_action() function (FR-018.4)."""
+
+    def test_log_mutating_action_creates_log_file(self, tmp_path: Path) -> None:
+        """log_mutating_action should create log file in XDG state home."""
+        from llama_manager.reports import log_mutating_action
+
+        # Mock Config instance to use tmp_path
+        mock_config = MagicMock()
+        mock_config.xdg_state_base = str(tmp_path)
+        mock_config.build_output_truncate_bytes = 8192
+
+        with patch("llama_manager.config.Config", return_value=mock_config):
+            log_mutating_action(
+                command=["git", "clone", "https://github.com/example/repo.git"],
+                exit_code=0,
+                output="Cloning into 'repo'...",
+            )
+
+        # Log file should be created
+        log_path = tmp_path / "llm-runner" / "mutating_actions.log"
+        assert log_path.exists()
+
+    def test_log_mutating_action_writes_entry(self, tmp_path: Path) -> None:
+        """log_mutating_action should write entry to log file."""
+        from llama_manager.reports import log_mutating_action
+
+        mock_config = MagicMock()
+        mock_config.xdg_state_base = str(tmp_path)
+        mock_config.build_output_truncate_bytes = 8192
+
+        with patch("llama_manager.config.Config", return_value=mock_config):
+            _ = log_mutating_action(
+                command=["git", "clone", "https://github.com/example/repo.git"],
+                exit_code=0,
+                output="Cloning into 'repo'...",
+            )
+
+        log_path = tmp_path / "llm-runner" / "mutating_actions.log"
+        with open(log_path) as f:
+            content = f.read()
+
+        # Should contain formatted entry
+        assert "SUCCESS" in content
+        assert "git" in content
+        assert "clone" in content
+
+    def test_log_mutating_action_redacts_sensitive(self, tmp_path: Path) -> None:
+        """log_mutating_action should redact sensitive information."""
+        from llama_manager.reports import log_mutating_action
+
+        mock_config = MagicMock()
+        mock_config.xdg_state_base = str(tmp_path)
+        mock_config.build_output_truncate_bytes = 8192
+
+        with patch("llama_manager.config.Config", return_value=mock_config):
+            entry = log_mutating_action(
+                command=["git", "clone", "https://github.com/example/repo.git"],
+                exit_code=0,
+                output="API_KEY=secret123 TOKEN=abc456",
+            )
+
+        log_path = tmp_path / "llm-runner" / "mutating_actions.log"
+        with open(log_path) as f:
+            content = f.read()
+
+        # Output should be redacted
+        assert "[REDACTED]" in content
+        assert "secret123" not in content
+        assert "abc456" not in content
+        assert entry.redaction_applied is True
+
+    def test_log_mutating_action_truncates_output(self, tmp_path: Path) -> None:
+        """log_mutating_action should truncate output to Config.build_output_truncate_bytes."""
+        from llama_manager.reports import log_mutating_action
+
+        mock_config = MagicMock()
+        mock_config.xdg_state_base = str(tmp_path)
+        mock_config.build_output_truncate_bytes = 8192
+
+        with patch("llama_manager.config.Config", return_value=mock_config):
+            # Create very long output
+            long_output = "x" * 10000
+            _entry = log_mutating_action(
+                command=["cmake", "--build", "."],
+                exit_code=0,
+                output=long_output,
+            )
+
+        # Output should be truncated
+        assert len(_entry.truncated_output) <= 8192
+        assert len(_entry.truncated_output) < len(long_output)
+
+    def test_log_mutating_action_with_working_dir(self, tmp_path: Path) -> None:
+        """log_mutating_action should record working directory."""
+        from llama_manager.reports import log_mutating_action
+
+        working_dir = tmp_path / "build"
+        working_dir.mkdir()
+
+        mock_config = MagicMock()
+        mock_config.xdg_state_base = str(tmp_path)
+        mock_config.build_output_truncate_bytes = 8192
+
+        with patch("llama_manager.config.Config", return_value=mock_config):
+            _entry = log_mutating_action(
+                command=["cmake", "--build", "."],
+                exit_code=0,
+                output="Build successful",
+                working_dir=working_dir,
+            )
+
+        assert _entry.working_dir == working_dir
+
+    def test_log_mutating_action_failure(self, tmp_path: Path) -> None:
+        """log_mutating_action should handle failed commands."""
+        from llama_manager.reports import log_mutating_action
+
+        mock_config = MagicMock()
+        mock_config.xdg_state_base = str(tmp_path)
+        mock_config.build_output_truncate_bytes = 8192
+
+        with patch("llama_manager.config.Config", return_value=mock_config):
+            entry = log_mutating_action(
+                command=["git", "checkout", "main"],
+                exit_code=1,
+                output="error: pathspec 'main' did not match any files",
+            )
+
+        assert entry.is_success is False
+        assert entry.exit_code == 1
+
+        log_path = tmp_path / "llm-runner" / "mutating_actions.log"
+        with open(log_path) as f:
+            content = f.read()
+        assert "FAILED" in content
+
+    def test_log_mutating_action_multiple_entries(self, tmp_path: Path) -> None:
+        """log_mutating_action should append multiple entries to log."""
+        from llama_manager.reports import log_mutating_action
+
+        mock_config = MagicMock()
+        mock_config.xdg_state_base = str(tmp_path)
+        mock_config.build_output_truncate_bytes = 8192
+
+        with patch("llama_manager.config.Config", return_value=mock_config):
+            # First entry
+            log_mutating_action(
+                command=["git", "clone", "repo1"],
+                exit_code=0,
+                output="Cloned repo1",
+            )
+            # Second entry
+            log_mutating_action(
+                command=["git", "checkout", "main"],
+                exit_code=0,
+                output="Checked out main",
+            )
+
+        log_path = tmp_path / "llm-runner" / "mutating_actions.log"
+        with open(log_path) as f:
+            lines = f.readlines()
+
+        # Should have 2 entries
+        assert len(lines) == 2

@@ -5,11 +5,12 @@ import json
 import os
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
     pass
@@ -20,9 +21,10 @@ class BuildBackend(StrEnum):
 
     SYCL = "sycl"
     CUDA = "cuda"
+    BOTH = "both"
 
 
-# Build backend constants
+# Build backend constants (deprecated - use BuildConfig class constants instead)
 GGML_SYCL = "sycl"
 GGML_CUDA = "cuda"
 
@@ -32,9 +34,20 @@ class BuildConfig:
     """Build pipeline configuration for llama.cpp compilation.
 
     This dataclass holds all configuration needed to build llama.cpp
-    for a specific backend (SYCL or CUDA). It defines source locations,
+    for a specific backend (SYCL, CUDA, or both). It defines source locations,
     build directories, and retry behavior.
+
+    Class constants for CMake flags and build backend identifiers:
+    - GGML_SYCL: CMake flag for SYCL backend
+    - GGML_CUDA: CMake flag for CUDA backend
+    - CMAKE_C_COMPILER_SYCL: Intel C++ compiler for SYCL
+    - CMAKE_CXX_COMPILER_SYCL: Intel C++ compiler for SYCL
     """
+
+    GGML_SYCL: ClassVar[str] = "GGML_SYCL"
+    GGML_CUDA: ClassVar[str] = "GGML_CUDA"
+    CMAKE_C_COMPILER_SYCL: ClassVar[str] = "icx"
+    CMAKE_CXX_COMPILER_SYCL: ClassVar[str] = "icpx"
 
     backend: BuildBackend
     source_dir: Path
@@ -43,7 +56,7 @@ class BuildConfig:
     git_remote_url: str
     git_branch: str
     retry_attempts: int = 3
-    retry_delay: int = 5
+    retry_delay: float = 5.0
     shallow_clone: bool = True
     jobs: int | None = None
 
@@ -65,7 +78,7 @@ class BuildArtifact:
 
     artifact_type: str
     backend: str
-    created_at: datetime
+    created_at: float
     git_remote_url: str
     git_commit_sha: str
     git_branch: str
@@ -101,7 +114,7 @@ class BuildProgress:
     stage: str
     status: str
     message: str
-    progress_percent: int
+    progress_percent: float
     retries_remaining: int | None = None
 
     @property
@@ -125,13 +138,13 @@ class BuildLock:
     """
 
     pid: int
-    started_at: datetime
+    started_at: float
     backend: str
 
     @property
     def elapsed_seconds(self) -> float:
         """Calculate elapsed time since lock was acquired."""
-        return (datetime.now() - self.started_at).total_seconds()
+        return time.time() - self.started_at
 
     def is_stale(self, timeout_seconds: int = 3600) -> bool:
         """Check if the lock has exceeded the timeout threshold.
@@ -185,15 +198,21 @@ class BuildPipeline:
     - Atomic provenance writes
     """
 
-    def __init__(self, config: BuildConfig) -> None:
+    def __init__(
+        self,
+        config: BuildConfig,
+        progress_callback: Callable[[BuildProgress], None] | None = None,
+    ) -> None:
         """Initialize build pipeline with configuration.
 
         Args:
             config: BuildConfig with all build parameters
+            progress_callback: Optional callback for progress updates
         """
         self.config = config
         self._dry_run = False
         self._lock_file: Path | None = None
+        self._progress_callback = progress_callback
 
     @property
     def dry_run(self) -> bool:
@@ -209,6 +228,52 @@ class BuildPipeline:
         """
         self._dry_run = value
 
+    def _run_with_retry(
+        self, stage_func: Callable[[], BuildProgress], stage_name: str
+    ) -> BuildProgress:
+        """Run a stage with retry logic and exponential backoff.
+
+        Args:
+            stage_func: The stage function to execute
+            stage_name: Name of the stage for logging
+
+        Returns:
+            BuildProgress with final stage status
+        """
+        last_result: BuildProgress = BuildProgress(
+            stage=stage_name,
+            status="failed",
+            message="No attempts made",
+            progress_percent=0.0,
+        )
+
+        for attempt in range(self.config.retry_attempts):
+            result = stage_func()
+            last_result = result
+
+            # Emit progress if callback is set
+            if self._progress_callback:
+                self._progress_callback(result)
+
+            if result.status == "success":
+                return result
+
+            # If not last attempt, retry with exponential backoff
+            if attempt < self.config.retry_attempts - 1:
+                delay = self.config.retry_delay * (2**attempt)
+                progress = BuildProgress(
+                    stage=stage_name,
+                    status="retrying",
+                    message=f"Stage failed, retrying in {delay}s (attempt {attempt + 2}/{self.config.retry_attempts})",
+                    progress_percent=0.0,
+                    retries_remaining=self.config.retry_attempts - attempt - 1,
+                )
+                if self._progress_callback:
+                    self._progress_callback(progress)
+                time.sleep(delay)
+
+        return last_result
+
     def run(self) -> BuildResult:
         """Run the complete build pipeline.
 
@@ -217,9 +282,13 @@ class BuildPipeline:
         Returns:
             BuildResult with success status and artifact if successful
         """
+        # Handle BOTH backend - delegate to run_both_backends
+        if self.config.backend == BuildBackend.BOTH:
+            raise ValueError("BuildBackend.BOTH must use run_both_backends() instead")
+
         try:
             # Stage 1: Preflight
-            progress = self._run_preflight()
+            progress = self._run_with_retry(self._run_preflight, "preflight")
             if not progress.is_complete:
                 return BuildResult(
                     success=False,
@@ -228,7 +297,7 @@ class BuildPipeline:
                 )
 
             # Stage 2: Clone
-            progress = self._run_clone()
+            progress = self._run_with_retry(self._run_clone, "clone")
             if not progress.is_complete:
                 return BuildResult(
                     success=False,
@@ -237,7 +306,7 @@ class BuildPipeline:
                 )
 
             # Stage 3: Configure
-            progress = self._run_configure()
+            progress = self._run_with_retry(self._run_configure, "configure")
             if not progress.is_complete:
                 return BuildResult(
                     success=False,
@@ -246,7 +315,7 @@ class BuildPipeline:
                 )
 
             # Stage 4: Build
-            progress = self._run_build()
+            progress = self._run_with_retry(self._run_build, "build")
             if not progress.is_complete:
                 return BuildResult(
                     success=False,
@@ -275,8 +344,87 @@ class BuildPipeline:
                 error_message=str(e),
             )
 
+    def run_both_backends(self) -> list[BuildResult]:
+        """Run builds for both SYCL and CUDA backends sequentially.
+
+        Builds SYCL first, then CUDA, each with its own BuildLock to prevent
+        concurrent builds. Returns a list of BuildResults in order: [sycl_result, cuda_result].
+
+        Returns:
+            List of BuildResults: [SYCL build result, CUDA build result]
+        """
+        from .config import Config
+
+        config = Config()
+
+        # Build SYCL first
+        sycl_config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=self.config.source_dir,
+            build_dir=self.config.build_dir,
+            output_dir=self.config.output_dir,
+            git_remote_url=self.config.git_remote_url,
+            git_branch=self.config.git_branch,
+            retry_attempts=self.config.retry_attempts,
+            retry_delay=self.config.retry_delay,
+            shallow_clone=self.config.shallow_clone,
+            jobs=self.config.jobs,
+        )
+        sycl_pipeline = BuildPipeline(sycl_config, self._progress_callback)
+        sycl_pipeline.dry_run = self._dry_run
+
+        # Acquire lock for SYCL build
+        if not sycl_pipeline._acquire_lock(config.build_lock_path):
+            return [
+                BuildResult(
+                    success=False,
+                    error_message="Failed to acquire SYCL build lock",
+                ),
+                BuildResult(
+                    success=False, error_message="CUDA build skipped due to lock contention"
+                ),
+            ]
+
+        sycl_result = sycl_pipeline.run()
+        sycl_pipeline._release_lock()
+
+        # Build CUDA after SYCL completes
+        cuda_config = BuildConfig(
+            backend=BuildBackend.CUDA,
+            source_dir=self.config.source_dir,
+            build_dir=self.config.build_dir,
+            output_dir=self.config.output_dir,
+            git_remote_url=self.config.git_remote_url,
+            git_branch=self.config.git_branch,
+            retry_attempts=self.config.retry_attempts,
+            retry_delay=self.config.retry_delay,
+            shallow_clone=self.config.shallow_clone,
+            jobs=self.config.jobs,
+        )
+        cuda_pipeline = BuildPipeline(cuda_config, self._progress_callback)
+        cuda_pipeline.dry_run = self._dry_run
+
+        # Acquire lock for CUDA build
+        if not cuda_pipeline._acquire_lock(config.build_lock_path):
+            return [
+                sycl_result,
+                BuildResult(
+                    success=False,
+                    error_message="Failed to acquire CUDA build lock",
+                ),
+            ]
+
+        cuda_result = cuda_pipeline.run()
+        cuda_pipeline._release_lock()
+
+        return [sycl_result, cuda_result]
+
     def _run_preflight(self) -> BuildProgress:
         """Run preflight stage - validate toolchain.
+
+        In dry-run mode, still validates toolchain availability but skips
+        actual build operations. This ensures dry-run provides accurate
+        feedback about whether the build environment is properly configured.
 
         Returns:
             BuildProgress with stage status
@@ -285,10 +433,10 @@ class BuildPipeline:
             stage="preflight",
             status="running",
             message="Validating toolchain...",
-            progress_percent=0,
+            progress_percent=0.0,
         )
 
-        # Check toolchain
+        # Check toolchain (always run, even in dry-run mode)
         from .toolchain import detect_toolchain
 
         status = detect_toolchain()
@@ -336,7 +484,10 @@ class BuildPipeline:
         # Clone repository
         try:
             if self._dry_run:
-                progress.message = f"Would run: git clone --branch {self.config.git_branch} {self.config.git_remote_url} {self.config.source_dir}"
+                progress.message = (
+                    f"Would run: git clone --branch {self.config.git_branch} "
+                    f"{self.config.git_remote_url} {self.config.source_dir}"
+                )
                 progress.status = "success"
                 progress.progress_percent = 30
                 return progress
@@ -353,15 +504,39 @@ class BuildPipeline:
             progress.progress_percent = 30
 
         except subprocess.CalledProcessError as e:
-            progress.status = "failed"
-            progress.message = f"Git clone failed: {e.stderr}"
+            # Network failure - check if sources exist to enable offline continue
+            if self._source_exists():
+                progress.status = "skipped"
+                progress.message = f"Network failure but sources exist: {e.stderr}"
+                progress.progress_percent = 30
+            else:
+                progress.status = "failed"
+                progress.message = f"Git clone failed: {e.stderr}"
             return progress
         except Exception as e:
-            progress.status = "failed"
-            progress.message = f"Clone failed: {str(e)}"
+            # Network timeout or other errors - check if sources exist
+            if self._source_exists():
+                progress.status = "skipped"
+                progress.message = f"Network error but sources exist: {str(e)}"
+                progress.progress_percent = 30
+            else:
+                progress.status = "failed"
+                progress.message = f"Clone failed: {str(e)}"
             return progress
 
         return progress
+
+    def _source_exists(self) -> bool:
+        """Check if source directory exists and is non-empty.
+
+        This is used for offline-continue support when network operations fail.
+
+        Returns:
+            True if source directory exists and contains files, False otherwise
+        """
+        if not self.config.source_dir.exists():
+            return False
+        return any(self.config.source_dir.iterdir())
 
     def _run_configure(self) -> BuildProgress:
         """Run configure stage - CMake configuration.
@@ -474,20 +649,55 @@ class BuildPipeline:
         if not build_progress.is_complete or build_progress.status != "success":
             return None
 
+        # Get git commit SHA (skip in dry-run mode)
+        git_commit_sha = "unknown"
+        if not self._dry_run:
+            try:
+                result = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=self.config.source_dir,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                git_commit_sha = result.stdout.strip()
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+
+        # Find built binary
+        binary_path = None
+        binary_size_bytes = None
+        build_dir_bin = self.config.build_dir / "bin"
+        if build_dir_bin.exists():
+            server_binary = build_dir_bin / "llama-server"
+            if server_binary.exists():
+                binary_path = server_binary
+                binary_size_bytes = server_binary.stat().st_size
+
+        # Create build log path in reports directory
+        reports_dir = Path(self.config.output_dir).parent / "reports"
+        timestamp = str(int(time.time()))
+        backend_name = (
+            self.config.backend.value
+            if isinstance(self.config.backend, BuildBackend)
+            else str(self.config.backend)
+        )
+        build_log_path = reports_dir / f"{timestamp}-{backend_name}.log"
+
         # Create artifact
         artifact = BuildArtifact(
             artifact_type="binary",
             backend=self.config.backend.value,
-            created_at=datetime.now(),
+            created_at=time.time(),
             git_remote_url=self.config.git_remote_url,
-            git_commit_sha="unknown",  # Would get from git in real implementation
+            git_commit_sha=git_commit_sha,
             git_branch=self.config.git_branch,
             build_command=["cmake", "--build", str(self.config.build_dir)],
-            build_duration_seconds=0.0,  # Would track in real implementation
+            build_duration_seconds=0.0,
             exit_code=0,
-            binary_path=None,  # Would find in real implementation
-            binary_size_bytes=None,  # Would get from file stats
-            build_log_path=None,  # Would create in real implementation
+            binary_path=binary_path,
+            binary_size_bytes=binary_size_bytes,
+            build_log_path=build_log_path,
             failure_report_path=None,
         )
 
@@ -500,7 +710,7 @@ class BuildPipeline:
         """Get CMake flags for specified backend.
 
         Args:
-            backend: Build backend (SYCL or CUDA)
+            backend: Build backend (SYCL, CUDA, or BOTH)
 
         Returns:
             List of CMake flags
@@ -511,9 +721,9 @@ class BuildPipeline:
         ]
 
         if backend == BuildBackend.SYCL:
-            flags.append("-DGGML_SYCL=ON")
+            flags.append(f"-D{BuildConfig.GGML_SYCL}=ON")
         elif backend == BuildBackend.CUDA:
-            flags.append("-DGGML_CUDA=ON")
+            flags.append(f"-D{BuildConfig.GGML_CUDA}=ON")
 
         return flags
 
@@ -548,7 +758,7 @@ class BuildPipeline:
             artifact_data = {
                 "artifact_type": artifact.artifact_type,
                 "backend": artifact.backend,
-                "created_at": artifact.created_at.isoformat(),
+                "created_at": time.time(),
                 "git_remote_url": artifact.git_remote_url,
                 "git_commit_sha": artifact.git_commit_sha,
                 "git_branch": artifact.git_branch,
@@ -599,7 +809,7 @@ class BuildPipeline:
             # Create new lock
             lock_data = BuildLock(
                 pid=os.getpid(),
-                started_at=datetime.now(),
+                started_at=time.time(),
                 backend=self.config.backend.value,
             )
             lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -607,7 +817,7 @@ class BuildPipeline:
                 json.dump(
                     {
                         "pid": lock_data.pid,
-                        "started_at": lock_data.started_at.isoformat(),
+                        "started_at": lock_data.started_at,
                         "backend": lock_data.backend,
                     },
                     f,
@@ -646,7 +856,7 @@ class BuildPipeline:
             if pid is None or started_at_str is None:
                 return True
 
-            started_at = datetime.fromisoformat(started_at_str)
+            started_at = float(started_at_str)
             lock = BuildLock(pid=pid, started_at=started_at, backend=data.get("backend", ""))
 
             # Check if PID is still valid

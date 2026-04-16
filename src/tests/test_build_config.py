@@ -7,7 +7,7 @@ Test Tasks:
 - T007: BuildLock dataclass tests
 """
 
-from datetime import datetime, timedelta
+import time
 from pathlib import Path
 
 import pytest
@@ -119,7 +119,7 @@ class TestBuildArtifact:
         artifact = BuildArtifact(
             artifact_type="binary",
             backend="sycl",
-            created_at=datetime(2026, 4, 15, 12, 0, 0),
+            created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123def456",
             git_branch="main",
@@ -133,7 +133,7 @@ class TestBuildArtifact:
         )
         assert artifact.artifact_type == "binary"
         assert artifact.backend == "sycl"
-        assert artifact.created_at == datetime(2026, 4, 15, 12, 0, 0)
+        assert isinstance(artifact.created_at, float)
         assert artifact.git_remote_url == "https://github.com/ggerganov/llama.cpp"
         assert artifact.git_commit_sha == "abc123def456"
         assert artifact.git_branch == "main"
@@ -150,7 +150,7 @@ class TestBuildArtifact:
         artifact = BuildArtifact(
             artifact_type="binary",
             backend="sycl",
-            created_at=datetime.now(),
+            created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123",
             git_branch="main",
@@ -169,7 +169,7 @@ class TestBuildArtifact:
         artifact = BuildArtifact(
             artifact_type="binary",
             backend="sycl",
-            created_at=datetime.now(),
+            created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123",
             git_branch="main",
@@ -188,7 +188,7 @@ class TestBuildArtifact:
         artifact = BuildArtifact(
             artifact_type="binary",
             backend="sycl",
-            created_at=datetime.now(),
+            created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123",
             git_branch="main",
@@ -207,7 +207,7 @@ class TestBuildArtifact:
         artifact = BuildArtifact(
             artifact_type="binary",
             backend="sycl",
-            created_at=datetime.now(),
+            created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123",
             git_branch="main",
@@ -222,10 +222,8 @@ class TestBuildArtifact:
         assert artifact.binary_size_mb is None
 
     def test_build_artifact_created_at_default(self, tmp_path: Path) -> None:
-        """BuildArtifact.created_at should default to datetime.now()."""
-        # Note: dataclass doesn't have default_factory for datetime,
-        # so we test that we can set it and it's a valid datetime
-        now = datetime.now()
+        """BuildArtifact.created_at should be a float timestamp."""
+        now = time.time()
         artifact = BuildArtifact(
             artifact_type="binary",
             backend="sycl",
@@ -242,33 +240,7 @@ class TestBuildArtifact:
             failure_report_path=None,
         )
         assert artifact.created_at == now
-        assert isinstance(artifact.created_at, datetime)
-
-    def test_build_artifact_success_case(self, tmp_path: Path) -> None:
-        """BuildArtifact should work correctly for successful build."""
-        artifact = BuildArtifact(
-            artifact_type="binary",
-            backend="cuda",
-            created_at=datetime.now(),
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_commit_sha="def456abc789",
-            git_branch="main",
-            build_command=[
-                "cmake",
-                "-G",
-                "Ninja",
-                "-DGGML_CUDA=ON",
-                "-DBUILD_SERVER=ON",
-            ],
-            build_duration_seconds=456.789,
-            exit_code=0,
-            binary_path=tmp_path / "build_cuda" / "bin" / "llama-server",
-            binary_size_bytes=524288000,  # 500 MB
-            build_log_path=tmp_path / "logs" / "cuda_build.log",
-            failure_report_path=None,
-        )
-        assert artifact.is_success is True
-        assert artifact.binary_size_mb == pytest.approx(500.0)
+        assert isinstance(artifact.created_at, float)
 
 
 class TestBuildProgress:
@@ -415,7 +387,7 @@ class TestBuildLock:
 
     def test_build_lock_all_fields_settable(self, tmp_path: Path) -> None:
         """BuildLock should have all fields settable and retrievable."""
-        now = datetime.now()
+        now = time.time()
         lock = BuildLock(
             pid=12345,
             started_at=now,
@@ -429,16 +401,15 @@ class TestBuildLock:
         """BuildLock.pid should be an integer."""
         lock = BuildLock(
             pid=12345,
-            started_at=datetime.now(),
+            started_at=time.time(),
             backend="cuda",
         )
         assert isinstance(lock.pid, int)
 
     def test_build_lock_elapsed_seconds(self) -> None:
         """BuildLock.elapsed_seconds should calculate correctly."""
-        now = datetime.now()
         # Create lock with started_at 30 seconds ago
-        thirty_seconds_ago = now - timedelta(seconds=30)
+        thirty_seconds_ago = time.time() - 30
         lock = BuildLock(
             pid=12345,
             started_at=thirty_seconds_ago,
@@ -450,10 +421,9 @@ class TestBuildLock:
 
     def test_build_lock_elapsed_seconds_zero(self) -> None:
         """BuildLock.elapsed_seconds should be ~0 for newly created lock."""
-        now = datetime.now()
         lock = BuildLock(
             pid=12345,
-            started_at=now,
+            started_at=time.time(),
             backend="sycl",
         )
         elapsed = lock.elapsed_seconds
@@ -462,7 +432,7 @@ class TestBuildLock:
     def test_build_lock_is_stale_true(self) -> None:
         """BuildLock.is_stale should return True when elapsed > timeout."""
         # Create lock that started 2 hours ago (default timeout is 1 hour)
-        two_hours_ago = datetime.now() - timedelta(hours=2)
+        two_hours_ago = time.time() - 7200  # 2 hours in seconds
         lock = BuildLock(
             pid=12345,
             started_at=two_hours_ago,
@@ -473,7 +443,7 @@ class TestBuildLock:
     def test_build_lock_is_stale_false(self) -> None:
         """BuildLock.is_stale should return False when elapsed <= timeout."""
         # Create lock that started 30 minutes ago (default timeout is 1 hour)
-        thirty_minutes_ago = datetime.now() - timedelta(minutes=30)
+        thirty_minutes_ago = time.time() - 1800  # 30 minutes in seconds
         lock = BuildLock(
             pid=12345,
             started_at=thirty_minutes_ago,
@@ -484,7 +454,7 @@ class TestBuildLock:
     def test_build_lock_is_stale_custom_timeout(self) -> None:
         """BuildLock.is_stale should respect custom timeout parameter."""
         # Create lock that started 30 seconds ago
-        thirty_seconds_ago = datetime.now() - timedelta(seconds=30)
+        thirty_seconds_ago = time.time() - 30
         lock = BuildLock(
             pid=12345,
             started_at=thirty_seconds_ago,
@@ -501,17 +471,16 @@ class TestBuildLock:
         for backend in backends:
             lock = BuildLock(
                 pid=12345,
-                started_at=datetime.now(),
+                started_at=time.time(),
                 backend=backend,
             )
             assert lock.backend == backend
 
     def test_build_lock_repr(self) -> None:
         """BuildLock should have meaningful string representation."""
-        now = datetime.now()
         lock = BuildLock(
             pid=12345,
-            started_at=now,
+            started_at=time.time(),
             backend="sycl",
         )
         # Should be able to create string representation

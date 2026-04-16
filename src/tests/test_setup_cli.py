@@ -31,7 +31,7 @@ class TestSetupCheck:
 
     def test_setup_check_succeeds_with_complete_toolchain(self, capsys) -> None:
         """setup --check should succeed when toolchain is complete."""
-        with patch("llama_manager.toolchain.detect_toolchain") as mock_detect:
+        with patch("llama_cli.setup_cli.detect_toolchain") as mock_detect:
             mock_detect.return_value = ToolchainStatus(
                 gcc="11.4.0",
                 make="4.3",
@@ -68,15 +68,15 @@ class TestSetupCheck:
 
     def test_setup_check_json_output(self, capsys) -> None:
         """setup --check --json should produce JSON output."""
-        with patch("llama_manager.toolchain.detect_toolchain") as mock_detect:
+        with patch("llama_cli.setup_cli.detect_toolchain") as mock_detect:
             mock_detect.return_value = ToolchainStatus(
                 gcc="11.4.0",
                 make="4.3",
                 git="2.34.1",
                 cmake="3.25.0",
                 sycl_compiler="2023.1.0",
-                cuda_toolkit=None,
-                nvtop=None,
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
             )
 
             exit_code = cmd_check(MagicMock(backend="all", json=True))
@@ -84,54 +84,58 @@ class TestSetupCheck:
             assert exit_code == 0
             captured = capsys.readouterr()
 
-            # Should be valid JSON
-            try:
-                parsed = json.loads(captured.out)
-                assert "gcc" in parsed
-                assert "make" in parsed
-                assert "git" in parsed
-                assert "cmake" in parsed
-                assert "sycl_compiler" in parsed
-                assert "cuda_toolkit" in parsed
-                assert "nvtop" in parsed
-                assert "is_complete" in parsed
-            except json.JSONDecodeError:
-                pytest.fail("Output is not valid JSON")
+        # Should be valid JSON
+        try:
+            parsed = json.loads(captured.out)
+            assert isinstance(parsed, dict)
+            # Contract fields only (no is_complete, hints, etc.)
+            assert "gcc" in parsed
+            assert "make" in parsed
+            assert "git" in parsed
+            assert "cmake" in parsed
+            assert "sycl_compiler" in parsed
+            assert "cuda_toolkit" in parsed
+            assert "nvtop" in parsed
+            # Should NOT have extra fields
+            assert "is_complete" not in parsed
+            assert "hints" not in parsed
+        except json.JSONDecodeError:
+            pytest.fail("Output is not valid JSON")
 
     def test_setup_check_sycl_backend(self, capsys) -> None:
         """setup --check sycl should check SYCL backend only."""
-        with patch("llama_manager.toolchain.detect_toolchain") as mock_detect:
+        with patch("llama_cli.setup_cli.detect_toolchain") as mock_detect:
             mock_detect.return_value = ToolchainStatus(
                 gcc="11.4.0",
                 make="4.3",
                 git="2.34.1",
                 cmake="3.25.0",
                 sycl_compiler="2023.1.0",
-                cuda_toolkit=None,
-                nvtop=None,
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
             )
 
             exit_code = cmd_check(MagicMock(backend="sycl", json=False))
 
-            # Should succeed for SYCL
+            # Should succeed for SYCL (all tools present)
             assert exit_code == 0
 
     def test_setup_check_cuda_backend(self, capsys) -> None:
         """setup --check cuda should check CUDA backend only."""
-        with patch("llama_manager.toolchain.detect_toolchain") as mock_detect:
+        with patch("llama_cli.setup_cli.detect_toolchain") as mock_detect:
             mock_detect.return_value = ToolchainStatus(
                 gcc="11.4.0",
                 make="4.3",
                 git="2.34.1",
                 cmake="3.25.0",
-                sycl_compiler=None,
+                sycl_compiler="2023.1.0",
                 cuda_toolkit="12.2.0",
                 nvtop="3.1.0",
             )
 
             exit_code = cmd_check(MagicMock(backend="cuda", json=False))
 
-            # Should succeed for CUDA
+            # Should succeed for CUDA (all tools present)
             assert exit_code == 0
 
 
@@ -142,7 +146,7 @@ class TestSetupVenv:
         """setup venv should create venv at expected path."""
         _ = tmp_path / "test-venv"
 
-        with patch("llama_manager.setup_venv.venv.create"):
+        with patch("llama_cli.setup_cli.create_venv"):
             exit_code = cmd_venv(MagicMock(check_integrity=False, json=False))
 
         assert exit_code == 0
@@ -154,7 +158,8 @@ class TestSetupVenv:
         venv_path = tmp_path / "existing-venv"
         venv_path.mkdir()
 
-        exit_code = cmd_venv(MagicMock(check_integrity=False, json=False))
+        with patch("llama_cli.setup_cli.get_venv_path", return_value=venv_path):
+            exit_code = cmd_venv(MagicMock(check_integrity=False, json=False))
 
         assert exit_code == 0
         captured = capsys.readouterr()
@@ -164,7 +169,10 @@ class TestSetupVenv:
         """setup venv --json should produce JSON output."""
         _ = tmp_path / "test-venv"
 
-        with patch("llama_manager.setup_venv.venv.create") as mock_create:
+        with (
+            patch("llama_cli.setup_cli.get_venv_path", return_value=tmp_path / "test-venv"),
+            patch("llama_cli.setup_cli.create_venv") as mock_create,
+        ):
             mock_create.return_value = VenvResult(
                 venv_path=tmp_path / "test-venv",
                 created=True,
@@ -186,9 +194,22 @@ class TestSetupVenv:
 
     def test_setup_venv_with_integrity_check(self, tmp_path: Path, capsys) -> None:
         """setup venv --check-integrity should validate venv after creation."""
-        _ = tmp_path / "test-venv"
+        venv_path = tmp_path / "test-venv"
+        venv_path.mkdir()
+        (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+        (venv_path / "bin").mkdir()
+        (venv_path / "bin" / "python").symlink_to("/usr/bin/python3")
 
-        with patch("llama_manager.setup_venv.venv.create"):
+        with (
+            patch("llama_cli.setup_cli.get_venv_path", return_value=venv_path),
+            patch("llama_cli.setup_cli.create_venv") as mock_create,
+        ):
+            mock_create.return_value = VenvResult(
+                venv_path=venv_path,
+                created=True,
+                reused=False,
+                activation_command="source test-venv/bin/activate",
+            )
             exit_code = cmd_venv(MagicMock(check_integrity=True, json=False))
 
         assert exit_code == 0
@@ -211,7 +232,8 @@ class TestSetupCleanVenv:
         # Verify venv exists
         assert venv_path.exists()
 
-        exit_code = cmd_clean_venv(MagicMock(yes=True))
+        with patch("llama_cli.setup_cli.get_venv_path", return_value=venv_path):
+            exit_code = cmd_clean_venv(MagicMock(yes=True))
 
         assert exit_code == 0
         assert not venv_path.exists()
@@ -236,21 +258,18 @@ class TestSetupCleanVenv:
             assert exit_code == 0
 
     def test_clean_venv_json_output(self, tmp_path: Path, capsys) -> None:
-        """setup clean-venv --json should produce JSON output."""
+        """setup clean-venv should produce success message."""
         venv_path = tmp_path / "test-venv"
         venv_path.mkdir()
 
-        exit_code = cmd_clean_venv(MagicMock(yes=True, json=True))
+        with patch("llama_cli.setup_cli.get_venv_path", return_value=venv_path):
+            exit_code = cmd_clean_venv(MagicMock(yes=True))
 
         assert exit_code == 0
         captured = capsys.readouterr()
 
-        # Should be valid JSON
-        try:
-            parsed = json.loads(captured.out)
-            assert "removed" in parsed or "success" in parsed
-        except json.JSONDecodeError:
-            pytest.fail("Output is not valid JSON")
+        # Should print success message
+        assert "Removed virtual environment" in captured.out
 
 
 class TestSetupJsonOutput:
@@ -258,7 +277,7 @@ class TestSetupJsonOutput:
 
     def test_setup_check_json_structure(self, capsys) -> None:
         """setup --check --json should have correct structure."""
-        with patch("llama_manager.toolchain.detect_toolchain") as mock_detect:
+        with patch("llama_cli.setup_cli.detect_toolchain") as mock_detect:
             mock_detect.return_value = ToolchainStatus(
                 gcc="11.4.0",
                 make="4.3",
@@ -276,7 +295,7 @@ class TestSetupJsonOutput:
 
             parsed = json.loads(captured.out)
 
-            # Verify structure
+            # Verify structure (contract fields only)
             assert isinstance(parsed, dict)
             assert "gcc" in parsed
             assert "make" in parsed
@@ -285,8 +304,9 @@ class TestSetupJsonOutput:
             assert "sycl_compiler" in parsed
             assert "cuda_toolkit" in parsed
             assert "nvtop" in parsed
-            assert "is_complete" in parsed
-            assert isinstance(parsed["is_complete"], bool)
+            # Should NOT have extra fields
+            assert "is_complete" not in parsed
+            assert "hints" not in parsed
 
     def test_setup_venv_json_structure(self, tmp_path: Path, capsys) -> None:
         """setup venv --json should have correct structure."""
@@ -317,7 +337,7 @@ class TestSetupErrorHandling:
 
     def test_setup_check_handles_toolchain_errors(self, capsys) -> None:
         """setup --check should handle toolchain detection errors gracefully."""
-        with patch("llama_manager.toolchain.detect_toolchain") as mock_detect:
+        with patch("llama_cli.setup_cli.detect_toolchain") as mock_detect:
             mock_detect.side_effect = Exception("Toolchain detection failed")
 
             exit_code = cmd_check(MagicMock(backend="all", json=False))
@@ -329,7 +349,10 @@ class TestSetupErrorHandling:
         """setup venv should handle venv creation errors gracefully."""
         _ = tmp_path / "test-venv"
 
-        with patch("llama_manager.setup_venv.venv.create") as mock_create:
+        with (
+            patch("llama_cli.setup_cli.get_venv_path", return_value=tmp_path / "test-venv"),
+            patch("llama_cli.setup_cli.create_venv") as mock_create,
+        ):
             mock_create.side_effect = PermissionError("Permission denied")
 
             exit_code = cmd_venv(MagicMock(check_integrity=False, json=False))
@@ -342,7 +365,10 @@ class TestSetupErrorHandling:
         venv_path = tmp_path / "test-venv"
         venv_path.mkdir()
 
-        with patch("shutil.rmtree") as mock_rmtree:
+        with (
+            patch("llama_cli.setup_cli.get_venv_path", return_value=venv_path),
+            patch("shutil.rmtree") as mock_rmtree,
+        ):
             mock_rmtree.side_effect = PermissionError("Permission denied")
 
             exit_code = cmd_clean_venv(MagicMock(yes=True, json=False))
@@ -352,7 +378,7 @@ class TestSetupErrorHandling:
 
     def test_setup_invalid_backend(self, capsys) -> None:
         """setup --check should handle invalid backend."""
-        with patch("llama_manager.toolchain.detect_toolchain") as mock_detect:
+        with patch("llama_cli.setup_cli.detect_toolchain") as mock_detect:
             mock_detect.return_value = ToolchainStatus()
 
             exit_code = cmd_check(MagicMock(backend="invalid", json=False))
@@ -366,7 +392,7 @@ class TestSetupMain:
 
     def test_setup_main_dispatches_to_check(self, capsys) -> None:
         """setup_main should dispatch to cmd_check for --check command."""
-        with patch("llama_manager.toolchain.detect_toolchain") as mock_detect:
+        with patch("llama_cli.setup_cli.detect_toolchain") as mock_detect:
             mock_detect.return_value = ToolchainStatus(
                 gcc="11.4.0",
                 make="4.3",
@@ -384,27 +410,35 @@ class TestSetupMain:
 
     def test_setup_main_dispatches_to_venv(self, tmp_path: Path, capsys) -> None:
         """setup_main should dispatch to cmd_venv for venv command."""
-        with patch("llama_manager.setup_venv.venv.create"):
-            with patch("sys.argv", ["setup", "venv"]):
-                exit_code = setup_main()
+        with (
+            patch("llama_cli.setup_cli.get_venv_path", return_value=tmp_path / "venv"),
+            patch("llama_cli.setup_cli.create_venv"),
+            patch("sys.argv", ["setup", "venv"]),
+        ):
+            exit_code = setup_main()
 
-            assert exit_code == 0
+        assert exit_code == 0
 
     def test_setup_main_dispatches_to_clean_venv(self, tmp_path: Path, capsys) -> None:
         """setup_main should dispatch to cmd_clean_venv for clean-venv command."""
         venv_path = tmp_path / "test-venv"
         venv_path.mkdir()
 
-        with patch("shutil.rmtree"):
-            with patch("sys.argv", ["setup", "clean-venv", "--yes"]):
-                exit_code = setup_main()
+        with (
+            patch("llama_cli.setup_cli.get_venv_path", return_value=venv_path),
+            patch("shutil.rmtree"),
+            patch("sys.argv", ["setup", "clean-venv", "--yes"]),
+        ):
+            exit_code = setup_main()
 
-            assert exit_code == 0
+        assert exit_code == 0
 
     def test_setup_main_invalid_command(self, capsys) -> None:
         """setup_main should handle invalid command."""
         with patch("sys.argv", ["setup", "invalid-command"]):
-            exit_code = setup_main()
+            # argparse raises SystemExit for invalid choices
+            with pytest.raises(SystemExit) as exc_info:
+                setup_main()
 
-            # Should handle invalid command gracefully
-            assert exit_code != 0
+            # Should exit with code 2 (argparse standard for invalid arguments)
+            assert exc_info.value.code == 2

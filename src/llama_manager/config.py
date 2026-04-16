@@ -113,9 +113,9 @@ class Config:
     build_git_branch: str = "stable"
     build_retry_attempts: int = 3
     build_retry_delay: int = 5
-    build_max_reports: int = 10
+    build_max_reports: int = 50
     build_output_truncate_bytes: int = 8192
-    toolchain_timeout_seconds: int = 300
+    toolchain_timeout_seconds: int = 30
 
     # M2 XDG path utilities
     @property
@@ -141,18 +141,18 @@ class Config:
         """Return the reports directory path.
 
         Returns:
-            Path to $XDG_STATE_BASE/llm-runner/reports
+            Path to $XDG_DATA_BASE/llm-runner/reports
         """
-        return Path(self.xdg_state_base) / "llm-runner" / "reports"
+        return Path(self.xdg_data_base) / "llm-runner" / "reports"
 
     @property
     def build_lock_path(self) -> Path:
         """Return the build lock file path.
 
         Returns:
-            Path to $XDG_STATE_BASE/llm-runner/build.lock
+            Path to $XDG_CACHE_BASE/llm-runner/.build.lock
         """
-        return Path(self.xdg_state_base) / "llm-runner" / "build.lock"
+        return Path(self.xdg_cache_base) / "llm-runner" / ".build.lock"
 
 
 @dataclass

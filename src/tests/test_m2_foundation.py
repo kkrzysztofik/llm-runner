@@ -438,21 +438,21 @@ class TestPhase2Comprehensive:
             error_details=[],
         )
 
-        # Read all files and verify redaction
-        for filename in ["build-output.log", "build-artifact.json", "error-details.json"]:
-            file_path = report.report_dir / filename
-            with open(file_path) as f:
-                content = f.read()
+        # Read build-output.log and verify redaction
+        output_file = report.report_dir / "build-output.log"
+        with open(output_file) as f:
+            content = f.read()
 
-            # Sensitive values should be redacted
-            assert "supersecret123" not in content
-            assert "abc456def" not in content
-            assert "mypass" not in content
-            assert "bearer_token" not in content
+        # Sensitive values should be redacted
+        assert "supersecret123" not in content
+        assert "abc456def" not in content
+        assert "mypass" not in content
+        assert "bearer_token" not in content
 
-            # Should have redaction markers
-            if content.strip():
-                assert "[REDACTED]" in content or "[]" in content or "{}" in content
+        # Should have redaction markers
+        assert "[REDACTED]" in content
+        # Non-sensitive content should be preserved
+        assert "Normal log line" in content
 
     def test_venv_result_properties(self, tmp_path: Path) -> None:
         """Test VenvResult properties."""

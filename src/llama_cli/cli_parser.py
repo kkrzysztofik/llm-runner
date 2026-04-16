@@ -8,7 +8,7 @@ a second argument specifying the mode to preview.
 import argparse
 import sys
 
-VALID_MODES = ("summary-balanced", "summary-fast", "qwen35", "both", "build", "setup")
+VALID_MODES = ("summary-balanced", "summary-fast", "qwen35", "both", "build", "setup", "doctor")
 
 
 def _parse_dry_run_args(args: list[str]) -> argparse.Namespace:
@@ -71,6 +71,9 @@ def _parse_normal_mode_args(args: list[str]) -> argparse.Namespace:
       qwen35           Run qwen35-coding model (NVIDIA CUDA)
       both             Run summary-balanced and qwen35 side-by-side
       dry-run          Preview commands without executing
+      doctor           Run doctor diagnostics (use subcommands: check, repair)
+      build            Run build pipeline
+      setup            Run setup commands (use subcommands: check, venv, clean-venv)
 
     Examples:
       %(prog)s summary-balanced
@@ -79,6 +82,10 @@ def _parse_normal_mode_args(args: list[str]) -> argparse.Namespace:
       %(prog)s both 8080 8081
       %(prog)s dry-run summary-balanced
       %(prog)s dry-run both 8080 8081
+      %(prog)s doctor check
+      %(prog)s doctor --repair
+      %(prog)s build sycl
+      %(prog)s setup check
             """,
     )
 
@@ -228,6 +235,73 @@ def _handle_setup_case(args: list[str]) -> argparse.Namespace | None:
     return None
 
 
+def _handle_doctor_case(args: list[str]) -> argparse.Namespace | None:
+    """Handle doctor command special case.
+
+    Args:
+        args: List of command-line arguments.
+
+    Returns:
+        Parsed namespace if doctor command, None otherwise.
+
+    Raises:
+        SystemExit: On missing or invalid doctor arguments.
+    """
+    if len(args) >= 1 and args[0] == "doctor":
+        # Check for subcommands
+        if len(args) >= 2:
+            subcommand = args[1]
+            if subcommand == "check":
+                backend = "all"
+                json_output = False
+                # Parse remaining args
+                for arg in args[2:]:
+                    if arg in ("sycl", "cuda"):
+                        backend = arg
+                    elif arg == "--json":
+                        json_output = True
+                return argparse.Namespace(
+                    mode="doctor",
+                    doctor_command="check",
+                    backend=backend,
+                    json=json_output,
+                )
+            elif subcommand == "repair":
+                dry_run = False
+                json_output = False
+                yes = False
+                # Parse remaining args
+                for arg in args[2:]:
+                    if arg == "--dry-run":
+                        dry_run = True
+                    elif arg == "--json":
+                        json_output = True
+                    elif arg == "--yes":
+                        yes = True
+                return argparse.Namespace(
+                    mode="doctor",
+                    doctor_command="repair",
+                    dry_run=dry_run,
+                    json=json_output,
+                    yes=yes,
+                )
+            else:
+                print(
+                    f"error: unknown doctor subcommand '{subcommand}'. "
+                    f"Valid subcommands: check, repair",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+        else:
+            # No subcommand provided, show help
+            print(
+                "error: doctor requires a subcommand (check|repair)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    return None
+
+
 def _handle_dry_run_case(args: list[str]) -> argparse.Namespace | None:
     """Handle dry-run mode special case.
 
@@ -275,6 +349,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     setup_result = _handle_setup_case(args)
     if setup_result is not None:
         return setup_result
+
+    # Handle doctor command (special case) - must be before dry-run
+    doctor_result = _handle_doctor_case(args)
+    if doctor_result is not None:
+        return doctor_result
 
     # Handle dry-run mode (special case)
     dry_run_result = _handle_dry_run_case(args)

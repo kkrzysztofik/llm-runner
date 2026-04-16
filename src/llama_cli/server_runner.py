@@ -306,7 +306,16 @@ def _normalize_main_args(args: list[str] | None) -> list[str]:
     if not args:
         return []
 
-    modes = {"summary-balanced", "summary-fast", "qwen35", "both", "dry-run"}
+    modes = {
+        "summary-balanced",
+        "summary-fast",
+        "qwen35",
+        "both",
+        "dry-run",
+        "doctor",
+        "build",
+        "setup",
+    }
     if args[0] in modes or args[0].startswith("-"):
         return args
     return args[1:]
@@ -345,6 +354,25 @@ def main(args: list[str] | None = None) -> int:
     # Handle setup command
     if parsed.mode == "setup":
         return setup_main()
+
+    # Handle doctor command (FR-004.7)
+    if parsed.mode == "doctor":
+        from llama_cli.doctor_cli import main as doctor_main
+
+        # Reconstruct the command from parsed arguments
+        doctor_args = []
+        if hasattr(parsed, "doctor_command"):
+            doctor_args.append(parsed.doctor_command)
+        if hasattr(parsed, "backend") and parsed.backend != "all":
+            doctor_args.append(parsed.backend)
+        if hasattr(parsed, "json") and parsed.json:
+            doctor_args.append("--json")
+        if hasattr(parsed, "dry_run") and parsed.dry_run:
+            doctor_args.append("--dry-run")
+        if hasattr(parsed, "yes") and parsed.yes:
+            doctor_args.append("--yes")
+
+        return doctor_main(doctor_args)
 
     manager = ServerManager()
     signal.signal(signal.SIGINT, manager.on_interrupt)

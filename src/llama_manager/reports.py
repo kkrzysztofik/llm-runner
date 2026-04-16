@@ -11,41 +11,54 @@ from typing import Any
 def redact_sensitive(text: str) -> str:
     """Redact sensitive information from text.
 
-    Replaces patterns matching KEY|TOKEN|SECRET|PASSWORD|AUTH with [REDACTED].
+    Replaces values for KEY|TOKEN|SECRET|PASSWORD|AUTH with [REDACTED].
     Uses case-insensitive regex matching.
 
     Args:
         text: Input text to redact
 
     Returns:
-        Text with sensitive patterns replaced by [REDACTED]
+        Text with sensitive values replaced by [REDACTED]
 
     Examples:
         >>> redact_sensitive("API_KEY=abc123")
-        'API_[REDACTED]=abc123'
+        'API_KEY: [REDACTED]'
         >>> redact_sensitive("password: secret123")
-        'password: [REDACTED]123'
+        'password: [REDACTED]'
     """
     # Pattern matches KEY, TOKEN, SECRET, PASSWORD, AUTH (case-insensitive)
-    # followed by optional characters, then replaces the sensitive value
-    pattern = r"(?:KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*[:\s]*[^,\s\n]+|(?<![a-zA-Z])(?:KEY|TOKEN|SECRET|PASSWORD|AUTH)(?![a-zA-Z])"
+    # followed by optional characters, then : or = or space, then the value
+    # This captures the key and the value separately
 
-    # First pass: replace key=value patterns
     def replace_key_value(match: re.Match) -> str:
-        matched = match.group(0)
-        # Check if this looks like a key=value pattern
-        if ":" in matched or "=" in matched or " " in matched:
-            # Replace only the value part
-            parts = re.split(r"[:=]", matched, maxsplit=1)
-            if len(parts) == 2:
-                return f"{parts[0]}: [REDACTED]"
-        return "[REDACTED]"
+        # group(1) is the full key including prefix and suffix (e.g., API_KEY, AUTH_HEADER)
+        # group(2) is the base word (KEY, TOKEN, etc.)
+        # group(3) is the value
+        full_key = match.group(1)
+        return f"{full_key}: [REDACTED]"
 
+    # First pass: replace key=value, key: value, key value patterns
+    # This captures the full key (KEY, TOKEN, SECRET, PASSWORD, AUTH with optional suffix)
+    # and the value separately
+    # Match KEY|TOKEN|SECRET|PASSWORD|AUTH followed by optional chars, then = or : or space,
+    # then capture the value (non-whitespace, non-comma, non-newline)
+    # Use negative lookbehind to avoid matching partial words but allow matching after non-alpha
+    # Capture the entire word including any prefix
+    pattern = r"(?<![a-zA-Z])(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)([=:]\s*\S+)"
     result = re.sub(pattern, replace_key_value, text, flags=re.IGNORECASE)
 
-    # Second pass: replace standalone sensitive words
+    # Second pass: replace standalone sensitive words (no value after them)
+    # Match KEY|TOKEN|SECRET|PASSWORD|AUTH as complete words (with optional suffix)
+    # but only when there's no = or : followed by a value
+    # Use negative lookbehind/lookahead to ensure standalone words
+    # Match from the start of the word (after non-alpha) to the end
+    # Also check that it's not already followed by ': [REDACTED]'
+    # And ensure we're at the end of the word (not followed by more word chars)
     result = re.sub(
-        r"\b(KEY|TOKEN|SECRET|PASSWORD|AUTH)\b", "[REDACTED]", result, flags=re.IGNORECASE
+        r"(?<![a-zA-Z])(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)(?![=:]\s*\S+)(?![:\s]*\[REDACTED\])(?![a-zA-Z0-9_])",
+        "[REDACTED]",
+        result,
+        flags=re.IGNORECASE,
     )
 
     return result
@@ -254,6 +267,104 @@ def write_failure_report(
         error_details_json=error_json,
         metadata=metadata or {},
     )
+
+
+def log_mutating_action(
+    command: list[str],
+    exit_code: int,
+    output: str,
+    working_dir: Path | None = None,
+) -> MutatingActionLogEntry:
+    """Log a mutating action (git clone, venv creation, file operations).
+
+    Records all state-changing operations performed during the build process,
+    including exit codes, truncated output for large outputs, and whether
+    redaction was applied for security.
+
+    Args:
+        command: Command that was executed (as list for subprocess safety)
+        exit_code: Exit code from the command
+        output: stdout/stderr output from the command
+        working_dir: Working directory where the command was executed
+
+    Returns:
+        MutatingActionLogEntry with the logged action details
+
+    Examples:
+        >>> entry = log_mutating_action(
+        ...     command=["git", "clone", "https://github.com/example/repo.git"],
+        ...     exit_code=0,
+        ...     output="Cloning into 'repo'...",
+        ... )
+        >>> entry.is_success
+        True
+    """
+    from .config import Config
+
+    config = Config()
+    timestamp = datetime.now()
+
+    # Redact sensitive information
+    redaction_applied = False
+    if "KEY" in output.upper() or "TOKEN" in output.upper() or "SECRET" in output.upper():
+        output = redact_sensitive(output)
+        redaction_applied = True
+
+    # Truncate output if too large
+    max_output_len = config.build_output_truncate_bytes
+    truncated_output = output[:max_output_len]
+
+    entry = MutatingActionLogEntry(
+        command=command,
+        timestamp=timestamp,
+        exit_code=exit_code,
+        truncated_output=truncated_output,
+        redaction_applied=redaction_applied,
+        duration_seconds=None,  # Would need timing info from caller
+        working_dir=working_dir,
+    )
+
+    # Write to XDG state home
+    log_path = Path(config.xdg_state_base) / "llm-runner" / "mutating_actions.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Append entry to log file
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(entry.format_summary() + "\n")
+
+    # Rotate if exceeds max entries
+    _rotate_mutating_log(log_path, max_entries=1000)
+
+    return entry
+
+
+def _rotate_mutating_log(log_path: Path, max_entries: int = 1000) -> None:
+    """Rotate mutating action log if it exceeds max entries.
+
+    Deletes the oldest entry when the log file exceeds the maximum number
+    of entries. Uses simple line-based rotation.
+
+    Args:
+        log_path: Path to the log file
+        max_entries: Maximum number of entries before rotation
+    """
+    if not log_path.exists():
+        return
+
+    try:
+        with open(log_path, encoding="utf-8") as f:
+            lines = f.readlines()
+
+        if len(lines) <= max_entries:
+            return
+
+        # Keep only the last max_entries lines
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.writelines(lines[-max_entries:])
+
+    except OSError:
+        # Log but don't fail on rotation errors
+        pass
 
 
 def rotate_reports(config: Any = None) -> None:

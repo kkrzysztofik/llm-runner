@@ -5,7 +5,9 @@ using the BuildPipeline.
 """
 
 import argparse
+import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 from llama_manager.build_pipeline import (
@@ -106,6 +108,12 @@ Examples:
         help="Print commands without executing",
     )
 
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output build artifact as JSON",
+    )
+
     return parser.parse_args(args)
 
 
@@ -152,9 +160,12 @@ def run_build_command(args: argparse.Namespace) -> int:
     result = pipeline.run()
 
     if result.success:
-        print("Build completed successfully!", file=sys.stderr)
-        if result.artifact:
-            print(f"Artifact: {result.artifact.binary_path}", file=sys.stderr)
+        if args.json and result.artifact:
+            print(json.dumps(asdict(result.artifact), indent=2, default=str))
+        else:
+            print("Build completed successfully!", file=sys.stderr)
+            if result.artifact:
+                print(f"Artifact: {result.artifact.binary_path}", file=sys.stderr)
         return 0
     else:
         print(f"Build failed: {result.error_message}", file=sys.stderr)

@@ -298,7 +298,7 @@ class TestCMakeTooOldError:
 class TestSetupCheckSkipsVenvIntegrity:
     """T061: Tests for setup --check skipping venv integrity."""
 
-    def test_setup_check_skips_venv_integrity_by_default(self) -> None:
+    def test_setup_check_skips_venv_integrity_by_default(self, capsys) -> None:
         """setup --check should skip venv integrity check by default."""
         # This test documents the expected behavior:
         # setup --check should only check toolchain availability
@@ -308,17 +308,24 @@ class TestSetupCheckSkipsVenvIntegrity:
         # This test verifies the contract that --check is toolchain-only
 
         # Mock a scenario where venv is corrupted but tools are available
-        with patch("llama_manager.toolchain.detect_toolchain") as mock_detect:
+        with patch("llama_cli.setup_cli.detect_toolchain") as mock_detect:
             # Tools are available
-            mock_detect.return_value = MagicMock(
-                is_sycl_ready=True,
-                is_cuda_ready=False,
-                missing_tools=[],
-            )
+            mock_status = MagicMock()
+            mock_status.is_sycl_ready = True
+            mock_status.is_cuda_ready = False
+            mock_status.missing_tools = MagicMock(return_value=[])
 
-            # detect_toolchain should succeed even if venv is corrupted
-            # (venv integrity check is separate and skipped by --check)
+            mock_detect.return_value = mock_status
+
+            # Call cmd_check to verify detect_toolchain is called
+            from llama_cli.setup_cli import cmd_check
+
+            exit_code = cmd_check(MagicMock(backend="all", json=False))
+
+            # detect_toolchain should be called
             assert mock_detect.called
+            # Should succeed because toolchain is available
+            assert exit_code == 0
 
     def test_setup_check_focused_on_toolchain(self) -> None:
         """setup --check should focus on toolchain, not venv."""

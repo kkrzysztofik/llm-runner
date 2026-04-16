@@ -197,6 +197,8 @@ class TestVenvResultContract:
         assert result.was_reused is False
 
         # Verify is_valid property works (path exists in tmp)
+        # Create the directory so is_valid returns True
+        result.venv_path.mkdir(parents=True, exist_ok=True)
         assert result.is_valid is True
 
     def test_venv_result_contract_reused(self, tmp_path: Path) -> None:
