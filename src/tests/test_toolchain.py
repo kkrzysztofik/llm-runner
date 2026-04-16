@@ -414,7 +414,7 @@ class TestGetToolchainHints:
             assert "make" in failed_checks
             assert "nvcc" not in failed_checks
             assert "nvidia-smi" in failed_checks
-            assert "nvtop" in failed_checks
+            # Note: nvtop is not in CUDA_REQUIRED_TOOLS (was never checked)
 
     def test_get_toolchain_hints_sycl_all_present(self) -> None:
         """get_toolchain_hints should return empty list when all SYCL tools present."""
@@ -497,12 +497,13 @@ class TestGetToolchainHints:
             mock_detect.return_value = (False, None)
             sycl_errors = get_toolchain_hints("sycl")
             cuda_errors = get_toolchain_hints("cuda")
-            # Should have different tool names
+            # Check unique tools per backend (common tools: gcc, make, git, cmake)
             sycl_tools = [e.failed_check for e in sycl_errors]
             cuda_tools = [e.failed_check for e in cuda_errors]
-            # SYCL tools should not be in CUDA list
-            for tool in sycl_tools:
+            # SYCL-specific tools should not be in CUDA list
+            sycl_unique = ["dpcpp", "icx", "icpx"]
+            cuda_unique = ["nvcc", "nvidia-smi"]
+            for tool in sycl_unique:
                 assert tool not in cuda_tools, f"{tool} should not be in CUDA tools"
-            # CUDA tools should not be in SYCL list
-            for tool in cuda_tools:
+            for tool in cuda_unique:
                 assert tool not in sycl_tools, f"{tool} should not be in SYCL tools"

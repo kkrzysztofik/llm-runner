@@ -438,8 +438,11 @@ class TestProcessOwnershipVerification:
                     manager.cleanup_servers()
                     mock_kill.assert_not_called()
 
-    def test_cleanup_signals_matching_process(self) -> None:
+    def test_cleanup_signals_matching_process(self, monkeypatch) -> None:
         """cleanup_servers should signal processes with matching creation time."""
+        # Disable sleep to speed up test
+        monkeypatch.setattr(time, "sleep", lambda x: None)
+
         manager = ServerManager()
         manager.pids = [12345]
         manager.pid_metadata[12345] = 1234567890.0
@@ -761,8 +764,11 @@ class TestLifecycleAuditTrail:
                     audit = manager._lifecycle_audit
                     assert any(e["event"] == "cleanup" for e in audit)
 
-    def test_audit_trail_records_kill_events(self) -> None:
+    def test_audit_trail_records_kill_events(self, monkeypatch) -> None:
         """cleanup_servers should record kill events (SIGTERM/SIGKILL) in audit trail."""
+        # Disable sleep to speed up test
+        monkeypatch.setattr(time, "sleep", lambda x: None)
+
         manager = ServerManager()
         manager._record_lifecycle_event("start", pid=12345)
         manager.pids = [12345]

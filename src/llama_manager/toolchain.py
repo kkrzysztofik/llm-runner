@@ -7,13 +7,10 @@ from .build_pipeline import BuildBackend
 from .config import ErrorCode
 
 # Module constants for required tools by backend
-SYCL_REQUIRED_TOOLS: frozenset[str] = frozenset(
-    {"gcc", "make", "git", "cmake", "dpcpp", "icx", "icpx"}
-)
+# Using tuple instead of frozenset for deterministic iteration order (fixes test flakiness)
+SYCL_REQUIRED_TOOLS: tuple[str, ...] = ("gcc", "make", "git", "cmake", "dpcpp", "icx", "icpx")
 
-CUDA_REQUIRED_TOOLS: frozenset[str] = frozenset(
-    {"gcc", "make", "git", "cmake", "nvcc", "nvidia-smi"}
-)
+CUDA_REQUIRED_TOOLS: tuple[str, ...] = ("gcc", "make", "git", "cmake", "nvcc", "nvidia-smi")
 
 CMAKE_MINIMUM_VERSION: tuple[int, int, int] = (3, 24, 0)
 
