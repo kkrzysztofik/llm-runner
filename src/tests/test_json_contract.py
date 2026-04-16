@@ -77,7 +77,7 @@ class TestBuildArtifactContract:
         assert isinstance(parsed["git_commit_sha"], str)
         assert isinstance(parsed["git_branch"], str)
         assert isinstance(parsed["build_command"], list)
-        assert isinstance(parsed["build_duration_seconds"], int | float)
+        assert isinstance(parsed["build_duration_seconds"], (int, float))
         assert isinstance(parsed["exit_code"], int)
         assert parsed["binary_path"] is None or isinstance(parsed["binary_path"], str)
         assert parsed["binary_size_bytes"] is None or isinstance(parsed["binary_size_bytes"], int)
