@@ -272,7 +272,7 @@ def get_toolchain_hints(backend: str) -> list["ToolchainErrorDetail"]:
         ValueError: If backend is not "sycl" or "cuda"
     """
     # Map backend to required tools and hints
-    backend_map: dict[str, tuple[frozenset[str], dict[str, ToolchainHint]]] = {
+    backend_map: dict[str, tuple[tuple[str, ...], dict[str, ToolchainHint]]] = {
         "sycl": (
             SYCL_REQUIRED_TOOLS,
             {

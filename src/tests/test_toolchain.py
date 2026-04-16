@@ -14,7 +14,6 @@ import pytest
 
 from llama_manager.config import ErrorCode
 from llama_manager.toolchain import (
-    CMAKE_MINIMUM_VERSION,
     ToolchainErrorDetail,
     detect_tool,
     get_toolchain_hints,

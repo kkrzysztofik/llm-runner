@@ -222,6 +222,7 @@ def main() -> int:
     Returns:
         Exit code
     """
+    args = None
     try:
         args = parse_build_args()
         return run_build_command(args)
@@ -229,7 +230,7 @@ def main() -> int:
         print("\nBuild interrupted by user", file=sys.stderr)
         return 130  # Standard exit code for Ctrl+C
     except Exception as e:
-        if args.json:
+        if args is not None and args.json:
             print(json.dumps({"success": False, "error": str(e)}, indent=2))
         else:
             print(f"error: {e}", file=sys.stderr)
