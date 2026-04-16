@@ -184,6 +184,65 @@ def _handle_build_case(args: list[str]) -> argparse.Namespace | None:
     return None
 
 
+def _parse_setup_check_args(args: list[str]) -> argparse.Namespace:
+    """Parse setup check subcommand arguments."""
+    backend = "all"
+    json_output = False
+    jobs = None
+    for arg in args:
+        if arg in ("sycl", "cuda"):
+            backend = arg
+        elif arg == "--json":
+            json_output = True
+        elif arg.startswith("-j") or arg.startswith("--jobs"):
+            jobs = parse_jobs_arg(arg)
+    return argparse.Namespace(
+        mode="setup",
+        setup_command="check",
+        backend=backend,
+        json=json_output,
+        jobs=jobs,
+    )
+
+
+def _parse_setup_venv_args(args: list[str]) -> argparse.Namespace:
+    """Parse setup venv subcommand arguments."""
+    check_integrity = False
+    json_output = False
+    jobs = None
+    for arg in args:
+        if arg == "--check-integrity":
+            check_integrity = True
+        elif arg == "--json":
+            json_output = True
+        elif arg.startswith("-j") or arg.startswith("--jobs"):
+            jobs = parse_jobs_arg(arg)
+    return argparse.Namespace(
+        mode="setup",
+        setup_command="venv",
+        check_integrity=check_integrity,
+        json=json_output,
+        jobs=jobs,
+    )
+
+
+def _parse_setup_clean_venv_args(args: list[str]) -> argparse.Namespace:
+    """Parse setup clean-venv subcommand arguments."""
+    yes = False
+    jobs = None
+    for arg in args:
+        if arg == "--yes":
+            yes = True
+        elif arg.startswith("-j") or arg.startswith("--jobs"):
+            jobs = parse_jobs_arg(arg)
+    return argparse.Namespace(
+        mode="setup",
+        setup_command="clean-venv",
+        yes=yes,
+        jobs=jobs,
+    )
+
+
 def _handle_setup_case(args: list[str]) -> argparse.Namespace | None:
     """Handle setup command special case.
 
@@ -196,76 +255,80 @@ def _handle_setup_case(args: list[str]) -> argparse.Namespace | None:
     Raises:
         SystemExit: On missing or invalid setup arguments.
     """
-    if len(args) >= 1 and args[0] == "setup":
-        # Check for subcommands
-        if len(args) >= 2:
-            subcommand = args[1]
-            if subcommand == "check":
-                backend = "all"
-                json_output = False
-                jobs = None
-                # Parse remaining args
-                for arg in args[2:]:
-                    if arg in ("sycl", "cuda"):
-                        backend = arg
-                    elif arg == "--json":
-                        json_output = True
-                    elif arg.startswith("-j") or arg.startswith("--jobs"):
-                        jobs = parse_jobs_arg(arg)
-                return argparse.Namespace(
-                    mode="setup",
-                    setup_command="check",
-                    backend=backend,
-                    json=json_output,
-                    jobs=jobs,
-                )
-            elif subcommand == "venv":
-                check_integrity = False
-                json_output = False
-                jobs = None
-                for arg in args[2:]:
-                    if arg == "--check-integrity":
-                        check_integrity = True
-                    elif arg == "--json":
-                        json_output = True
-                    elif arg.startswith("-j") or arg.startswith("--jobs"):
-                        jobs = parse_jobs_arg(arg)
-                return argparse.Namespace(
-                    mode="setup",
-                    setup_command="venv",
-                    check_integrity=check_integrity,
-                    json=json_output,
-                    jobs=jobs,
-                )
-            elif subcommand == "clean-venv":
-                yes = False
-                jobs = None
-                for arg in args[2:]:
-                    if arg == "--yes":
-                        yes = True
-                    elif arg.startswith("-j") or arg.startswith("--jobs"):
-                        jobs = parse_jobs_arg(arg)
-                return argparse.Namespace(
-                    mode="setup",
-                    setup_command="clean-venv",
-                    yes=yes,
-                    jobs=jobs,
-                )
-            else:
-                print(
-                    f"error: unknown setup subcommand '{subcommand}'. "
-                    f"Valid subcommands: check, venv, clean-venv",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-        else:
-            # No subcommand provided, show help
-            print(
-                "error: setup requires a subcommand (check|venv|clean-venv)",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-    return None
+    if not (len(args) >= 1 and args[0] == "setup"):
+        return None
+
+    if len(args) < 2:
+        print(
+            "error: setup requires a subcommand (check|venv|clean-venv)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    subcommand = args[1]
+    remaining_args = args[2:]
+
+    subcommand_parsers = {
+        "check": _parse_setup_check_args,
+        "venv": _parse_setup_venv_args,
+        "clean-venv": _parse_setup_clean_venv_args,
+    }
+
+    if subcommand in subcommand_parsers:
+        return subcommand_parsers[subcommand](remaining_args)
+
+    print(
+        f"error: unknown setup subcommand '{subcommand}'. "
+        f"Valid subcommands: check, venv, clean-venv",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _parse_doctor_check_args(args: list[str]) -> argparse.Namespace:
+    """Parse doctor check subcommand arguments."""
+    backend = "all"
+    json_output = False
+    jobs = None
+    for arg in args:
+        if arg in ("sycl", "cuda"):
+            backend = arg
+        elif arg == "--json":
+            json_output = True
+        elif arg.startswith("-j") or arg.startswith("--jobs"):
+            jobs = parse_jobs_arg(arg)
+    return argparse.Namespace(
+        mode="doctor",
+        doctor_command="check",
+        backend=backend,
+        json=json_output,
+        jobs=jobs,
+    )
+
+
+def _parse_doctor_repair_args(args: list[str]) -> argparse.Namespace:
+    """Parse doctor repair subcommand arguments."""
+    dry_run = False
+    json_output = False
+    yes = False
+    jobs = None
+    for arg in args:
+        if arg == "--dry-run":
+            dry_run = True
+        elif arg == "--json":
+            json_output = True
+        elif arg == "--yes":
+            yes = True
+        elif arg.startswith("-j") or arg.startswith("--jobs"):
+            jobs = parse_jobs_arg(arg)
+    return argparse.Namespace(
+        mode="doctor",
+        doctor_command="repair",
+        dry_run=dry_run,
+        json=json_output,
+        yes=yes,
+        jobs=jobs,
+    )
 
 
 def _handle_doctor_case(args: list[str]) -> argparse.Namespace | None:
@@ -280,67 +343,33 @@ def _handle_doctor_case(args: list[str]) -> argparse.Namespace | None:
     Raises:
         SystemExit: On missing or invalid doctor arguments.
     """
-    if len(args) >= 1 and args[0] == "doctor":
-        # Check for subcommands
-        if len(args) >= 2:
-            subcommand = args[1]
-            if subcommand == "check":
-                backend = "all"
-                json_output = False
-                jobs = None
-                # Parse remaining args
-                for arg in args[2:]:
-                    if arg in ("sycl", "cuda"):
-                        backend = arg
-                    elif arg == "--json":
-                        json_output = True
-                    elif arg.startswith("-j") or arg.startswith("--jobs"):
-                        jobs = parse_jobs_arg(arg)
-                return argparse.Namespace(
-                    mode="doctor",
-                    doctor_command="check",
-                    backend=backend,
-                    json=json_output,
-                    jobs=jobs,
-                )
-            elif subcommand == "repair":
-                dry_run = False
-                json_output = False
-                yes = False
-                jobs = None
-                # Parse remaining args
-                for arg in args[2:]:
-                    if arg == "--dry-run":
-                        dry_run = True
-                    elif arg == "--json":
-                        json_output = True
-                    elif arg == "--yes":
-                        yes = True
-                    elif arg.startswith("-j") or arg.startswith("--jobs"):
-                        jobs = parse_jobs_arg(arg)
-                return argparse.Namespace(
-                    mode="doctor",
-                    doctor_command="repair",
-                    dry_run=dry_run,
-                    json=json_output,
-                    yes=yes,
-                    jobs=jobs,
-                )
-            else:
-                print(
-                    f"error: unknown doctor subcommand '{subcommand}'. "
-                    f"Valid subcommands: check, repair",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-        else:
-            # No subcommand provided, show help
-            print(
-                "error: doctor requires a subcommand (check|repair)",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-    return None
+    if not (len(args) >= 1 and args[0] == "doctor"):
+        return None
+
+    if len(args) < 2:
+        print(
+            "error: doctor requires a subcommand (check|repair)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    subcommand = args[1]
+    remaining_args = args[2:]
+
+    subcommand_parsers = {
+        "check": _parse_doctor_check_args,
+        "repair": _parse_doctor_repair_args,
+    }
+
+    if subcommand in subcommand_parsers:
+        return subcommand_parsers[subcommand](remaining_args)
+
+    print(
+        f"error: unknown doctor subcommand '{subcommand}'. "
+        f"Valid subcommands: check, repair",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def _handle_dry_run_case(args: list[str]) -> argparse.Namespace | None:
