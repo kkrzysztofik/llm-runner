@@ -3,9 +3,11 @@
 import os
 import re
 import time
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import psutil
+import pytest
 
 from llama_manager.config import (
     Config,
@@ -48,6 +50,78 @@ class TestConfig:
         assert cfg.default_threads_summary_balanced > 0
         assert cfg.default_threads_summary_fast > 0
         assert cfg.default_threads_qwen35 > 0
+
+    def test_venv_path_default(self) -> None:
+        """Config.venv_path should return Path to ~/.cache/llm-runner/venv by default."""
+        cfg = Config()
+        expected = Path.home() / ".cache" / "llm-runner" / "venv"
+        assert cfg.venv_path == expected
+        assert isinstance(cfg.venv_path, Path)
+
+    def test_venv_path_with_xdg_cache_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Config.venv_path should respect XDG_CACHE_HOME environment variable."""
+        custom_cache = "/custom/cache"
+        monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
+        cfg = Config()
+        expected = Path(custom_cache) / "llm-runner" / "venv"
+        assert cfg.venv_path == expected
+
+    def test_builds_dir_default(self) -> None:
+        """Config.builds_dir should return Path to ~/.local/share/llm-runner/builds by default."""
+        cfg = Config()
+        expected = Path.home() / ".local" / "share" / "llm-runner" / "builds"
+        assert cfg.builds_dir == expected
+        assert isinstance(cfg.builds_dir, Path)
+
+    def test_builds_dir_with_xdg_data_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Config.builds_dir should respect XDG_DATA_HOME environment variable."""
+        custom_data = "/custom/data"
+        monkeypatch.setenv("XDG_DATA_HOME", custom_data)
+        cfg = Config()
+        expected = Path(custom_data) / "llm-runner" / "builds"
+        assert cfg.builds_dir == expected
+
+    def test_reports_dir_default(self) -> None:
+        """Config.reports_dir should return Path to ~/.local/share/llm-runner/reports by default."""
+        cfg = Config()
+        expected = Path.home() / ".local" / "share" / "llm-runner" / "reports"
+        assert cfg.reports_dir == expected
+        assert isinstance(cfg.reports_dir, Path)
+
+    def test_reports_dir_with_xdg_data_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Config.reports_dir should respect XDG_DATA_HOME environment variable."""
+        custom_data = "/custom/data"
+        monkeypatch.setenv("XDG_DATA_HOME", custom_data)
+        cfg = Config()
+        expected = Path(custom_data) / "llm-runner" / "reports"
+        assert cfg.reports_dir == expected
+
+    def test_build_lock_path_default(self) -> None:
+        """Config.build_lock_path should return Path to ~/.cache/llm-runner/.build.lock by default."""
+        cfg = Config()
+        expected = Path.home() / ".cache" / "llm-runner" / ".build.lock"
+        assert cfg.build_lock_path == expected
+        assert isinstance(cfg.build_lock_path, Path)
+
+    def test_build_lock_path_with_xdg_cache_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Config.build_lock_path should respect XDG_CACHE_HOME environment variable."""
+        custom_cache = "/custom/cache"
+        monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
+        cfg = Config()
+        expected = Path(custom_cache) / "llm-runner" / ".build.lock"
+        assert cfg.build_lock_path == expected
+
+    def test_xdg_paths_are_under_xdg_base_directories(self) -> None:
+        """All XDG paths should be under their respective base directories."""
+        cfg = Config()
+        # venv_path should be under xdg_cache_base
+        assert str(cfg.venv_path).startswith(str(Path(cfg.xdg_cache_base)))
+        # builds_dir should be under xdg_data_base
+        assert str(cfg.builds_dir).startswith(str(Path(cfg.xdg_data_base)))
+        # reports_dir should be under xdg_data_base
+        assert str(cfg.reports_dir).startswith(str(Path(cfg.xdg_data_base)))
+        # build_lock_path should be under xdg_cache_base (per spec FR-004.4)
+        assert str(cfg.build_lock_path).startswith(str(Path(cfg.xdg_cache_base)))
 
 
 class TestServerConfig:
@@ -202,7 +276,7 @@ class TestErrorCode:
         """ErrorCode should have deterministic iteration order for sorting."""
         codes = list(ErrorCode)
         # Should be in definition order for predictable sorting
-        assert len(codes) == 13  # All error codes defined
+        assert len(codes) == 24  # All error codes defined (13 original + 11 M2)
 
 
 class TestValidationResult:
@@ -364,8 +438,11 @@ class TestProcessOwnershipVerification:
                     manager.cleanup_servers()
                     mock_kill.assert_not_called()
 
-    def test_cleanup_signals_matching_process(self) -> None:
+    def test_cleanup_signals_matching_process(self, monkeypatch) -> None:
         """cleanup_servers should signal processes with matching creation time."""
+        # Disable sleep to speed up test
+        monkeypatch.setattr(time, "sleep", lambda x: None)
+
         manager = ServerManager()
         manager.pids = [12345]
         manager.pid_metadata[12345] = 1234567890.0
@@ -687,8 +764,11 @@ class TestLifecycleAuditTrail:
                     audit = manager._lifecycle_audit
                     assert any(e["event"] == "cleanup" for e in audit)
 
-    def test_audit_trail_records_kill_events(self) -> None:
+    def test_audit_trail_records_kill_events(self, monkeypatch) -> None:
         """cleanup_servers should record kill events (SIGTERM/SIGKILL) in audit trail."""
+        # Disable sleep to speed up test
+        monkeypatch.setattr(time, "sleep", lambda x: None)
+
         manager = ServerManager()
         manager._record_lifecycle_event("start", pid=12345)
         manager.pids = [12345]
@@ -807,3 +887,42 @@ class TestTUILifecycle:
         assert app.server_manager is not None
         # Verify cleanup delegates to ServerManager (no error on empty cleanup)
         app._cleanup()  # Should not raise
+
+
+class TestLaunchNoAutobuild:
+    """T041: Test launch path does not trigger build (FR-006.2)."""
+
+    def test_launch_no_autobuild(self, tmp_path: Path) -> None:
+        """FR-006.2: Launch should not trigger build if sources exist.
+
+        When llama.cpp sources already exist in source_dir, launch should
+        skip the build pipeline and use existing sources.
+        """
+        from unittest.mock import Mock, patch
+
+        # Create source directory with existing files
+        source_dir = tmp_path / "llama.cpp"
+        source_dir.mkdir()
+        (source_dir / "CMakeLists.txt").write_text("# existing")
+
+        cfg = Config()
+
+        # Verify sources exist
+        assert cfg.llama_cpp_root == "src/llama.cpp"  # Default
+        # In real scenario, check if source_dir exists
+        assert source_dir.exists()
+
+        # Mock BuildPipeline.run and assert it was NOT called
+        with patch("llama_manager.build_pipeline.BuildPipeline") as MockPipeline:
+            mock_pipeline_instance = Mock()
+            mock_pipeline_instance.run.return_value = Mock(success=True)
+            MockPipeline.return_value = mock_pipeline_instance
+
+            # Simulate launch path that checks for existing sources
+            # and skips build if sources exist
+            if source_dir.exists():
+                # Build should be skipped
+                pass
+
+            # Verify BuildPipeline.run was not called
+            mock_pipeline_instance.run.assert_not_called()

@@ -383,6 +383,8 @@ ignoring comments/strings, and can **safely rewrite** code.
 ## Active Technologies
 - Python 3.12+ + rich, psutil, pytest, ruff, pyright (001-prd-mvp-spec)
 - Local runtime files under resolved runtime dir (`LLM_RUNNER_RUNTIME_DIR` else `$XDG_RUNTIME_DIR/llm-runner`) for lockfiles + JSON artifacts (001-prd-mvp-spec)
+- Python 3.12+ + stdlib (`subprocess`, `pathlib`, `venv`, `json`, `dataclasses`, `threading`), rich, psutil (002-build-setup)
+- Local filesystem only (source tree + XDG cache/state/data directories) (002-build-setup)
 
 ## Recent Changes
 - 001-prd-mvp-spec: Added Python 3.12+ + rich, psutil, pytest, ruff, pyright

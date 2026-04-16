@@ -15,6 +15,15 @@ GPU statistics, log buffering, and lockfile management. It exports:
 - Server command building and validation utilities
 """
 
+from .build_pipeline import (
+    GGML_CUDA,
+    GGML_SYCL,
+    BuildArtifact,
+    BuildBackend,
+    BuildConfig,
+    BuildLock,
+    BuildProgress,
+)
 from .config import (
     Config,
     ErrorCode,
@@ -46,13 +55,19 @@ from .process_manager import (
     update_lock,
     write_artifact,
 )
+from .reports import (
+    FailureReport,
+    MutatingActionLogEntry,
+    redact_sensitive,
+    rotate_reports,
+    write_failure_report,
+)
 from .server import (
     DryRunSlotPayload,
     ValidationResults,
     VllmEligibility,
     build_dry_run_slot_payload,
     build_server_cmd,
-    redact_sensitive,
     require_executable,
     require_model,
     validate_backend_eligibility,
@@ -62,8 +77,44 @@ from .server import (
     validate_slots,
     validate_threads,
 )
+from .setup_venv import (
+    VenvResult,
+    check_venv_integrity,
+    create_venv,
+    get_venv_path,
+)
+from .toolchain import (
+    CMAKE_HINT,
+    CMAKE_MINIMUM_VERSION,
+    CUDA_HINT,
+    CUDA_REQUIRED_TOOLS,
+    GCC_HINT,
+    GIT_HINT,
+    MAKE_HINT,
+    NVTOP_HINT,
+    SYCL_HINT,
+    SYCL_REQUIRED_TOOLS,
+    ToolchainErrorDetail,
+    ToolchainHint,
+    ToolchainStatus,
+    detect_tool,
+    get_toolchain_hints,
+    parse_version,
+    version_at_least,
+)
+
+# Re-export redact_sensitive from reports module
+# This avoids circular import issues
 
 __all__ = [
+    # Build pipeline
+    "BuildConfig",
+    "BuildArtifact",
+    "BuildProgress",
+    "BuildLock",
+    "BuildBackend",
+    "GGML_SYCL",
+    "GGML_CUDA",
     # Config
     "Config",
     "ServerConfig",
@@ -93,6 +144,34 @@ __all__ = [
     "create_summary_balanced_cfg",
     "create_summary_fast_cfg",
     "create_qwen35_cfg",
+    # Reports
+    "FailureReport",
+    "MutatingActionLogEntry",
+    "write_failure_report",
+    "rotate_reports",
+    # Virtual environment
+    "VenvResult",
+    "get_venv_path",
+    "create_venv",
+    "check_venv_integrity",
+    # Toolchain
+    "ToolchainStatus",
+    "ToolchainHint",
+    "ToolchainErrorDetail",
+    "SYCL_REQUIRED_TOOLS",
+    "CUDA_REQUIRED_TOOLS",
+    "CMAKE_MINIMUM_VERSION",
+    "GCC_HINT",
+    "MAKE_HINT",
+    "GIT_HINT",
+    "CMAKE_HINT",
+    "SYCL_HINT",
+    "CUDA_HINT",
+    "NVTOP_HINT",
+    "detect_tool",
+    "get_toolchain_hints",
+    "parse_version",
+    "version_at_least",
     # Components
     "LogBuffer",
     "GPUStats",

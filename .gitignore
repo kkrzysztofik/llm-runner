@@ -205,3 +205,6 @@ Thumbs.db
 # CodeRabbit review files (local state with sensitive paths)
 coderabbit_review*.txt
 coderabbit_review*.json
+
+# Review/analysis output files (temporary)
+/out.json

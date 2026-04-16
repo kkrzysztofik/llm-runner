@@ -94,6 +94,20 @@ uv run pip-audit
 
 Review `pip-audit` output and update dependencies via `uv add --upgrade-package <pkg>`.
 
+### Snyk CI Integration
+
+Snyk provides continuous security scanning in CI via two checks:
+
+- **Snyk Open Source** — scans Python dependencies for known CVEs
+- **Snyk Code** — scans source code for security vulnerabilities (SAST)
+
+Both scans run on every push to `main` and on every pull request targeting `main`.
+CI **fails** on findings at severity level **high** or above.
+
+The GitHub Actions secret `SNYK_TOKEN` must be configured in repository settings.
+Pull requests from forks may skip Snyk checks because fork workflows cannot access
+repository secrets.
+
 ---
 
 The inference servers bind to `127.0.0.1:8080` and `127.0.0.1:8081` by default,

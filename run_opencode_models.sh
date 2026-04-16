@@ -12,7 +12,10 @@ LLAMA_SERVER_BIN_NVIDIA="$LLAMA_CPP_ROOT/build_cuda/bin/llama-server"
 MODEL_SUMMARY_BALANCED="/home/kmk/models/unsloth/Qwen3.5-2B-GGUF/Qwen3.5-2B-IQ4_XS.gguf"
 MODEL_SUMMARY_FAST="/home/kmk/models/unsloth/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q4_K_M.gguf"
 MODEL_QWEN35="/home/kmk/models/unsloth/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-IQ4_XS.gguf"
-MODEL_QWEN35_BOTH="/home/kmk/models/unsloth/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-IQ4_XS.gguf"
+# MODEL_QWEN35_BOTH intentionally uses Qwen 3.6 for the dual-run (both-qwen35) mode while
+# MODEL_QWEN35 uses Qwen 3.5 for the single-run (qwen35) mode — this is deliberate version
+# differentiation to support different model configurations per mode.
+MODEL_QWEN35_BOTH="/home/kmk/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf"
 MODEL_GEMMA4_E4B="/home/kmk/models/unsloth/gemma-4-E4B-it-GGUF/gemma-4-E4B-it-UD-Q6_K_XL.gguf"
 MODEL_GEMMA4_E4B_MMPROJ="/home/kmk/models/unsloth/gemma-4-E4B-it-GGUF/mmproj-BF16.gguf"
 MODEL_GEMMA4_27B="/home/kmk/models/unsloth/gemma-4-26B-A4B-it-GGUF/gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf"
