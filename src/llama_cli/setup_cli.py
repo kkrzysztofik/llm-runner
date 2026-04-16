@@ -12,6 +12,7 @@ import argparse
 import json
 import shutil
 import sys
+from pathlib import Path
 from typing import Any
 
 from llama_manager.build_pipeline import BuildBackend
@@ -55,6 +56,119 @@ def _print_json(data: dict[str, Any]) -> None:
     print(json.dumps(data, indent=2, default=str))
 
 
+def _get_hints(backend: str) -> list[Any]:
+    """Get toolchain hints for specified backend with deduplication.
+
+    Args:
+        backend: Backend filter (sycl, cuda, or all)
+
+    Returns:
+        List of toolchain hints
+    """
+    if backend == "sycl":
+        return get_toolchain_hints("sycl")
+    elif backend == "cuda":
+        return get_toolchain_hints("cuda")
+    elif backend == "all":
+        # Aggregate hints from both backends, deduplicate by tool name
+        sycl_hints = get_toolchain_hints("sycl")
+        cuda_hints = get_toolchain_hints("cuda")
+        seen_tools: set[str] = set()
+        hints = []
+        for hint in sycl_hints + cuda_hints:
+            if hint.failed_check not in seen_tools:
+                seen_tools.add(hint.failed_check)
+                hints.append(hint)
+        return hints
+    return []
+
+
+def _build_status_output(status: Any) -> dict[str, Any]:
+    """Build status report dictionary.
+
+    Args:
+        status: ToolchainStatus object
+
+    Returns:
+        Dictionary with toolchain status fields
+    """
+    return {
+        "gcc": status.gcc,
+        "make": status.make,
+        "git": status.git,
+        "cmake": status.cmake,
+        "sycl_compiler": status.sycl_compiler,
+        "cuda_toolkit": status.cuda_toolkit,
+        "nvtop": status.nvtop,
+    }
+
+
+def _print_status(status: Any) -> None:
+    """Print human-readable toolchain status.
+
+    Args:
+        status: ToolchainStatus object
+    """
+    _print_success("Toolchain Status:")
+    _print_success(f"  gcc: {status.gcc or 'MISSING'}")
+    _print_success(f"  make: {status.make or 'MISSING'}")
+    _print_success(f"  git: {status.git or 'MISSING'}")
+    _print_success(f"  cmake: {status.cmake or 'MISSING'}")
+    _print_success(f"  sycl_compiler: {status.sycl_compiler or 'MISSING'}")
+    _print_success(f"  cuda_toolkit: {status.cuda_toolkit or 'MISSING'}")
+    _print_success(f"  nvtop: {status.nvtop or 'MISSING'}")
+    _print_success("")
+    _print_success(f"SYCL ready: {'YES' if status.is_sycl_ready else 'NO'}")
+    _print_success(f"CUDA ready: {'YES' if status.is_cuda_ready else 'NO'}")
+    _print_success(f"Complete: {'YES' if status.is_complete else 'NO'}")
+
+
+def _backend_from_string(backend: str) -> BuildBackend | None:
+    """Convert backend string to BuildBackend enum.
+
+    Args:
+        backend: Backend string (sycl, cuda)
+
+    Returns:
+        BuildBackend enum or None
+    """
+    if backend == "sycl":
+        return BuildBackend.SYCL
+    elif backend == "cuda":
+        return BuildBackend.CUDA
+    return None
+
+
+def _handle_missing_tools(status: Any, hints: list[Any]) -> int:
+    """Handle and display missing tools information.
+
+    Args:
+        status: ToolchainStatus object
+        hints: List of toolchain hints
+
+    Returns:
+        Exit code (1 for failure)
+    """
+    missing = status.missing_tools(None)
+    if not missing:
+        _print_success("")
+        _print_success("All required tools are available!")
+        return 0
+
+    _print_success("")
+    _print_error(f"Missing tools: {', '.join(missing)}")
+
+    if hints:
+        _print_success("")
+        _print_success("Installation hints:")
+        for hint in hints:
+            _print_success(f"  - {hint.how_to_fix}")
+            if hint.docs_ref:
+                _print_success(f"    Docs: {hint.docs_ref}")
+
+    return 1
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     """Execute setup --check command.
 
@@ -68,83 +182,15 @@ def cmd_check(args: argparse.Namespace) -> int:
         Exit code (0 for success, 1 for failure).
     """
     try:
-        # Detect toolchain status
         status = detect_toolchain()
+        hints = _get_hints(args.backend)
 
-        # Build status report (contract fields only)
-        output: dict[str, Any] = {
-            "gcc": status.gcc,
-            "make": status.make,
-            "git": status.git,
-            "cmake": status.cmake,
-            "sycl_compiler": status.sycl_compiler,
-            "cuda_toolkit": status.cuda_toolkit,
-            "nvtop": status.nvtop,
-        }
-
-        # Get actionable hints for missing tools
-        if args.backend == "sycl":
-            hints = get_toolchain_hints("sycl")
-        elif args.backend == "cuda":
-            hints = get_toolchain_hints("cuda")
-        elif args.backend == "all":
-            # Aggregate hints from both backends, deduplicate by tool name
-            sycl_hints = get_toolchain_hints("sycl")
-            cuda_hints = get_toolchain_hints("cuda")
-            seen_tools = set()
-            hints = []
-            for hint in sycl_hints + cuda_hints:
-                if hint.failed_check not in seen_tools:
-                    seen_tools.add(hint.failed_check)
-                    hints.append(hint)
-        else:
-            hints = []
-
-        # Print JSON output if requested (contract fields only)
         if args.json:
-            _print_json(output)
+            _print_json(_build_status_output(status))
             return 0 if status.is_complete else 1
 
-        # Print human-readable output
-        _print_success("Toolchain Status:")
-        _print_success(f"  gcc: {status.gcc or 'MISSING'}")
-        _print_success(f"  make: {status.make or 'MISSING'}")
-        _print_success(f"  git: {status.git or 'MISSING'}")
-        _print_success(f"  cmake: {status.cmake or 'MISSING'}")
-        _print_success(f"  sycl_compiler: {status.sycl_compiler or 'MISSING'}")
-        _print_success(f"  cuda_toolkit: {status.cuda_toolkit or 'MISSING'}")
-        _print_success(f"  nvtop: {status.nvtop or 'MISSING'}")
-
-        _print_success("")
-        _print_success(f"SYCL ready: {'YES' if status.is_sycl_ready else 'NO'}")
-        _print_success(f"CUDA ready: {'YES' if status.is_cuda_ready else 'NO'}")
-        _print_success(f"Complete: {'YES' if status.is_complete else 'NO'}")
-
-        # Determine backend for missing tools check
-        backend = None
-        if args.backend == "sycl":
-            backend = BuildBackend.SYCL
-        elif args.backend == "cuda":
-            backend = BuildBackend.CUDA
-
-        missing = status.missing_tools(backend)
-        if missing:
-            _print_success("")
-            _print_error(f"Missing tools: {', '.join(missing)}")
-
-            if hints:
-                _print_success("")
-                _print_success("Installation hints:")
-                for hint in hints:
-                    _print_success(f"  - {hint.how_to_fix}")
-                    if hint.docs_ref:
-                        _print_success(f"    Docs: {hint.docs_ref}")
-
-            return 1
-
-        _print_success("")
-        _print_success("All required tools are available!")
-        return 0
+        _print_status(status)
+        return _handle_missing_tools(status, hints)
     except Exception as e:
         _print_error(f"Toolchain detection failed: {e}")
         return 1
@@ -202,6 +248,79 @@ def cmd_venv(args: argparse.Namespace) -> int:
         return 1
 
 
+def _handle_venv_not_found(venv_path: Path, json_output: bool) -> int:
+    """Handle case when venv does not exist.
+
+    Args:
+        venv_path: Path to virtual environment
+        json_output: Whether to output JSON
+
+    Returns:
+        Exit code (0)
+    """
+    if json_output:
+        _print_json({"status": "not_found", "venv_path": str(venv_path)})
+    else:
+        _print_success(f"Virtual environment does not exist at: {venv_path}")
+    return 0
+
+
+def _handle_confirmation_required(venv_path: Path, json_output: bool) -> int:
+    """Handle case when confirmation is needed.
+
+    Args:
+        venv_path: Path to virtual environment
+        json_output: Whether to output JSON
+
+    Returns:
+        Exit code (1)
+    """
+    if json_output:
+        _print_json(
+            {
+                "status": "exists",
+                "venv_path": str(venv_path),
+                "message": "Use --yes to confirm removal",
+            }
+        )
+    else:
+        _print_error(f"Virtual environment exists at: {venv_path}")
+        _print_error("Use --yes to confirm removal, or run without --yes to see this message")
+    return 1
+
+
+def _remove_env(venv_path: Path, json_output: bool) -> int:
+    """Remove virtual environment with error handling.
+
+    Args:
+        venv_path: Path to virtual environment
+        json_output: Whether to output JSON
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        shutil.rmtree(venv_path)
+        if json_output:
+            _print_json({"status": "removed", "venv_path": str(venv_path)})
+        else:
+            _print_success(f"Removed virtual environment at: {venv_path}")
+        return 0
+    except PermissionError as e:
+        if json_output:
+            _print_json({"status": "error", "error": str(e)})
+        else:
+            _print_error(f"Permission denied removing virtual environment: {e}")
+            _print_error("Check file ownership/permissions, consult system documentation")
+        return 1
+    except Exception as e:
+        if json_output:
+            _print_json({"status": "error", "error": str(e)})
+        else:
+            _print_error(f"Error removing virtual environment: {e}")
+        return 1
+
+
 def cmd_clean_venv(args: argparse.Namespace) -> int:
     """Execute setup clean-venv command.
 
@@ -214,53 +333,15 @@ def cmd_clean_venv(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for failure).
     """
-    # Get venv path
     venv_path = get_venv_path()
 
-    # Check if venv exists
     if not venv_path.exists():
-        if args.json:
-            _print_json({"status": "not_found", "venv_path": str(venv_path)})
-        else:
-            _print_success(f"Virtual environment does not exist at: {venv_path}")
-        return 0
+        return _handle_venv_not_found(venv_path, args.json)
 
-    # Confirm removal if --yes not provided
     if not args.yes:
-        if args.json:
-            _print_json(
-                {
-                    "status": "exists",
-                    "venv_path": str(venv_path),
-                    "message": "Use --yes to confirm removal",
-                }
-            )
-        else:
-            _print_error(f"Virtual environment exists at: {venv_path}")
-            _print_error("Use --yes to confirm removal, or run without --yes to see this message")
-        return 1
+        return _handle_confirmation_required(venv_path, args.json)
 
-    # Remove venv
-    try:
-        shutil.rmtree(venv_path)
-        if args.json:
-            _print_json({"status": "removed", "venv_path": str(venv_path)})
-        else:
-            _print_success(f"Removed virtual environment at: {venv_path}")
-        return 0
-    except PermissionError as e:
-        if args.json:
-            _print_json({"status": "error", "error": str(e)})
-        else:
-            _print_error(f"Permission denied removing virtual environment: {e}")
-            _print_error("Check file ownership/permissions, consult system documentation")
-        return 1
-    except Exception as e:
-        if args.json:
-            _print_json({"status": "error", "error": str(e)})
-        else:
-            _print_error(f"Error removing virtual environment: {e}")
-        return 1
+    return _remove_env(venv_path, args.json)
 
 
 def create_parser() -> argparse.ArgumentParser:
