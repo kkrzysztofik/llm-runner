@@ -139,7 +139,10 @@ jobs:
         run: uv python install 3.12
 
       - name: Export requirements for Snyk Open Source scan
-        run: uv export --frozen --format requirements-txt --no-editable --no-dev --no-emit-project --output-file .snyk-requirements.txt
+        run: |
+          uv export --frozen --format requirements-txt --no-editable --no-dev --output-file .snyk-requirements.txt
+          # Remove the '.' project reference that Snyk's pip parser cannot handle
+          grep -v '^\.$' .snyk-requirements.txt > .snyk-requirements-clean.txt
 
       - name: Install Snyk CLI
         if: env.SNYK_TOKEN != ''
@@ -147,7 +150,7 @@ jobs:
 
       - name: Snyk Open Source test
         if: env.SNYK_TOKEN != ''
-        run: snyk test --file=.snyk-requirements.txt --package-manager=pip --severity-threshold=high
+        run: snyk test --file=.snyk-requirements-clean.txt --package-manager=pip --severity-threshold=high
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
