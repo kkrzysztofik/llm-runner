@@ -71,7 +71,7 @@ WHY THIS MATTERS:
 - Orchestration without plan check → Duplicate work
 
 **Context loading pattern**:
-```
+```text
 Task delegation:
   ~/.config/opencode/context/
     ├── core/workflows/task-delegation-basics.md  ← Task management

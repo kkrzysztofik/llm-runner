@@ -8,6 +8,9 @@ permission:
   bash:
     "*": "deny"
     "uv run llm-runner profile*": "allow"
+    "pytest*": "allow"
+    "ruff*": "allow"
+    "pyright*": "allow"
   edit:
     "**/*.env*": "deny"
     "**/*.key": "deny"

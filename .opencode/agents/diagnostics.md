@@ -36,7 +36,7 @@ permission:
 
 <constraints>No hidden package installs during serve. No secret leakage in logs. No ambiguous exit codes. Always document expected contracts.</constraints>
 
----
+# Diagnostics
 
 ## Overview
 

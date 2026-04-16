@@ -172,21 +172,26 @@ Project context: llm-runner/
 When proposing architecture:
 
 ````markdown
+
 ## Architecture Proposal
 
 ### Overview
+
 [1-2 sentence summary]
 
 ### Component Diagram
+
 ```text
 [ASCII diagram or Mermaid]
 ```
 
 ### Component Definitions
+
 - **Component A**: Responsibility, interfaces, dependencies
 - **Component B**: Responsibility, interfaces, dependencies
 
 ### File Structure
+
 ```text
 path/to/
   file1.py  # description
@@ -194,14 +199,17 @@ path/to/
 ```
 
 ### Implementation Notes
+
 - Key decisions and rationale
 - Patterns to follow
 - Potential pitfalls
 
 ### Validation Criteria
+
 - [ ] Unit tests pass
 - [ ] No type errors
 - [ ] Follows separation of concerns
+
 ````
 
 ---

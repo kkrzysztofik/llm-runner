@@ -9,6 +9,9 @@ permission:
     "*": "deny"
     "uv run pytest*": "allow"
     "uv run llm-runner*": "allow"
+    "uv run ruff check*": "allow"
+    "uv run ruff format --check*": "allow"
+    "uv run pyright*": "allow"
     "ps aux*": "allow"
     "grep*": "allow"
   edit:

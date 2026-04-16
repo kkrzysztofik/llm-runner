@@ -38,7 +38,7 @@ permission:
 
 <constraints>llama_manager must remain pure library. All functions typed. Python 3.12 syntax. Line length ≤100 chars. One-way dependency: llama_cli imports from llama_manager.</constraints>
 
----
+# Python Reviewer
 
 ## Overview
 
@@ -86,7 +86,7 @@ Project context:
 - [ ] No `from llama_cli import` inside `llama_manager/` — dependency is one-way
 - [ ] No `argparse`, `Rich`, or `subprocess` at module level in `llama_manager/`
 - [ ] All new functions have type annotations (params + return type)
-- [ ] No `.unwrap()` or `.expect()` equivalents (use `?` or proper error handling)
+- [ ] No forceful error-unwrapping patterns — prefer explicit exception handling (try/except) or explicit error propagation
 - [ ] No hardcoded secrets or credentials
 - [ ] Validators use `sys.exit(1)` after printing to `sys.stderr`
 

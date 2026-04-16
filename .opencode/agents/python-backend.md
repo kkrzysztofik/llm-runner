@@ -40,7 +40,7 @@ permission:
 
 <constraints>llama_manager must remain pure library — no argparse, no Rich, no subprocess at module level. All functions have type hints. Use Python 3.12 syntax. Validators call sys.exit(1).</constraints>
 
----
+# Python Backend
 
 ## Overview
 
