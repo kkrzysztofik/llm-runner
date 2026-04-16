@@ -187,7 +187,7 @@ def run_build_command(args: argparse.Namespace) -> int:
                 if result.artifact:
                     artifact_dict = asdict(result.artifact)
                     # Convert all Path-like values to strings generically
-                    for key, value in list(artifact_dict.items()):
+                    for key, value in artifact_dict.items():
                         if isinstance(value, (Path, os.PathLike)):
                             artifact_dict[key] = str(value)
                     artifacts.append(artifact_dict)

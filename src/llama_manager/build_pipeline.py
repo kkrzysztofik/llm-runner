@@ -14,6 +14,8 @@ from typing import ClassVar, Literal
 
 logger = logging.getLogger(__name__)
 
+MSG_SOURCES_ALREADY_EXIST = "Sources already exist"
+
 
 class BuildBackend(StrEnum):
     """Supported build backends"""
@@ -513,7 +515,7 @@ class BuildPipeline:
         # This enables offline-continue: use existing sources when network unavailable
         if self._source_exists():
             progress.status = "skipped"
-            progress.message = "Sources already exist"
+            progress.message = MSG_SOURCES_ALREADY_EXIST
             progress.progress_percent = 30
             return progress
 
@@ -543,7 +545,7 @@ class BuildPipeline:
             # Network/subprocess failure - check if sources exist to enable offline continue
             if self._source_exists():
                 progress.status = "skipped"
-                progress.message = "Sources already exist"
+                progress.message = MSG_SOURCES_ALREADY_EXIST
                 progress.progress_percent = 30
             else:
                 stderr = getattr(e, "stderr", str(e))
@@ -554,7 +556,7 @@ class BuildPipeline:
             # Other errors (TimeoutExpired, etc.) - check if sources exist
             if self._source_exists():
                 progress.status = "skipped"
-                progress.message = "Sources already exist"
+                progress.message = MSG_SOURCES_ALREADY_EXIST
                 progress.progress_percent = 30
             else:
                 progress.status = "failed"

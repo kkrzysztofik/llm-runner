@@ -90,7 +90,7 @@ def create_venv(path: str | Path) -> VenvResult:
 
     if venv_path.exists() and venv_path.is_dir():
         # Validate venv integrity before reusing
-        is_valid, error = check_venv_integrity(venv_path)
+        is_valid, _ = check_venv_integrity(venv_path)
         if is_valid:
             reused = True
         else:

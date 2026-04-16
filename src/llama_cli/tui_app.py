@@ -40,6 +40,8 @@ from llama_manager.server import detect_risky_operations
 
 RISK_ACK_LABEL = "warning_bypass"
 RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
+STATUS_PREFIX = "STATUS: "
+STYLE_BOLD_RED = "bold red"
 STYLE_BOLD_YELLOW = "bold yellow"
 
 
@@ -182,7 +184,7 @@ class TUIApp:
 
         status_text = Text()
         if launch_result.is_blocked():
-            status_text.append("STATUS: ", style="bold red")
+            status_text.append(STATUS_PREFIX, style=STYLE_BOLD_RED)
             status_text.append("BLOCKED", style="bold red reverse")
             status_text.append("\n\n")
             if launch_result.errors is not None:
@@ -208,7 +210,7 @@ class TUIApp:
             )
             return
 
-        status_text.append("STATUS: ", style=STYLE_BOLD_YELLOW)
+        status_text.append(STATUS_PREFIX, style=STYLE_BOLD_YELLOW)
         status_text.append("DEGRADED", style=STYLE_BOLD_YELLOW)
         status_text.append(" (partial success)\n\n", style="dim")
         launched = launch_result.launched or []
@@ -355,8 +357,8 @@ class TUIApp:
         if self._build_in_progress:
             if progress.is_retrying:
                 status_text = Text()
-                status_text.append("STATUS: ", style="bold yellow")
-                status_text.append("RETRYING", style="bold yellow")
+                status_text.append(STATUS_PREFIX, style=STYLE_BOLD_YELLOW)
+                status_text.append("RETRYING", style=STYLE_BOLD_YELLOW)
                 status_text.append(f" - {progress.message}\n", style="dim")
                 if progress.retries_remaining is not None:
                     status_text.append(
@@ -370,8 +372,8 @@ class TUIApp:
                 )
             elif progress.status == "failed":
                 status_text = Text()
-                status_text.append("STATUS: ", style="bold red")
-                status_text.append("FAILED", style="bold red")
+                status_text.append(STATUS_PREFIX, style=STYLE_BOLD_RED)
+                status_text.append("FAILED", style=STYLE_BOLD_RED)
                 status_text.append(f" - {progress.message}\n", style="dim")
                 self.status_panel = Panel(
                     status_text,

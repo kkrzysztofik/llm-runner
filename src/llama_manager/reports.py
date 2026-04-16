@@ -52,7 +52,7 @@ def redact_sensitive(text: str) -> str:
     # then capture the value (non-whitespace, non-comma, non-newline)
     # Use negative lookbehind to avoid matching partial words but allow matching after non-alpha
     # Capture the entire word including any prefix
-    pattern = r"(?<![a-zA-Z])(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)([=:]\s*\S+)"
+    pattern = r"(?<!\w)(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)([=:]\s*\S+)"
     result = re.sub(pattern, replace_key_value, text, flags=re.IGNORECASE)
 
     # Second pass: replace standalone sensitive words (no value after them)
@@ -63,7 +63,7 @@ def redact_sensitive(text: str) -> str:
     # Also check that it's not already followed by ': [REDACTED]'
     # And ensure we're at the end of the word (not followed by more word chars)
     result = re.sub(
-        r"(?<![a-zA-Z])(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)(?![=:]\s*\S+)(?![:\s]*\[REDACTED\])(?![a-zA-Z0-9_])",
+        r"(?<!\w)(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)(?![=:]\s*\S+)(?![:\s]*\[REDACTED\])(?!\w)",
         "[REDACTED]",
         result,
         flags=re.IGNORECASE,

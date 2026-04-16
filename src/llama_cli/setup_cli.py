@@ -25,6 +25,8 @@ from llama_manager.toolchain import (
     get_toolchain_hints,
 )
 
+JSON_OUTPUT_HELP = "Output in JSON format"
+
 
 def _print_error(message: str) -> None:
     """Print error message to stderr.
@@ -303,7 +305,7 @@ FR-005.3: setup clean-venv command
     check_parser.add_argument(
         "--json",
         action="store_true",
-        help="Output in JSON format",
+        help=JSON_OUTPUT_HELP,
     )
     check_parser.set_defaults(func=cmd_check)
 
@@ -321,7 +323,7 @@ FR-005.3: setup clean-venv command
     venv_parser.add_argument(
         "--json",
         action="store_true",
-        help="Output in JSON format",
+        help=JSON_OUTPUT_HELP,
     )
     venv_parser.set_defaults(func=cmd_venv)
 
@@ -339,7 +341,7 @@ FR-005.3: setup clean-venv command
     clean_parser.add_argument(
         "--json",
         action="store_true",
-        help="Output in JSON format",
+        help=JSON_OUTPUT_HELP,
     )
     clean_parser.set_defaults(func=cmd_clean_venv)
 
