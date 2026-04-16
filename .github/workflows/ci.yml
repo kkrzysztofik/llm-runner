@@ -143,7 +143,7 @@ jobs:
 
       - name: Install Snyk CLI
         if: env.SNYK_TOKEN != ''
-        run: npm install -g snyk@1.1312.0
+        run: npm install -g snyk@1.1304.0
 
       - name: Snyk Open Source test
         if: env.SNYK_TOKEN != ''
