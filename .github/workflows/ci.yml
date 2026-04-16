@@ -138,8 +138,8 @@ jobs:
       - name: Set up Python
         run: uv python install 3.12
 
-      - name: Install dependencies (generate lockfile for Snyk)
-        run: uv lock
+      - name: Export requirements for Snyk Open Source scan
+        run: uv export --format requirements-txt --output-file .snyk-requirements.txt
 
       - name: Install Snyk CLI
         if: env.SNYK_TOKEN != ''
@@ -147,7 +147,7 @@ jobs:
 
       - name: Snyk Open Source test
         if: env.SNYK_TOKEN != ''
-        run: snyk test --severity-threshold=high
+        run: snyk test --file=.snyk-requirements.txt --package-manager=pip --severity-threshold=high
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
