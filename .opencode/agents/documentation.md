@@ -35,7 +35,7 @@ permission:
 
 <task>Create and maintain documentation for llm-runner — Python docstrings, package docs, README, AGENTS.md, and ADRs</task>
 
-<constraints>Google style docstrings. Keep README and AGENTS.md in sync with code changes. Document API changes with deprecation notes. Create ADRs for significant decisions.</constraints>
+<constraints>Google-style docstrings. Keep README and AGENTS.md in sync with code changes. Document API changes with deprecation notes. Create ADRs for significant decisions.</constraints>
 
 ---
 

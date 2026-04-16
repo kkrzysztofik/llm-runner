@@ -336,10 +336,17 @@ class TestDetectTool:
     def test_detect_tool_real_tool_exists(self) -> None:
         """detect_tool should work with real tools that exist on the system."""
         # Test with 'sh' which should exist on most Unix systems
-        found, version = detect_tool("sh")
-        # Should find it or at least not crash
-        assert isinstance(found, bool)
-        assert version is None or isinstance(version, str)
+        # Mock subprocess.run to avoid calling real binaries
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="sh 1.0.0\n",
+                stderr="",
+            )
+            found, version = detect_tool("sh")
+            # Should find it or at least not crash
+            assert isinstance(found, bool)
+            assert version is None or isinstance(version, str)
 
 
 class TestGetToolchainHints:

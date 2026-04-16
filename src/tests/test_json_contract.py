@@ -29,7 +29,7 @@ class TestBuildArtifactContract:
         - binary_size_bytes, build_log_path, failure_report_path
         """
         artifact = BuildArtifact(
-            artifact_type="binary",
+            artifact_type="llama-server",
             backend="sycl",
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
@@ -44,25 +44,8 @@ class TestBuildArtifactContract:
             failure_report_path=None,
         )
 
-        # Serialize to JSON
-        artifact_dict = {
-            "artifact_type": artifact.artifact_type,
-            "backend": artifact.backend,
-            "created_at": artifact.created_at,
-            "git_remote_url": artifact.git_remote_url,
-            "git_commit_sha": artifact.git_commit_sha,
-            "git_branch": artifact.git_branch,
-            "build_command": artifact.build_command,
-            "build_duration_seconds": artifact.build_duration_seconds,
-            "exit_code": artifact.exit_code,
-            "binary_path": str(artifact.binary_path) if artifact.binary_path else None,
-            "binary_size_bytes": artifact.binary_size_bytes,
-            "build_log_path": str(artifact.build_log_path) if artifact.build_log_path else None,
-            "failure_report_path": str(artifact.failure_report_path)
-            if artifact.failure_report_path
-            else None,
-        }
-
+        # Serialize to JSON using to_dict() method
+        artifact_dict = artifact.to_dict()
         json_str = json.dumps(artifact_dict)
         parsed = json.loads(json_str)
 

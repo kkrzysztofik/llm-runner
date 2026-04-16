@@ -117,7 +117,7 @@ class TestBuildArtifact:
     def test_build_artifact_all_fields_settable(self, tmp_path: Path) -> None:
         """BuildArtifact should have all fields settable and retrievable."""
         artifact = BuildArtifact(
-            artifact_type="binary",
+            artifact_type="llama-server",
             backend="sycl",
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
@@ -131,7 +131,7 @@ class TestBuildArtifact:
             build_log_path=tmp_path / "logs" / "build.log",
             failure_report_path=None,
         )
-        assert artifact.artifact_type == "binary"
+        assert artifact.artifact_type == "llama-server"
         assert artifact.backend == "sycl"
         assert isinstance(artifact.created_at, float)
         assert artifact.git_remote_url == "https://github.com/ggerganov/llama.cpp"
@@ -148,7 +148,7 @@ class TestBuildArtifact:
     def test_build_artifact_is_success_true(self) -> None:
         """BuildArtifact.is_success should return True when exit_code == 0."""
         artifact = BuildArtifact(
-            artifact_type="binary",
+            artifact_type="llama-server",
             backend="sycl",
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
@@ -167,7 +167,7 @@ class TestBuildArtifact:
     def test_build_artifact_is_success_false(self) -> None:
         """BuildArtifact.is_success should return False when exit_code != 0."""
         artifact = BuildArtifact(
-            artifact_type="binary",
+            artifact_type="llama-server",
             backend="sycl",
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
@@ -186,7 +186,7 @@ class TestBuildArtifact:
     def test_build_artifact_binary_size_mb_calculation(self) -> None:
         """BuildArtifact.binary_size_mb should calculate correctly (bytes to MB)."""
         artifact = BuildArtifact(
-            artifact_type="binary",
+            artifact_type="llama-server",
             backend="sycl",
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
@@ -205,7 +205,7 @@ class TestBuildArtifact:
     def test_build_artifact_binary_size_mb_none(self) -> None:
         """BuildArtifact.binary_size_mb should return None when binary_size_bytes is None."""
         artifact = BuildArtifact(
-            artifact_type="binary",
+            artifact_type="llama-server",
             backend="sycl",
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
@@ -225,7 +225,7 @@ class TestBuildArtifact:
         """BuildArtifact.created_at should be a float timestamp."""
         now = time.time()
         artifact = BuildArtifact(
-            artifact_type="binary",
+            artifact_type="llama-server",
             backend="sycl",
             created_at=now,
             git_remote_url="https://github.com/ggerganov/llama.cpp",

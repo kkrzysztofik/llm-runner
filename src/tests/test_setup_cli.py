@@ -158,6 +158,12 @@ class TestSetupVenv:
         venv_path = tmp_path / "existing-venv"
         venv_path.mkdir()
 
+        # Create minimal valid venv structure so check_venv_integrity passes
+        (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+        bin_dir = venv_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "python").symlink_to("/usr/bin/python3")
+
         with patch("llama_cli.setup_cli.get_venv_path", return_value=venv_path):
             exit_code = cmd_venv(MagicMock(check_integrity=False, json=False))
 
@@ -183,9 +189,9 @@ class TestSetupVenv:
 
         assert exit_code == 0
         captured = capsys.readouterr()
-        parsed = json.loads(captured.out)
-        assert "venv_path" in parsed
         try:
+            parsed = json.loads(captured.out)
+            assert "venv_path" in parsed
             assert "created" in parsed
             assert "reused" in parsed
             assert "activation_command" in parsed
@@ -240,10 +246,12 @@ class TestSetupCleanVenv:
 
     def test_clean_venv_handles_nonexistent_venv(self, tmp_path: Path, capsys) -> None:
         """setup clean-venv should handle nonexistent venv gracefully."""
-        _ = tmp_path / "nonexistent-venv"
+        # Mock get_venv_path to return a non-existent path
+        nonexistent_path = tmp_path / "nonexistent-venv"
 
-        # Should not raise error even if venv doesn't exist
-        exit_code = cmd_clean_venv(MagicMock())
+        with patch("llama_cli.setup_cli.get_venv_path", return_value=nonexistent_path):
+            # Should not raise error even if venv doesn't exist
+            exit_code = cmd_clean_venv(MagicMock())
 
         assert exit_code == 0
 

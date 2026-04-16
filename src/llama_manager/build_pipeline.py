@@ -2,17 +2,18 @@
 
 import contextlib
 import json
+import logging
 import os
 import sys
 import time
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar, Literal
 
-if TYPE_CHECKING:
-    pass
+logger = logging.getLogger(__name__)
 
 
 class BuildBackend(StrEnum):
@@ -24,6 +25,11 @@ class BuildBackend(StrEnum):
 
 
 # Build backend constants (deprecated - use BuildConfig class constants instead)
+warnings.warn(
+    "GGML_SYCL and GGML_CUDA are deprecated, use BuildConfig.GGML_SYCL and BuildConfig.GGML_CUDA instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
 GGML_SYCL = "sycl"
 GGML_CUDA = "cuda"
 
@@ -75,8 +81,8 @@ class BuildArtifact:
     timing information.
     """
 
-    artifact_type: str
-    backend: str
+    artifact_type: Literal["llama-server"]
+    backend: Literal["sycl", "cuda", "both"]
     created_at: float
     git_remote_url: str
     git_commit_sha: str
@@ -100,6 +106,30 @@ class BuildArtifact:
         if self.binary_size_bytes is None:
             return None
         return self.binary_size_bytes / (1024 * 1024)
+
+    def to_dict(self) -> dict:
+        """Convert BuildArtifact to a dictionary for JSON serialization.
+
+        Returns:
+            Dictionary with all artifact fields, converting Path objects to strings.
+        """
+        return {
+            "artifact_type": self.artifact_type,
+            "backend": self.backend,
+            "created_at": self.created_at,
+            "git_remote_url": self.git_remote_url,
+            "git_commit_sha": self.git_commit_sha,
+            "git_branch": self.git_branch,
+            "build_command": self.build_command,
+            "build_duration_seconds": self.build_duration_seconds,
+            "exit_code": self.exit_code,
+            "binary_path": str(self.binary_path) if self.binary_path else None,
+            "binary_size_bytes": self.binary_size_bytes,
+            "build_log_path": str(self.build_log_path) if self.build_log_path else None,
+            "failure_report_path": str(self.failure_report_path)
+            if self.failure_report_path
+            else None,
+        }
 
 
 @dataclass
@@ -212,6 +242,7 @@ class BuildPipeline:
         self._dry_run = False
         self._lock_file: Path | None = None
         self._progress_callback = progress_callback
+        self._build_start_time: float = 0.0
 
     @property
     def dry_run(self) -> bool:
@@ -281,13 +312,16 @@ class BuildPipeline:
         Returns:
             BuildResult with success status and artifact if successful
         """
-        from .config import Config
-
         # Handle BOTH backend - delegate to run_both_backends
         if self.config.backend == BuildBackend.BOTH:
             raise ValueError("BuildBackend.BOTH must use run_both_backends() instead")
 
+        # Record start time for build duration calculation
+        self._build_start_time = time.time()
+
         # Acquire build lock
+        from .config import Config
+
         config = Config()
         if not self._acquire_lock(config.build_lock_path):
             return BuildResult(
@@ -365,10 +399,6 @@ class BuildPipeline:
         Returns:
             List of BuildResults: [SYCL build result, CUDA build result]
         """
-        from .config import Config
-
-        config = Config()
-
         # Create backend-specific directories for isolation
         sycl_build_dir = self.config.build_dir / "build_sycl"
         sycl_output_dir = self.config.output_dir / "output_sycl"
@@ -391,20 +421,7 @@ class BuildPipeline:
         sycl_pipeline = BuildPipeline(sycl_config, self._progress_callback)
         sycl_pipeline.dry_run = self._dry_run
 
-        # Acquire lock for SYCL build
-        if not sycl_pipeline._acquire_lock(config.build_lock_path):
-            return [
-                BuildResult(
-                    success=False,
-                    error_message="Failed to acquire SYCL build lock",
-                ),
-                BuildResult(
-                    success=False, error_message="CUDA build skipped due to lock contention"
-                ),
-            ]
-
         sycl_result = sycl_pipeline.run()
-        sycl_pipeline._release_lock()
 
         # Build CUDA after SYCL completes
         cuda_config = BuildConfig(
@@ -422,18 +439,7 @@ class BuildPipeline:
         cuda_pipeline = BuildPipeline(cuda_config, self._progress_callback)
         cuda_pipeline.dry_run = self._dry_run
 
-        # Acquire lock for CUDA build
-        if not cuda_pipeline._acquire_lock(config.build_lock_path):
-            return [
-                sycl_result,
-                BuildResult(
-                    success=False,
-                    error_message="Failed to acquire CUDA build lock",
-                ),
-            ]
-
         cuda_result = cuda_pipeline.run()
-        cuda_pipeline._release_lock()
 
         return [sycl_result, cuda_result]
 
@@ -495,7 +501,7 @@ class BuildPipeline:
 
         # Check if source already exists and is non-empty
         # This enables offline-continue: use existing sources when network unavailable
-        if self.config.source_dir.exists() and any(self.config.source_dir.iterdir()):
+        if self._source_exists():
             progress.status = "skipped"
             progress.message = "Sources already exist"
             progress.progress_percent = 30
@@ -710,16 +716,16 @@ class BuildPipeline:
         )
         build_log_path = reports_dir / f"{timestamp}-{backend_name}.log"
 
-        # Create artifact
+        # Create artifact with computed build duration
         artifact = BuildArtifact(
-            artifact_type="binary",
+            artifact_type="llama-server",
             backend=self.config.backend.value,
             created_at=time.time(),
             git_remote_url=self.config.git_remote_url,
             git_commit_sha=git_commit_sha,
             git_branch=self.config.git_branch,
             build_command=["cmake", "--build", str(self.config.build_dir)],
-            build_duration_seconds=0.0,
+            build_duration_seconds=time.time() - self._build_start_time,
             exit_code=0,
             binary_path=binary_path,
             binary_size_bytes=binary_size_bytes,
@@ -812,7 +818,7 @@ class BuildPipeline:
             return True
 
         except Exception as e:
-            print(f"warning: failed to write provenance: {e}", file=sys.stderr)
+            logger.warning("failed to write provenance: %s", e)
             return False
 
     def _acquire_lock(self, lock_path: Path) -> bool:
@@ -874,6 +880,14 @@ class BuildPipeline:
         except Exception as e:
             print(f"error: failed to acquire build lock: {e}", file=sys.stderr)
             return False
+
+    def release_lock(self) -> None:
+        """Release build lock.
+
+        Public method to release the build lock. This should be used
+        instead of calling the private _release_lock() method directly.
+        """
+        self._release_lock()
 
     def _release_lock(self) -> None:
         """Release build lock."""

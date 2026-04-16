@@ -693,27 +693,39 @@ class TestVenvResultFields:
         pip_path = result.get_pip_path()
         assert pip_path == Path("/tmp/test-venv/bin/pip")
 
-    def test_venv_result_get_python_path_windows(self) -> None:
+    def test_venv_result_get_python_path_windows(self, tmp_path: Path) -> None:
         """get_python_path should return Windows-style path for Scripts directory."""
+        # Create a temporary directory with Scripts structure
+        venv_dir = tmp_path / "venv"
+        scripts_dir = venv_dir / "Scripts"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "python.exe").touch()
+
         result = VenvResult(
-            venv_path=Path("Scripts"),
+            venv_path=venv_dir,
             created=False,
             reused=True,
-            activation_command="Scripts\\activate",
+            activation_command=str(scripts_dir / "activate"),
         )
         python_path = result.get_python_path()
-        assert python_path == Path("Scripts") / "python.exe"
+        assert python_path == scripts_dir / "python.exe"
 
-    def test_venv_result_get_pip_path_windows(self) -> None:
+    def test_venv_result_get_pip_path_windows(self, tmp_path: Path) -> None:
         """get_pip_path should return Windows-style path for Scripts directory."""
+        # Create a temporary directory with Scripts structure
+        venv_dir = tmp_path / "venv"
+        scripts_dir = venv_dir / "Scripts"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "pip.exe").touch()
+
         result = VenvResult(
-            venv_path=Path("Scripts"),
+            venv_path=venv_dir,
             created=False,
             reused=True,
-            activation_command="Scripts\\activate",
+            activation_command=str(scripts_dir / "activate"),
         )
         pip_path = result.get_pip_path()
-        assert pip_path == Path("Scripts") / "pip.exe"
+        assert pip_path == scripts_dir / "pip.exe"
 
 
 class TestVenvResultIntegration:
@@ -735,9 +747,14 @@ class TestVenvResultIntegration:
         assert str(venv_path) in result.activation_command
 
     def test_venv_result_from_reuse_venv(self, tmp_path: Path) -> None:
-        """VenvResult should show reuse when venv already exists."""
+        """VenvResult should show reuse when venv already exists and is valid."""
         venv_path = tmp_path / "test-venv"
         venv_path.mkdir()
+
+        # Create a minimal valid venv structure
+        (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+        (venv_path / "bin").mkdir()
+        (venv_path / "bin" / "python").touch()
 
         result = create_venv(venv_path)
 

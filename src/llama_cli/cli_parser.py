@@ -83,7 +83,7 @@ def _parse_normal_mode_args(args: list[str]) -> argparse.Namespace:
       %(prog)s dry-run summary-balanced
       %(prog)s dry-run both 8080 8081
       %(prog)s doctor check
-      %(prog)s doctor --repair
+      %(prog)s doctor repair
       %(prog)s build sycl
       %(prog)s setup check
             """,
@@ -148,8 +148,16 @@ def _handle_build_case(args: list[str]) -> argparse.Namespace | None:
             if arg == "--dry-run":
                 continue
             elif arg.startswith("-j") or arg.startswith("--jobs"):
+                # Support: -jN, --jobs=N, -j N, --jobs N
                 try:
-                    jobs = int(arg.split("=")[1] if "=" in arg else arg[2:])
+                    if "=" in arg:
+                        jobs = int(arg.split("=")[1])
+                    elif arg.startswith("-j"):
+                        jobs = int(arg[2:])
+                    else:
+                        # Space-separated form, need next arg
+                        print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+                        sys.exit(1)
                 except (ValueError, IndexError):
                     print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
                     sys.exit(1)
@@ -182,41 +190,86 @@ def _handle_setup_case(args: list[str]) -> argparse.Namespace | None:
             if subcommand == "check":
                 backend = "all"
                 json_output = False
+                jobs = None
                 # Parse remaining args
                 for arg in args[2:]:
                     if arg in ("sycl", "cuda"):
                         backend = arg
                     elif arg == "--json":
                         json_output = True
+                    elif arg.startswith("-j") or arg.startswith("--jobs"):
+                        # Support: -jN, --jobs=N, -j N, --jobs N
+                        try:
+                            if "=" in arg:
+                                jobs = int(arg.split("=")[1])
+                            elif arg.startswith("-j"):
+                                jobs = int(arg[2:])
+                            else:
+                                print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+                                sys.exit(1)
+                        except (ValueError, IndexError):
+                            print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+                            sys.exit(1)
                 return argparse.Namespace(
                     mode="setup",
                     setup_command="check",
                     backend=backend,
                     json=json_output,
+                    jobs=jobs,
                 )
             elif subcommand == "venv":
                 check_integrity = False
                 json_output = False
+                jobs = None
                 for arg in args[2:]:
                     if arg == "--check-integrity":
                         check_integrity = True
                     elif arg == "--json":
                         json_output = True
+                    elif arg.startswith("-j") or arg.startswith("--jobs"):
+                        # Support: -jN, --jobs=N, -j N, --jobs N
+                        try:
+                            if "=" in arg:
+                                jobs = int(arg.split("=")[1])
+                            elif arg.startswith("-j"):
+                                jobs = int(arg[2:])
+                            else:
+                                print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+                                sys.exit(1)
+                        except (ValueError, IndexError):
+                            print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+                            sys.exit(1)
                 return argparse.Namespace(
                     mode="setup",
                     setup_command="venv",
                     check_integrity=check_integrity,
                     json=json_output,
+                    jobs=jobs,
                 )
             elif subcommand == "clean-venv":
                 yes = False
+                jobs = None
                 for arg in args[2:]:
                     if arg == "--yes":
                         yes = True
+                    elif arg.startswith("-j") or arg.startswith("--jobs"):
+                        # Support: -jN, --jobs=N, -j N, --jobs N
+                        try:
+                            if "=" in arg:
+                                jobs = int(arg.split("=")[1])
+                            elif arg.startswith("-j"):
+                                jobs = int(arg[2:])
+                            else:
+                                print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+                                sys.exit(1)
+                        except (ValueError, IndexError):
+                            print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+                            sys.exit(1)
                 return argparse.Namespace(
                     mode="setup",
                     setup_command="clean-venv",
                     yes=yes,
+                    jobs=jobs,
                 )
             else:
                 print(
@@ -254,22 +307,38 @@ def _handle_doctor_case(args: list[str]) -> argparse.Namespace | None:
             if subcommand == "check":
                 backend = "all"
                 json_output = False
+                jobs = None
                 # Parse remaining args
                 for arg in args[2:]:
                     if arg in ("sycl", "cuda"):
                         backend = arg
                     elif arg == "--json":
                         json_output = True
+                    elif arg.startswith("-j") or arg.startswith("--jobs"):
+                        # Support: -jN, --jobs=N, -j N, --jobs N
+                        try:
+                            if "=" in arg:
+                                jobs = int(arg.split("=")[1])
+                            elif arg.startswith("-j"):
+                                jobs = int(arg[2:])
+                            else:
+                                print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+                                sys.exit(1)
+                        except (ValueError, IndexError):
+                            print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+                            sys.exit(1)
                 return argparse.Namespace(
                     mode="doctor",
                     doctor_command="check",
                     backend=backend,
                     json=json_output,
+                    jobs=jobs,
                 )
             elif subcommand == "repair":
                 dry_run = False
                 json_output = False
                 yes = False
+                jobs = None
                 # Parse remaining args
                 for arg in args[2:]:
                     if arg == "--dry-run":
@@ -278,12 +347,26 @@ def _handle_doctor_case(args: list[str]) -> argparse.Namespace | None:
                         json_output = True
                     elif arg == "--yes":
                         yes = True
+                    elif arg.startswith("-j") or arg.startswith("--jobs"):
+                        # Support: -jN, --jobs=N, -j N, --jobs N
+                        try:
+                            if "=" in arg:
+                                jobs = int(arg.split("=")[1])
+                            elif arg.startswith("-j"):
+                                jobs = int(arg[2:])
+                            else:
+                                print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+                                sys.exit(1)
+                        except (ValueError, IndexError):
+                            print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+                            sys.exit(1)
                 return argparse.Namespace(
                     mode="doctor",
                     doctor_command="repair",
                     dry_run=dry_run,
                     json=json_output,
                     yes=yes,
+                    jobs=jobs,
                 )
             else:
                 print(

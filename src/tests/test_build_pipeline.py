@@ -104,7 +104,7 @@ class TestNoAutobuildOnLaunch:
                 pipeline,
                 "_run_finalize",
                 return_value=BuildArtifact(
-                    artifact_type="binary",
+                    artifact_type="llama-server",
                     backend="sycl",
                     created_at=time.time(),
                     git_remote_url="https://github.com/ggerganov/llama.cpp",
@@ -604,7 +604,7 @@ class TestProvenanceAtomicWrite:
 
         # Create artifact
         artifact = BuildArtifact(
-            artifact_type="binary",
+            artifact_type="llama-server",
             backend="sycl",
             created_at=time.time(),
             git_remote_url=config.git_remote_url,
@@ -646,7 +646,7 @@ class TestProvenanceAtomicWrite:
 class TestProvenanceFailureWarning:
     """T038: Test provenance write failure emits warning but build still succeeds."""
 
-    def test_provenance_failure_warning(self, capsys, tmp_path: Path) -> None:
+    def test_provenance_failure_warning(self, caplog, tmp_path: Path) -> None:
         """Provenance write failure should emit warning but not fail build.
 
         If provenance write fails, the build should still be considered
@@ -665,7 +665,7 @@ class TestProvenanceFailureWarning:
 
         # Create artifact
         artifact = BuildArtifact(
-            artifact_type="binary",
+            artifact_type="llama-server",
             backend="sycl",
             created_at=time.time(),
             git_remote_url=config.git_remote_url,
@@ -685,7 +685,6 @@ class TestProvenanceFailureWarning:
         config.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Make the directory read-only to cause write failure
-
         original_mode = config.output_dir.stat().st_mode
         config.output_dir.chmod(0o555)  # Read-only
 
@@ -696,9 +695,8 @@ class TestProvenanceFailureWarning:
             # _write_provenance should return False when write fails
             assert result is False
 
-            # Warning should be logged (captured to stderr)
-            captured = capsys.readouterr()
-            assert "warning" in captured.err.lower() or "provenance" in captured.err.lower()
+            # Warning should be logged (captured via caplog)
+            assert "warning" in caplog.text.lower() or "provenance" in caplog.text.lower()
         finally:
             # Restore original permissions
             config.output_dir.chmod(original_mode)

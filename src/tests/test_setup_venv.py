@@ -146,13 +146,18 @@ class TestVenvLifecycle:
         assert "bin/activate" in result.activation_command
 
     def test_venv_lifecycle_reuse_existing(self, tmp_path: Path) -> None:
-        """Venv lifecycle should reuse existing venv when path exists."""
+        """Venv lifecycle should reuse existing venv when path exists and is valid."""
         venv_path = tmp_path / "existing_venv"
         venv_path.mkdir()
 
+        # Create a minimal valid venv structure
+        (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+        (venv_path / "bin").mkdir()
+        (venv_path / "bin" / "python").touch()
+
         result = create_venv(venv_path)
 
-        # Should NOT have created new venv
+        # Should have reused the existing valid venv
         assert result.created is False
         assert result.reused is True
         assert result.was_created is False
@@ -161,16 +166,18 @@ class TestVenvLifecycle:
 
     def test_venv_lifecycle_integrity_check_valid(self, tmp_path: Path) -> None:
         """Venv lifecycle integrity check should pass for valid venv."""
+        import sys
+
         venv_path = tmp_path / "valid_venv"
         venv_path.mkdir()
 
         # Create pyvenv.cfg
-        (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+        (venv_path / "pyvenv.cfg").write_text(f"home = {sys.prefix}\n")
 
-        # Create interpreter symlink
+        # Create interpreter symlink using sys.executable
         bin_dir = venv_path / "bin"
         bin_dir.mkdir()
-        (bin_dir / "python").symlink_to("/usr/bin/python3")
+        (bin_dir / "python").symlink_to(sys.executable)
 
         is_valid, error = check_venv_integrity(venv_path)
         assert is_valid is True
@@ -388,7 +395,7 @@ class TestVenvCorruptionDetection:
 
         is_valid, error = check_venv_integrity(venv_path)
         assert is_valid is False
-        assert error == "pyvenv.cfg missing"
+        assert error == "venv directory missing"
 
 
 class TestVenvPathFallback:

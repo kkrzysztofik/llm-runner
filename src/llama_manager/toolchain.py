@@ -2,10 +2,6 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .config import ErrorCode
 
 from .build_pipeline import BuildBackend
 from .config import ErrorCode
@@ -87,7 +83,7 @@ class ToolchainStatus:
         """
         return self.is_sycl_ready and self.is_cuda_ready
 
-    def missing_tools(self, backend: "BuildBackend | None" = None) -> list[str]:
+    def missing_tools(self, backend: BuildBackend | None = None) -> list[str]:
         """Get list of missing tool names for the specified backend.
 
         Args:
@@ -259,8 +255,8 @@ def detect_tool(
         if result.returncode == 0:
             # Parse version from output (e.g., "gcc (GCC) 11.3.0" → "11.3.0")
             output = result.stdout.strip()
-            # Try to extract version number using regex
-            version_match = re.search(r"\d+\.\d+(\.\d+)?", output)
+            # Try to extract version number using regex (accepts 1-3 components: "12", "12.3", "12.3.4")
+            version_match = re.search(r"\d+(?:\.\d+){0,2}", output)
             if version_match:
                 version = version_match.group(0)
                 return (True, version)

@@ -219,7 +219,7 @@ This section maps PRD requirements to spec.md sections and implementation tasks.
 | **FR-018.1** (failure reports) | `reports.py` (FailureReport) | `test_reports.py` | Scenario 2 (User Story 3) |
 | **FR-018.2** (redaction) | `reports.py` (redact_sensitive) | `test_reports.py` | Scenario 3 (API_KEY redacted) |
 | **FR-018.3** (report rotation) | `reports.py` (ReportManager) | `test_reports.py` | Scenario 4 (>50 reports rotated) |
-| **FR-018** mutating-action log | `reports.py` (MutatingActionLog) | `test_reports.py::test_mutating_action_log` | Rotate `setup` and other mutating actions with command, timestamp, exit code, truncated output, redaction. This is complementary to build-failure report requirements (FR-018.1–018.3); FR-018.4 covers all mutating actions while FR-018.1–018.3 specifically address build-failure report structure and rotation.
+| **FR-018** mutating-action log | `reports.py` (MutatingActionLog) | `test_reports.py::test_mutating_action_log` | Rotate `setup` and other mutating actions with command, timestamp, exit code, truncated output, redaction. This is complementary to build-failure report requirements (FR-018.1–018.3); FR-018.4 covers all mutating actions while FR-018.1–018.3 specifically address build-failure report structure and rotation. |
 
 **Coverage Rule**: Every FR must have at least one test case that exercises the success path and one that exercises the failure path.
 

@@ -10,6 +10,7 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+from types import FrameType
 from typing import Any
 
 from rich.console import ConsoleDimensions, Group
@@ -77,7 +78,7 @@ class TUIApp:
         self._build_pipeline: BuildPipeline | None = None
         self._build_in_progress = False
         self._build_progress: BuildProgress | None = None
-        self._original_sigint_handler: Callable[[int, object | None], None] | None = None
+        self._original_sigint_handler: Callable[[int, FrameType | None], Any] | int | None = None
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -89,7 +90,7 @@ class TUIApp:
         """
         # Release build lock if in progress
         if self._build_in_progress and self._build_pipeline is not None:
-            self._build_pipeline._release_lock()
+            self._build_pipeline.release_lock()
             self._build_in_progress = False
 
         self.stop()
@@ -101,7 +102,7 @@ class TUIApp:
         """
         if self._build_in_progress and self._build_pipeline is not None:
             print("\nBuild interrupted by user, releasing lock...", file=sys.stderr)
-            self._build_pipeline._release_lock()
+            self._build_pipeline.release_lock()
             self._build_in_progress = False
             sys.exit(130)  # Standard exit code for Ctrl+C
 

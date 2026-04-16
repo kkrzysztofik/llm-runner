@@ -15,6 +15,7 @@ Test Tasks:
 """
 
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -132,8 +133,6 @@ class TestFailureReport:
         assert saved_path == report.report_path
 
         # Verify file content
-        import json
-
         with open(saved_path) as f:
             data = json.load(f)
         assert data["report_dir"] == str(report_dir)
@@ -224,8 +223,6 @@ class TestFailureReport:
         saved_path = report.save_to_file()
 
         # Verify JSON content
-        import json
-
         with open(saved_path) as f:
             data = json.load(f)
         assert "report_dir" in data
@@ -746,8 +743,6 @@ class TestRotateReports:
             # Set different modification times (oldest first)
             report_dir.touch()
             # Add delay to ensure different mtime
-            import time
-
             time.sleep(0.01)
 
         # Mock Config class properly - patch where it's used, not where it's defined

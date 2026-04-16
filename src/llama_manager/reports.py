@@ -5,7 +5,10 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
+
+# Forward reference for Config
+from .config import Config  # noqa: F401
 
 
 def redact_sensitive(text: str) -> str:
@@ -64,6 +67,7 @@ def redact_sensitive(text: str) -> str:
     return result
 
 
+# Note: redact_sensitive is also used in build_pipeline.py for failure reports
 @dataclass
 class FailureReport:
     """Structured report of a failed build attempt.
@@ -98,8 +102,6 @@ class FailureReport:
         Raises:
             IOError: If the report cannot be written to disk.
         """
-        import json
-
         report_data: dict[str, Any] = {
             "report_dir": str(self.report_dir),
             "timestamp": self.timestamp.isoformat(),
@@ -134,6 +136,7 @@ class MutatingActionLogEntry:
     redaction_applied: bool = False
     duration_seconds: float | None = None
     working_dir: Path | None = None
+    output_truncated: bool = False
 
     @property
     def is_success(self) -> bool:
@@ -144,10 +147,9 @@ class MutatingActionLogEntry:
     def was_truncated(self) -> bool:
         """Check if the output was truncated.
 
-        Returns True when the output length exceeds the expected max length
-        (command length * 1000), indicating truncation occurred.
+        Returns True when truncation was explicitly applied during logging.
         """
-        return len(self.truncated_output) >= len(self.command) * 1000
+        return self.output_truncated
 
     def format_summary(self) -> str:
         """Generate a human-readable summary of this log entry.
@@ -251,13 +253,8 @@ def write_failure_report(
         f.write(error_json)
     errors_path.chmod(0o600)
 
-    # Serialize build artifact if not already JSON
+    # Serialize build artifact to JSON (assume it's already JSON)
     artifact_data = build_artifact_json
-    if not artifact_data.strip().startswith("{") and not artifact_data.strip().startswith("["):
-        try:
-            artifact_data = json.dumps(json.loads(artifact_data), indent=2, ensure_ascii=False)
-        except (json.JSONDecodeError, TypeError):
-            artifact_data = json.dumps({"raw": artifact_data}, indent=2, ensure_ascii=False)
 
     return FailureReport(
         report_dir=timestamp_dir,
@@ -306,12 +303,13 @@ def log_mutating_action(
 
     # Redact sensitive information
     redaction_applied = False
-    if "KEY" in output.upper() or "TOKEN" in output.upper() or "SECRET" in output.upper():
+    if any(kw in output.upper() for kw in ["KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH"]):
         output = redact_sensitive(output)
         redaction_applied = True
 
     # Truncate output if too large
     max_output_len = config.build_output_truncate_bytes
+    output_truncated = len(output) > max_output_len
     truncated_output = output[:max_output_len]
 
     entry = MutatingActionLogEntry(
@@ -322,6 +320,7 @@ def log_mutating_action(
         redaction_applied=redaction_applied,
         duration_seconds=None,  # Would need timing info from caller
         working_dir=working_dir,
+        output_truncated=output_truncated,
     )
 
     # Write to XDG state home
@@ -367,7 +366,7 @@ def _rotate_mutating_log(log_path: Path, max_entries: int = 1000) -> None:
         pass
 
 
-def rotate_reports(config: Any = None) -> None:
+def rotate_reports(config: Optional["Config"] = None) -> None:
     """Rotate old report directories.
 
     Scans the reports directory and deletes oldest report directories
@@ -379,9 +378,10 @@ def rotate_reports(config: Any = None) -> None:
     """
     from .config import Config
 
-    config = Config() if config is None else config  # type: ignore[assignment]
+    if config is None:
+        config = Config()
 
-    reports_path = config.reports_dir  # type: ignore[union-attr]
+    reports_path = config.reports_dir
 
     if not reports_path.exists():
         return
@@ -397,8 +397,8 @@ def rotate_reports(config: Any = None) -> None:
             except ValueError:
                 continue
 
-    # Sort by modification time (oldest first)
-    report_dirs.sort(key=lambda p: p.stat().st_mtime)
+    # Sort by directory name (timestamp-based, oldest first)
+    report_dirs.sort(key=lambda p: p.name)
 
     # Delete oldest directories if count exceeds max
     max_reports = config.build_max_reports  # type: ignore[union-attr]

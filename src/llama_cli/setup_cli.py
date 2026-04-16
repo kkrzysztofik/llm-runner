@@ -85,6 +85,16 @@ def cmd_check(args: argparse.Namespace) -> int:
             hints = get_toolchain_hints("sycl")
         elif args.backend == "cuda":
             hints = get_toolchain_hints("cuda")
+        elif args.backend == "all":
+            # Aggregate hints from both backends, deduplicate by tool name
+            sycl_hints = get_toolchain_hints("sycl")
+            cuda_hints = get_toolchain_hints("cuda")
+            seen_tools = set()
+            hints = []
+            for hint in sycl_hints + cuda_hints:
+                if hint.failed_check not in seen_tools:
+                    seen_tools.add(hint.failed_check)
+                    hints.append(hint)
         else:
             hints = []
 
@@ -223,7 +233,7 @@ def cmd_clean_venv(args: argparse.Namespace) -> int:
         return 0
     except PermissionError as e:
         _print_error(f"Permission denied removing virtual environment: {e}")
-        _print_error("Try running with sudo or fix permissions")
+        _print_error("Check file ownership/permissions, consult system documentation")
         return 1
     except Exception as e:
         _print_error(f"Error removing virtual environment: {e}")

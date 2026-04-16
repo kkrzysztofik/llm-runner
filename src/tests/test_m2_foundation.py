@@ -172,6 +172,12 @@ class TestCreateVenvIntegration:
         venv_path = tmp_path / "existing_venv"
         venv_path.mkdir()
 
+        # Create minimal valid venv structure so check_venv_integrity passes
+        (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+        bin_dir = venv_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "python").symlink_to("/usr/bin/python3")
+
         result = create_venv(venv_path)
 
         assert isinstance(result, VenvResult)
@@ -223,16 +229,21 @@ class TestCheckVenvIntegrityIntegration:
         assert is_valid is False
         assert error == "pyvenv.cfg missing"
 
-    def test_check_venv_integrity_integration_with_mock(self) -> None:
+    def test_check_venv_integrity_integration_with_mock(self, tmp_path: Path) -> None:
         """check_venv_integrity should work with mocked paths."""
-        with patch("pathlib.Path.exists") as mock_exists:
-            # Simulate valid venv
-            mock_exists.return_value = True
+        # Create a real venv structure for the test
+        venv_path = tmp_path / "mock_venv"
+        venv_path.mkdir()
+        (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+        bin_dir = venv_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "python").symlink_to("/usr/bin/python3")
 
-            is_valid, error = check_venv_integrity("/mock/venv")
+        # Now test with the real path - no need to mock Path.exists globally
+        is_valid, error = check_venv_integrity(venv_path)
 
-            assert is_valid is True
-            assert error is None
+        assert is_valid is True
+        assert error is None
 
 
 class TestWriteFailureReportIntegration:

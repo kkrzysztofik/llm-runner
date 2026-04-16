@@ -10,6 +10,7 @@ All commands support --json output for programmatic access.
 import argparse
 import contextlib
 import json
+import shlex
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -189,7 +190,7 @@ def cmd_doctor_check(parsed: argparse.Namespace) -> int:
                 started_at=float(lock_data["started_at"]),
                 backend=lock_data["backend"],
             )
-            if lock.is_stale(timeout_seconds=config.toolchain_timeout_seconds * 60):
+            if lock.is_stale(timeout_seconds=config.toolchain_timeout_seconds):
                 result.is_healthy = False
                 result.errors.append(
                     f"Stale build lock detected (PID {lock.pid}, "
@@ -373,7 +374,7 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                 started_at=float(lock_data["started_at"]),
                 backend=lock_data["backend"],
             )
-            if lock.is_stale(timeout_seconds=config.toolchain_timeout_seconds * 60):
+            if lock.is_stale(timeout_seconds=config.toolchain_timeout_seconds):
                 result.actions.append(
                     RepairAction(
                         action_type="remove_stale_lock",
@@ -402,8 +403,6 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                     # Parse command into list of arguments
                     # This is a simple parser for the commands we generate
                     # In production, we should refactor to store commands as lists
-                    import shlex
-
                     cmd_list = shlex.split(action.command)
                     subprocess.run(
                         cmd_list,

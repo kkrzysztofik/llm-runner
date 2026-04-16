@@ -45,9 +45,9 @@ class VenvResult:
         Returns:
             Path to the Python interpreter in the virtual environment.
         """
-        # Check if this is a Windows-style venv path (venv_path is "Scripts" directory)
-        if self.venv_path.name == "Scripts":
-            return self.venv_path / "python.exe"
+        # Check if this is a Windows-style venv path (Scripts directory exists)
+        if (self.venv_path / "Scripts").exists():
+            return self.venv_path / "Scripts" / "python.exe"
         else:
             return self.venv_path / "bin" / "python"
 
@@ -57,9 +57,9 @@ class VenvResult:
         Returns:
             Path to the pip executable in the virtual environment.
         """
-        # Check if this is a Windows-style venv path (venv_path is "Scripts" directory)
-        if self.venv_path.name == "Scripts":
-            return self.venv_path / "pip.exe"
+        # Check if this is a Windows-style venv path (Scripts directory exists)
+        if (self.venv_path / "Scripts").exists():
+            return self.venv_path / "Scripts" / "pip.exe"
         else:
             return self.venv_path / "bin" / "pip"
 
@@ -89,16 +89,28 @@ def create_venv(path: str | Path) -> VenvResult:
     reused = False
 
     if venv_path.exists() and venv_path.is_dir():
-        reused = True
+        # Validate venv integrity before reusing
+        is_valid, error = check_venv_integrity(venv_path)
+        if is_valid:
+            reused = True
+        else:
+            # Invalid venv, recreate it
+            import shutil
+
+            shutil.rmtree(venv_path)
+            venv.create(venv_path, with_pip=True, clear=False)
+            created = True
+    elif venv_path.exists() and not venv_path.is_dir():
+        raise ValueError(f"Path exists but is not a directory: {venv_path}")
     else:
         venv.create(venv_path, with_pip=True, clear=False)
         created = True
 
     # Determine activation command based on venv path structure
-    # Check if this is a Windows-style venv path (venv_path is "Scripts" directory)
-    if venv_path.name == "Scripts":
-        # Windows-style venv (venv_path is already the Scripts directory)
-        activation_script = venv_path / "activate.bat"
+    # Check if this is a Windows-style venv path (Scripts directory exists)
+    if (venv_path / "Scripts").exists():
+        # Windows-style venv
+        activation_script = venv_path / "Scripts" / "activate.bat"
         activation_command = f'cmd /c "{activation_script}"'
     else:
         # Unix-style venv
@@ -126,15 +138,19 @@ def check_venv_integrity(path: str | Path) -> tuple[bool, str | None]:
     """
     venv_path = Path(path)
 
+    # Check if venv directory exists first
+    if not venv_path.exists():
+        return (False, "venv directory missing")
+
     # Check if pyvenv.cfg exists
     pyvenv_cfg = venv_path / "pyvenv.cfg"
     if not pyvenv_cfg.exists():
         return (False, "pyvenv.cfg missing")
 
-    # Check if interpreter symlink exists
-    # Check if this is a Windows-style venv path (venv_path is "Scripts" directory)
-    if venv_path.name == "Scripts":
-        interpreter = venv_path / "python.exe"
+    # Check if interpreter exists
+    # Check if this is a Windows-style venv path (Scripts directory exists)
+    if (venv_path / "Scripts").exists():
+        interpreter = venv_path / "Scripts" / "python.exe"
     else:
         interpreter = venv_path / "bin" / "python"
 
