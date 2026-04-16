@@ -5,7 +5,7 @@ Test Task:
 """
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest  # noqa: F401
 
@@ -216,15 +216,28 @@ class TestOfflineContinue:
         )
 
         pipeline = BuildPipeline(config)
-        pipeline.dry_run = True
+        pipeline.dry_run = False  # Not dry-run so it will call subprocess
 
-        # Run clone stage
-        progress = pipeline._run_clone()
+        # Mock subprocess.run to capture the command
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        mock_result.stderr = ""
 
-        # Should succeed in dry-run mode
-        assert progress.status == "success"
-        # In dry-run, it just shows the command
-        assert "git clone" in progress.message
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            # Run clone stage
+            progress = pipeline._run_clone()
+
+            # Should succeed
+            assert progress.status == "success"
+            # Verify subprocess was called with shallow clone flags
+            assert mock_run.called
+            call_args = mock_run.call_args[0][0]
+            assert "git" in call_args[0]
+            assert "clone" in call_args
+            # Verify shallow clone flags are present
+            assert "--depth" in call_args
+            assert "1" in call_args
 
     def test_clone_full_clone_when_disabled(self, tmp_path: Path) -> None:
         """Clone stage should use full clone when shallow_clone is False.

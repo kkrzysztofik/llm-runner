@@ -7,6 +7,7 @@ Test Tasks:
 - T084: Test doctor success path (no repairs needed)
 """
 
+import argparse
 import json
 import time
 from unittest.mock import MagicMock, patch
@@ -24,6 +25,18 @@ from llama_cli.doctor_cli import (
     main as doctor_main,
 )
 from llama_manager.toolchain import ToolchainStatus
+
+
+def _make_namespace(**kwargs: object) -> argparse.Namespace:
+    """Create an argparse.Namespace object with the given attributes.
+
+    Args:
+        **kwargs: Attributes to set on the namespace.
+
+    Returns:
+        argparse.Namespace with the specified attributes.
+    """
+    return argparse.Namespace(**kwargs)
 
 
 class TestDoctorCheckResult:
@@ -186,7 +199,7 @@ class TestCmdDoctorCheck:
                 mock_config_instance.llama_cpp_root = str(tmp_path)
                 mock_config.return_value = mock_config_instance
 
-                exit_code = cmd_doctor_check(backend="all", json_output=False)
+                exit_code = cmd_doctor_check(_make_namespace(backend="all", json_output=False))
 
                 # Should succeed for healthy system
                 assert exit_code == 0
@@ -223,7 +236,7 @@ class TestCmdDoctorCheck:
             mock_config_instance.llama_cpp_root = str(tmp_path)
             mock_config.return_value = mock_config_instance
 
-            exit_code = cmd_doctor_check(backend="all", json_output=False)
+            exit_code = cmd_doctor_check(_make_namespace(backend="all", json_output=False))
 
             # Should fail because toolchain is incomplete
             assert exit_code != 0
@@ -265,7 +278,7 @@ class TestCmdDoctorCheck:
                 mock_config_instance.llama_cpp_root = str(tmp_path)
                 mock_config.return_value = mock_config_instance
 
-                exit_code = cmd_doctor_check(backend="all", json_output=True)
+                exit_code = cmd_doctor_check(_make_namespace(backend="all", json_output=True))
 
                 assert exit_code == 0
                 captured = capsys.readouterr()
@@ -321,11 +334,11 @@ class TestCmdDoctorCheck:
                 mock_config_instance = MagicMock()
                 mock_config_instance.build_lock_path = lock_file
                 mock_config_instance.reports_dir = tmp_path / "reports"
-                mock_config_instance.toolchain_timeout_seconds = 1  # 1 minute timeout
+                mock_config_instance.toolchain_timeout_seconds = 1  # 1 second timeout
                 mock_config_instance.llama_cpp_root = str(tmp_path)
                 mock_config.return_value = mock_config_instance
 
-                exit_code = cmd_doctor_check(backend="all", json_output=False)
+                exit_code = cmd_doctor_check(_make_namespace(backend="all", json_output=False))
 
                 # Should detect stale lock
                 assert exit_code != 0
@@ -371,7 +384,7 @@ class TestCmdDoctorRepair:
                 mock_config_instance.llama_cpp_root = str(tmp_path)
                 mock_config.return_value = mock_config_instance
 
-                result = cmd_doctor_repair(dry_run=True, json_output=False)
+                result = cmd_doctor_repair(_make_namespace(dry_run=True, json_output=False))
 
                 # Should have no repair actions needed
                 assert result.success is True
@@ -417,7 +430,7 @@ class TestCmdDoctorRepair:
                 mock_config_instance.llama_cpp_root = str(tmp_path / "llama.cpp")
                 mock_config.return_value = mock_config_instance
 
-                result = cmd_doctor_repair(dry_run=True, json_output=False)
+                result = cmd_doctor_repair(_make_namespace(dry_run=True, json_output=False))
 
                 # Should identify failed staging directories
                 assert result.success is True
@@ -472,7 +485,7 @@ class TestCmdDoctorRepair:
                 mock_config_instance.llama_cpp_root = str(tmp_path / "llama.cpp")
                 mock_config.return_value = mock_config_instance
 
-                result = cmd_doctor_repair(dry_run=True, json_output=False)
+                result = cmd_doctor_repair(_make_namespace(dry_run=True, json_output=False))
 
                 # Should identify failed staging for cleanup
                 assert result.success is True
@@ -518,11 +531,11 @@ class TestCmdDoctorRepair:
                 mock_config_instance = MagicMock()
                 mock_config_instance.build_lock_path = lock_file
                 mock_config_instance.reports_dir = tmp_path / "reports"
-                mock_config_instance.toolchain_timeout_seconds = 1  # 1 minute timeout
+                mock_config_instance.toolchain_timeout_seconds = 1  # 1 second timeout
                 mock_config_instance.llama_cpp_root = str(tmp_path)
                 mock_config.return_value = mock_config_instance
 
-                result = cmd_doctor_repair(dry_run=True, json_output=False)
+                result = cmd_doctor_repair(_make_namespace(dry_run=True, json_output=False))
 
                 # Should identify stale lock for removal
                 assert result.success is True
@@ -564,7 +577,7 @@ class TestCmdDoctorRepair:
                 mock_config_instance.llama_cpp_root = str(tmp_path)
                 mock_config.return_value = mock_config_instance
 
-                result = cmd_doctor_repair(dry_run=True, json_output=True)
+                result = cmd_doctor_repair(_make_namespace(dry_run=True, json_output=True))
 
                 assert result.success is True
                 captured = capsys.readouterr()
@@ -616,7 +629,7 @@ class TestDoctorSuccessPath:
             mock_config_instance.llama_cpp_root = str(tmp_path)
             mock_config.return_value = mock_config_instance
 
-            exit_code = cmd_doctor_check(backend="all", json_output=False)
+            exit_code = cmd_doctor_check(_make_namespace(backend="all", json_output=False))
 
             # Should succeed (exit code 0)
             assert exit_code == 0
@@ -653,7 +666,7 @@ class TestDoctorSuccessPath:
             mock_config_instance.llama_cpp_root = str(tmp_path)
             mock_config.return_value = mock_config_instance
 
-            result = cmd_doctor_repair(dry_run=True, json_output=False)
+            result = cmd_doctor_repair(_make_namespace(dry_run=True, json_output=False))
 
             # Should succeed with no actions
             assert result.success is True

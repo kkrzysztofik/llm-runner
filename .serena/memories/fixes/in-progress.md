@@ -4,7 +4,7 @@
 - Need to add class constants to BuildConfig
 - Add BOTH to BuildBackend enum
 
-## Issue 2: FR-004.4 - Build lock path wrong  
+## Issue 2: FR-004.4 - Build lock path wrong
 - Change config.py line 155 to use xdg_cache_base instead of xdg_state_base
 
 ## Issue 3: FR-006.1 - Provenance incomplete

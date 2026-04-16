@@ -77,6 +77,7 @@ class TUIApp:
         self._build_pipeline: BuildPipeline | None = None
         self._build_in_progress = False
         self._build_progress: BuildProgress | None = None
+        self._original_sigint_handler: Callable[[int, object | None], None] | None = None
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -406,13 +407,11 @@ class TUIApp:
         Returns:
             True if build successful, False otherwise
         """
-        from llama_manager.config import Config
-
         config = Config()
 
         # Determine paths
         source_dir = Path(config.llama_cpp_root)
-        build_dir = source_dir / "build"
+        build_dir = source_dir / ("build_cuda" if backend == "cuda" else "build")
         output_dir = config.builds_dir
 
         # Create build config
@@ -436,26 +435,30 @@ class TUIApp:
         self._build_pipeline.dry_run = dry_run
         self._build_in_progress = True
 
-        # Set up signal handler for build
-        signal.signal(signal.SIGINT, self._signal_handler_build)
+        # Capture original SIGINT handler before replacing it
+        self._original_sigint_handler = signal.signal(signal.SIGINT, self._signal_handler_build)
 
-        # Run pipeline
-        print(f"Building for {backend} backend...", file=sys.stderr)
-        if dry_run:
-            print("DRY RUN MODE - commands will not be executed", file=sys.stderr)
+        try:
+            # Run pipeline
+            print(f"Building for {backend} backend...", file=sys.stderr)
+            if dry_run:
+                print("DRY RUN MODE - commands will not be executed", file=sys.stderr)
 
-        result = self._build_pipeline.run()
+            result = self._build_pipeline.run()
 
-        self._build_in_progress = False
-
-        if result.success:
-            print("Build completed successfully!", file=sys.stderr)
-            if result.artifact:
-                print(f"Artifact: {result.artifact.binary_path}", file=sys.stderr)
-            return True
-        else:
-            print(f"Build failed: {result.error_message}", file=sys.stderr)
-            return False
+            if result.success:
+                print("Build completed successfully!", file=sys.stderr)
+                if result.artifact:
+                    print(f"Artifact: {result.artifact.binary_path}", file=sys.stderr)
+                return True
+            else:
+                print(f"Build failed: {result.error_message}", file=sys.stderr)
+                return False
+        finally:
+            self._build_in_progress = False
+            # Restore original SIGINT handler
+            if self._original_sigint_handler is not None:
+                signal.signal(signal.SIGINT, self._original_sigint_handler)
 
     def run(self, acknowledged: bool = False) -> None:
         slots = [

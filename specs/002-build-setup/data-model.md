@@ -49,7 +49,7 @@
 
 - **Fields**:
   - `stage: Literal["preflight", "clone", "configure", "build", "provenance"]`
-  - `status: Literal["pending", "running", "success", "failed"]`
+  - `status: Literal["pending", "running", "success", "failed", "skipped", "retrying"]`
   - `message: str` — human-readable progress description
   - `progress_percent: float` — 0.0 to 100.0
   - `retries_remaining: int` — remaining retry attempts for current stage
@@ -57,8 +57,10 @@
   - `progress_percent` must be between 0.0 and 100.0
   - `retries_remaining` must be >= 0
   - Stage literal set: exactly one of `preflight`, `clone`, `configure`, `build`, `provenance`
-  - Status allowed values: exactly one of `pending`, `running`, `success`, `failed`
+  - Status allowed values: exactly one of `pending`, `running`, `success`, `failed`, `skipped`, `retrying`
   - Stage/status consistency: each stage transitions `pending` → `running` → (`success`|`failed`); pipeline terminates on first `failed`, or after `provenance=success`
+  - `skipped` is a terminal status (no further transitions allowed)
+  - `retrying` is treated like `running` for transition purposes (can transition to `success` or `failed`)
 - **Behavioral Notes**:
   - Stage ordering: preflight → clone → configure → build → provenance
   - The `build` stage includes binary verification after `make` completes

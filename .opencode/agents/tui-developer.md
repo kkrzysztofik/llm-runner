@@ -9,7 +9,7 @@ permission:
     "*": "deny"
     "uv run llm-runner*": "allow"
   edit:
-    "llama_cli/**/*.py": "allow"
+    "src/llama_cli/**/*.py": "allow"
     "run_*.py": "allow"
     "**/*.env*": "deny"
     "**/*.key": "deny"

@@ -11,8 +11,8 @@ permission:
     "uv run ruff*": "allow"
     "uv run pyright": "allow"
   edit:
-    "llama_manager/**/*.py": "allow"
-    "tests/**/*.py": "allow"
+    "src/llama_manager/**/*.py": "allow"
+    "src/tests/**/*.py": "allow"
     "**/*.env*": "deny"
     "**/*.key": "deny"
     "**/*.secret": "deny"

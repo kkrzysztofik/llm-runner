@@ -8,6 +8,7 @@ All commands support --json output for programmatic access.
 """
 
 import argparse
+import contextlib
 import json
 import subprocess
 import sys
@@ -15,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from llama_manager.build_pipeline import BuildLock
+from llama_manager.build_pipeline import BuildBackend, BuildLock
 from llama_manager.config import Config
 from llama_manager.setup_venv import check_venv_integrity, get_venv_path
 from llama_manager.toolchain import detect_toolchain, get_toolchain_hints
@@ -117,19 +118,21 @@ def _print_json(data: dict[str, Any]) -> None:
     print(json.dumps(data, indent=2, default=str))
 
 
-def cmd_doctor_check(backend: str | None = None, json_output: bool = False) -> int:
+def cmd_doctor_check(parsed: argparse.Namespace) -> int:
     """Execute doctor check command.
 
     Validates toolchain, venv, build directories, and lock status.
     Returns exit code 0 if healthy, 1 if any issues found.
 
     Args:
-        backend: Backend to check (sycl, cuda, all). Defaults to all.
-        json_output: If True, output in JSON format.
+        parsed: Parsed command-line arguments namespace.
 
     Returns:
         Exit code (0 for healthy, 1 for issues found).
     """
+    backend = parsed.backend if hasattr(parsed, "backend") else None
+    json_output = parsed.json_output if hasattr(parsed, "json_output") else False
+
     config = Config()
     result = DoctorCheckResult(
         is_healthy=True,
@@ -143,13 +146,25 @@ def cmd_doctor_check(backend: str | None = None, json_output: bool = False) -> i
 
     # Check toolchain
     toolchain_status = detect_toolchain()
-    result.toolchain_complete = toolchain_status.is_complete
+
+    # Convert backend string to BuildBackend enum if provided
+    if backend is not None:
+        with contextlib.suppress(ValueError):
+            backend = BuildBackend(backend)
+
+    # Check if toolchain is complete for the specified backend
+    if backend == BuildBackend.SYCL:
+        result.toolchain_complete = toolchain_status.is_sycl_ready
+    elif backend == BuildBackend.CUDA:
+        result.toolchain_complete = toolchain_status.is_cuda_ready
+    else:
+        result.toolchain_complete = toolchain_status.is_complete
 
     if not result.toolchain_complete:
         result.is_healthy = False
-        missing_tools = toolchain_status.missing_tools()
-        if missing_tools:
-            result.errors.append(f"Missing tools: {', '.join(missing_tools)}")
+        missing = toolchain_status.missing_tools(backend)
+        if missing:
+            result.errors.append(f"Missing tools: {', '.join(missing)}")
 
     # Check venv
     venv_path = get_venv_path()
@@ -252,18 +267,20 @@ def cmd_doctor_check(backend: str | None = None, json_output: bool = False) -> i
         return 1
 
 
-def cmd_doctor_repair(dry_run: bool = False, json_output: bool = False) -> DoctorRepairResult:
+def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
     """Execute doctor --repair command.
 
     Attempts to fix detected issues automatically. Returns list of fix commands.
 
     Args:
-        dry_run: If True, only print actions without executing.
-        json_output: If True, output in JSON format.
+        parsed: Parsed command-line arguments namespace.
 
     Returns:
         DoctorRepairResult with actions performed.
     """
+    dry_run = parsed.dry_run if hasattr(parsed, "dry_run") else False
+    json_output = parsed.json_output if hasattr(parsed, "json_output") else False
+
     config = Config()
     result = DoctorRepairResult(actions=[], performed_actions=[], failures=[])
 
@@ -310,8 +327,8 @@ def cmd_doctor_repair(dry_run: bool = False, json_output: bool = False) -> Docto
                 RepairAction(
                     action_type="recreate_venv",
                     description=f"Recreate virtual environment ({error})",
-                    command=f"rm -rf {venv_path} && python3 -m venv {venv_path}",
-                    dry_run_command=f"# rm -rf {venv_path} && python3 -m venv {venv_path}",
+                    command=f"rm -rf '{venv_path}' && python3 -m venv '{venv_path}'",
+                    dry_run_command=f"# rm -rf '{venv_path}' && python3 -m venv '{venv_path}'",
                     requires_confirmation=True,
                 )
             )
@@ -330,8 +347,8 @@ def cmd_doctor_repair(dry_run: bool = False, json_output: bool = False) -> Docto
                     RepairAction(
                         action_type="clean_failed_staging",
                         description=f"Remove failed staging directory: {parent_dir}",
-                        command=f"rm -rf {parent_dir}",
-                        dry_run_command=f"# rm -rf {parent_dir}",
+                        command=f"rm -rf '{parent_dir}'",
+                        dry_run_command=f"# rm -rf '{parent_dir}'",
                         requires_confirmation=True,
                     )
                 )
@@ -340,8 +357,8 @@ def cmd_doctor_repair(dry_run: bool = False, json_output: bool = False) -> Docto
                     RepairAction(
                         action_type="remove_failed_marker",
                         description=f"Remove .failed marker: {marker}",
-                        command=f"rm {marker}",
-                        dry_run_command=f"# rm {marker}",
+                        command=f"rm '{marker}'",
+                        dry_run_command=f"# rm '{marker}'",
                         requires_confirmation=False,
                     )
                 )
@@ -361,8 +378,8 @@ def cmd_doctor_repair(dry_run: bool = False, json_output: bool = False) -> Docto
                     RepairAction(
                         action_type="remove_stale_lock",
                         description=f"Remove stale build lock (PID {lock.pid})",
-                        command=f"rm {lock_path}",
-                        dry_run_command=f"# rm {lock_path}",
+                        command=f"rm '{lock_path}'",
+                        dry_run_command=f"# rm '{lock_path}'",
                         requires_confirmation=True,
                     )
                 )
@@ -371,8 +388,8 @@ def cmd_doctor_repair(dry_run: bool = False, json_output: bool = False) -> Docto
                 RepairAction(
                     action_type="remove_corrupt_lock",
                     description="Remove corrupted build lock file",
-                    command=f"rm {lock_path}",
-                    dry_run_command=f"# rm {lock_path}",
+                    command=f"rm '{lock_path}'",
+                    dry_run_command=f"# rm '{lock_path}'",
                     requires_confirmation=True,
                 )
             )
@@ -382,9 +399,15 @@ def cmd_doctor_repair(dry_run: bool = False, json_output: bool = False) -> Docto
         for action in result.actions:
             if action.command:
                 try:
+                    # Parse command into list of arguments
+                    # This is a simple parser for the commands we generate
+                    # In production, we should refactor to store commands as lists
+                    import shlex
+
+                    cmd_list = shlex.split(action.command)
                     subprocess.run(
-                        action.command,
-                        shell=True,
+                        cmd_list,
+                        shell=False,
                         check=True,
                         capture_output=True,
                         text=True,
@@ -514,7 +537,7 @@ def main(args: list[str] | None = None) -> int:
     parser = create_parser()
     parsed = parser.parse_args(args)
 
-    if parsed is None or not hasattr(parsed, "func"):
+    if not hasattr(parsed, "func"):
         parser.print_help()
         return 1
 

@@ -62,7 +62,7 @@ WHY THIS MATTERS:
 - Review without context → Wrong suggestions
 
 **Context loading pattern**:
-```
+```text
 Code quality standards:
   ~/.config/opencode/context/core/standards/
     ├── code-quality.md          ← Python patterns, naming, structure

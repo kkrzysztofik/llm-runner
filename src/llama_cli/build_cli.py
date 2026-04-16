@@ -71,7 +71,7 @@ Examples:
 
     parser.add_argument(
         "--git-branch",
-        default="stable",
+        default="master",
         help="Git branch to build",
     )
 
@@ -161,7 +161,12 @@ def run_build_command(args: argparse.Namespace) -> int:
 
     if result.success:
         if args.json and result.artifact:
-            print(json.dumps(asdict(result.artifact), indent=2, default=str))
+            artifact_dict = asdict(result.artifact)
+            # Explicitly convert Path fields to str
+            for key in ["binary_path", "build_log_path", "failure_report_path"]:
+                if key in artifact_dict and artifact_dict[key] is not None:
+                    artifact_dict[key] = str(artifact_dict[key])
+            print(json.dumps(artifact_dict, indent=2))
         else:
             print("Build completed successfully!", file=sys.stderr)
             if result.artifact:

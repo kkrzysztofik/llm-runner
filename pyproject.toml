@@ -56,7 +56,6 @@ ignore = [
     "E501",          # line length — handled by formatter
     "B008",          # function call in default argument
     "B006",          # mutable default argument — intentional in config defaults
-    "S602",          # subprocess with shell=True — intentional in doctor repair
     "S603",          # subprocess call — intentional in process_manager
     "S607",          # partial executable path — intentional (user-configured paths)
     "S110",          # try-except-pass — intentional in thread pipe readers, cleanup, and GPU stat fallbacks

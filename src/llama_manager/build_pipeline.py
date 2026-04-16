@@ -3,7 +3,6 @@
 import contextlib
 import json
 import os
-import subprocess
 import sys
 import time
 from collections.abc import Callable
@@ -282,14 +281,24 @@ class BuildPipeline:
         Returns:
             BuildResult with success status and artifact if successful
         """
+        from .config import Config
+
         # Handle BOTH backend - delegate to run_both_backends
         if self.config.backend == BuildBackend.BOTH:
             raise ValueError("BuildBackend.BOTH must use run_both_backends() instead")
 
+        # Acquire build lock
+        config = Config()
+        if not self._acquire_lock(config.build_lock_path):
+            return BuildResult(
+                success=False,
+                error_message=f"Failed to acquire build lock for {self.config.backend}",
+            )
+
         try:
             # Stage 1: Preflight
             progress = self._run_with_retry(self._run_preflight, "preflight")
-            if not progress.is_complete:
+            if progress.status == "failed":
                 return BuildResult(
                     success=False,
                     error_message=f"Preflight failed: {progress.message}",
@@ -298,7 +307,7 @@ class BuildPipeline:
 
             # Stage 2: Clone
             progress = self._run_with_retry(self._run_clone, "clone")
-            if not progress.is_complete:
+            if progress.status == "failed":
                 return BuildResult(
                     success=False,
                     error_message=f"Clone failed: {progress.message}",
@@ -307,7 +316,7 @@ class BuildPipeline:
 
             # Stage 3: Configure
             progress = self._run_with_retry(self._run_configure, "configure")
-            if not progress.is_complete:
+            if progress.status == "failed":
                 return BuildResult(
                     success=False,
                     error_message=f"Configure failed: {progress.message}",
@@ -316,7 +325,7 @@ class BuildPipeline:
 
             # Stage 4: Build
             progress = self._run_with_retry(self._run_build, "build")
-            if not progress.is_complete:
+            if progress.status == "failed":
                 return BuildResult(
                     success=False,
                     error_message=f"Build failed: {progress.message}",
@@ -344,6 +353,9 @@ class BuildPipeline:
                 error_message=str(e),
             )
 
+        finally:
+            self._release_lock()
+
     def run_both_backends(self) -> list[BuildResult]:
         """Run builds for both SYCL and CUDA backends sequentially.
 
@@ -357,12 +369,18 @@ class BuildPipeline:
 
         config = Config()
 
+        # Create backend-specific directories for isolation
+        sycl_build_dir = self.config.build_dir / "build_sycl"
+        sycl_output_dir = self.config.output_dir / "output_sycl"
+        cuda_build_dir = self.config.build_dir / "build_cuda"
+        cuda_output_dir = self.config.output_dir / "output_cuda"
+
         # Build SYCL first
         sycl_config = BuildConfig(
             backend=BuildBackend.SYCL,
             source_dir=self.config.source_dir,
-            build_dir=self.config.build_dir,
-            output_dir=self.config.output_dir,
+            build_dir=sycl_build_dir,
+            output_dir=sycl_output_dir,
             git_remote_url=self.config.git_remote_url,
             git_branch=self.config.git_branch,
             retry_attempts=self.config.retry_attempts,
@@ -392,8 +410,8 @@ class BuildPipeline:
         cuda_config = BuildConfig(
             backend=BuildBackend.CUDA,
             source_dir=self.config.source_dir,
-            build_dir=self.config.build_dir,
-            output_dir=self.config.output_dir,
+            build_dir=cuda_build_dir,
+            output_dir=cuda_output_dir,
             git_remote_url=self.config.git_remote_url,
             git_branch=self.config.git_branch,
             retry_attempts=self.config.retry_attempts,
@@ -444,7 +462,7 @@ class BuildPipeline:
         if (self.config.backend == BuildBackend.SYCL and not status.is_sycl_ready) or (
             self.config.backend == BuildBackend.CUDA and not status.is_cuda_ready
         ):
-            missing = status.missing_tools()
+            missing = status.missing_tools(self.config.backend)
             progress.status = "failed"
             backend_name = "SYCL" if self.config.backend == BuildBackend.SYCL else "CUDA"
             progress.message = f"Missing {backend_name} tools: {', '.join(missing)}"
@@ -466,6 +484,8 @@ class BuildPipeline:
         Returns:
             BuildProgress with stage status
         """
+        import subprocess
+
         progress = BuildProgress(
             stage="clone",
             status="running",
@@ -544,6 +564,8 @@ class BuildPipeline:
         Returns:
             BuildProgress with stage status
         """
+        import subprocess
+
         progress = BuildProgress(
             stage="configure",
             status="running",
@@ -598,6 +620,8 @@ class BuildPipeline:
         Returns:
             BuildProgress with stage status
         """
+        import subprocess
+
         progress = BuildProgress(
             stage="build",
             status="running",
@@ -646,6 +670,8 @@ class BuildPipeline:
         Returns:
             BuildArtifact if successful, None otherwise
         """
+        import subprocess
+
         if not build_progress.is_complete or build_progress.status != "success":
             return None
 
@@ -790,7 +816,9 @@ class BuildPipeline:
             return False
 
     def _acquire_lock(self, lock_path: Path) -> bool:
-        """Acquire build lock.
+        """Acquire build lock atomically.
+
+        Uses O_EXCL flag to ensure atomic lock acquisition, preventing TOCTOU race conditions.
 
         Args:
             lock_path: Path to lock file
@@ -802,30 +830,47 @@ class BuildPipeline:
             return True
 
         try:
+            # First, check if there's a stale lock and remove it safely
             if lock_path.exists() and self._is_lock_stale(lock_path):
-                # Clear stale lock
-                lock_path.unlink()
+                with contextlib.suppress(Exception):
+                    lock_path.unlink()
 
-            # Create new lock
-            lock_data = BuildLock(
-                pid=os.getpid(),
-                started_at=time.time(),
-                backend=self.config.backend.value,
-            )
+            # Ensure parent directory exists
             lock_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(lock_path, "w") as f:
-                json.dump(
-                    {
-                        "pid": lock_data.pid,
-                        "started_at": lock_data.started_at,
-                        "backend": lock_data.backend,
-                    },
-                    f,
-                )
+
+            # Atomic lock acquisition using O_EXCL flag
+            # O_CREAT|O_EXCL ensures the file is created only if it doesn't exist
+            # This is atomic at the filesystem level
+            lock_fd = os.open(
+                str(lock_path),
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,  # Owner read/write only
+            )
+
+            # Write lock data to the file descriptor
+            lock_data = {
+                "pid": os.getpid(),
+                "started_at": time.time(),
+                "backend": self.config.backend.value,
+            }
+            try:
+                os.write(lock_fd, json.dumps(lock_data).encode("utf-8"))
+            finally:
+                os.close(lock_fd)
 
             self._lock_file = lock_path
             return True
 
+        except FileExistsError:
+            # Another process holds the lock
+            print(
+                f"error: build lock already held by another process: {lock_path}",
+                file=sys.stderr,
+            )
+            return False
+        except OSError as e:
+            print(f"error: failed to acquire build lock: {e}", file=sys.stderr)
+            return False
         except Exception as e:
             print(f"error: failed to acquire build lock: {e}", file=sys.stderr)
             return False

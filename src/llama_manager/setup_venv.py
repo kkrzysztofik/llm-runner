@@ -45,11 +45,10 @@ class VenvResult:
         Returns:
             Path to the Python interpreter in the virtual environment.
         """
+        # Check if this is a Windows-style venv path (venv_path is "Scripts" directory)
         if self.venv_path.name == "Scripts":
-            # Windows path
-            return self.venv_path.parent / "Scripts" / "python.exe"
+            return self.venv_path / "python.exe"
         else:
-            # Unix-like path
             return self.venv_path / "bin" / "python"
 
     def get_pip_path(self) -> Path:
@@ -58,11 +57,10 @@ class VenvResult:
         Returns:
             Path to the pip executable in the virtual environment.
         """
+        # Check if this is a Windows-style venv path (venv_path is "Scripts" directory)
         if self.venv_path.name == "Scripts":
-            # Windows path
-            return self.venv_path.parent / "Scripts" / "pip.exe"
+            return self.venv_path / "pip.exe"
         else:
-            # Unix-like path
             return self.venv_path / "bin" / "pip"
 
 
@@ -96,15 +94,16 @@ def create_venv(path: str | Path) -> VenvResult:
         venv.create(venv_path, with_pip=True, clear=False)
         created = True
 
-    # Determine activation command based on platform
+    # Determine activation command based on venv path structure
+    # Check if this is a Windows-style venv path (venv_path is "Scripts" directory)
     if venv_path.name == "Scripts":
-        # Windows path
-        activation_script = venv_path.parent / "Scripts" / "activate"
+        # Windows-style venv (venv_path is already the Scripts directory)
+        activation_script = venv_path / "activate.bat"
+        activation_command = f'cmd /c "{activation_script}"'
     else:
-        # Unix-like path
+        # Unix-style venv
         activation_script = venv_path / "bin" / "activate"
-
-    activation_command = f"source {activation_script}"
+        activation_command = f"source {activation_script}"
 
     return VenvResult(
         venv_path=venv_path,
@@ -133,11 +132,10 @@ def check_venv_integrity(path: str | Path) -> tuple[bool, str | None]:
         return (False, "pyvenv.cfg missing")
 
     # Check if interpreter symlink exists
+    # Check if this is a Windows-style venv path (venv_path is "Scripts" directory)
     if venv_path.name == "Scripts":
-        # Windows path
-        interpreter = venv_path.parent / "Scripts" / "python.exe"
+        interpreter = venv_path / "python.exe"
     else:
-        # Unix-like path
         interpreter = venv_path / "bin" / "python"
 
     if not interpreter.exists():

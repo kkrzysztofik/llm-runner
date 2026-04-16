@@ -354,14 +354,14 @@ class TestBuildLockPIDValidation:
         assert acquired is True, "Should acquire stale lock"
 
 
-class TestRetryExponentialBackoff:
-    """T032: Test retry logic with exponential backoff."""
+class TestNoRetryBehavior:
+    """T032: Test that pipeline does not retry on failure (no retry logic in run method)."""
 
-    def test_retry_exponential_backoff(self, tmp_path: Path) -> None:
-        """Retry should use exponential backoff with configurable delays.
+    def test_no_retry_on_failure(self, tmp_path: Path) -> None:
+        """Pipeline.run() should not retry on failure.
 
-        Each retry should wait longer than the previous one:
-        delay * 2^attempt
+        The current implementation does not have retry logic in the run method.
+        This test verifies that only one attempt is made before failing.
         """
         config = BuildConfig(
             backend=BuildBackend.SYCL,
@@ -370,32 +370,18 @@ class TestRetryExponentialBackoff:
             output_dir=tmp_path / "output",
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
-            retry_attempts=3,
-            retry_delay=1,  # 1 second base delay
         )
 
         pipeline = BuildPipeline(config)
 
-        # Track retry attempts and delays
-        retry_times: list[float] = []
-
-        def mock_stage_with_delay():
-            """Mock stage that tracks time and raises."""
-            retry_times.append(time.time())
-            raise subprocess.CalledProcessError(1, "test")
-
-        # Mock stage to fail multiple times then succeed
+        # Mock stage to fail
         call_count = [0]
 
-        def failing_then_succeeding_stage():
+        def always_fails():
             call_count[0] += 1
-            if call_count[0] < 3:
-                raise subprocess.CalledProcessError(1, "test")
-            return BuildProgress(
-                stage="build", status="success", message="Succeeded", progress_percent=75
-            )
+            raise subprocess.CalledProcessError(1, "test")
 
-        pipeline._run_build = Mock(side_effect=failing_then_succeeding_stage)
+        pipeline._run_build = Mock(side_effect=always_fails)
         pipeline._run_preflight = Mock(
             return_value=BuildProgress(
                 stage="preflight", status="success", message="OK", progress_percent=20

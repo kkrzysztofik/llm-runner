@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .config import ErrorCode
 
+from .build_pipeline import BuildBackend
 from .config import ErrorCode
 
 # Module constants for required tools by backend
@@ -86,13 +87,20 @@ class ToolchainStatus:
         """
         return self.is_sycl_ready and self.is_cuda_ready
 
-    def missing_tools(self) -> list[str]:
-        """Get list of missing tool names.
+    def missing_tools(self, backend: "BuildBackend | None" = None) -> list[str]:
+        """Get list of missing tool names for the specified backend.
+
+        Args:
+            backend: Build backend to check tools for. If None, returns
+                all missing tools (backward compatible behavior).
 
         Returns:
-            List of tool names that are not available.
+            List of tool names that are not available for the specified backend.
+            If backend is None, returns all missing tools.
         """
         missing: list[str] = []
+
+        # Always check common tools
         if self.gcc is None:
             missing.append("gcc")
         if self.make is None:
@@ -101,12 +109,27 @@ class ToolchainStatus:
             missing.append("git")
         if self.cmake is None:
             missing.append("cmake")
-        if self.sycl_compiler is None:
-            missing.append("sycl_compiler")
-        if self.cuda_toolkit is None:
-            missing.append("cuda_toolkit")
-        if self.nvtop is None:
-            missing.append("nvtop")
+
+        # If no backend specified, return all missing tools (backward compatible)
+        if backend is None:
+            if self.sycl_compiler is None:
+                missing.append("sycl_compiler")
+            if self.cuda_toolkit is None:
+                missing.append("cuda_toolkit")
+            if self.nvtop is None:
+                missing.append("nvtop")
+            return missing
+
+        # Check backend-specific tools
+        if backend == BuildBackend.SYCL:
+            if self.sycl_compiler is None:
+                missing.append("sycl_compiler")
+        elif backend == BuildBackend.CUDA:
+            if self.cuda_toolkit is None:
+                missing.append("cuda_toolkit")
+            if self.nvtop is None:
+                missing.append("nvtop")
+
         return missing
 
 

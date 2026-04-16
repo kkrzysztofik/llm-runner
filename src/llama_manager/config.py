@@ -110,7 +110,7 @@ class Config:
 
     # M2 build pipeline configuration
     build_git_remote: str = "https://github.com/ggerganov/llama.cpp.git"
-    build_git_branch: str = "stable"
+    build_git_branch: str = "master"
     build_retry_attempts: int = 3
     build_retry_delay: int = 5
     build_max_reports: int = 50

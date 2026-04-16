@@ -717,7 +717,7 @@ class TestRotateReports:
         """rotate_reports should not delete when count <= max_reports."""
         # Create 5 report directories (less than max of 10)
         for i in range(5):
-            report_dir = tmp_path / f"2026010{i}_120000"
+            report_dir = tmp_path / f"202601{(i + 1):02d}_120000"
             report_dir.mkdir()
             # Set different modification times
             report_dir.touch()
@@ -1092,8 +1092,6 @@ class TestLogMutatingAction:
 
     def test_log_mutating_action_creates_log_file(self, tmp_path: Path) -> None:
         """log_mutating_action should create log file in XDG state home."""
-        from llama_manager.reports import log_mutating_action
-
         # Mock Config instance to use tmp_path
         mock_config = MagicMock()
         mock_config.xdg_state_base = str(tmp_path)
@@ -1112,8 +1110,6 @@ class TestLogMutatingAction:
 
     def test_log_mutating_action_writes_entry(self, tmp_path: Path) -> None:
         """log_mutating_action should write entry to log file."""
-        from llama_manager.reports import log_mutating_action
-
         mock_config = MagicMock()
         mock_config.xdg_state_base = str(tmp_path)
         mock_config.build_output_truncate_bytes = 8192
@@ -1136,8 +1132,6 @@ class TestLogMutatingAction:
 
     def test_log_mutating_action_redacts_sensitive(self, tmp_path: Path) -> None:
         """log_mutating_action should redact sensitive information."""
-        from llama_manager.reports import log_mutating_action
-
         mock_config = MagicMock()
         mock_config.xdg_state_base = str(tmp_path)
         mock_config.build_output_truncate_bytes = 8192
@@ -1161,8 +1155,6 @@ class TestLogMutatingAction:
 
     def test_log_mutating_action_truncates_output(self, tmp_path: Path) -> None:
         """log_mutating_action should truncate output to Config.build_output_truncate_bytes."""
-        from llama_manager.reports import log_mutating_action
-
         mock_config = MagicMock()
         mock_config.xdg_state_base = str(tmp_path)
         mock_config.build_output_truncate_bytes = 8192
@@ -1182,8 +1174,6 @@ class TestLogMutatingAction:
 
     def test_log_mutating_action_with_working_dir(self, tmp_path: Path) -> None:
         """log_mutating_action should record working directory."""
-        from llama_manager.reports import log_mutating_action
-
         working_dir = tmp_path / "build"
         working_dir.mkdir()
 
@@ -1203,8 +1193,6 @@ class TestLogMutatingAction:
 
     def test_log_mutating_action_failure(self, tmp_path: Path) -> None:
         """log_mutating_action should handle failed commands."""
-        from llama_manager.reports import log_mutating_action
-
         mock_config = MagicMock()
         mock_config.xdg_state_base = str(tmp_path)
         mock_config.build_output_truncate_bytes = 8192
@@ -1226,8 +1214,6 @@ class TestLogMutatingAction:
 
     def test_log_mutating_action_multiple_entries(self, tmp_path: Path) -> None:
         """log_mutating_action should append multiple entries to log."""
-        from llama_manager.reports import log_mutating_action
-
         mock_config = MagicMock()
         mock_config.xdg_state_base = str(tmp_path)
         mock_config.build_output_truncate_bytes = 8192

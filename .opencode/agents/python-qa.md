@@ -11,7 +11,7 @@ permission:
     "uv run ruff*": "allow"
     "uv run pyright": "allow"
   edit:
-    "tests/**/*.py": "allow"
+    "src/tests/**/*.py": "allow"
     "**/*.env*": "deny"
     "**/*.key": "deny"
     "**/*.secret": "deny"

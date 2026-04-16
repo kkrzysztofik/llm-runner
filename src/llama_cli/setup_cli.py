@@ -14,6 +14,7 @@ import shutil
 import sys
 from typing import Any
 
+from llama_manager.build_pipeline import BuildBackend
 from llama_manager.setup_venv import (
     check_venv_integrity,
     create_venv,
@@ -107,9 +108,17 @@ def cmd_check(args: argparse.Namespace) -> int:
         _print_success(f"CUDA ready: {'YES' if status.is_cuda_ready else 'NO'}")
         _print_success(f"Complete: {'YES' if status.is_complete else 'NO'}")
 
-        if status.missing_tools():
+        # Determine backend for missing tools check
+        backend = None
+        if args.backend == "sycl":
+            backend = BuildBackend.SYCL
+        elif args.backend == "cuda":
+            backend = BuildBackend.CUDA
+
+        missing = status.missing_tools(backend)
+        if missing:
             _print_success("")
-            _print_error(f"Missing tools: {', '.join(status.missing_tools())}")
+            _print_error(f"Missing tools: {', '.join(missing)}")
 
             if hints:
                 _print_success("")
@@ -313,7 +322,7 @@ def main(args: list[str] | None = None) -> int:
     parser = create_parser()
     parsed = parser.parse_args(args)
 
-    if parsed is None or not hasattr(parsed, "func"):
+    if not hasattr(parsed, "func"):
         parser.print_help()
         return 1
 

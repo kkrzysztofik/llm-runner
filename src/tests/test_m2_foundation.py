@@ -362,15 +362,17 @@ class TestPhase2Comprehensive:
 
     def test_toolchain_error_detail_structure(self) -> None:
         """Test ToolchainErrorDetail has all required fields."""
+        from llama_manager.config import ErrorCode
+
         error = ToolchainErrorDetail(
-            error_code="TOOLCHAIN_MISSING",  # type: ignore
+            error_code=ErrorCode.TOOLCHAIN_MISSING,
             failed_check="gcc",
             why_blocked="Required for sycl backend",
             how_to_fix="sudo apt-get install gcc",
             docs_ref="https://gcc.gnu.org/download.html",
         )
 
-        assert error.error_code == "TOOLCHAIN_MISSING"
+        assert error.error_code == ErrorCode.TOOLCHAIN_MISSING
         assert error.failed_check == "gcc"
         assert error.why_blocked == "Required for sycl backend"
         assert error.how_to_fix == "sudo apt-get install gcc"

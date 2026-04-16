@@ -50,7 +50,7 @@ class TestSetupCheck:
 
     def test_setup_check_fails_with_incomplete_toolchain(self, capsys) -> None:
         """setup --check should fail when toolchain is incomplete."""
-        with patch("llama_manager.toolchain.detect_toolchain") as mock_detect:
+        with patch("llama_cli.setup_cli.detect_toolchain") as mock_detect:
             mock_detect.return_value = ToolchainStatus(
                 gcc="11.4.0",
                 make="4.3",
@@ -312,7 +312,7 @@ class TestSetupJsonOutput:
         """setup venv --json should have correct structure."""
         _ = tmp_path / "test-venv"
 
-        with patch("llama_manager.setup_venv.venv.create") as mock_create:
+        with patch("llama_cli.setup_cli.create_venv") as mock_create:
             mock_create.return_value = VenvResult(
                 venv_path=tmp_path / "test-venv",
                 created=True,
@@ -323,13 +323,16 @@ class TestSetupJsonOutput:
 
         assert exit_code == 0
         captured = capsys.readouterr()
-        parsed = json.loads(captured.out)
-        assert "venv_path" in parsed
-        assert "created" in parsed
-        assert "reused" in parsed
-        assert "activation_command" in parsed
-        assert isinstance(parsed["created"], bool)
-        assert isinstance(parsed["reused"], bool)
+        try:
+            parsed = json.loads(captured.out)
+            assert "venv_path" in parsed
+            assert "created" in parsed
+            assert "reused" in parsed
+            assert "activation_command" in parsed
+            assert isinstance(parsed["created"], bool)
+            assert isinstance(parsed["reused"], bool)
+        except json.JSONDecodeError:
+            pytest.fail("Output is not valid JSON")
 
 
 class TestSetupErrorHandling:

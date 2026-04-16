@@ -202,17 +202,22 @@ class TestVenvLifecycle:
         venv_path = tmp_path / "reuse_venv"
         venv_path.mkdir()
 
-        # First, create a valid venv
-        with patch("llama_manager.setup_venv.venv.create"):
-            result = create_venv(venv_path)
+        # First, manually create a valid venv structure
+        # (since create_venv checks for existing dir and marks as reused)
+        (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+        bin_dir = venv_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "python").symlink_to("/usr/bin/python3")
 
-        # Verify it's marked as reused
+        # Now verify create_venv recognizes it as reused
+        result = create_venv(venv_path)
         assert result.reused is True
 
         # Now check integrity
         is_valid, error = check_venv_integrity(venv_path)
-        # Should be valid since we created it with venv.create
-        assert is_valid is True or error is not None  # Either valid or has specific error
+        # Should be valid since we created the structure above
+        assert is_valid is True
+        assert error is None
 
 
 class TestToolDetectionTimeout:
