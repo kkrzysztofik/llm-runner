@@ -184,7 +184,7 @@ CMAKE_HINT: ToolchainHint = ToolchainHint(
 
 SYCL_HINT: ToolchainHint = ToolchainHint(
     tool_name="Intel oneAPI DPC++ Compiler",
-    install_command="curl -sSf https://apt.repos.intel.com/install.sh | sudo sh && sudo apt-get install oneapi-compiler-dpcpp-cpp oneapi-compiler-dpcpp-rt",
+    install_command="# Download the Intel install script, inspect it, then run:\ncurl -sSf https://apt.repos.intel.com/install.sh -o /tmp/intel-install.sh\n# Inspect the script before execution\ncat /tmp/intel-install.sh | less\n# Then run with sudo:\nsudo sh /tmp/intel-install.sh\nsudo apt-get install oneapi-compiler-dpcpp-cpp oneapi-compiler-dpcpp-rt",
     install_url="https://www.intel.com/content/www/us/en/developer/tools/oneapi/dpc-compiler.html",
     required_for=["sycl"],
 )

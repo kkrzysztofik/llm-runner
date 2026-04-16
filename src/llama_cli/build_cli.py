@@ -35,6 +35,7 @@ def parse_build_args(args: list[str] | None = None) -> argparse.Namespace:
 Examples:
   %(prog)s sycl              Build for Intel SYCL (Intel Arc)
   %(prog)s cuda              Build for NVIDIA CUDA
+  %(prog)s both              Build for both backends sequentially
   %(prog)s sycl --dry-run    Preview build without executing
   %(prog)s cuda --jobs 8     Build with 8 parallel jobs
         """,
@@ -42,8 +43,8 @@ Examples:
 
     parser.add_argument(
         "backend",
-        choices=["sycl", "cuda"],
-        help="Build backend: sycl (Intel) or cuda (NVIDIA)",
+        choices=["sycl", "cuda", "both"],
+        help="Build backend: sycl (Intel), cuda (NVIDIA), or both",
     )
 
     parser.add_argument(
@@ -67,13 +68,13 @@ Examples:
     parser.add_argument(
         "--git-remote",
         default="https://github.com/ggerganov/llama.cpp.git",
-        help="Git remote URL",
+        help="Git remote URL for llama.cpp (default: official repo)",
     )
 
     parser.add_argument(
         "--git-branch",
         default="master",
-        help="Git branch to build",
+        help="Git branch to checkout (default: master)",
     )
 
     parser.add_argument(
@@ -86,14 +87,15 @@ Examples:
         "--jobs",
         "-j",
         type=int,
-        help="Number of parallel build jobs",
+        default=None,
+        help="Number of parallel build jobs (default: auto-detect)",
     )
 
     parser.add_argument(
         "--retry-attempts",
         type=int,
-        default=3,
-        help="Number of retry attempts (default: 3)",
+        default=2,
+        help="Number of retry attempts on transient failures (default: 2)",
     )
 
     parser.add_argument(
@@ -127,8 +129,14 @@ def run_build_command(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for failure)
     """
-    # Determine backend
-    backend = BuildBackend.SYCL if args.backend == "sycl" else BuildBackend.CUDA
+    # Determine backend(s)
+    backends = []
+    if args.backend == "sycl":
+        backends = [BuildBackend.SYCL]
+    elif args.backend == "cuda":
+        backends = [BuildBackend.CUDA]
+    elif args.backend == "both":
+        backends = [BuildBackend.SYCL, BuildBackend.CUDA]
 
     # Determine paths
     config = Config()
@@ -136,45 +144,75 @@ def run_build_command(args: argparse.Namespace) -> int:
     build_dir = args.build_dir or (source_dir / "build")
     output_dir = args.output_dir or config.builds_dir
 
-    # Create build config
-    build_config = BuildConfig(
-        backend=backend,
-        source_dir=source_dir,
-        build_dir=build_dir,
-        output_dir=output_dir,
-        git_remote_url=args.git_remote,
-        git_branch=args.git_branch,
-        shallow_clone=not args.no_shallow_clone,
-        jobs=args.jobs,
-        retry_attempts=args.retry_attempts,
-        retry_delay=args.retry_delay,
-    )
+    # Build each backend sequentially
+    results = []
+    all_success = True
 
-    # Create and run pipeline
-    pipeline = BuildPipeline(build_config)
-    pipeline.dry_run = args.dry_run
+    for backend in backends:
+        # Create build config for this backend
+        build_config = BuildConfig(
+            backend=backend,
+            source_dir=source_dir,
+            build_dir=build_dir,
+            output_dir=output_dir,
+            git_remote_url=args.git_remote,
+            git_branch=args.git_branch,
+            shallow_clone=not args.no_shallow_clone,
+            jobs=args.jobs,
+            retry_attempts=args.retry_attempts,
+            retry_delay=args.retry_delay,
+        )
 
-    print(f"Building for {backend.value} backend...", file=sys.stderr)
-    if args.dry_run:
-        print("DRY RUN MODE - commands will not be executed", file=sys.stderr)
+        # Create and run pipeline
+        pipeline = BuildPipeline(build_config)
+        pipeline.dry_run = args.dry_run
 
-    result = pipeline.run()
+        print(f"Building for {backend.value} backend...", file=sys.stderr)
+        if args.dry_run:
+            print("DRY RUN MODE - commands will not be executed", file=sys.stderr)
 
-    if result.success:
-        if args.json and result.artifact:
-            artifact_dict = asdict(result.artifact)
-            # Convert all Path-like values to strings generically
-            for key, value in list(artifact_dict.items()):
-                if isinstance(value, (Path, os.PathLike)):
-                    artifact_dict[key] = str(value)
-            print(json.dumps(artifact_dict, indent=2))
+        result = pipeline.run()
+        results.append((backend, result))
+
+        if not result.success:
+            all_success = False
+            # Continue to next backend if this one fails
+
+    # Output results
+    if all_success:
+        if args.json:
+            # Output JSON array of all artifacts
+            artifacts = []
+            for _backend, result in results:
+                if result.artifact:
+                    artifact_dict = asdict(result.artifact)
+                    # Convert all Path-like values to strings generically
+                    for key, value in list(artifact_dict.items()):
+                        if isinstance(value, (Path, os.PathLike)):
+                            artifact_dict[key] = str(value)
+                    artifacts.append(artifact_dict)
+            print(json.dumps({"success": True, "artifacts": artifacts}, indent=2))
         else:
             print("Build completed successfully!", file=sys.stderr)
-            if result.artifact:
-                print(f"Artifact: {result.artifact.binary_path}", file=sys.stderr)
+            for backend, result in results:
+                if result.artifact:
+                    print(f"  {backend.value}: {result.artifact.binary_path}", file=sys.stderr)
         return 0
     else:
-        print(f"Build failed: {result.error_message}", file=sys.stderr)
+        if args.json:
+            # Output JSON error
+            errors = []
+            for backend, result in results:
+                if not result.success:
+                    errors.append(
+                        {"backend": backend.value, "error": result.error_message or "Unknown error"}
+                    )
+            print(json.dumps({"success": False, "errors": errors}, indent=2))
+        else:
+            print("Build failed:", file=sys.stderr)
+            for backend, result in results:
+                if not result.success:
+                    print(f"  {backend.value}: {result.error_message}", file=sys.stderr)
         return 1
 
 
@@ -191,7 +229,10 @@ def main() -> int:
         print("\nBuild interrupted by user", file=sys.stderr)
         return 130  # Standard exit code for Ctrl+C
     except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"success": False, "error": str(e)}, indent=2))
+        else:
+            print(f"error: {e}", file=sys.stderr)
         return 1
 
 

@@ -360,7 +360,7 @@ def main(args: list[str] | None = None) -> int:
     if parsed.mode == "doctor":
         from llama_cli.doctor_cli import main as doctor_main
 
-        return doctor_main(argv[2:])
+        return doctor_main(argv[1:])
 
     manager = ServerManager()
     signal.signal(signal.SIGINT, manager.on_interrupt)

@@ -1,14 +1,17 @@
 # Build failure reporting and logging for M2
 
+from __future__ import annotations
+
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-# Forward reference for Config
-from .config import Config  # noqa: F401
+if TYPE_CHECKING:
+    from .config import Config
 
 
 def redact_sensitive(text: str) -> str:
@@ -116,6 +119,9 @@ class FailureReport:
 
         with open(report_path, "w", encoding="utf-8") as f:
             json.dump(report_data, f, indent=2, ensure_ascii=False)
+
+        # Set restrictive permissions (owner read/write only)
+        os.chmod(report_path, 0o600)
 
         return report_path
 

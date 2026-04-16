@@ -94,9 +94,11 @@ def create_venv(path: str | Path) -> VenvResult:
         if is_valid:
             reused = True
         else:
-            # Invalid venv, recreate it
+            # Invalid venv, verify it's actually a venv before removing
             import shutil
 
+            if not (venv_path / "pyvenv.cfg").exists():
+                raise ValueError(f"Path exists but is not a valid virtual environment: {venv_path}")
             shutil.rmtree(venv_path)
             venv.create(venv_path, with_pip=True, clear=False)
             created = True

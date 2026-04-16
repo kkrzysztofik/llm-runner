@@ -10,7 +10,6 @@ All commands support --json output for programmatic access.
 import argparse
 import contextlib
 import json
-import shlex
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -53,14 +52,16 @@ class DoctorCheckResult:
 
 
 @dataclass
+@dataclass
 class RepairAction:
     """Represents a repair action to be performed."""
 
     action_type: str
     description: str
-    command: str | None
+    command: str | list[str] | None
     dry_run_command: str | None
     requires_confirmation: bool = False
+    args: list[str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -70,6 +71,7 @@ class RepairAction:
             "command": self.command,
             "dry_run_command": self.dry_run_command,
             "requires_confirmation": self.requires_confirmation,
+            "args": self.args,
         }
 
 
@@ -316,8 +318,8 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
             RepairAction(
                 action_type="create_venv",
                 description="Create virtual environment",
-                command=f"python3 -m venv {venv_path}",
-                dry_run_command=f"# python3 -m venv {venv_path}",
+                command=[sys.executable, "-m", "venv", str(venv_path)],
+                dry_run_command=f"# {sys.executable} -m venv {venv_path}",
                 requires_confirmation=True,
             )
         )
@@ -328,7 +330,8 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                 RepairAction(
                     action_type="remove_venv",
                     description=f"Remove broken virtual environment ({error})",
-                    command=f"rm -rf '{venv_path}'",
+                    command="rm",
+                    args=["-rf", str(venv_path)],
                     dry_run_command=f"# rm -rf '{venv_path}'",
                     requires_confirmation=True,
                 )
@@ -337,8 +340,8 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                 RepairAction(
                     action_type="create_venv",
                     description="Recreate virtual environment",
-                    command=f"python3 -m venv '{venv_path}'",
-                    dry_run_command=f"# python3 -m venv '{venv_path}'",
+                    command=[sys.executable, "-m", "venv", str(venv_path)],
+                    dry_run_command=f"# {sys.executable} -m venv '{venv_path}'",
                     requires_confirmation=False,
                 )
             )
@@ -357,7 +360,8 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                     RepairAction(
                         action_type="clean_failed_staging",
                         description=f"Remove failed staging directory: {parent_dir}",
-                        command=f"rm -rf '{parent_dir}'",
+                        command="rm",
+                        args=["-rf", str(parent_dir)],
                         dry_run_command=f"# rm -rf '{parent_dir}'",
                         requires_confirmation=True,
                     )
@@ -367,7 +371,8 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                     RepairAction(
                         action_type="remove_failed_marker",
                         description=f"Remove .failed marker: {marker}",
-                        command=f"rm '{marker}'",
+                        command="rm",
+                        args=[str(marker)],
                         dry_run_command=f"# rm '{marker}'",
                         requires_confirmation=False,
                     )
@@ -388,7 +393,8 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                     RepairAction(
                         action_type="remove_stale_lock",
                         description=f"Remove stale build lock (PID {lock.pid})",
-                        command=f"rm '{lock_path}'",
+                        command="rm",
+                        args=[str(lock_path)],
                         dry_run_command=f"# rm '{lock_path}'",
                         requires_confirmation=True,
                     )
@@ -398,7 +404,8 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                 RepairAction(
                     action_type="remove_corrupt_lock",
                     description="Remove corrupted build lock file",
-                    command=f"rm '{lock_path}'",
+                    command="rm",
+                    args=[str(lock_path)],
                     dry_run_command=f"# rm '{lock_path}'",
                     requires_confirmation=True,
                 )
@@ -409,10 +416,16 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
         for action in result.actions:
             if action.command:
                 try:
-                    # Parse command into list of arguments
-                    # This is a simple parser for the commands we generate
-                    # In production, we should refactor to store commands as lists
-                    cmd_list = shlex.split(action.command)
+                    # Handle both string commands and list commands
+                    if isinstance(action.command, list):
+                        cmd_list = action.command
+                    else:
+                        cmd_list = [action.command]
+
+                    # Add args if present
+                    if action.args:
+                        cmd_list = cmd_list + action.args
+
                     subprocess.run(
                         cmd_list,
                         shell=False,

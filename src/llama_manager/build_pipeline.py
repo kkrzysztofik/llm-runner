@@ -252,6 +252,7 @@ class BuildPipeline:
         self._lock_file: Path | None = None
         self._progress_callback = progress_callback
         self._build_start_time: float = 0.0
+        self._build_output: str = ""
 
     @property
     def dry_run(self) -> bool:
@@ -663,6 +664,9 @@ class BuildPipeline:
                 check=False,  # Don't raise on non-zero exit
             )
 
+            # Store build output for log file
+            self._build_output = f"STDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}"
+
             if result.returncode == 0:
                 progress.message = "Build successful"
                 progress.status = "success"
@@ -725,6 +729,11 @@ class BuildPipeline:
             else str(self.config.backend)
         )
         build_log_path = reports_dir / f"{timestamp}-{backend_name}.log"
+
+        # Ensure reports directory exists and write build log
+        if self._build_output:
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            build_log_path.write_text(self._build_output)
 
         # Create artifact with computed build duration
         artifact = BuildArtifact(
@@ -815,12 +824,15 @@ class BuildPipeline:
                 else None,
             }
 
-            # Atomic write: write to temp file, then rename
+            # Atomic write: write to temp file with restricted permissions, then rename
             temp_file = self.config.output_dir / f".build-artifact-{os.getpid()}.json.tmp"
             final_file = self.config.output_dir / "build-artifact.json"
 
             with open(temp_file, "w") as f:
                 json.dump(artifact_data, f, indent=2)
+
+            # Set restrictive permissions (owner read/write only)
+            os.chmod(temp_file, 0o600)
 
             # Atomic rename
             temp_file.rename(final_file)
