@@ -388,3 +388,8 @@ ignoring comments/strings, and can **safely rewrite** code.
 
 ## Recent Changes
 - 001-prd-mvp-spec: Added Python 3.12+ + rich, psutil, pytest, ruff, pyright
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->

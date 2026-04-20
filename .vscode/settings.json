@@ -3,5 +3,6 @@
     "sonarlint.connectedMode.project": {
         "connectionId": "kkrzysztofik",
         "projectKey": "kkrzysztofik_llm-runner"
-    }
+    },
+    "snyk.advanced.organization": "50e31838-4e3f-4e58-ba5e-c5e116e29a8a"
 }

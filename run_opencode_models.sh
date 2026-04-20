@@ -529,7 +529,7 @@ start_both_qwen35() {
   
   build_server_cmd qwen35_cmd "$MODEL_QWEN35_BOTH" "qwen35-coding" "" "$qwen35_port" \
     "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
-    "" on deepseek '{"enable_thinking":true}' "" "false" \
+    "" on deepseek '{"enable_thinking":true,"preserve_thinking":true}' "" "false" \
     "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
   qwen35_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   qwen35_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
@@ -853,11 +853,11 @@ dry_run() {
       echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN35_BOTH"
       echo "  Reasoning: on"
       echo "  Reasoning Format: deepseek"
-      echo "  Chat Template Kwargs: {\"enable_thinking\":true}"
+      echo "  Chat Template Kwargs: {\"enable_thinking\":true,\"preserve_thinking\":true}"
       echo "  Poll: $DEFAULT_POLL_MS_QWEN35"
       build_server_cmd tmp_cmd "$MODEL_QWEN35_BOTH" "qwen35-coding" "" "$qwen35_port_both" \
         "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
-        "" on deepseek '{"enable_thinking":true}' "" "false" \
+        "" on deepseek '{"enable_thinking":true,"preserve_thinking":true}' "" "false" \
         "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
