@@ -4,6 +4,7 @@ import hashlib
 import json
 from datetime import UTC
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -14,6 +15,8 @@ from llama_manager.profile_cache import (
     _sanitize_filename_component,
     compute_driver_version_hash,
     compute_gpu_identifier,
+    ensure_profiles_dir,
+    get_profile_path,
 )
 
 
@@ -239,6 +242,308 @@ class TestComputeDriverVersionHash:
         result = compute_driver_version_hash(long_version)
         assert len(result) == 16
         assert all(c in "0123456789abcdef" for c in result)
+
+
+# ---------------------------------------------------------------------------
+# Test get_profile_path
+# ---------------------------------------------------------------------------
+
+
+class TestGetProfilePath:
+    """Tests for get_profile_path function."""
+
+    def test_get_profile_path_traversal_blocked(self, tmp_path: Path) -> None:
+        """Path traversal attempts should raise ValueError."""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        # Mock _sanitize_filename_component to return a path with ..
+        # This tests the traversal protection in get_profile_path
+        with (
+            patch(
+                "llama_manager.profile_cache._sanitize_filename_component",
+                side_effect=lambda s: "../../../etc" if s == "gpu" else s,
+            ),
+            pytest.raises(ValueError, match="escapes profiles_dir"),
+        ):
+            get_profile_path(profiles_dir, "gpu", "cuda", ProfileFlavor.BALANCED)
+
+    def test_get_profile_path_actual_path_within_dir(self, tmp_path: Path) -> None:
+        """Verified path is within profiles_dir."""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        result = get_profile_path(profiles_dir, "nvidia-gpu0", "cuda", ProfileFlavor.BALANCED)
+        assert result.parent == profiles_dir
+
+    def test_get_profile_path_sycl_backend(self, tmp_path: Path) -> None:
+        """Path includes sanitized sycl backend."""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        result = get_profile_path(profiles_dir, "intel-arc-b580", "sycl", ProfileFlavor.FAST)
+        assert "intel-arc-b580-sycl-fast.json" in str(result)
+
+    def test_get_profile_path_cuda_backend(self, tmp_path: Path) -> None:
+        """Path includes sanitized cuda backend."""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        result = get_profile_path(profiles_dir, "nvidia-gpu0", "cuda", ProfileFlavor.BALANCED)
+        assert "nvidia-gpu0-cuda-balanced.json" in str(result)
+
+
+# ---------------------------------------------------------------------------
+# Test ensure_profiles_dir permissions
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureProfilesDirPermissions:
+    """Tests for ensure_profiles_dir function."""
+
+    def test_creates_with_owner_only(self, tmp_path: Path) -> None:
+        """Directory should be created with 0o700 permissions."""
+        profiles_dir = tmp_path / "profiles"
+        ensure_profiles_dir(profiles_dir)
+        # Check directory exists and has correct permissions
+        assert profiles_dir.exists()
+        import stat
+
+        mode = profiles_dir.stat().st_mode
+        assert stat.S_IMODE(mode) == 0o700
+
+    def test_does_not_overwrite_existing_dir(self, tmp_path: Path) -> None:
+        """Existing directory is not modified."""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+        original_mtime = profiles_dir.stat().st_mtime
+
+        ensure_profiles_dir(profiles_dir)
+
+        assert profiles_dir.exists()
+        # mtime should be unchanged since directory wasn't recreated
+        assert profiles_dir.stat().st_mtime == original_mtime
+
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        """Parent directories are created if they don't exist."""
+        profiles_dir = tmp_path / "deep" / "nested" / "profiles"
+        ensure_profiles_dir(profiles_dir)
+        assert profiles_dir.exists()
+        assert profiles_dir.is_dir()
+
+
+class TestAtomicWriteJson:
+    """Tests for _atomic_write_json function."""
+
+    def test_permission_mismatch_raises_oserror(self, tmp_path: Path) -> None:
+        """OSError raised when permissions don't match after rename."""
+        from llama_manager.profile_cache import _atomic_write_json
+
+        profile_path = tmp_path / "test.json"
+
+        with patch("llama_manager.profile_cache.os.stat") as mock_stat:
+            # Return a mode that doesn't match 0o600 (e.g. 0o644)
+            fake_stat = MagicMock()
+            fake_stat.st_mode = 0o100644  # regular file with 0644 permissions
+            mock_stat.return_value = fake_stat
+
+            with pytest.raises(OSError, match="permissions mismatch"):
+                _atomic_write_json(profile_path, {"key": "value"})
+
+            # The target file exists (os.replace succeeded), but OSError was raised
+            # The temp file was cleaned up by the except block
+            assert profile_path.exists()
+
+    def test_successful_write_returns_none(self, tmp_path: Path) -> None:
+        """Successful write returns None and creates file with correct permissions."""
+        from llama_manager.profile_cache import FILE_MODE_OWNER_ONLY, _atomic_write_json
+
+        profile_path = tmp_path / "test.json"
+        result = _atomic_write_json(profile_path, {"key": "value"})
+
+        assert result is None
+        assert profile_path.exists()
+        mode = profile_path.stat().st_mode & 0o777
+        assert mode == FILE_MODE_OWNER_ONLY
+
+    def test_write_content_is_valid_json(self, tmp_path: Path) -> None:
+        """Written content is valid JSON with correct data."""
+        from llama_manager.profile_cache import _atomic_write_json
+
+        profile_path = tmp_path / "test.json"
+        data = {"name": "test", "count": 42, "nested": {"a": 1}}
+        _atomic_write_json(profile_path, data)
+
+        loaded = json.loads(profile_path.read_text(encoding="utf-8"))
+        assert loaded == data
+
+    def test_write_ends_with_newline(self, tmp_path: Path) -> None:
+        """Written file ends with a newline character."""
+        from llama_manager.profile_cache import _atomic_write_json
+
+        profile_path = tmp_path / "test.json"
+        _atomic_write_json(profile_path, {"a": 1})
+
+        content = profile_path.read_text(encoding="utf-8")
+        assert content.endswith("\n")
+
+
+# ---------------------------------------------------------------------------
+# Test write_profile
+# ---------------------------------------------------------------------------
+
+
+class TestWriteProfile:
+    """Tests for write_profile function."""
+
+    def test_write_creates_file(self, tmp_path: Path) -> None:
+        """write_profile should create file."""
+        from datetime import datetime, timedelta
+
+        from llama_manager.profile_cache import (
+            compute_driver_version_hash,
+            write_profile,
+        )
+
+        now = datetime.now(UTC) - timedelta(days=1)
+        record = ProfileRecord(
+            schema_version="1.0",
+            gpu_identifier="nvidia-geforce_rtx_3090-00",
+            backend="cuda",
+            flavor=ProfileFlavor.BALANCED,
+            driver_version="545.23.08",
+            driver_version_hash=compute_driver_version_hash("545.23.08"),
+            server_binary_version="llama-server 1.0.0",
+            profiled_at=now.isoformat(),
+            metrics=ProfileMetrics(
+                tokens_per_second=100.0,
+                avg_latency_ms=10.0,
+                peak_vram_mb=8192.0,
+            ),
+        )
+
+        result = write_profile(tmp_path, record)
+        assert result.exists()
+
+    def test_write_returns_path(self, tmp_path: Path) -> None:
+        """Should return Path to written file."""
+        from datetime import datetime, timedelta
+
+        from llama_manager.profile_cache import (
+            compute_driver_version_hash,
+            write_profile,
+        )
+
+        now = datetime.now(UTC) - timedelta(days=1)
+        record = ProfileRecord(
+            schema_version="1.0",
+            gpu_identifier="nvidia-geforce_rtx_3090-00",
+            backend="cuda",
+            flavor=ProfileFlavor.BALANCED,
+            driver_version="545.23.08",
+            driver_version_hash=compute_driver_version_hash("545.23.08"),
+            server_binary_version="llama-server 1.0.0",
+            profiled_at=now.isoformat(),
+            metrics=ProfileMetrics(
+                tokens_per_second=100.0,
+                avg_latency_ms=10.0,
+                peak_vram_mb=8192.0,
+            ),
+        )
+
+        result = write_profile(tmp_path, record)
+        assert isinstance(result, Path)
+        assert "nvidia-geforce_rtx_3090-00-cuda-balanced.json" in str(result)
+
+    def test_write_creates_profiles_dir(self, tmp_path: Path) -> None:
+        """write_profile creates profiles_dir if it doesn't exist."""
+        from datetime import datetime, timedelta
+
+        from llama_manager.profile_cache import (
+            compute_driver_version_hash,
+            write_profile,
+        )
+
+        profiles_dir = tmp_path / "new_profiles"
+        assert not profiles_dir.exists()
+
+        now = datetime.now(UTC) - timedelta(days=1)
+        record = ProfileRecord(
+            schema_version="1.0",
+            gpu_identifier="nvidia-geforce_rtx_3090-00",
+            backend="cuda",
+            flavor=ProfileFlavor.BALANCED,
+            driver_version="545.23.08",
+            driver_version_hash=compute_driver_version_hash("545.23.08"),
+            server_binary_version="llama-server 1.0.0",
+            profiled_at=now.isoformat(),
+            metrics=ProfileMetrics(
+                tokens_per_second=100.0,
+                avg_latency_ms=10.0,
+                peak_vram_mb=8192.0,
+            ),
+        )
+
+        write_profile(profiles_dir, record)
+        assert profiles_dir.exists()
+        assert profiles_dir.is_dir()
+
+    def test_write_file_has_owner_only_permissions(self, tmp_path: Path) -> None:
+        """Written profile file has 0o600 permissions."""
+        import stat
+        from datetime import datetime, timedelta
+
+        from llama_manager.profile_cache import (
+            compute_driver_version_hash,
+            write_profile,
+        )
+
+        now = datetime.now(UTC) - timedelta(days=1)
+        record = ProfileRecord(
+            schema_version="1.0",
+            gpu_identifier="nvidia-geforce_rtx_3090-00",
+            backend="cuda",
+            flavor=ProfileFlavor.BALANCED,
+            driver_version="545.23.08",
+            driver_version_hash=compute_driver_version_hash("545.23.08"),
+            server_binary_version="llama-server 1.0.0",
+            profiled_at=now.isoformat(),
+            metrics=ProfileMetrics(
+                tokens_per_second=100.0,
+                avg_latency_ms=10.0,
+                peak_vram_mb=8192.0,
+            ),
+        )
+
+        result = write_profile(tmp_path, record)
+        mode = result.stat().st_mode
+        assert stat.S_IMODE(mode) == 0o600
+
+    def test_write_sycl_profile(self, tmp_path: Path) -> None:
+        """write_profile works with SYCL backend."""
+        from datetime import datetime, timedelta
+
+        from llama_manager.profile_cache import (
+            compute_driver_version_hash,
+            write_profile,
+        )
+
+        now = datetime.now(UTC) - timedelta(days=1)
+        record = ProfileRecord(
+            schema_version="1.0",
+            gpu_identifier="intel-arc_b580-00",
+            backend="sycl",
+            flavor=ProfileFlavor.FAST,
+            driver_version="750.1.0",
+            driver_version_hash=compute_driver_version_hash("750.1.0"),
+            server_binary_version="llama-server 1.0.0",
+            profiled_at=now.isoformat(),
+            metrics=ProfileMetrics(
+                tokens_per_second=200.0,
+                avg_latency_ms=5.0,
+                peak_vram_mb=4096.0,
+            ),
+        )
+
+        result = write_profile(tmp_path, record)
+        assert result.exists()
+        assert "intel-arc_b580-00-sycl-fast.json" in str(result)
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ from llama_cli.doctor_cli import (
     DoctorCheckResult,
     DoctorRepairResult,
     RepairAction,
+    _build_profile_guidance,
     cmd_doctor_check,
     cmd_doctor_repair,
 )
@@ -1125,3 +1126,100 @@ class TestProfileStalenessCheck:
                 assert exit_code == 0
                 captured = capsys.readouterr()
                 assert "Profiles: 0 total, 0 stale" in captured.out
+
+
+class TestBuildProfileGuidance:
+    """Tests for _build_profile_guidance function."""
+
+    def _make_staleness(
+        self,
+        reasons: list[str],
+        driver_version: str = "535.104.05",
+        current_driver_version: str = "545.23.08",
+        age_days: float = 200.0,
+    ) -> tuple:
+        """Helper to create a staleness result and profile record."""
+        from datetime import UTC, datetime, timedelta
+
+        from llama_manager.profile_cache import (
+            ProfileFlavor,
+            ProfileMetrics,
+            ProfileRecord,
+            StalenessReason,
+            StalenessResult,
+            compute_driver_version_hash,
+        )
+
+        now = datetime.now(UTC) - timedelta(days=int(age_days))
+        record = ProfileRecord(
+            schema_version="1.0",
+            gpu_identifier="nvidia-geforce_rtx_3090-00",
+            backend="cuda",
+            flavor=ProfileFlavor.BALANCED,
+            driver_version=driver_version,
+            driver_version_hash=compute_driver_version_hash(driver_version),
+            server_binary_version="llama-server 1.0.0",
+            profiled_at=now.isoformat(),
+            metrics=ProfileMetrics(
+                tokens_per_second=85.5,
+                avg_latency_ms=12.3,
+                peak_vram_mb=10240.0,
+            ),
+        )
+
+        staleness_reasons = [getattr(StalenessReason, r.upper()) for r in reasons]
+        staleness = StalenessResult(
+            is_stale=bool(staleness_reasons),
+            reasons=staleness_reasons,
+            driver_version_display=current_driver_version,
+            age_days=age_days,
+        )
+        return staleness, record
+
+    def test_driver_changed_guidance(self) -> None:
+        """Should return driver change guidance."""
+        staleness, record = self._make_staleness(["driver_changed"])
+        guidance = _build_profile_guidance(staleness, record)
+        assert "Re-profile recommended" in guidance
+        assert "driver version changed" in guidance
+        assert record.driver_version in guidance
+        assert staleness.driver_version_display in guidance
+
+    def test_binary_changed_guidance(self) -> None:
+        """Should return binary change guidance."""
+        staleness, record = self._make_staleness(["binary_changed"])
+        guidance = _build_profile_guidance(staleness, record)
+        assert "Re-profile recommended" in guidance
+        assert "llama-server binary was updated" in guidance
+
+    def test_age_exceeded_guidance(self) -> None:
+        """Should include max_age_days in message."""
+        staleness, record = self._make_staleness(["age_exceeded"], age_days=120.0)
+        guidance = _build_profile_guidance(staleness, record, max_age_days=90)
+        assert "Re-profile recommended" in guidance
+        assert "120 days old" in guidance
+        assert "threshold: 90 days" in guidance
+
+    def test_no_reasons_returns_default(self) -> None:
+        """Empty reasons should return default message."""
+        staleness, record = self._make_staleness([])
+        guidance = _build_profile_guidance(staleness, record)
+        assert guidance == "Re-profile recommended"
+
+    def test_multiple_reasons_semicolon_separated(self) -> None:
+        """Multiple reasons are joined with semicolons."""
+        staleness, record = self._make_staleness(
+            ["driver_changed", "binary_changed", "age_exceeded"]
+        )
+        guidance = _build_profile_guidance(staleness, record)
+        assert "driver version changed" in guidance
+        assert "llama-server binary was updated" in guidance
+        assert "days old" in guidance
+        # Verify semicolon separation
+        assert guidance.count(";") == 2
+
+    def test_max_age_days_parameter_used(self) -> None:
+        """max_age_days parameter should appear in age_exceeded message."""
+        staleness, record = self._make_staleness(["age_exceeded"], age_days=60.0)
+        guidance = _build_profile_guidance(staleness, record, max_age_days=30)
+        assert "threshold: 30 days" in guidance

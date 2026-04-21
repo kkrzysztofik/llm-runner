@@ -816,6 +816,57 @@ class ServerManager:
         self._risky_acknowledged_cache.clear()
         self._current_launch_attempt_id = None
 
+    def _filter_owned_running_pids(self, pids: list[int]) -> list[int]:
+        """Filter PIDs to only those that exist and are owned by us.
+
+        Args:
+            pids: List of PIDs to check.
+
+        Returns:
+            List of PIDs that are running and owned.
+
+        """
+        owned: list[int] = []
+        for pid in pids:
+            if self._verify_process_ownership(pid):
+                owned.append(pid)
+            else:
+                self._record_lifecycle_event("skip", pid=pid, details="ownership_failed")
+        return owned
+
+    def _send_signals_to_pids(
+        self,
+        pids: list[int],
+        signal_type: signal.Signals,
+        label: str,
+    ) -> None:
+        """Send a signal to a list of PIDs with lifecycle logging.
+
+        Args:
+            pids: List of PIDs to signal.
+            signal_type: The signal to send.
+            label: Human-readable label for the signal (e.g. 'SIGTERM').
+
+        """
+        for pid in pids:
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal_type)
+                self._record_lifecycle_event("kill", pid=pid, details=label)
+
+    def _wait_for_processes(self) -> None:
+        """Wait for all managed server processes to exit.
+
+        Waits up to 5 seconds per process, silently ignoring timeouts
+        and any other exceptions.
+        """
+        for proc in self.servers:
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            except Exception:
+                pass
+
     def cleanup_servers(self) -> None:
         """Clean up all server processes with ownership verification and audit trail.
 
@@ -831,19 +882,10 @@ class ServerManager:
             self._record_lifecycle_event("skip", details="already_shutting_down")
             return
         self.shutting_down = True
-        # Clear acknowledgement cache on exit paths
         self.clear_risk_acknowledgements()
-
         self._record_lifecycle_event("cleanup", details="initiated")
 
-        # Filter PIDs by ownership verification
-        running_pids = []
-        for pid in self.pids:
-            if self._verify_process_ownership(pid):
-                running_pids.append(pid)
-            else:
-                self._record_lifecycle_event("skip", pid=pid, details="ownership_failed")
-
+        running_pids = self._filter_owned_running_pids(self.pids)
         if not running_pids:
             self._record_lifecycle_event("cleanup", details="no_running_pids")
             return
@@ -852,20 +894,13 @@ class ServerManager:
             f"warning: Sending TERM to {len(running_pids)} server(s)...",
             file=sys.stderr,
         )
-
-        for pid in running_pids:
-            with contextlib.suppress(OSError):
-                os.kill(pid, signal.SIGTERM)
-                self._record_lifecycle_event("kill", pid=pid, details="SIGTERM")
+        self._send_signals_to_pids(running_pids, signal.SIGTERM, "SIGTERM")
 
         time.sleep(1)
 
-        # Re-verify ownership after TERM (stubborn processes that still exist)
-        stubborn_pids = []
+        stubborn_pids = self._filter_owned_running_pids(running_pids)
         for pid in running_pids:
-            if self._verify_process_ownership(pid):
-                stubborn_pids.append(pid)
-            else:
+            if pid not in stubborn_pids:
                 self._record_lifecycle_event("skip", pid=pid, details="graceful_exit")
 
         if stubborn_pids:
@@ -873,18 +908,9 @@ class ServerManager:
                 f"warning: Killing {len(stubborn_pids)} stubborn server(s)...",
                 file=sys.stderr,
             )
-            for pid in stubborn_pids:
-                with contextlib.suppress(OSError):
-                    os.kill(pid, signal.SIGKILL)
-                    self._record_lifecycle_event("kill", pid=pid, details="SIGKILL")
+            self._send_signals_to_pids(stubborn_pids, signal.SIGKILL, "SIGKILL")
 
-        for proc in self.servers:
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                pass
-            except Exception:
-                pass
+        self._wait_for_processes()
 
     def on_interrupt(self, _signum: int, _frame: FrameType | None) -> None:
         """Handle SIGINT signal.
