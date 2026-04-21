@@ -117,6 +117,12 @@ class Config:
     build_output_truncate_bytes: int = 8192
     toolchain_timeout_seconds: int = 30
 
+    # Profile management
+    profile_staleness_days: int = field(default_factory=lambda: 30)
+    server_binary_version: str = field(
+        default_factory=lambda: os.environ.get("SERVER_BINARY_VERSION", "")
+    )
+
     # M2 XDG path utilities
     @property
     def venv_path(self) -> Path:
@@ -153,6 +159,17 @@ class Config:
             Path to $XDG_CACHE_BASE/llm-runner/.build.lock
         """
         return Path(self.xdg_cache_base) / "llm-runner" / ".build.lock"
+
+    @property
+    def profiles_dir(self) -> Path:
+        """Return the profiles directory path.
+
+        Returns:
+            Path to $XDG_RUNTIME_DIR/llm-runner/profiles, or
+            /tmp/llm-runner/profiles if XDG_RUNTIME_DIR is not set
+        """
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+        return Path(runtime_dir) / "llm-runner" / "profiles"
 
 
 @dataclass

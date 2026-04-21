@@ -5,8 +5,12 @@ multiple llama-server instances with real-time log streaming, GPU stats,
 and configuration display.
 """
 
+import os
+import queue
+import select
 import signal
 import sys
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -27,8 +31,10 @@ from llama_manager import (
     LaunchResult,
     LogBuffer,
     ModelSlot,
+    ProfileFlavor,
     ServerConfig,
     ServerManager,
+    load_profile_with_staleness,
 )
 from llama_manager.build_pipeline import (
     BuildBackend,
@@ -67,6 +73,15 @@ class TUIApp:
         self.status_panel: Panel | None = None
         self.risk_panel: Panel | None = None
         self.risks_acknowledged: bool = False
+
+        # Keypress input polling infrastructure
+        self._keypress_queue: queue.Queue[str] = queue.Queue()
+        self._input_thread: threading.Thread | None = None
+
+        # Profile state
+        self._profile_status: dict[str, str] = {}  # alias -> "idle" | "running" | "done" | "failed"
+        self._profile_flavor: dict[str, str] = {}  # alias -> flavor string
+        self._profile_lock = threading.Lock()
 
         self.server_manager = ServerManager()
 
@@ -151,6 +166,11 @@ class TUIApp:
             alerts.append(self.risk_panel)
         if self.status_panel is not None:
             alerts.append(self.status_panel)
+
+        # Add profile status panel
+        profile_panel = self._build_profile_status_panel()
+        if profile_panel is not None:
+            alerts.append(profile_panel)
 
         if alerts:
             layout["alerts"].update(
@@ -256,6 +276,13 @@ class TUIApp:
         header.append(
             f"Device: {cfg.device} | Ctx: {cfg.ctx_size} | Threads: {cfg.threads}", style="cyan"
         )
+
+        # Stale profile warning badge
+        stale_warning = self._get_stale_warning(cfg)
+        if stale_warning:
+            header.append("\n")
+            header.append(stale_warning, style="yellow")
+
         header.append("\n\n")
 
         logs_text = buffer.get_text(empty_message="Waiting for output...")
@@ -282,6 +309,205 @@ class TUIApp:
 
     def _cleanup(self) -> None:
         self.server_manager.cleanup_servers()
+        self._stop_input_polling()
+
+    # ------------------------------------------------------------------
+    # Input polling infrastructure
+    # ------------------------------------------------------------------
+
+    def _start_input_polling(self) -> None:
+        """Start a daemon thread that polls stdin for keypresses."""
+        if self._input_thread is not None and self._input_thread.is_alive():
+            return
+        self._input_thread = threading.Thread(
+            target=self._input_poller,
+            name="tui-input-poller",
+            daemon=True,
+        )
+        self._input_thread.start()
+
+    def _stop_input_polling(self) -> None:
+        """Stop the input polling thread."""
+        if self._input_thread is not None:
+            self._input_thread.join(timeout=1.0)
+            self._input_thread = None
+
+    def _input_poller(self) -> None:
+        """Daemon thread: poll stdin for single-character keypresses."""
+        is_windows = os.name == "nt"
+        while self.running:
+            try:
+                if is_windows:
+                    import msvcrt  # type: ignore[import-not-found]
+
+                    if msvcrt.kbhit():  # type: ignore[attr-defined]
+                        ch = msvcrt.getch()  # type: ignore[attr-defined]
+                        # Handle Ctrl+C (0x03)
+                        if ch == b"\x03":
+                            self._keypress_queue.put("^C")
+                        elif ch and len(ch) == 1:
+                            self._keypress_queue.put(ch.decode("utf-8", errors="replace"))
+                else:
+                    # Linux/macOS: use select for non-blocking read
+                    pass
+
+                if not is_windows:
+                    # select on Linux/macOS
+                    try:
+                        ready, _, _ = select.select([sys.stdin], [], [], 0.05)
+                        if ready:
+                            ch = sys.stdin.read(1)
+                            if ch:
+                                self._keypress_queue.put(ch)
+                    except (OSError, ValueError):
+                        # stdin may be closed or in a bad state
+                        time.sleep(0.1)
+            except Exception:
+                # Don't crash the TUI if stdin polling fails
+                time.sleep(0.1)
+
+    def _process_keypresses(self) -> None:
+        """Drain the keypress queue and handle relevant keys."""
+        while not self._keypress_queue.empty():
+            try:
+                key = self._keypress_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            # Handle Ctrl+C during profiling — abort the current profile
+            if key == "^C":
+                self._abort_profile()
+                continue
+
+            # Handle 'P' key — trigger profiling on the focused slot
+            if key.upper() == "P" and self.configs:
+                # Use the first config (left column = focused slot)
+                cfg = self.configs[0]
+                self._prompt_profile_flavor(cfg.alias)
+
+    def _prompt_profile_flavor(self, alias: str) -> None:
+        """Prompt the user to select a profile flavor via stderr console."""
+        # Check if already profiling
+        with self._profile_lock:
+            if self._profile_status.get(alias) == "running":
+                return
+
+        # Clear any previous status
+        with self._profile_lock:
+            self._profile_status[alias] = "idle"
+
+        # Show prompt on stderr (outside Live context)
+        print(f"\nProfile '{alias}' — select flavor:", file=sys.stderr)
+        print("  1) balanced  2) fast  3) quality", file=sys.stderr)
+        try:
+            raw = input("  choice [1/2/3]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        flavor_map = {"1": "balanced", "2": "fast", "3": "quality"}
+        flavor = flavor_map.get(raw)
+        if flavor is None:
+            print("  invalid choice, skipping.", file=sys.stderr)
+            return
+
+        self._run_profile_background(alias, flavor)
+
+    def _run_profile_background(self, alias: str, flavor: str) -> None:
+        """Run profiling in a background thread so the TUI stays responsive."""
+        with self._profile_lock:
+            self._profile_status[alias] = "running"
+            self._profile_flavor[alias] = flavor
+
+        def _do_profile() -> None:
+            try:
+                exit_code = self._execute_profile(alias, flavor)
+                if exit_code == 0:
+                    with self._profile_lock:
+                        self._profile_status[alias] = "done"
+                else:
+                    with self._profile_lock:
+                        self._profile_status[alias] = "failed"
+            except Exception:
+                with self._profile_lock:
+                    self._profile_status[alias] = "failed"
+
+        threading.Thread(
+            target=_do_profile,
+            name=f"profile-{alias}",
+            daemon=True,
+        ).start()
+
+    def _execute_profile(self, alias: str, flavor: str) -> int:
+        """Execute the profile benchmark for a given slot.
+
+        Uses ``profile_cli.cmd_profile`` directly (no subprocess).
+        Returns 0 on success, 1 on failure.
+        """
+        from llama_cli.profile_cli import cmd_profile
+
+        return cmd_profile(slot_id=alias, flavor=flavor)
+
+    def _abort_profile(self) -> None:
+        """Abort the currently running profile for any slot."""
+        for cfg in self.configs:
+            with self._profile_lock:
+                if self._profile_status.get(cfg.alias) == "running":
+                    self._profile_status[cfg.alias] = "failed"
+                    print(f"\nProfile '{cfg.alias}' aborted.", file=sys.stderr)
+
+    # ------------------------------------------------------------------
+    # Profile staleness helpers
+    # ------------------------------------------------------------------
+
+    def _get_stale_warning(self, cfg: ServerConfig) -> str | None:
+        """Check if the cached profile for a config is stale.
+
+        Returns a warning string or None if the profile is fresh / nonexistent.
+        """
+        try:
+            record, staleness = load_profile_with_staleness(
+                profiles_dir=self.config.profiles_dir,
+                gpu_identifier=cfg.device,
+                backend=cfg.backend if hasattr(cfg, "backend") else "sycl",
+                flavor=ProfileFlavor.BALANCED,
+                current_driver_version=self.config.server_binary_version or "unknown",
+                current_binary_version=self.config.server_binary_version or "unknown",
+                staleness_days=self.config.profile_staleness_days,
+            )
+        except Exception:
+            return None
+
+        if staleness is None or not staleness.is_stale:
+            return None
+
+        reasons = "; ".join(r.value.replace("_", " ").title() for r in staleness.reasons)
+        return f"\u26a0 profile stale \u2014 {reasons}"
+
+    def _build_profile_status_panel(self) -> Panel | None:
+        """Build a panel showing active profile operations."""
+        with self._profile_lock:
+            active = {a: s for a, s in self._profile_status.items() if s != "idle"}
+        if not active:
+            return None
+
+        text = Text()
+        for alias, status in active.items():
+            flavor = self._profile_flavor.get(alias, "unknown")
+            if status == "running":
+                text.append("\u25b6 ", style="yellow")
+                text.append(f"Profiling {alias}: {flavor} ", style="yellow")
+                text.append("[running...]", style="dim")
+            elif status == "done":
+                text.append("\u2713 ", style="green")
+                text.append(f"Profile {alias}: {flavor} ", style="green")
+                text.append("[done]", style="dim")
+            elif status == "failed":
+                text.append("\u2717 ", style="red")
+                text.append(f"Profile {alias}: {flavor} ", style="red")
+                text.append("[failed]", style="dim")
+            text.append("\n")
+
+        return Panel(text, title="Profile Status", border_style="yellow")
 
     def _acknowledge_risks(
         self, launch_attempt_id: str, ack_token: str, acknowledged: bool
@@ -486,15 +712,23 @@ class TUIApp:
         }
         self.server_manager.start_servers(self.configs, log_handlers)
 
-        with Live(
-            self.render(),
-            screen=True,
-            refresh_per_second=10,
-            auto_refresh=False,
-            vertical_overflow="ellipsis",
-        ) as live:
-            while self.running:
-                time.sleep(0.1)
-                live.update(self.render(), refresh=True)
+        # Start input polling for keypresses
+        self._start_input_polling()
+
+        try:
+            with Live(
+                self.render(),
+                screen=True,
+                refresh_per_second=10,
+                auto_refresh=False,
+                vertical_overflow="ellipsis",
+            ) as live:
+                while self.running:
+                    # Process any pending keypresses
+                    self._process_keypresses()
+                    time.sleep(0.1)
+                    live.update(self.render(), refresh=True)
+        finally:
+            self._stop_input_polling()
 
         self._cleanup()

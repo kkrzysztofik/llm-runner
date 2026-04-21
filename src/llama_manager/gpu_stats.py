@@ -97,3 +97,65 @@ class GPUStats:
         """Get memory utilization string"""
         self.update()
         return self.stats.get("mem_util", "N/A")
+
+
+def get_gpu_identifier(
+    backend: str,
+    gpu_collector: Callable[[], list[dict[str, Any]]] | None = None,
+) -> str:
+    """Compute a filesystem-safe GPU identifier for the given backend.
+
+    Uses an injectable collector to query GPU information, falling back
+    to default behavior when no collector is provided.
+
+    For ``"cuda"`` backend, the collector should return a list of dicts
+    with at least ``"name"`` and ``"index"`` keys (one per GPU device).
+    The first device in the list is used.
+
+    For ``"sycl"`` backend, the collector should return a list of dicts
+    with at least ``"name"`` and ``"index"`` keys (one per SYCL device).
+    The first device in the list is used.
+
+    Args:
+        backend: Either ``"cuda"`` or ``"sycl"``.
+        gpu_collector: Optional injectable callable that returns a list of
+                       GPU device dicts. Each dict must have ``"name"``
+                       (str) and ``"index"`` (int) keys. If ``None``,
+                       uses the default collector behavior.
+
+    Returns:
+        A filesystem-safe GPU identifier string (e.g.
+        ``"nvidia-geforce_rtx_3090-00"`` for CUDA,
+        ``"intel-arc_b580-00"`` for SYCL).
+
+    Raises:
+        ValueError: If ``backend`` is not recognized.
+        KeyError: If the collector returns a dict missing ``"name"`` or
+                  ``"index"`` keys.
+        IndexError: If the collector returns an empty list.
+
+    """
+    from .profile_cache import compute_gpu_identifier
+
+    if backend not in ("cuda", "sycl"):
+        raise ValueError(
+            f"unsupported backend: {backend!r}; expected one of: cuda, sycl",
+        )
+
+    # Default collector: returns a minimal list with a single device entry
+    def _default_collector() -> list[dict[str, Any]]:
+        return [{"name": "Unknown", "index": 0}]
+
+    collector = gpu_collector if gpu_collector is not None else _default_collector
+    devices = collector()
+
+    if not devices:
+        raise IndexError(
+            f"collector returned empty device list for backend {backend!r}",
+        )
+
+    first_device = devices[0]
+    gpu_name: str = first_device["name"]
+    device_index: int = first_device["index"]
+
+    return compute_gpu_identifier(backend, gpu_name, device_index)

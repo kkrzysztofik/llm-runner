@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from .config import Config, ServerConfig
+from .profile_cache import PROFILE_OVERRIDE_FIELDS, StalenessResult
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -38,7 +39,7 @@ def _validate_merged_config(
     merged: dict[str, Any],
     slot_config: dict | None,
     workstation_config: dict | None,
-    profile_config: dict | None,
+    profile_config: dict | StalenessResult | None,
     override_config: dict | None,
 ) -> None:
     """Validate merged FR-006 config values after precedence resolution."""
@@ -193,24 +194,48 @@ def merge_config_overrides(
     defaults: Config,
     slot_config: dict | None = None,
     workstation_config: dict | None = None,
-    profile_config: dict | None = None,
+    profile_config: dict | StalenessResult | None = None,
     override_config: dict | None = None,
+    warnings: list[str] | None = None,
 ) -> ServerConfig:
-    """FR-006: Merge configuration with precedence: defaults < slot/workstation < profile < override.
+    """FR-006: Merge configuration with 5-level precedence.
 
-    This function implements the FR-006 precedence merge baseline, combining configuration
-    sources in priority order. Dict fields are deep merged; scalar fields use higher-precedence
-    source. The existing create_*_cfg functions remain compatible.
+    Configuration sources are applied in the following order (lowest to
+    highest precedence):
+
+        1. **defaults** — base values from ``Config`` (``Config.model_summary_balanced``,
+           ``Config.summary_balanced_port``, etc.)
+        2. **slot** — per-slot overrides (e.g. ``{"port": 8080, "ctx_size": 32000}``)
+        3. **workstation** — per-workstation overrides (merged alongside slot at
+           the same precedence level)
+        4. **profile** — cached profile overrides filtered through
+           ``PROFILE_OVERRIDE_FIELDS`` whitelist
+        5. **override** — explicit CLI/programmatic override (highest precedence)
+
+    Dict fields are deep merged; scalar fields use the higher-precedence
+    source.  The existing ``create_*_cfg`` functions remain compatible.
+
+    Profile config is filtered through ``PROFILE_OVERRIDE_FIELDS`` whitelist —
+    non-whitelisted keys (e.g. ``n_gpu_layers``, ``tensor_split``, ``model``,
+    ``port``, ``server_bin``, ``backend``) are silently ignored.
+
+    When ``profile_config`` is a ``StalenessResult`` (indicating stale profile
+    data), a warning is appended to the ``warnings`` list and the profile
+    layer is skipped for merging.
 
     Args:
-        defaults: Base Config object with default values
-        slot_config: Optional dict for slot-level overrides (e.g., {"port": 8080, "ctx_size": 32000})
-        workstation_config: Optional dict for workstation-level overrides
-        profile_config: Optional dict for profile-level overrides
-        override_config: Optional dict for explicit CLI override (highest precedence)
+        defaults: Base Config object with default values.
+        slot_config: Optional dict for slot-level overrides (e.g.
+            ``{"port": 8080, "ctx_size": 32000}``).
+        workstation_config: Optional dict for workstation-level overrides.
+        profile_config: Optional dict for profile-level overrides, or
+            ``StalenessResult`` if stale.
+        override_config: Optional dict for explicit CLI override
+            (highest precedence).
+        warnings: Optional list to append warnings to as a side effect.
 
     Returns:
-        ServerConfig constructed from merged configuration
+        ServerConfig constructed from merged configuration.
 
     Example:
         cfg = Config()
@@ -222,6 +247,9 @@ def merge_config_overrides(
         )
 
     """
+    # Initialize warnings list if not provided
+    _warnings: list[str] = warnings if warnings is not None else []
+
     # Start with defaults
     base_defaults: dict = {
         "model": defaults.model_summary_balanced,
@@ -256,8 +284,22 @@ def merge_config_overrides(
         merged = _deep_merge(merged, workstation_config)
 
     # Step 3: profile_config (higher precedence)
-    if profile_config:
-        merged = _deep_merge(merged, profile_config)
+    if profile_config is not None:
+        if isinstance(profile_config, StalenessResult):
+            # Stale profile — append warning and skip merging
+            _warnings.append(
+                f"⚠ Profile for {profile_config.driver_version_display} is stale: "
+                f"{profile_config.warning_message}"
+            )
+        else:
+            # Filter through whitelist — only whitelisted keys are merged
+            filtered_profile = {
+                key: value
+                for key, value in profile_config.items()
+                if key in PROFILE_OVERRIDE_FIELDS
+            }
+            if filtered_profile:
+                merged = _deep_merge(merged, filtered_profile)
 
     # Step 4: override_config (highest precedence)
     if override_config:

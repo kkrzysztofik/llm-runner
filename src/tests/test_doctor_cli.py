@@ -5,6 +5,7 @@ Test Tasks:
 - T082: Test doctor --repair preserves successful artifacts (FR-004.7)
 - T083: Test doctor --repair handles stale locks (FR-004.7)
 - T084: Test doctor success path (no repairs needed)
+- T085-T087: Test profile staleness check and repair via doctor CLI
 """
 
 import argparse
@@ -749,3 +750,378 @@ class TestDoctorCLIIntegration:
 
             # Should succeed
             assert exit_code == 0
+
+
+class TestProfileStalenessCheck:
+    """T085-T087: Test profile staleness check and repair via doctor CLI."""
+
+    def _make_profile_record(
+        self,
+        days_old: int,
+        gpu: str = "nvidia-geforce_rtx_3090-00",
+        backend: str = "cuda",
+        flavor: str = "balanced",
+        driver_version: str = "535.104.05",
+        binary_version: str = "1.18.0",
+    ) -> dict:
+        """Create a profile record dict with a given age."""
+        from datetime import UTC, datetime, timedelta
+
+        profiled_at = (datetime.now(UTC) - timedelta(days=days_old)).isoformat()
+        import hashlib
+
+        driver_hash = hashlib.sha256(driver_version.encode()).hexdigest()[:16]
+        return {
+            "schema_version": "1.0",
+            "gpu_identifier": gpu,
+            "backend": backend,
+            "flavor": flavor,
+            "driver_version": driver_version,
+            "driver_version_hash": driver_hash,
+            "server_binary_version": binary_version,
+            "profiled_at": profiled_at,
+            "metrics": {
+                "tokens_per_second": 85.5,
+                "avg_latency_ms": 12.3,
+                "peak_vram_mb": 10240.0,
+            },
+            "parameters": {"threads": 8},
+        }
+
+    def test_check_profiles_finds_no_profiles(self, tmp_path, capsys) -> None:
+        """doctor check should handle empty profiles directory gracefully."""
+        # Create empty profiles dir
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+
+        with (
+            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
+            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
+            patch("llama_cli.doctor_cli.Config") as mock_config,
+        ):
+            mock_detect.return_value = ToolchainStatus(
+                gcc="11.4.0",
+                make="4.3",
+                git="2.34.1",
+                cmake="3.25.0",
+                sycl_compiler="2023.1.0",
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
+            )
+            mock_venv_path.return_value = tmp_path / "venv"
+            (tmp_path / "venv").mkdir()
+            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+                mock_integrity.return_value = (True, None)
+                mock_config_instance = MagicMock()
+                mock_config_instance.build_lock_path = tmp_path / "lock"
+                mock_config_instance.reports_dir = tmp_path / "reports"
+                mock_config_instance.toolchain_timeout_seconds = 3600
+                mock_config_instance.llama_cpp_root = str(tmp_path)
+                mock_config_instance.profiles_dir = profiles_dir
+                mock_config.return_value = mock_config_instance
+
+                exit_code = cmd_doctor_check(_make_namespace(backend="all", json=False))
+
+                assert exit_code == 0
+                captured = capsys.readouterr()
+                assert "Profiles: 0 total, 0 stale" in captured.out
+
+    def test_check_profiles_detects_stale_profiles(self, tmp_path, capsys) -> None:
+        """doctor check should detect stale profiles and report them as warnings."""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+
+        # Create a stale profile (200 days old, beyond 90-day default)
+        stale_record = self._make_profile_record(days_old=200)
+        (profiles_dir / "test-profile.json").write_text(json.dumps(stale_record))
+
+        # Create a fresh profile (10 days old)
+        fresh_record = self._make_profile_record(days_old=10)
+        (profiles_dir / "fresh-profile.json").write_text(json.dumps(fresh_record))
+
+        with (
+            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
+            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
+            patch("llama_cli.doctor_cli.Config") as mock_config,
+        ):
+            mock_detect.return_value = ToolchainStatus(
+                gcc="11.4.0",
+                make="4.3",
+                git="2.34.1",
+                cmake="3.25.0",
+                sycl_compiler="2023.1.0",
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
+            )
+            mock_venv_path.return_value = tmp_path / "venv"
+            (tmp_path / "venv").mkdir()
+            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+                mock_integrity.return_value = (True, None)
+                mock_config_instance = MagicMock()
+                mock_config_instance.build_lock_path = tmp_path / "lock"
+                mock_config_instance.reports_dir = tmp_path / "reports"
+                mock_config_instance.toolchain_timeout_seconds = 3600
+                mock_config_instance.llama_cpp_root = str(tmp_path)
+                mock_config_instance.profiles_dir = profiles_dir
+                mock_config.return_value = mock_config_instance
+
+                exit_code = cmd_doctor_check(_make_namespace(backend="all", json=False))
+
+                assert exit_code == 0  # doctor reports but doesn't fail on stale profiles
+                captured = capsys.readouterr()
+                assert "Profiles: 2 total, 1 stale" in captured.out
+                assert "Stale profile: test-profile.json" in captured.out
+                assert "age_exceeded" in captured.out
+
+    def test_check_profiles_json_output_includes_profile_stats(self, tmp_path, capsys) -> None:
+        """doctor check --json should include profile stats in output."""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+
+        stale_record = self._make_profile_record(days_old=200)
+        (profiles_dir / "test-profile.json").write_text(json.dumps(stale_record))
+
+        with (
+            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
+            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
+            patch("llama_cli.doctor_cli.Config") as mock_config,
+        ):
+            mock_detect.return_value = ToolchainStatus(
+                gcc="11.4.0",
+                make="4.3",
+                git="2.34.1",
+                cmake="3.25.0",
+                sycl_compiler="2023.1.0",
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
+            )
+            mock_venv_path.return_value = tmp_path / "venv"
+            (tmp_path / "venv").mkdir()
+            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+                mock_integrity.return_value = (True, None)
+                mock_config_instance = MagicMock()
+                mock_config_instance.build_lock_path = tmp_path / "lock"
+                mock_config_instance.reports_dir = tmp_path / "reports"
+                mock_config_instance.toolchain_timeout_seconds = 3600
+                mock_config_instance.llama_cpp_root = str(tmp_path)
+                mock_config_instance.profiles_dir = profiles_dir
+                mock_config.return_value = mock_config_instance
+
+                exit_code = cmd_doctor_check(_make_namespace(backend="all", json=True))
+
+                assert exit_code == 0  # doctor reports but doesn't fail on stale profiles
+                captured = capsys.readouterr()
+                parsed = json.loads(captured.out)
+                assert parsed["profiles_total"] == 1
+                assert parsed["profiles_stale"] == 1
+
+    def test_check_profiles_custom_max_age(self, tmp_path, capsys) -> None:
+        """doctor check --max-age-days should use custom threshold."""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+
+        # Create a profile that is 100 days old
+        stale_record = self._make_profile_record(days_old=100)
+        (profiles_dir / "test-profile.json").write_text(json.dumps(stale_record))
+
+        with (
+            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
+            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
+            patch("llama_cli.doctor_cli.Config") as mock_config,
+        ):
+            mock_detect.return_value = ToolchainStatus(
+                gcc="11.4.0",
+                make="4.3",
+                git="2.34.1",
+                cmake="3.25.0",
+                sycl_compiler="2023.1.0",
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
+            )
+            mock_venv_path.return_value = tmp_path / "venv"
+            (tmp_path / "venv").mkdir()
+            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+                mock_integrity.return_value = (True, None)
+                mock_config_instance = MagicMock()
+                mock_config_instance.build_lock_path = tmp_path / "lock"
+                mock_config_instance.reports_dir = tmp_path / "reports"
+                mock_config_instance.toolchain_timeout_seconds = 3600
+                mock_config_instance.llama_cpp_root = str(tmp_path)
+                mock_config_instance.profiles_dir = profiles_dir
+                mock_config.return_value = mock_config_instance
+
+                # With max-age-days=200, the 100-day-old profile should NOT be stale
+                exit_code = cmd_doctor_check(
+                    _make_namespace(backend="all", json=False, max_age_days=200)
+                )
+
+                assert exit_code == 0  # no stale profiles
+                captured = capsys.readouterr()
+                assert "Profiles: 1 total, 0 stale" in captured.out
+
+    def test_repair_collects_stale_profile_actions(self, tmp_path, capsys) -> None:
+        """doctor --repair should collect stale profile removal actions."""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+
+        stale_record = self._make_profile_record(days_old=200)
+        (profiles_dir / "stale-profile.json").write_text(json.dumps(stale_record))
+
+        with (
+            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
+            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
+            patch("llama_cli.doctor_cli.Config") as mock_config,
+        ):
+            mock_detect.return_value = ToolchainStatus(
+                gcc="11.4.0",
+                make="4.3",
+                git="2.34.1",
+                cmake="3.25.0",
+                sycl_compiler="2023.1.0",
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
+            )
+            mock_venv_path.return_value = tmp_path / "venv"
+            (tmp_path / "venv").mkdir()
+            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+                mock_integrity.return_value = (True, None)
+                mock_config_instance = MagicMock()
+                mock_config_instance.build_lock_path = tmp_path / "lock"
+                mock_config_instance.reports_dir = tmp_path / "reports"
+                mock_config_instance.toolchain_timeout_seconds = 3600
+                mock_config_instance.llama_cpp_root = str(tmp_path)
+                mock_config_instance.profiles_dir = profiles_dir
+                mock_config.return_value = mock_config_instance
+
+                result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False))
+
+                assert result.success is True
+                action_types = [a.action_type for a in result.actions]
+                assert "remove_stale_profile" in action_types
+                assert len(result.actions) > 0
+
+    def test_repair_respects_max_age_days(self, tmp_path) -> None:
+        """doctor --repair --max-age-days should only flag profiles older than threshold."""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+
+        # Create a profile that is 100 days old
+        stale_record = self._make_profile_record(days_old=100)
+        (profiles_dir / "medium-age.json").write_text(json.dumps(stale_record))
+
+        with (
+            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
+            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
+            patch("llama_cli.doctor_cli.Config") as mock_config,
+        ):
+            mock_detect.return_value = ToolchainStatus(
+                gcc="11.4.0",
+                make="4.3",
+                git="2.34.1",
+                cmake="3.25.0",
+                sycl_compiler="2023.1.0",
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
+            )
+            mock_venv_path.return_value = tmp_path / "venv"
+            (tmp_path / "venv").mkdir()
+            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+                mock_integrity.return_value = (True, None)
+                mock_config_instance = MagicMock()
+                mock_config_instance.build_lock_path = tmp_path / "lock"
+                mock_config_instance.reports_dir = tmp_path / "reports"
+                mock_config_instance.toolchain_timeout_seconds = 3600
+                mock_config_instance.llama_cpp_root = str(tmp_path)
+                mock_config_instance.profiles_dir = profiles_dir
+                mock_config.return_value = mock_config_instance
+
+                # With max-age-days=200, the 100-day-old profile should NOT be stale
+                result = cmd_doctor_repair(
+                    _make_namespace(dry_run=True, json=False, max_age_days=200)
+                )
+
+                action_types = [a.action_type for a in result.actions]
+                assert "remove_stale_profile" not in action_types
+
+    def test_repair_skips_corrupt_profile_files(self, tmp_path) -> None:
+        """doctor --repair should skip corrupt/unparseable profile files."""
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir()
+
+        # Write corrupt JSON
+        (profiles_dir / "corrupt.json").write_text("not valid json {{{")
+
+        with (
+            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
+            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
+            patch("llama_cli.doctor_cli.Config") as mock_config,
+        ):
+            mock_detect.return_value = ToolchainStatus(
+                gcc="11.4.0",
+                make="4.3",
+                git="2.34.1",
+                cmake="3.25.0",
+                sycl_compiler="2023.1.0",
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
+            )
+            mock_venv_path.return_value = tmp_path / "venv"
+            (tmp_path / "venv").mkdir()
+            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+                mock_integrity.return_value = (True, None)
+                mock_config_instance = MagicMock()
+                mock_config_instance.build_lock_path = tmp_path / "lock"
+                mock_config_instance.reports_dir = tmp_path / "reports"
+                mock_config_instance.toolchain_timeout_seconds = 3600
+                mock_config_instance.llama_cpp_root = str(tmp_path)
+                mock_config_instance.profiles_dir = profiles_dir
+                mock_config.return_value = mock_config_instance
+
+                result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False))
+
+                # Should not crash and should have no stale profile actions
+                assert result.success is True
+                action_types = [a.action_type for a in result.actions]
+                assert "remove_stale_profile" not in action_types
+
+                # Should emit a warning for the corrupt profile file
+                warnings = [w for w in result.warnings if "corrupt" in w.lower()]
+                assert len(warnings) >= 1, "Expected warning for corrupt profile file"
+                assert "corrupt.json" in warnings[0]
+
+    def test_check_profiles_no_profiles_dir(self, tmp_path, capsys) -> None:
+        """doctor check should handle missing profiles directory gracefully."""
+        profiles_dir = tmp_path / "profiles"
+        # Don't create the directory
+
+        with (
+            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
+            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
+            patch("llama_cli.doctor_cli.Config") as mock_config,
+        ):
+            mock_detect.return_value = ToolchainStatus(
+                gcc="11.4.0",
+                make="4.3",
+                git="2.34.1",
+                cmake="3.25.0",
+                sycl_compiler="2023.1.0",
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
+            )
+            mock_venv_path.return_value = tmp_path / "venv"
+            (tmp_path / "venv").mkdir()
+            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+                mock_integrity.return_value = (True, None)
+                mock_config_instance = MagicMock()
+                mock_config_instance.build_lock_path = tmp_path / "lock"
+                mock_config_instance.reports_dir = tmp_path / "reports"
+                mock_config_instance.toolchain_timeout_seconds = 3600
+                mock_config_instance.llama_cpp_root = str(tmp_path)
+                mock_config_instance.profiles_dir = profiles_dir
+                mock_config.return_value = mock_config_instance
+
+                exit_code = cmd_doctor_check(_make_namespace(backend="all", json=False))
+
+                assert exit_code == 0
+                captured = capsys.readouterr()
+                assert "Profiles: 0 total, 0 stale" in captured.out

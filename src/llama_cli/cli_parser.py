@@ -8,7 +8,15 @@ a second argument specifying the mode to preview.
 import argparse
 import sys
 
+from llama_manager import ProfileFlavor
+
 VALID_MODES = ("summary-balanced", "summary-fast", "qwen35", "both", "build", "setup", "doctor")
+
+# NOTE: --strict-profiles is documented as post-MVP deferral (FR-M3-009).
+# In MVP, stale profiles produce a warning only — they never block model
+# launch.  When --strict-profiles is eventually implemented it would treat
+# stale profiles as non-existent, requiring explicit user re-profiling before
+# profile guidance is applied.
 
 
 def parse_jobs_arg(arg: str) -> int:
@@ -371,6 +379,65 @@ def _handle_doctor_case(args: list[str]) -> argparse.Namespace | None:
     sys.exit(1)
 
 
+def _handle_profile_case(args: list[str]) -> argparse.Namespace | None:
+    """Handle profile subcommand.
+
+    Args:
+        args: List of command-line arguments.
+
+    Returns:
+        Parsed namespace if profile subcommand, None otherwise.
+
+    Raises:
+        SystemExit: On missing or invalid profile arguments.
+    """
+    if not (len(args) >= 1 and args[0] == "profile"):
+        return None
+
+    if len(args) < 3:
+        print(
+            "error: profile requires a slot_id and a flavor (balanced|fast|quality)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    slot_id = args[1]
+    flavor_str = args[2]
+    remaining_args = args[3:]
+
+    # Validate slot_id
+    if not slot_id or not slot_id.strip():
+        print("error: slot_id must not be empty", file=sys.stderr)
+        sys.exit(1)
+
+    if ".." in slot_id:
+        print("error: slot_id must not contain path traversal sequences", file=sys.stderr)
+        sys.exit(1)
+
+    # Validate flavor
+    try:
+        flavor = ProfileFlavor(flavor_str)
+    except ValueError:
+        print(
+            f"error: invalid flavor '{flavor_str}'. Valid flavors: balanced, fast, quality",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Parse remaining flags
+    json_output = False
+    for arg in remaining_args:
+        if arg == "--json":
+            json_output = True
+
+    return argparse.Namespace(
+        mode="profile",
+        slot_id=slot_id,
+        flavor=flavor,
+        json=json_output,
+    )
+
+
 def _handle_dry_run_case(args: list[str]) -> argparse.Namespace | None:
     """Handle dry-run mode special case.
 
@@ -423,6 +490,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     doctor_result = _handle_doctor_case(args)
     if doctor_result is not None:
         return doctor_result
+
+    # Handle profile subcommand (not in VALID_MODES)
+    profile_result = _handle_profile_case(args)
+    if profile_result is not None:
+        return profile_result
 
     # Handle dry-run mode (special case)
     dry_run_result = _handle_dry_run_case(args)

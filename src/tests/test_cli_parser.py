@@ -455,3 +455,136 @@ class TestDryRunPortParsing:
         assert args.dry_run_mode == "both"
         assert args.acknowledge_risky is True
         assert args.ports == [8080]
+
+
+class TestHandleProfileCase:
+    """Tests for _handle_profile_case function."""
+
+    def test_handle_profile_balanced(self) -> None:
+        """_handle_profile_case should parse 'profile slot1 balanced'."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["profile", "slot1", "balanced"])
+        assert result is not None
+        assert result.mode == "profile"
+        assert result.slot_id == "slot1"
+        assert result.flavor.value == "balanced"
+
+    def test_handle_profile_fast(self) -> None:
+        """_handle_profile_case should parse 'profile slot1 fast'."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["profile", "slot1", "fast"])
+        assert result is not None
+        assert result.mode == "profile"
+        assert result.slot_id == "slot1"
+        assert result.flavor.value == "fast"
+
+    def test_handle_profile_quality(self) -> None:
+        """_handle_profile_case should parse 'profile slot1 quality'."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["profile", "slot1", "quality"])
+        assert result is not None
+        assert result.mode == "profile"
+        assert result.slot_id == "slot1"
+        assert result.flavor.value == "quality"
+
+    def test_handle_profile_with_json(self) -> None:
+        """_handle_profile_case should parse --json flag."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["profile", "slot1", "balanced", "--json"])
+        assert result is not None
+        assert result.mode == "profile"
+        assert result.slot_id == "slot1"
+        assert result.flavor.value == "balanced"
+        assert result.json is True
+
+    def test_handle_profile_slot_id_with_dashes(self) -> None:
+        """_handle_profile_case should accept slot_id with dashes."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["profile", "gpu-0", "balanced"])
+        assert result is not None
+        assert result.slot_id == "gpu-0"
+
+    def test_handle_profile_slot_id_with_underscores(self) -> None:
+        """_handle_profile_case should accept slot_id with underscores."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["profile", "gpu_0", "balanced"])
+        assert result is not None
+        assert result.slot_id == "gpu_0"
+
+    def test_handle_profile_missing_args(self) -> None:
+        """_handle_profile_case should exit when slot_id and flavor are missing."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_profile_case(["profile", "slot1"])
+        assert exc_info.value.code == 1
+
+    def test_handle_profile_no_args(self) -> None:
+        """_handle_profile_case should exit when no args provided."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_profile_case(["profile"])
+        assert exc_info.value.code == 1
+
+    def test_handle_profile_empty_slot_id(self) -> None:
+        """_handle_profile_case should exit on empty slot_id."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_profile_case(["profile", "", "balanced"])
+        assert exc_info.value.code == 1
+
+    def test_handle_profile_path_traversal_slot_id(self) -> None:
+        """_handle_profile_case should reject slot_id with path traversal."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_profile_case(["profile", "../etc/passwd", "balanced"])
+        assert exc_info.value.code == 1
+
+    def test_handle_profile_invalid_flavor(self) -> None:
+        """_handle_profile_case should exit on invalid flavor."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        with pytest.raises(SystemExit) as exc_info:
+            _handle_profile_case(["profile", "slot1", "invalid"])
+        assert exc_info.value.code == 1
+
+    def test_handle_profile_not_profile_command(self) -> None:
+        """_handle_profile_case should return None for non-profile commands."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["summary-balanced"])
+        assert result is None
+
+
+class TestParseArgsProfile:
+    """Tests for profile subcommand through parse_args."""
+
+    def test_parse_args_profile_balanced(self) -> None:
+        """parse_args should handle 'profile slot balanced'."""
+        args = parse_args(["profile", "slot1", "balanced"])
+        assert args.mode == "profile"
+        assert args.slot_id == "slot1"
+        assert args.flavor.value == "balanced"
+
+    def test_parse_args_profile_with_json(self) -> None:
+        """parse_args should handle 'profile slot balanced --json'."""
+        args = parse_args(["profile", "slot1", "balanced", "--json"])
+        assert args.mode == "profile"
+        assert args.slot_id == "slot1"
+        assert args.flavor.value == "balanced"
+        assert args.json is True
+
+    def test_parse_args_profile_invalid_flavor(self) -> None:
+        """parse_args should exit on invalid flavor."""
+        with pytest.raises(SystemExit) as exc_info:
+            parse_args(["profile", "slot1", "invalid"])
+        assert exc_info.value.code == 1

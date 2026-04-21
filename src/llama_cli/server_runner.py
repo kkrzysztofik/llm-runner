@@ -316,6 +316,7 @@ def _normalize_main_args(args: list[str] | None) -> list[str]:
         "doctor",
         "build",
         "setup",
+        "profile",
     }
     if args[0] in modes or args[0].startswith("-"):
         return args
@@ -361,6 +362,12 @@ def main(args: list[str] | None = None) -> int:
         from llama_cli.doctor_cli import main as doctor_main
 
         return doctor_main(argv[1:])
+
+    # Handle profile subcommand
+    if parsed.mode == "profile":
+        from llama_cli.profile_cli import main as profile_main
+
+        return profile_main(argv[1:])
 
     manager = ServerManager()
     signal.signal(signal.SIGINT, manager.on_interrupt)

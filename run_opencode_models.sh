@@ -105,6 +105,11 @@ DEFAULT_SPEC_TYPE_GEMMA4_31B=ngram-mod
 DEFAULT_SPEC_NGRAM_SIZE_N_GEMMA4_31B=24
 DEFAULT_DRAFT_MIN_GEMMA4_31B=48
 DEFAULT_DRAFT_MAX_GEMMA4_31B=64
+# Qwen35 both-mode speculative decoding (NVIDIA)
+DEFAULT_SPEC_TYPE_QWEN35_BOTH=ngram-mod
+DEFAULT_SPEC_NGRAM_SIZE_N_QWEN35_BOTH=24
+DEFAULT_DRAFT_MIN_QWEN35_BOTH=48
+DEFAULT_DRAFT_MAX_QWEN35_BOTH=64
 
 # ============================================================
 # GLOBAL STATE
@@ -533,6 +538,12 @@ start_both_qwen35() {
     "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
   qwen35_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   qwen35_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
+  qwen35_cmd+=(
+    --spec-type "$DEFAULT_SPEC_TYPE_QWEN35_BOTH"
+    --spec-ngram-size-n "$DEFAULT_SPEC_NGRAM_SIZE_N_QWEN35_BOTH"
+    --draft-min "$DEFAULT_DRAFT_MIN_QWEN35_BOTH"
+    --draft-max "$DEFAULT_DRAFT_MAX_QWEN35_BOTH"
+  )
   
   # Setup signal handlers BEFORE launching servers
   trap on_interrupt INT
@@ -855,12 +866,19 @@ dry_run() {
       echo "  Reasoning Format: deepseek"
       echo "  Chat Template Kwargs: {\"enable_thinking\":true,\"preserve_thinking\":true}"
       echo "  Poll: $DEFAULT_POLL_MS_QWEN35"
+      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN35_BOTH (n=$DEFAULT_SPEC_NGRAM_SIZE_N_QWEN35_BOTH, draft=$DEFAULT_DRAFT_MIN_QWEN35_BOTH..$DEFAULT_DRAFT_MAX_QWEN35_BOTH)"
       build_server_cmd tmp_cmd "$MODEL_QWEN35_BOTH" "qwen35-coding" "" "$qwen35_port_both" \
         "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
         "" on deepseek '{"enable_thinking":true,"preserve_thinking":true}' "" "false" \
         "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
+      tmp_cmd+=(
+        --spec-type "$DEFAULT_SPEC_TYPE_QWEN35_BOTH"
+        --spec-ngram-size-n "$DEFAULT_SPEC_NGRAM_SIZE_N_QWEN35_BOTH"
+        --draft-min "$DEFAULT_DRAFT_MIN_QWEN35_BOTH"
+        --draft-max "$DEFAULT_DRAFT_MAX_QWEN35_BOTH"
+      )
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;

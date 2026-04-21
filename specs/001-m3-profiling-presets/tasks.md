@@ -10,9 +10,9 @@ independent behavior.
 
 **Purpose**: Verify project structure and toolchain are ready
 
-- [ ] T001 Verify `src/llama_manager/` and `src/llama_cli/` directory structure exists
-- [ ] T002 Verify CI toolchain: `uv run ruff check .`, `uv run ruff format --check .`, `uv run pyright`, `uv run pytest` all pass
-- [ ] T003 Create feature branch `m3-profiling-presets`
+- [x] T001 Verify `src/llama_manager/` and `src/llama_cli/` directory structure exists
+- [x] T002 Verify CI toolchain: `uv run ruff check .`, `uv run ruff format --check .`, `uv run pyright`, `uv run pytest` all pass
+- [x] T003 Create feature branch `m3-profiling-presets`
 
 ---
 
@@ -22,23 +22,23 @@ independent behavior.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 [P] [FOUND] Create `src/llama_manager/profile_cache.py` — define `ProfileFlavor` (StrEnum), `ProfileMetrics` (frozen dataclass), `StalenessReason` (StrEnum), `StalenessResult` dataclass, `PROFILE_OVERRIDE_FIELDS` frozenset, `CURRENT_SCHEMA_VERSION` constant
-- [ ] T005 [P] [FOUND] Implement `ProfileRecord` dataclass in `src/llama_manager/profile_cache.py` with `from_dict()` and `to_dict()` methods (frozen=True, slots=True), using `profiled_at: str` (ISO 8601 UTC timestamp) per spec.md
-- [ ] T006 [FOUND] Implement `_sanitize_filename_component()` in `src/llama_manager/profile_cache.py` — regex-based sanitization matching `normalize_slot_id()` pattern from `config.py`
-- [ ] T007 [FOUND] Implement `compute_gpu_identifier(backend, gpu_name, device_index)` in `src/llama_manager/profile_cache.py` — CUDA: `nvidia-{name}-{idx}`, SYCL: `intel-{name}-{idx}`
-- [ ] T008 [FOUND] Implement `compute_driver_version_hash(driver_version: str) -> str` in `src/llama_manager/profile_cache.py` — SHA-256 truncated to first 16 hex chars
-- [ ] T009 [FOUND] Implement `ensure_profiles_dir(profiles_dir: Path)` in `src/llama_manager/profile_cache.py` — create with `DIR_MODE_OWNER_ONLY` (0o700), using `process_manager.py` constants
-- [ ] T010 [FOUND] Implement `get_profile_path(profiles_dir, gpu_identifier, backend, flavor)` in `src/llama_manager/profile_cache.py` — sanitized filename: `{sanitized_gpu_id}-{sanitized_backend}-{sanitized_flavor}.json`, with path traversal protection
-- [ ] T011 [FOUND] Implement `_atomic_write_json` pattern for profiles in `src/llama_manager/profile_cache.py` — write to temp file, sync, rename, apply `FILE_MODE_OWNER_ONLY` (0o600), verify permissions
-- [ ] T012 [FOUND] Implement `write_profile(profiles_dir, record)` in `src/llama_manager/profile_cache.py` — atomic write, returns written `Path`
-- [ ] T013 [FOUND] Implement `read_profile(profiles_dir, gpu_identifier, backend, flavor)` in `src/llama_manager/profile_cache.py` — JSON deserialize, validate required fields, return `ProfileRecord | None` on corrupt/missing/unsupported schema
-- [ ] T014 [FOUND] Implement `check_staleness(record, current_driver_version, current_binary_version, staleness_days)` in `src/llama_manager/profile_cache.py` — three conditions: driver hash mismatch, binary version mismatch, age > threshold
-- [ ] T015 [FOUND] Implement `load_profile_with_staleness()` in `src/llama_manager/profile_cache.py` — combines `read_profile` + `check_staleness`, returns `tuple[ProfileRecord | None, StalenessResult | None]`
-- [ ] T016 [FOUND] Implement `profile_to_override_dict(record)` in `src/llama_manager/profile_cache.py` — filters `record.parameters` through `PROFILE_OVERRIDE_FIELDS` whitelist
-- [ ] T017 [FOUND] Extend `Config` class in `src/llama_manager/config.py` — add `profiles_dir` property (XDG pattern), `profile_staleness_days: int = 30`, `server_binary_version: str = ""` (from `SERVER_BINARY_VERSION` env var)
-- [ ] T018 [FOUND] Extend `gpu_stats.py` — add `get_gpu_identifier()` function that parses `nvidia-smi`/`sycl-ls` output for GPU name and device index (injectable collector pattern, matching `GPUStats` design)
-- [ ] T019 [FOUND] Export new symbols from `src/llama_manager/__init__.py` — `ProfileFlavor`, `ProfileMetrics`, `ProfileRecord`, `StalenessReason`, `StalenessResult`, `PROFILE_OVERRIDE_FIELDS`, `CURRENT_SCHEMA_VERSION`, `compute_gpu_identifier`, `compute_driver_version_hash`, `ensure_profiles_dir`, `get_profile_path`, `read_profile`, `write_profile`, `check_staleness`, `load_profile_with_staleness`, `profile_to_override_dict`, `get_gpu_identifier`
-- [ ] T020 [P] [FOUND] Write `src/tests/test_profile_cache.py` — ProfileRecord serialization roundtrip, missing fields returns None, unsupported schema returns None, compute_gpu_identifier for CUDA and SYCL, compute_driver_version_hash, staleness (driver mismatch, binary mismatch, age exceeded, fresh), read_profile not found/corrupt returns None, write/read roundtrip (tmp_path), ensure_profiles_dir creates with 0o700 (tmp_path), sanitize_filename_component, sanitize rejects empty
+- [x] T004 [P] [FOUND] Create `src/llama_manager/profile_cache.py` — define `ProfileFlavor` (StrEnum), `ProfileMetrics` (frozen dataclass), `StalenessReason` (StrEnum), `StalenessResult` dataclass, `PROFILE_OVERRIDE_FIELDS` frozenset, `CURRENT_SCHEMA_VERSION` constant
+- [x] T005 [P] [FOUND] Implement `ProfileRecord` dataclass in `src/llama_manager/profile_cache.py` with `from_dict()` and `to_dict()` methods (frozen=True, slots=True), using `profiled_at: str` (ISO 8601 UTC timestamp) per spec.md
+- [x] T006 [FOUND] Implement `_sanitize_filename_component()` in `src/llama_manager/profile_cache.py` — regex-based sanitization matching `normalize_slot_id()` pattern from `config.py`
+- [x] T007 [FOUND] Implement `compute_gpu_identifier(backend, gpu_name, device_index)` in `src/llama_manager/profile_cache.py` — CUDA: `nvidia-{name}-{idx}`, SYCL: `intel-{name}-{idx}`
+- [x] T008 [FOUND] Implement `compute_driver_version_hash(driver_version: str) -> str` in `src/llama_manager/profile_cache.py` — SHA-256 truncated to first 16 hex chars
+- [x] T009 [FOUND] Implement `ensure_profiles_dir(profiles_dir: Path)` in `src/llama_manager/profile_cache.py` — create with `DIR_MODE_OWNER_ONLY` (0o700), using `process_manager.py` constants
+- [x] T010 [FOUND] Implement `get_profile_path(profiles_dir, gpu_identifier, backend, flavor)` in `src/llama_manager/profile_cache.py` — sanitized filename: `{sanitized_gpu_id}-{sanitized_backend}-{sanitized_flavor}.json`, with path traversal protection
+- [x] T011 [FOUND] Implement `_atomic_write_json` pattern for profiles in `src/llama_manager/profile_cache.py` — write to temp file, sync, rename, apply `FILE_MODE_OWNER_ONLY` (0o600), verify permissions
+- [x] T012 [FOUND] Implement `write_profile(profiles_dir, record)` in `src/llama_manager/profile_cache.py` — atomic write, returns written `Path`
+- [x] T013 [FOUND] Implement `read_profile(profiles_dir, gpu_identifier, backend, flavor)` in `src/llama_manager/profile_cache.py` — JSON deserialize, validate required fields, return `ProfileRecord | None` on corrupt/missing/unsupported schema
+- [x] T014 [FOUND] Implement `check_staleness(record, current_driver_version, current_binary_version, staleness_days)` in `src/llama_manager/profile_cache.py` — three conditions: driver hash mismatch, binary version mismatch, age > threshold
+- [x] T015 [FOUND] Implement `load_profile_with_staleness()` in `src/llama_manager/profile_cache.py` — combines `read_profile` + `check_staleness`, returns `tuple[ProfileRecord | None, StalenessResult | None]`
+- [x] T016 [FOUND] Implement `profile_to_override_dict(record)` in `src/llama_manager/profile_cache.py` — filters `record.parameters` through `PROFILE_OVERRIDE_FIELDS` whitelist
+- [x] T017 [FOUND] Extend `Config` class in `src/llama_manager/config.py` — add `profiles_dir` property (XDG pattern), `profile_staleness_days: int = 30`, `server_binary_version: str = ""` (from `SERVER_BINARY_VERSION` env var)
+- [x] T018 [FOUND] Extend `gpu_stats.py` — add `get_gpu_identifier()` function that parses `nvidia-smi`/`sycl-ls` output for GPU name and device index (injectable collector pattern, matching `GPUStats` design)
+- [x] T019 [FOUND] Export new symbols from `src/llama_manager/__init__.py` — `ProfileFlavor`, `ProfileMetrics`, `ProfileRecord`, `StalenessReason`, `StalenessResult`, `PROFILE_OVERRIDE_FIELDS`, `CURRENT_SCHEMA_VERSION`, `compute_gpu_identifier`, `compute_driver_version_hash`, `ensure_profiles_dir`, `get_profile_path`, `read_profile`, `write_profile`, `check_staleness`, `load_profile_with_staleness`, `profile_to_override_dict`, `get_gpu_identifier`
+- [x] T020 [P] [FOUND] Write `src/tests/test_profile_cache.py` — ProfileRecord serialization roundtrip, missing fields returns None, unsupported schema returns None, compute_gpu_identifier for CUDA and SYCL, compute_driver_version_hash, staleness (driver mismatch, binary mismatch, age exceeded, fresh), read_profile not found/corrupt returns None, write/read roundtrip (tmp_path), ensure_profiles_dir creates with 0o700 (tmp_path), sanitize_filename_component, sanitize rejects empty
 
 **Checkpoint**: Foundation ready — data model, cache I/O, staleness detection, and config extensions are complete. All tests pass.
 
@@ -48,12 +48,12 @@ independent behavior.
 
 **Purpose**: Benchmark command construction and output parsing — pure library, no subprocess at module level
 
-- [ ] T021 [P] [FOUND] Create `src/llama_manager/benchmark.py` — define `SubprocessResult` (frozen dataclass: exit_code, stdout, stderr) and `BenchmarkResult` (frozen dataclass: tokens_per_second, avg_latency_ms, peak_vram_mb | None)
-- [ ] T022 [P] [FOUND] Implement `build_benchmark_cmd(bench_bin, model, port, threads, ctx_size, ubatch_size, cache_type_k, cache_type_v, n_gpu_layers="all")` in `src/llama_manager/benchmark.py` — constructs `llama-bench` command as `list[str]`, subprocess-safe
-- [ ] T023 [P] [FOUND] Implement `parse_benchmark_output(output: str)` in `src/llama_manager/benchmark.py` — parses benchmark stdout for metrics (tokens/s, latency, VRAM), returns `BenchmarkResult | None` on failure
-- [ ] T024 [FOUND] Define `BenchmarkRunner = Callable[[list[str]], SubprocessResult]` type alias in `src/llama_manager/benchmark.py`
-- [ ] T025 [FOUND] Implement `run_benchmark(cmd, runner)` in `src/llama_manager/benchmark.py` — accepts injectable runner callable, returns parsed `BenchmarkResult | None`
-- [ ] T026 [P] [FOUND] Write `src/tests/test_benchmark.py` — build_benchmark_cmd contains required flags, is list of strings, n_gpu_layers="all"; parse_benchmark_output success/empty/partial; run_benchmark calls runner, returns None on nonzero exit
+- [x] T021 [P] [FOUND] Create `src/llama_manager/benchmark.py` — define `SubprocessResult` (frozen dataclass: exit_code, stdout, stderr) and `BenchmarkResult` (frozen dataclass: tokens_per_second, avg_latency_ms, peak_vram_mb | None)
+- [x] T022 [P] [FOUND] Implement `build_benchmark_cmd(bench_bin, model, port, threads, ctx_size, ubatch_size, cache_type_k, cache_type_v, n_gpu_layers="all")` in `src/llama_manager/benchmark.py` — constructs `llama-bench` command as `list[str]`, subprocess-safe
+- [x] T023 [P] [FOUND] Implement `parse_benchmark_output(output: str)` in `src/llama_manager/benchmark.py` — parses benchmark stdout for metrics (tokens/s, latency, VRAM), returns `BenchmarkResult | None` on failure
+- [x] T024 [FOUND] Define `BenchmarkRunner = Callable[[list[str]], SubprocessResult]` type alias in `src/llama_manager/benchmark.py`
+- [x] T025 [FOUND] Implement `run_benchmark(cmd, runner)` in `src/llama_manager/benchmark.py` — accepts injectable runner callable, returns parsed `BenchmarkResult | None`
+- [x] T026 [P] [FOUND] Write `src/tests/test_benchmark.py` — build_benchmark_cmd contains required flags, is list of strings, n_gpu_layers="all"; parse_benchmark_output success/empty/partial; run_benchmark calls runner, returns None on nonzero exit
 
 **Checkpoint**: Benchmark module is complete — pure library functions that construct commands and parse output. Subprocess execution remains in `llama_cli/`.
 
@@ -67,21 +67,21 @@ independent behavior.
 
 ### Tests for US1 (REQUIRED) ⚠️
 
-- [ ] T027 [P] [US1] Write `src/tests/test_profile_cache.py` additions — test that `write_profile` + `read_profile` roundtrip preserves all `ProfileRecord` fields (metrics, parameters, driver_version, etc.)
-- [ ] T028 [P] [US1] Write `src/tests/test_profile_cache.py` additions — test `load_profile_with_staleness` returns (record, None) for fresh profile, (record, stale_result) for stale profile
+- [x] T027 [P] [US1] Write `src/tests/test_profile_cache.py` additions — test that `write_profile` + `read_profile` roundtrip preserves all `ProfileRecord` fields (metrics, parameters, driver_version, etc.)
+- [x] T028 [P] [US1] Write `src/tests/test_profile_cache.py` additions — test `load_profile_with_staleness` returns (record, None) for fresh profile, (record, stale_result) for stale profile
 
 ### Implementation for US1
 
-- [ ] T029 [US1] Add `profile` subcommand parser in `src/llama_cli/cli_parser.py` — following `doctor` subcommand pattern (NOT to VALID_MODES), positional args: `<slot_id> <flavor>`
-- [ ] T030 [US1] Implement `_handle_profile_case(parsed)` in `src/llama_cli/cli_parser.py` — parses `profile <slot_id> <flavor>` with `--json` flag
-- [ ] T031 [US1] Create `src/llama_cli/profile_cli.py` — implement `_default_subprocess_runner(cmd)` using `subprocess.run(cmd, shell=False)`
-- [ ] T032 [US1] Implement `cmd_profile(parsed)` in `src/llama_cli/profile_cli.py` — validates slot not running (check lockfile), resolves benchmark binary path from Config, validates with `require_executable()`, constructs benchmark command via `build_benchmark_cmd`, runs benchmark, parses results, writes profile via `write_profile`
-- [ ] T033 [US1] Wire `profile` subcommand handler in `src/llama_cli/server_runner.py` — add handler in `main()` function for profile mode
-- [ ] T034 [US1] Add `profile` subcommand tests to `src/tests/test_server_runner.py` — slot running validation, benchmark binary validation, profile write on success, benchmark failure graceful handling
-- [ ] T035 [US1] Add TUI profile trigger in `src/llama_cli/tui_app.py` — add input polling daemon thread (non-blocking stdin, `queue.Queue`), `P` keybinding when slot focused, confirmation prompt, flavor selection sub-menu
-- [ ] T036 [US1] Add profile progress display in `src/llama_cli/tui_app.py` — status panel shows "Profiling: <flavor> [running...]", completion badge (✓/✗), abort with Ctrl+C
-- [ ] T037 [US1] Add stale warning badge in `src/llama_cli/tui_app.py` — yellow warning: "⚠ profile stale — <reason>" in per-slot health row
-- [ ] T038 [US1] Add profile trigger tests to `src/tests/test_tui_app.py` — profile trigger with stale/fresh/missing cache shows correct state, keypress queue dispatches P key
+- [x] T029 [US1] Add `profile` subcommand parser in `src/llama_cli/cli_parser.py` — following `doctor` subcommand pattern (NOT to VALID_MODES), positional args: `<slot_id> <flavor>`
+- [x] T030 [US1] Implement `_handle_profile_case(parsed)` in `src/llama_cli/cli_parser.py` — parses `profile <slot_id> <flavor>` with `--json` flag
+- [x] T031 [US1] Create `src/llama_cli/profile_cli.py` — implement `_default_subprocess_runner(cmd)` using `subprocess.run(cmd, shell=False)`
+- [x] T032 [US1] Implement `cmd_profile(parsed)` in `src/llama_cli/profile_cli.py` — validates slot not running (check lockfile), resolves benchmark binary path from Config, validates with `require_executable()`, constructs benchmark command via `build_benchmark_cmd`, runs benchmark, parses results, writes profile via `write_profile`
+- [x] T033 [US1] Wire `profile` subcommand handler in `src/llama_cli/server_runner.py` — add handler in `main()` function for profile mode
+- [x] T034 [US1] Add `profile` subcommand tests to `src/tests/test_server_runner.py` — slot running validation, benchmark binary validation, profile write on success, benchmark failure graceful handling
+- [x] T035 [US1] Add TUI profile trigger in `src/llama_cli/tui_app.py` — add input polling daemon thread (non-blocking stdin, `queue.Queue`), `P` keybinding when slot focused, confirmation prompt, flavor selection sub-menu
+- [x] T036 [US1] Add profile progress display in `src/llama_cli/tui_app.py` — status panel shows "Profiling: <flavor> [running...]", completion badge (✓/✗), abort with Ctrl+C
+- [x] T037 [US1] Add stale warning badge in `src/llama_cli/tui_app.py` — yellow warning: "⚠ profile stale — <reason>" in per-slot health row
+- [x] T038 [US1] Add profile trigger tests to `src/tests/test_tui_app.py` — profile trigger with stale/fresh/missing cache shows correct state, keypress queue dispatches P key
 
 **Checkpoint**: US1 complete — user can trigger profiling from TUI, benchmark runs, results persist, stale warnings display.
 
@@ -95,18 +95,18 @@ independent behavior.
 
 ### Tests for US2 (REQUIRED) ⚠️
 
-- [ ] T039 [P] [US2] Write `src/tests/test_config.py` additions — test `Config.profiles_dir` property returns correct path, `Config.profile_staleness_days` defaults to 30, `Config.server_binary_version` reads from env var and defaults to ""
-- [ ] T040 [P] [US2] Write `src/tests/test_us3_precedence.py` additions — test `merge_config_overrides` with profile_config applies overrides, profile_config ignores non-whitelisted fields, warnings list populated, stale profile includes warning, all precedence levels
+- [x] T039 [P] [US2] Write `src/tests/test_config.py` additions — test `Config.profiles_dir` property returns correct path, `Config.profile_staleness_days` defaults to 30, `Config.server_binary_version` reads from env var and defaults to ""
+- [x] T040 [P] [US2] Write `src/tests/test_us3_precedence.py` additions — test `merge_config_overrides` with profile_config applies overrides, profile_config ignores non-whitelisted fields, warnings list populated, stale profile includes warning, all precedence levels
 
 ### Implementation for US2
 
-- [ ] T041 [US2] Extend `merge_config_overrides()` in `src/llama_manager/config_builder.py` — add optional `warnings: list[str] | None = None` parameter (non-breaking, preserves backward compatibility)
-- [ ] T042 [US2] Filter `profile_config` through `PROFILE_OVERRIDE_FIELDS` whitelist before merging in `src/llama_manager/config_builder.py`
-- [ ] T043 [US2] Append staleness warnings to the provided `warnings` list when profile data is stale in `src/llama_manager/config_builder.py`
-- [ ] T044 [US2] Integrate profile loading into server launch flow — at launch, load cached profile for slot + backend + flavor, pass as `profile_config` layer to `merge_config_overrides`
-- [ ] T045 [US2] Update doctor output in `src/llama_cli/doctor_cli.py` — add `_check_profiles()` function that lists profile files, checks staleness for each, adds warnings for stale profiles
-- [ ] T046 [US2] Add `--repair` action to doctor in `src/llama_cli/doctor_cli.py` — offer to remove profiles stale beyond configurable max-age (default 90 days)
-- [ ] T047 [US2] Add doctor profile staleness tests to `src/tests/test_doctor_cli.py` — stale profiles detected, fresh profiles pass, no profiles dir handled gracefully
+- [x] T041 [US2] Extend `merge_config_overrides()` in `src/llama_manager/config_builder.py` — add optional `warnings: list[str] | None = None` parameter (non-breaking, preserves backward compatibility)
+- [x] T042 [US2] Filter `profile_config` through `PROFILE_OVERRIDE_FIELDS` whitelist before merging in `src/llama_manager/config_builder.py`
+- [x] T043 [US2] Append staleness warnings to the provided `warnings` list when profile data is stale in `src/llama_manager/config_builder.py`
+- [x] T044 [US2] Integrate profile loading into server launch flow — at launch, load cached profile for slot + backend + flavor, pass as `profile_config` layer to `merge_config_overrides`
+- [x] T045 [US2] Update doctor output in `src/llama_cli/doctor_cli.py` — add `_check_profiles()` function that lists profile files, checks staleness for each, adds warnings for stale profiles
+- [x] T046 [US2] Add `--repair` action to doctor in `src/llama_cli/doctor_cli.py` — offer to remove profiles stale beyond configurable max-age (default 90 days)
+- [x] T047 [US2] Add doctor profile staleness tests to `src/tests/test_doctor_cli.py` — stale profiles detected, fresh profiles pass, no profiles dir handled gracefully
 
 **Checkpoint**: US2 complete — profiles persist across sessions, merge precedence works with profile layer, doctor shows profile status.
 
@@ -120,15 +120,15 @@ independent behavior.
 
 ### Tests for US3 (REQUIRED) ⚠️
 
-- [ ] T048 [P] [US3] Write `src/tests/test_profile_cache.py` additions — test `check_staleness` with all three staleness conditions returns correct `StalenessResult` with appropriate `StalenessReason` values
-- [ ] T049 [P] [US3] Write `src/tests/test_profile_cache.py` additions — test `StalenessResult.warning_message` property returns human-readable warning string for each staleness reason
+- [x] T048 [P] [US3] Write `src/tests/test_profile_cache.py` additions — test `check_staleness` with all three staleness conditions returns correct `StalenessResult` with appropriate `StalenessReason` values
+- [x] T049 [P] [US3] Write `src/tests/test_profile_cache.py` additions — test `StalenessResult.warning_message` property returns human-readable warning string for each staleness reason
 
 ### Implementation for US3
 
-- [ ] T050 [US3] Ensure TUI stale warning badge displays at refresh cycle (not blocking) — already implemented in US1 phase, verify it works with doctor output
-- [ ] T051 [US3] Ensure doctor profile staleness output includes actionable guidance (e.g., "Re-profile recommended: driver version changed from X to Y")
-- [ ] T052 [US3] Document `--strict-profiles` post-MVP deferral in `src/llama_cli/cli_parser.py` comments — stale profiles would block launch in strict mode, MVP only warns
-- [ ] T053 [US3] Add edge case handling for profile corruption — corrupt/unparsable profiles logged and left on disk (not auto-deleted), treated as non-existent with defaults used
+- [x] T050 [US3] Ensure TUI stale warning badge displays at refresh cycle (not blocking) — already implemented in US1 phase, verify it works with doctor output
+- [x] T051 [US3] Ensure doctor profile staleness output includes actionable guidance (e.g., "Re-profile recommended: driver version changed from X to Y")
+- [x] T052 [US3] Document `--strict-profiles` post-MVP deferral in `src/llama_cli/cli_parser.py` comments — stale profiles would block launch in strict mode, MVP only warns
+- [x] T053 [US3] Add edge case handling for profile corruption — corrupt/unparsable profiles logged and left on disk (not auto-deleted), treated as non-existent with defaults used
 
 **Checkpoint**: US3 complete — stale profiles surface warnings in TUI and doctor, corruption handled gracefully, strict mode documented.
 
@@ -142,15 +142,15 @@ independent behavior.
 
 ### Tests for US4 (REQUIRED) ⚠️
 
-- [ ] T054 [P] [US4] Write `src/tests/test_us3_precedence.py` additions — test explicit override (e.g., `--threads=12`) wins over profile guidance (`threads=8`), profile guidance applied when no explicit override, all five precedence levels produce deterministic output
-- [ ] T055 [P] [US4] Write `src/tests/test_us3_precedence.py` additions — test `merge_config_overrides` with profile_config filtering — non-whitelisted fields (n_gpu_layers, tensor_split, model, port, server_bin, backend) are NOT applied from profile
+- [x] T054 [P] [US4] Write `src/tests/test_us3_precedence.py` additions — test explicit override (e.g., `--threads=12`) wins over profile guidance (`threads=8`), profile guidance applied when no explicit override, all five precedence levels produce deterministic output
+- [x] T055 [P] [US4] Write `src/tests/test_us3_precedence.py` additions — test `merge_config_overrides` with profile_config filtering — non-whitelisted fields (n_gpu_layers, tensor_split, model, port, server_bin, backend) are NOT applied from profile
 
 ### Implementation for US4
 
-- [ ] T056 [US4] Verify `merge_config_overrides()` in `src/llama_manager/config_builder.py` correctly implements all five precedence levels: defaults < slot < workstation < profile < override
-- [ ] T057 [US4] Ensure `PROFILE_OVERRIDE_FIELDS` whitelist is enforced — only threads, ctx_size, ubatch_size, cache_type_k, cache_type_v can be overridden by profile
-- [ ] T058 [US4] Document merge precedence chain in `config_builder.py` docstring with example showing all five levels
-- [ ] T059 [US4] Add CLI parser tests to `src/tests/test_cli_parser.py` — profile subcommand parsing with slot_id, flavor, --json flag
+- [x] T056 [US4] Verify `merge_config_overrides()` in `src/llama_manager/config_builder.py` correctly implements all five precedence levels: defaults < slot < workstation < profile < override
+- [x] T057 [US4] Ensure `PROFILE_OVERRIDE_FIELDS` whitelist is enforced — only threads, ctx_size, ubatch_size, cache_type_k, cache_type_v can be overridden by profile
+- [x] T058 [US4] Document merge precedence chain in `config_builder.py` docstring with example showing all five levels
+- [x] T059 [US4] Add CLI parser tests to `src/tests/test_cli_parser.py` — profile subcommand parsing with slot_id, flavor, --json flag
 
 **Checkpoint**: US4 complete — override precedence is deterministic, whitelist prevents structural config override, all levels work correctly.
 
@@ -160,21 +160,21 @@ independent behavior.
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T060 [P] Run `uv run ruff check .` — zero lint errors
-- [ ] T061 [P] Run `uv run ruff format .` — all files formatted
-- [ ] T062 [P] Run `uv run pyright` — zero type errors
-- [ ] T063 [P] Run `uv run pytest` — all tests pass
-- [ ] T064 [P] Run `uv run pytest --cov --cov-report=term-missing` — no unexpected coverage gaps
-- [ ] T065 [P] Run `uv run pre-commit run --all-files` — all pre-commit hooks pass
-- [ ] T066 [P] Verify `llama_manager/` has no subprocess at module level, no Rich imports, no argparse — grep for violations
-- [ ] T067 [P] Verify `llama_cli/` does not import from `llama_manager` in reverse — one-way dependency preserved
-- [ ] T068 [US2] Verify atomic write pattern: profile files written with temp file + rename, owner-only permissions (0o600), directory created with 0o700
-- [ ] T069 [US1] Verify TUI never calls `console.print()` while `Live` is active — use layout updates instead
-- [ ] T070 [US4] Verify deterministic merge: identical inputs produce identical merged ServerConfig on repeated runs
-- [ ] T071 [US1] Verify benchmark command constructed as `list[str]` (never shell string), passed to subprocess with `shell=False`
-- [ ] T072 [US2] Verify profile cache directory path follows XDG pattern: `~/.cache/llm-runner/profiles/`
-- [ ] T073 [US3] Verify stale profile warning does NOT block model launch in MVP — only warning, no hard block
-- [ ] T074 [US4] Verify `--strict-profiles` is documented as post-MVP deferral, not implemented in MVP
+- [x] T060 [P] Run `uv run ruff check .` — zero lint errors
+- [x] T061 [P] Run `uv run ruff format .` — all files formatted
+- [x] T062 [P] Run `uv run pyright` — zero type errors
+- [x] T063 [P] Run `uv run pytest` — all tests pass
+- [x] T064 [P] Run `uv run pytest --cov --cov-report=term-missing` — no unexpected coverage gaps
+- [x] T065 [P] Run `uv run pre-commit run --all-files` — all pre-commit hooks pass
+- [x] T066 [P] Verify `llama_manager/` has no subprocess at module level, no Rich imports, no argparse — grep for violations
+- [x] T067 [P] Verify `llama_cli/` does not import from `llama_manager` in reverse — one-way dependency preserved
+- [x] T068 [US2] Verify atomic write pattern: profile files written with temp file + rename, owner-only permissions (0o600), directory created with 0o700
+- [x] T069 [US1] Verify TUI never calls `console.print()` while `Live` is active — use layout updates instead
+- [x] T070 [US4] Verify deterministic merge: identical inputs produce identical merged ServerConfig on repeated runs
+- [x] T071 [US1] Verify benchmark command constructed as `list[str]` (never shell string), passed to subprocess with `shell=False`
+- [x] T072 [US2] Verify profile cache directory path follows XDG pattern: `~/.cache/llm-runner/profiles/`
+- [x] T073 [US3] Verify stale profile warning does NOT block model launch in MVP — only warning, no hard block
+- [x] T074 [US4] Verify `--strict-profiles` is documented as post-MVP deferral, not implemented in MVP
 
 ---
 
