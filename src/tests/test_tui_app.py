@@ -8,12 +8,13 @@ Covers:
 - Status panel building
 """
 
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llama_cli.tui_app import TUIApp
+from llama_cli.tui_app import TUIApp, _cbreak_stdin
 from llama_manager import ServerConfig
 from llama_manager.build_pipeline import BuildBackend, BuildProgress, BuildResult
 
@@ -508,3 +509,125 @@ class TestSignalHandler:
 
             assert exc_info.value.code == 130
             mock_pipeline.release_lock.assert_called_once()
+
+
+# =============================================================================
+# Profiling input/cancellation and staleness wiring
+# =============================================================================
+
+
+class TestProfilingFlow:
+    """Tests for non-blocking profiling input and cancellation behavior."""
+
+    def test_process_keypresses_prioritizes_flavor_key_for_pending_request(self) -> None:
+        app = TUIApp(configs=[_make_config(alias="slot0")], gpu_indices=[0])
+        app._profile_request = "slot0"
+        app._keypress_queue.put("1")
+
+        with patch.object(app, "_wait_for_flavor_selection") as mock_wait:
+            app._process_keypresses()
+
+        mock_wait.assert_called_once_with("slot0", preselected_key="1")
+        assert app._profile_request is None
+
+    def test_execute_profile_returns_1_when_cancel_event_missing(self) -> None:
+        app = TUIApp(configs=[_make_config(alias="slot0")], gpu_indices=[0])
+
+        exit_code = app._execute_profile("slot0", "balanced")
+
+        assert exit_code == 1
+
+    def test_execute_profile_uses_silent_callback_mode(self) -> None:
+        app = TUIApp(configs=[_make_config(alias="slot0")], gpu_indices=[0])
+        cancel_event = threading.Event()
+        app._profile_cancel_events["slot0"] = cancel_event
+
+        with patch("llama_cli.profile_cli.cmd_profile", return_value=0) as mock_cmd_profile:
+            exit_code = app._execute_profile("slot0", "balanced")
+
+        assert exit_code == 0
+        mock_cmd_profile.assert_called_once_with(
+            slot_id="slot0",
+            flavor="balanced",
+            quiet=True,
+            progress_callback=app._push_status_message,
+            cancel_event=cancel_event,
+        )
+
+    def test_abort_profile_sets_cancel_event_and_failed_status(self) -> None:
+        app = TUIApp(configs=[_make_config(alias="slot0")], gpu_indices=[0])
+        event = threading.Event()
+        app._profile_status["slot0"] = "running"
+        app._profile_cancel_events["slot0"] = event
+
+        app._abort_profile()
+
+        assert event.is_set()
+        assert app._profile_status["slot0"] == "failed"
+
+    def test_get_stale_warning_uses_gpu_identifier_and_driver_binary_versions(self) -> None:
+        app = TUIApp(configs=[_make_config(alias="slot0", device="SYCL0")], gpu_indices=[0])
+        cfg = app.configs[0]
+        app.config.server_binary_version = "v1.2.3"
+        app.config.profile_staleness_days = 30
+
+        stale_result = MagicMock()
+        stale_result.is_stale = True
+        stale_reason = MagicMock()
+        stale_reason.value = "driver_changed"
+        stale_result.reasons = [stale_reason]
+
+        with (
+            patch(
+                "llama_cli.tui_app.get_gpu_identifier", return_value="intel-arc_b580-00"
+            ) as mock_gpu,
+            patch(
+                "llama_cli.profile_cli._get_driver_version", return_value="driver-1"
+            ) as mock_driver,
+            patch(
+                "llama_cli.tui_app.load_profile_with_staleness",
+                return_value=(MagicMock(), stale_result),
+            ) as mock_load,
+        ):
+            warning = app._get_stale_warning(cfg)
+
+        assert warning is not None
+        assert "profile stale" in warning.lower()
+        mock_gpu.assert_called_once_with(cfg.backend)
+        mock_driver.assert_called_once_with(cfg.backend)
+        assert mock_load.call_args.kwargs["gpu_identifier"] == "intel-arc_b580-00"
+        assert mock_load.call_args.kwargs["current_driver_version"] == "driver-1"
+        assert mock_load.call_args.kwargs["current_binary_version"] == "v1.2.3"
+
+
+class TestCbreakStdin:
+    """Tests for POSIX cbreak input helper context manager."""
+
+    def test_cbreak_stdin_noop_when_not_tty(self) -> None:
+        fake_stdin = MagicMock()
+        fake_stdin.isatty.return_value = False
+
+        with patch("llama_cli.tui_app.sys.stdin", fake_stdin), _cbreak_stdin():
+            pass
+
+        fake_stdin.isatty.assert_called_once()
+
+    def test_cbreak_stdin_restores_termios_on_exit(self) -> None:
+        fake_stdin = MagicMock()
+        fake_stdin.isatty.return_value = True
+        fake_stdin.fileno.return_value = 0
+        original_attrs = [1, 2, 3, 4]
+
+        with (
+            patch("llama_cli.tui_app.os.name", "posix"),
+            patch("llama_cli.tui_app.sys.stdin", fake_stdin),
+            patch("termios.tcgetattr", return_value=original_attrs) as mock_getattr,
+            patch("tty.setcbreak") as mock_setcbreak,
+            patch("termios.tcsetattr") as mock_setattr,
+            _cbreak_stdin(),
+        ):
+            pass
+
+        mock_getattr.assert_called_once_with(0)
+        mock_setcbreak.assert_called_once_with(0)
+        mock_setattr.assert_called_once()
