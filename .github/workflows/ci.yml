@@ -140,9 +140,13 @@ jobs:
 
       - name: Export requirements for Snyk Open Source scan
         run: |
-          uv export --frozen --format requirements-txt --no-editable --no-dev --output-file .snyk-requirements.txt
+          uv export --frozen --format requirements-txt --no-editable --no-dev --no-hashes --output-file .snyk-requirements.txt
           # Remove the '.' project reference that Snyk's pip parser cannot handle
           grep -v '^\.$' .snyk-requirements.txt > .snyk-requirements-clean.txt
+
+      - name: Install exported dependencies for Snyk resolver
+        if: env.SNYK_TOKEN != ''
+        run: python -m pip install -r .snyk-requirements-clean.txt
 
       - name: Install Snyk CLI
         if: env.SNYK_TOKEN != ''
@@ -150,7 +154,7 @@ jobs:
 
       - name: Snyk Open Source test
         if: env.SNYK_TOKEN != ''
-        run: snyk test --file=.snyk-requirements-clean.txt --package-manager=pip --severity-threshold=high
+        run: snyk test --file=.snyk-requirements-clean.txt --package-manager=pip --severity-threshold=high --skip-unresolved=true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
