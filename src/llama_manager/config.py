@@ -166,11 +166,14 @@ class Config:
         """Return the profiles directory path.
 
         Returns:
-            Path to $XDG_RUNTIME_DIR/llm-runner/profiles, or
-            /tmp/llm-runner/profiles if XDG_RUNTIME_DIR is not set
+            Path to $XDG_RUNTIME_DIR/llm-runner/profiles when XDG_RUNTIME_DIR
+            is set to an absolute path; otherwise falls back to the system
+            temporary directory at <tempdir>/llm-runner/profiles.
         """
-        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", tempfile.gettempdir())
-        return Path(runtime_dir) / "llm-runner" / "profiles"
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+        if not runtime_dir or not Path(runtime_dir).is_absolute():
+            runtime_dir = tempfile.gettempdir()
+        return Path(runtime_dir).resolve() / "llm-runner" / "profiles"
 
 
 @dataclass

@@ -42,6 +42,58 @@ class BenchmarkResult:
 BenchmarkRunner = Callable[[list[str]], SubprocessResult]
 
 
+def _extract_first_float(text: str) -> float | None:
+    match = re.search(r"([0-9]*\.?[0-9]+)", text)
+    if match is None:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def _parse_markdown_table_metrics(output: str) -> tuple[float | None, float | None, float | None]:
+    table_lines = [line for line in output.splitlines() if line.strip().startswith("|")]
+    if len(table_lines) < 3:
+        return None, None, None
+
+    header_cells = [cell.strip().lower() for cell in table_lines[0].strip().strip("|").split("|")]
+    if not header_cells:
+        return None, None, None
+
+    tokens_idx = None
+    latency_idx = None
+    vram_idx = None
+    for idx, header in enumerate(header_cells):
+        if tokens_idx is None and any(token in header for token in ("t/s", "tok/s", "tokens/s")):
+            tokens_idx = idx
+        if latency_idx is None and "latency" in header:
+            latency_idx = idx
+        if vram_idx is None and any(token in header for token in ("vram", "memory")):
+            vram_idx = idx
+
+    if tokens_idx is None or latency_idx is None:
+        return None, None, None
+
+    for line in table_lines[2:]:
+        if not line.strip() or set(line.replace("|", "").strip()) <= {"-", ":", " "}:
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) <= max(tokens_idx, latency_idx):
+            continue
+
+        tokens_per_second = _extract_first_float(cells[tokens_idx])
+        avg_latency_ms = _extract_first_float(cells[latency_idx])
+        peak_vram_mb = (
+            _extract_first_float(cells[vram_idx])
+            if vram_idx is not None and len(cells) > vram_idx
+            else None
+        )
+        return tokens_per_second, avg_latency_ms, peak_vram_mb
+
+    return None, None, None
+
+
 def parse_benchmark_output(output: str) -> BenchmarkResult | None:
     """Parse benchmark stdout for performance metrics.
 
@@ -69,6 +121,12 @@ def parse_benchmark_output(output: str) -> BenchmarkResult | None:
     avg_latency_ms: float | None = None
     peak_vram_mb: float | None = None
 
+    (
+        tokens_per_second,
+        avg_latency_ms,
+        peak_vram_mb,
+    ) = _parse_markdown_table_metrics(output)
+
     # tokens/s — match "tokens per second", "t/s", "tokens/s", "tok/s"
     tokens_patterns = [
         r"tokens?\s+per\s+second[:\s]+([0-9]*\.?[0-9]+)",
@@ -76,15 +134,16 @@ def parse_benchmark_output(output: str) -> BenchmarkResult | None:
         r"tokens?/s[:\s]+([0-9]*\.?[0-9]+)",
         r"tok/s[:\s]+([0-9]*\.?[0-9]+)",
     ]
-    for pattern in tokens_patterns:
-        match = re.search(pattern, output, re.IGNORECASE)
-        if match:
-            try:
-                tokens_per_second = float(match.group(1))
-            except ValueError:
-                pass
-            else:
-                break
+    if tokens_per_second is None:
+        for pattern in tokens_patterns:
+            match = re.search(pattern, output, re.IGNORECASE)
+            if match:
+                try:
+                    tokens_per_second = float(match.group(1))
+                except ValueError:
+                    pass
+                else:
+                    break
 
     # avg latency in ms — match "avg latency", "latency", "ms"
     latency_patterns = [
@@ -93,15 +152,16 @@ def parse_benchmark_output(output: str) -> BenchmarkResult | None:
         r"avg\s+latency[:\s]+([0-9]*\.?[0-9]+)",
         r"latency[:\s]+([0-9]*\.?[0-9]+)",
     ]
-    for pattern in latency_patterns:
-        match = re.search(pattern, output, re.IGNORECASE)
-        if match:
-            try:
-                avg_latency_ms = float(match.group(1))
-            except ValueError:
-                pass
-            else:
-                break
+    if avg_latency_ms is None:
+        for pattern in latency_patterns:
+            match = re.search(pattern, output, re.IGNORECASE)
+            if match:
+                try:
+                    avg_latency_ms = float(match.group(1))
+                except ValueError:
+                    pass
+                else:
+                    break
 
     # peak VRAM in MB — match "peak memory", "vram", "memory", "MB"
     vram_patterns = [
@@ -112,15 +172,16 @@ def parse_benchmark_output(output: str) -> BenchmarkResult | None:
         r"memory[:\s]+([0-9]*\.?[0-9]+)\s*mb",
         r"memory[:\s]+([0-9]*\.?[0-9]+)",
     ]
-    for pattern in vram_patterns:
-        match = re.search(pattern, output, re.IGNORECASE)
-        if match:
-            try:
-                peak_vram_mb = float(match.group(1))
-            except ValueError:
-                pass
-            else:
-                break
+    if peak_vram_mb is None:
+        for pattern in vram_patterns:
+            match = re.search(pattern, output, re.IGNORECASE)
+            if match:
+                try:
+                    peak_vram_mb = float(match.group(1))
+                except ValueError:
+                    pass
+                else:
+                    break
 
     # Return None only if no metrics were found at all
     if tokens_per_second is None and avg_latency_ms is None:
@@ -147,7 +208,6 @@ def build_benchmark_cmd(
     model: str,
     n_prompt: int,
     threads: int,
-    ctx_size: int,
     ubatch_size: int,
     cache_type_k: str,
     cache_type_v: str,
@@ -163,7 +223,6 @@ def build_benchmark_cmd(
         model: Path to the model file to benchmark.
         n_prompt: Number of prompt tokens for benchmarking.
         threads: Number of threads to use.
-        ctx_size: Context size (number of tokens).
         ubatch_size: Ubatch size for the benchmark.
         cache_type_k: Cache type for K attention (e.g. "F16", "F32", "Q8_0").
         cache_type_v: Cache type for V attention (e.g. "F16", "F32", "Q8_0").
@@ -191,8 +250,6 @@ def build_benchmark_cmd(
         str(n_prompt),
         "-t",
         str(threads),
-        "-c",
-        str(ctx_size),
         "--ubatch-size",
         str(ubatch_size),
         "--cache-type-k",

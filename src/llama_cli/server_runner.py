@@ -53,6 +53,7 @@ def usage() -> None:
   src/run_opencode_models.py qwen35 [port]
   src/run_opencode_models.py both [summary_balanced_port qwen35_port]
   src/run_opencode_models.py dry-run <mode> [ports...]
+  src/run_opencode_models.py profile <slot_id> <flavor> [--json]
   src/run_opencode_models.py setup <subcommand>
 
 Modes:

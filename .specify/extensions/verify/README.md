@@ -53,6 +53,28 @@ specify extension add --dev /path/to/spec-kit-verify
 
 ## Usage
 
+## Command Source of Truth
+
+The canonical verify command document is:
+
+- `.specify/extensions/verify/commands/verify.md`
+
+The OpenCode command file is generated from the canonical source:
+
+- `.opencode/command/speckit.verify.run.md`
+
+Sync command:
+
+```bash
+.specify/extensions/verify/scripts/bash/sync-verify-command.sh
+```
+
+Check-only mode (used in CI):
+
+```bash
+.specify/extensions/verify/scripts/bash/sync-verify-command.sh --check
+```
+
 ### Command: verify
 
 Validate implemented code against specification artifacts.

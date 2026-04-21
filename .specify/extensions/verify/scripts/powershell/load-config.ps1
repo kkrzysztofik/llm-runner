@@ -36,11 +36,22 @@ function Get-YamlValue {
     if (-not $match) { return '' }
     $raw = $match.Line -replace '^[^:]*:', ''
     $raw = $raw.Trim()
-    # Strip surrounding double quotes
-    if ($raw.Length -ge 2 -and $raw.StartsWith('"') -and $raw.EndsWith('"')) {
+    $hasDoubleQuotes = $raw.Length -ge 2 -and $raw.StartsWith('"') -and $raw.EndsWith('"')
+    $hasSingleQuotes = $raw.Length -ge 2 -and $raw.StartsWith("'") -and $raw.EndsWith("'")
+
+    if ($hasDoubleQuotes -or $hasSingleQuotes) {
+        $quoteChar = $raw.Substring(0, 1)
         $raw = $raw.Substring(1, $raw.Length - 2)
+        if ($quoteChar -eq '"') {
+            $raw = $raw.Replace('""', '"')
+        } else {
+            $raw = $raw.Replace("''", "'")
+        }
+    } else {
+        $raw = ($raw -split '#', 2)[0]
     }
-    return $raw
+
+    return $raw.Trim()
 }
 
 if ($usingDefaults) {
@@ -69,8 +80,8 @@ if (-not $maxFindings) {
 }
 
 if ($maxFindings -notmatch '^\d+$') {
-    Write-Error "❌ Error: 'report.max_findings' must be a positive integer, got '$maxFindings'"
-    Write-Error "Edit $configFile and set 'report.max_findings' to a number (e.g. 50)"
+    Write-Error "❌ Error: 'report.max_findings' must be a non-negative integer (>= 0), got '$maxFindings'"
+    Write-Error "Edit $configFile and set 'report.max_findings' to 0 (unlimited) or a positive integer (e.g. 50)"
     exit 1
 }
 

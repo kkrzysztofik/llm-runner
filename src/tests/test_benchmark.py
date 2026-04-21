@@ -36,7 +36,6 @@ class TestBuildBenchmarkCmd:
             model="/models/test.gguf",
             n_prompt=8080,
             threads=4,
-            ctx_size=4096,
             ubatch_size=512,
             cache_type_k="F16",
             cache_type_v="F16",
@@ -48,8 +47,6 @@ class TestBuildBenchmarkCmd:
         assert "8080" in cmd
         assert "-t" in cmd
         assert "4" in cmd
-        assert "-c" in cmd
-        assert "4096" in cmd
         assert "--ubatch-size" in cmd
         assert "512" in cmd
         assert "--cache-type-k" in cmd
@@ -66,7 +63,6 @@ class TestBuildBenchmarkCmd:
             model="/models/test.gguf",
             n_prompt=8080,
             threads=4,
-            ctx_size=4096,
             ubatch_size=512,
             cache_type_k="F16",
             cache_type_v="F16",
@@ -83,7 +79,6 @@ class TestBuildBenchmarkCmd:
             model="/models/test.gguf",
             n_prompt=8080,
             threads=4,
-            ctx_size=4096,
             ubatch_size=512,
             cache_type_k="F16",
             cache_type_v="F16",
@@ -100,7 +95,6 @@ class TestBuildBenchmarkCmd:
             model="/models/test.gguf",
             n_prompt=8080,
             threads=4,
-            ctx_size=4096,
             ubatch_size=512,
             cache_type_k="F16",
             cache_type_v="F16",
@@ -118,7 +112,6 @@ class TestBuildBenchmarkCmd:
                 model="/models/test.gguf",
                 n_prompt=8080,
                 threads=4,
-                ctx_size=4096,
                 ubatch_size=512,
                 cache_type_k="F16",
                 cache_type_v="F16",
@@ -134,7 +127,6 @@ class TestBuildBenchmarkCmd:
                 model="/models/test.gguf",
                 n_prompt=8080,
                 threads=4,
-                ctx_size=4096,
                 ubatch_size=512,
                 cache_type_k="F16",
                 cache_type_v="F16",
@@ -237,6 +229,19 @@ class TestParseBenchmarkOutput:
         result = parse_benchmark_output(output)
         assert result is None
 
+    def test_markdown_table_output_parsed(self) -> None:
+        """parse_benchmark_output should parse llama-bench markdown table rows."""
+        output = (
+            "| model | t/s | avg latency (ms) | peak vram (MB) |\n"
+            "|-------|-----|------------------|----------------|\n"
+            "| qwen  | 123.45 | 6.78 | 4096.0 |\n"
+        )
+        result = parse_benchmark_output(output)
+        assert result is not None
+        assert result.tokens_per_second == pytest.approx(123.45)
+        assert result.avg_latency_ms == pytest.approx(6.78)
+        assert result.peak_vram_mb == pytest.approx(4096.0)
+
 
 class TestBuildBenchmarkCmdEdgeCases:
     """Edge-case tests for build_benchmark_cmd."""
@@ -257,7 +262,6 @@ class TestBuildBenchmarkCmdEdgeCases:
             model="/tmp/model.gguf",
             n_prompt=8080,
             threads=4,
-            ctx_size=2048,
             ubatch_size=512,
             cache_type_k="q4_0",
             cache_type_v="q4_0",
@@ -275,7 +279,6 @@ class TestBuildBenchmarkCmdEdgeCases:
             model="/tmp/model.gguf",
             n_prompt=8080,
             threads=4,
-            ctx_size=2048,
             ubatch_size=512,
             cache_type_k="q4_0",
             cache_type_v="q4_0",
@@ -746,7 +749,6 @@ class TestBuildBenchmarkCmdAllParams:
             model="/models/qwen2.5-7b-q4_k_m.gguf",
             n_prompt=8080,
             threads=16,
-            ctx_size=8192,
             ubatch_size=2048,
             cache_type_k="F16",
             cache_type_v="F32",
@@ -760,8 +762,6 @@ class TestBuildBenchmarkCmdAllParams:
         assert "8080" in cmd
         assert "-t" in cmd
         assert "16" in cmd
-        assert "-c" in cmd
-        assert "8192" in cmd
         assert "--ubatch-size" in cmd
         assert "2048" in cmd
         assert "--cache-type-k" in cmd
@@ -779,17 +779,13 @@ class TestBuildBenchmarkCmdAllParams:
             model="/model.gguf",
             n_prompt=8080,
             threads=4,
-            ctx_size=2048,
             ubatch_size=512,
             cache_type_k="F16",
             cache_type_v="F16",
         )
 
-        # bench_bin(1) + 9 flag-value pairs(18) = 19 elements
-        # Wait, let me count: bin, -m, model, -p, n_prompt, -t, threads, -c, ctx,
-        # --ubatch-size, size, --cache-type-k, type_k, --cache-type-v, type_v,
-        # -ngl, layers = 17 elements
-        assert len(cmd) == 17
+        # bench_bin(1) + 7 flag-value pairs(14) = 15 elements
+        assert len(cmd) == 15
 
     def test_cmd_order(self, tmp_path: Path) -> None:
         """build_benchmark_cmd should maintain correct argument order."""
@@ -799,23 +795,21 @@ class TestBuildBenchmarkCmdAllParams:
             model="/model.gguf",
             n_prompt=8080,
             threads=4,
-            ctx_size=2048,
             ubatch_size=512,
             cache_type_k="F16",
             cache_type_v="F16",
         )
 
-        # Verify order: bin, -m model, -p n_prompt, -t threads, -c ctx, --ubatch-size size,
+        # Verify order: bin, -m model, -p n_prompt, -t threads, --ubatch-size size,
         # --cache-type-k type, --cache-type-v type, -ngl layers
         assert cmd[0] == str(bin_path)
         assert cmd[1] == "-m"
         assert cmd[3] == "-p"
         assert cmd[5] == "-t"
-        assert cmd[7] == "-c"
-        assert cmd[9] == "--ubatch-size"
-        assert cmd[11] == "--cache-type-k"
-        assert cmd[13] == "--cache-type-v"
-        assert cmd[15] == "-ngl"
+        assert cmd[7] == "--ubatch-size"
+        assert cmd[9] == "--cache-type-k"
+        assert cmd[11] == "--cache-type-v"
+        assert cmd[13] == "-ngl"
 
     def test_special_characters_in_model_path(self, tmp_path: Path) -> None:
         """build_benchmark_cmd should handle special characters in model path."""
@@ -825,7 +819,6 @@ class TestBuildBenchmarkCmdAllParams:
             model="/models/qwen2.5-7b-q4_k_m.gguf",
             n_prompt=8080,
             threads=4,
-            ctx_size=2048,
             ubatch_size=512,
             cache_type_k="F16",
             cache_type_v="F16",
@@ -841,7 +834,6 @@ class TestBuildBenchmarkCmdAllParams:
             model="/model.gguf",
             n_prompt=8080,
             threads=4,
-            ctx_size=2048,
             ubatch_size=512,
             cache_type_k="Q8_0",
             cache_type_v="Q8_0",

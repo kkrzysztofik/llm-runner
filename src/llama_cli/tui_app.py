@@ -12,7 +12,9 @@ import signal
 import sys
 import threading
 import time
+import tty
 from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 from types import FrameType
 from typing import Any
@@ -34,6 +36,7 @@ from llama_manager import (
     ProfileFlavor,
     ServerConfig,
     ServerManager,
+    get_gpu_identifier,
     load_profile_with_staleness,
 )
 from llama_manager.build_pipeline import (
@@ -49,6 +52,28 @@ RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
 STATUS_PREFIX = "STATUS: "
 STYLE_BOLD_RED = "bold red"
 STYLE_BOLD_YELLOW = "bold yellow"
+
+
+@contextmanager
+def _cbreak_stdin() -> Any:
+    if os.name == "nt" or not sys.stdin.isatty():
+        yield
+        return
+
+    try:
+        import termios
+
+        fd = sys.stdin.fileno()
+        original = termios.tcgetattr(fd)
+        tty.setcbreak(fd)
+    except (ImportError, OSError, ValueError):
+        yield
+        return
+
+    try:
+        yield
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, original)
 
 
 class TUIApp:
@@ -81,6 +106,7 @@ class TUIApp:
         # Profile state
         self._profile_status: dict[str, str] = {}  # alias -> "idle" | "running" | "done" | "failed"
         self._profile_flavor: dict[str, str] = {}  # alias -> flavor string
+        self._profile_cancel_events: dict[str, threading.Event] = {}
         self._profile_lock = threading.Lock()
 
         # TUI-safe status message buffer (avoids print() inside Live context)
@@ -347,36 +373,33 @@ class TUIApp:
     def _input_poller(self) -> None:
         """Daemon thread: poll stdin for single-character keypresses."""
         is_windows = os.name == "nt"
-        while self.running:
-            try:
-                if is_windows:
-                    import msvcrt  # type: ignore[import-not-found]
+        with _cbreak_stdin():
+            while self.running:
+                try:
+                    if is_windows:
+                        import msvcrt  # type: ignore[import-not-found]
 
-                    if msvcrt.kbhit():  # type: ignore[attr-defined]
-                        ch = msvcrt.getch()  # type: ignore[attr-defined]
-                        # Handle Ctrl+C (0x03)
-                        if ch == b"\x03":
-                            self._keypress_queue.put("^C")
-                        elif ch and len(ch) == 1:
-                            self._keypress_queue.put(ch.decode("utf-8", errors="replace"))
-                else:
-                    # Linux/macOS: use select for non-blocking read
-                    pass
-
-                if not is_windows:
-                    # select on Linux/macOS
-                    try:
-                        ready, _, _ = select.select([sys.stdin], [], [], 0.05)
-                        if ready:
-                            ch = sys.stdin.read(1)
-                            if ch:
-                                self._keypress_queue.put(ch)
-                    except (OSError, ValueError):
-                        # stdin may be closed or in a bad state
-                        time.sleep(0.1)
-            except Exception:
-                # Don't crash the TUI if stdin polling fails
-                time.sleep(0.1)
+                        if msvcrt.kbhit():  # type: ignore[attr-defined]
+                            ch = msvcrt.getch()  # type: ignore[attr-defined]
+                            # Handle Ctrl+C (0x03)
+                            if ch == b"\x03":
+                                self._keypress_queue.put("^C")
+                            elif ch and len(ch) == 1:
+                                self._keypress_queue.put(ch.decode("utf-8", errors="replace"))
+                    else:
+                        # select on Linux/macOS
+                        try:
+                            ready, _, _ = select.select([sys.stdin], [], [], 0.05)
+                            if ready:
+                                ch = sys.stdin.read(1)
+                                if ch:
+                                    self._keypress_queue.put(ch)
+                        except (OSError, ValueError):
+                            # stdin may be closed or in a bad state
+                            time.sleep(0.1)
+                except Exception:
+                    # Don't crash the TUI if stdin polling fails
+                    time.sleep(0.1)
 
     def _process_keypresses(self) -> None:
         """Drain the keypress queue and handle relevant keys."""
@@ -385,6 +408,12 @@ class TUIApp:
                 key = self._keypress_queue.get_nowait()
             except queue.Empty:
                 break
+
+            if self._profile_request is not None and key in {"1", "2", "3"}:
+                alias = self._profile_request
+                self._profile_request = None
+                self._wait_for_flavor_selection(alias, preselected_key=key)
+                continue
 
             # Handle Ctrl+C during profiling — abort the current profile
             if key == "^C":
@@ -422,7 +451,7 @@ class TUIApp:
         # Queue the alias so _process_keypresses can handle it non-blockingly
         self._profile_request = alias
 
-    def _wait_for_flavor_selection(self, alias: str) -> None:
+    def _wait_for_flavor_selection(self, alias: str, preselected_key: str | None = None) -> None:
         """Non-blocking flavor selection — drain keypress queue once per cycle.
 
         Called from _process_keypresses; does NOT sleep or block.
@@ -430,6 +459,11 @@ class TUIApp:
         and _process_keypresses will try again on the next TUI render cycle.
         """
         flavor_map = {"1": "balanced", "2": "fast", "3": "quality"}
+
+        if preselected_key in flavor_map:
+            self._profile_request = None
+            self._run_profile_background(alias, flavor_map[preselected_key])
+            return
 
         while not self._keypress_queue.empty():
             try:
@@ -463,6 +497,7 @@ class TUIApp:
         with self._profile_lock:
             self._profile_status[alias] = "running"
             self._profile_flavor[alias] = flavor
+            self._profile_cancel_events[alias] = threading.Event()
 
         def _do_profile() -> None:
             try:
@@ -476,6 +511,9 @@ class TUIApp:
             except Exception:
                 with self._profile_lock:
                     self._profile_status[alias] = "failed"
+            finally:
+                with self._profile_lock:
+                    self._profile_cancel_events.pop(alias, None)
 
         threading.Thread(
             target=_do_profile,
@@ -491,13 +529,28 @@ class TUIApp:
         """
         from llama_cli.profile_cli import cmd_profile
 
-        return cmd_profile(slot_id=alias, flavor=flavor)
+        with self._profile_lock:
+            cancel_event = self._profile_cancel_events.get(alias)
+
+        if cancel_event is None:
+            return 1
+
+        return cmd_profile(
+            slot_id=alias,
+            flavor=flavor,
+            quiet=True,
+            progress_callback=self._push_status_message,
+            cancel_event=cancel_event,
+        )
 
     def _abort_profile(self) -> None:
         """Abort the currently running profile for any slot."""
         for cfg in self.configs:
             with self._profile_lock:
                 if self._profile_status.get(cfg.alias) == "running":
+                    cancel_event = self._profile_cancel_events.get(cfg.alias)
+                    if cancel_event is not None:
+                        cancel_event.set()
                     self._profile_status[cfg.alias] = "failed"
                     self._push_status_message(f"Profile '{cfg.alias}' aborted.")
 
@@ -511,12 +564,14 @@ class TUIApp:
         Returns a warning string or None if the profile is fresh / nonexistent.
         """
         try:
+            from llama_cli.profile_cli import _get_driver_version
+
             record, staleness = load_profile_with_staleness(
                 profiles_dir=self.config.profiles_dir,
-                gpu_identifier=cfg.device,
+                gpu_identifier=get_gpu_identifier(cfg.backend),
                 backend=cfg.backend,
                 flavor=ProfileFlavor.BALANCED,
-                current_driver_version=self.config.server_binary_version or "unknown",
+                current_driver_version=_get_driver_version(cfg.backend),
                 current_binary_version=self.config.server_binary_version or "unknown",
                 staleness_days=self.config.profile_staleness_days,
             )

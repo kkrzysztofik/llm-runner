@@ -14,7 +14,8 @@ from __future__ import annotations
 import json
 import stat
 from pathlib import Path
-from unittest.mock import MagicMock, _patch, patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -26,7 +27,7 @@ from llama_cli.profile_cli import (
     main,
     require_executable,
 )
-from llama_manager import BenchmarkResult
+from llama_manager import BenchmarkResult, ServerConfig
 
 # ---------------------------------------------------------------------------
 # TestRequireExecutable
@@ -71,41 +72,47 @@ class TestRequireExecutable:
 class TestDetectBackend:
     """Tests for _detect_backend."""
 
-    def test_cuda_binary_returns_cuda(self, tmp_path: Path) -> None:
+    def test_cuda_binary_returns_cuda(self) -> None:
         """_detect_backend should return 'cuda' when NVIDIA binary exists."""
-        cuda_bin = tmp_path / "llama-server"
-        cuda_bin.touch()
+        cfg = ServerConfig(
+            model="/model.gguf",
+            alias="qwen35-coding",
+            device="cuda",
+            port=8080,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+        )
+        result = _detect_backend(cfg)
+        assert result == "cuda"
 
-        with patch("llama_manager.Config") as mock_cfg:
-            cfg = mock_cfg.return_value
-            cfg.llama_server_bin_nvidia = str(cuda_bin)
-            cfg.llama_server_bin_intel = str(tmp_path / "intel_server")
-
-            result = _detect_backend(cfg)
-
-            assert result == "cuda"
-
-    def test_sycl_fallback(self, tmp_path: Path) -> None:
+    def test_sycl_fallback(self) -> None:
         """_detect_backend should return 'sycl' when no NVIDIA binary exists."""
-        with patch("llama_manager.Config") as mock_cfg:
-            cfg = mock_cfg.return_value
-            cfg.llama_server_bin_nvidia = str(tmp_path / "nonexistent_nvidia")
-            cfg.llama_server_bin_intel = str(tmp_path / "intel_server")
+        cfg = ServerConfig(
+            model="/model.gguf",
+            alias="summary-balanced",
+            device="SYCL0",
+            port=8080,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+        )
+        result = _detect_backend(cfg)
+        assert result == "sycl"
 
-            result = _detect_backend(cfg)
-
-            assert result == "sycl"
-
-    def test_empty_cuda_path_fallback(self, tmp_path: Path) -> None:
+    def test_empty_cuda_path_fallback(self) -> None:
         """_detect_backend should return 'sycl' when nvidia path is empty."""
-        with patch("llama_manager.Config") as mock_cfg:
-            cfg = mock_cfg.return_value
-            cfg.llama_server_bin_nvidia = ""
-            cfg.llama_server_bin_intel = str(tmp_path / "intel_server")
-
-            result = _detect_backend(cfg)
-
-            assert result == "sycl"
+        cfg = ServerConfig(
+            model="/model.gguf",
+            alias="slot0",
+            device="SYCL0",
+            port=8080,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+        )
+        result = _detect_backend(cfg)
+        assert result == "sycl"
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +340,7 @@ def _make_benchmark_result(
 
 def _build_mock_config(
     tmp_path: Path, cuda_exists: bool = False
-) -> tuple[MagicMock, str, Path, _patch]:
+) -> tuple[MagicMock, str, Path, Any]:
     """Build a mocked Config that makes cmd_profile succeed.
 
     Args:

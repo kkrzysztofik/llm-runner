@@ -41,6 +41,9 @@ jobs:
       - name: Check lockfile reproducibility
         run: uv lock --check
 
+      - name: Check verify command docs sync
+        run: .specify/extensions/verify/scripts/bash/sync-verify-command.sh --check
+
       - name: ruff check
         run: uv run ruff check .
 

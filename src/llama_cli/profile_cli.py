@@ -18,6 +18,8 @@ import logging
 import os
 import subprocess
 import sys
+import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from llama_manager import (
@@ -26,10 +28,15 @@ from llama_manager import (
     ProfileFlavor,
     ProfileMetrics,
     ProfileRecord,
+    ServerConfig,
     SubprocessResult,
     build_benchmark_cmd,
     compute_driver_version_hash,
+    create_qwen35_cfg,
+    create_summary_balanced_cfg,
+    create_summary_fast_cfg,
     get_gpu_identifier,
+    normalize_slot_id,
     run_benchmark,
     write_profile,
 )
@@ -64,12 +71,22 @@ def _default_subprocess_runner(
             stderr=result.stderr,
         )
     except subprocess.TimeoutExpired as exc:
+        timeout_stdout = exc.stdout
+        if isinstance(timeout_stdout, bytes):
+            timeout_stdout_text = timeout_stdout.decode("utf-8", errors="replace")
+        else:
+            timeout_stdout_text = timeout_stdout or ""
+
+        timeout_stderr_detail = exc.stderr
+        if isinstance(timeout_stderr_detail, bytes):
+            timeout_stderr_detail = timeout_stderr_detail.decode("utf-8", errors="replace")
+
         timeout_stderr = f"benchmark timed out after {timeout_seconds}s"
-        if exc.stderr:
-            timeout_stderr = f"{timeout_stderr}: {exc.stderr}"
+        if timeout_stderr_detail:
+            timeout_stderr = f"{timeout_stderr}: {timeout_stderr_detail}"
         return SubprocessResult(
             exit_code=124,
-            stdout=exc.stdout or "",
+            stdout=timeout_stdout_text,
             stderr=timeout_stderr,
         )
 
@@ -87,18 +104,35 @@ def require_executable(path: str) -> None:
         raise PermissionError(f"not executable: {path}")
 
 
-def _detect_backend(config: Config) -> str:
-    """Auto-detect the GPU backend by checking which llama-server binary exists.
+def _detect_backend(server_config: ServerConfig) -> str:
+    """Resolve backend from the slot-specific server configuration.
 
     Args:
-        config: The application configuration.
+        server_config: Slot-resolved server configuration.
 
     Returns:
-        ``"cuda"`` if the NVIDIA binary exists, otherwise ``"sycl"``.
+        ``"cuda"`` for qwen35 slot config, otherwise ``"sycl"``.
     """
-    if config.llama_server_bin_nvidia and os.path.exists(config.llama_server_bin_nvidia):
+    if server_config.alias == "qwen35-coding":
         return "cuda"
     return "sycl"
+
+
+def _resolve_slot_server_config(slot_id: str, config: Config) -> ServerConfig:
+    try:
+        normalized = normalize_slot_id(slot_id)
+    except ValueError:
+        normalized = ""
+    if normalized in {"slot0", "summary-balanced", "summary_balanced", "balanced"}:
+        return create_summary_balanced_cfg(config.summary_balanced_port)
+    if normalized in {"slot1", "summary-fast", "summary_fast", "fast"}:
+        return create_summary_fast_cfg(config.summary_fast_port)
+    if normalized in {"slot2", "qwen35", "qwen35-coding", "qwen35_coding"}:
+        return create_qwen35_cfg(config.qwen35_port)
+    # Unknown slot IDs default to summary-balanced profile parameters.
+    server_config = create_summary_balanced_cfg(config.summary_balanced_port)
+    server_config.alias = slot_id
+    return server_config
 
 
 def _get_driver_version(backend: str) -> str:
@@ -144,6 +178,9 @@ def cmd_profile(
     flavor: str,
     json_output: bool = False,
     runner: BenchmarkRunner | None = None,
+    quiet: bool = False,
+    progress_callback: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> int:
     """Run a GPU benchmark and persist the profile record.
 
@@ -159,31 +196,40 @@ def cmd_profile(
     """
     config = Config()
 
+    def _emit(message: str, *, stderr: bool = False) -> None:
+        if progress_callback is not None:
+            progress_callback(message)
+        if not quiet:
+            print(message, file=sys.stderr if stderr else sys.stdout)
+
+    if cancel_event is not None and cancel_event.is_set():
+        _emit(f"Profile '{slot_id}' cancelled.", stderr=True)
+        return 1
+
     # Check if slot is already running (skip if we can't determine)
     try:
         runtime_dir = config.profiles_dir.parent
         lock_path = runtime_dir / f"{slot_id}.lock"
         if lock_path.exists():
-            print(
-                f"warning: slot '{slot_id}' appears to be running (lockfile exists), "
-                "proceeding anyway",
-                file=sys.stderr,
+            _emit(
+                f"warning: slot '{slot_id}' appears to be running (lockfile exists), proceeding anyway",
+                stderr=True,
             )
     except (FileNotFoundError, PermissionError, OSError) as exc:
         LOGGER.warning("Unable to inspect slot lockfile for %s", slot_id, exc_info=exc)
 
-    # Auto-detect backend
-    backend = _detect_backend(config)
-    print(f"Detected backend: {backend}", file=sys.stderr)
+    server_config = _resolve_slot_server_config(slot_id, config)
+    backend = _detect_backend(server_config)
+    _emit(f"Detected backend: {backend}", stderr=True)
 
     # Resolve benchmark binary path
-    server_bin = config.llama_server_bin_intel
+    server_bin = server_config.server_bin or config.llama_server_bin_intel
     bench_bin = server_bin.replace("llama-server", "llama-bench") if server_bin else "llama-bench"
 
     try:
         require_executable(bench_bin)
     except (FileNotFoundError, PermissionError) as exc:
-        print(f"error: benchmark binary unavailable: {exc}", file=sys.stderr)
+        _emit(f"error: benchmark binary unavailable: {exc}", stderr=True)
         return 1
 
     # Get GPU identifier
@@ -197,18 +243,23 @@ def cmd_profile(
 
     # Flavor-based config selection
     flavor_obj = ProfileFlavor(flavor)
-    if flavor_obj == ProfileFlavor.BALANCED:
-        model = config.model_summary_balanced
-        threads = config.default_threads_summary_balanced
-        ubatch_size = config.default_ubatch_size_summary_balanced
-    elif flavor_obj == ProfileFlavor.FAST:
-        model = config.model_summary_fast
-        threads = config.default_threads_summary_fast
-        ubatch_size = config.default_ubatch_size_summary_fast
-    else:  # quality — use balanced as base
-        model = config.model_summary_balanced
-        threads = config.default_threads_summary_balanced
-        ubatch_size = config.default_ubatch_size_summary_balanced
+    model = server_config.model
+    threads = server_config.threads
+    ubatch_size = server_config.ubatch_size
+
+    if server_config.alias != "qwen35-coding":
+        if flavor_obj == ProfileFlavor.BALANCED:
+            model = config.model_summary_balanced
+            threads = config.default_threads_summary_balanced
+            ubatch_size = config.default_ubatch_size_summary_balanced
+        elif flavor_obj == ProfileFlavor.FAST:
+            model = config.model_summary_fast
+            threads = config.default_threads_summary_fast
+            ubatch_size = config.default_ubatch_size_summary_fast
+        else:  # quality — use balanced as base
+            model = config.model_summary_balanced
+            threads = config.default_threads_summary_balanced
+            ubatch_size = config.default_ubatch_size_summary_balanced
 
     # Build benchmark command
     cmd = build_benchmark_cmd(
@@ -216,24 +267,24 @@ def cmd_profile(
         model=model,
         n_prompt=BENCHMARK_PROMPT_TOKENS,
         threads=threads,
-        ctx_size=config.default_ctx_size_summary,
         ubatch_size=ubatch_size,
-        cache_type_k=config.default_cache_type_summary_k,
-        cache_type_v=config.default_cache_type_summary_v,
+        cache_type_k=server_config.cache_type_k,
+        cache_type_v=server_config.cache_type_v,
         n_gpu_layers=config.default_n_gpu_layers_qwen35
         if backend == "cuda"
-        else config.default_n_gpu_layers,
+        else server_config.n_gpu_layers,
     )
 
     # Run benchmark
     effective_runner: BenchmarkRunner = runner if runner is not None else _default_subprocess_runner
     benchmark_result = run_benchmark(cmd, effective_runner)
 
+    if cancel_event is not None and cancel_event.is_set():
+        _emit(f"Profile '{slot_id}' cancelled.", stderr=True)
+        return 1
+
     if benchmark_result is None:
-        print(
-            f"error: benchmark failed for slot '{slot_id}'",
-            file=sys.stderr,
-        )
+        _emit(f"error: benchmark failed for slot '{slot_id}'", stderr=True)
         return 1
 
     # Create profile record
@@ -254,19 +305,23 @@ def cmd_profile(
     )
 
     # Write profile
+    if cancel_event is not None and cancel_event.is_set():
+        _emit(f"Profile '{slot_id}' cancelled.", stderr=True)
+        return 1
+
     profile_path = write_profile(config.profiles_dir, record)
 
     # Output result
     if json_output:
-        print(json.dumps(record.to_dict(), indent=2))
+        _emit(json.dumps(record.to_dict(), indent=2))
     else:
-        print(f"Profile recorded for slot '{slot_id}'")
-        print(f"  GPU: {gpu_identifier}")
-        print(f"  Backend: {backend}")
-        print(f"  Flavor: {flavor}")
-        print(f"  Tokens/s: {benchmark_result.tokens_per_second:.2f}")
-        print(f"  Avg latency: {benchmark_result.avg_latency_ms:.2f} ms")
-        print(f"  Profile saved to: {profile_path}")
+        _emit(f"Profile recorded for slot '{slot_id}'")
+        _emit(f"  GPU: {gpu_identifier}")
+        _emit(f"  Backend: {backend}")
+        _emit(f"  Flavor: {flavor}")
+        _emit(f"  Tokens/s: {benchmark_result.tokens_per_second:.2f}")
+        _emit(f"  Avg latency: {benchmark_result.avg_latency_ms:.2f} ms")
+        _emit(f"  Profile saved to: {profile_path}")
 
     return 0
 

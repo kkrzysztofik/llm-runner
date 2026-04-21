@@ -1,16 +1,14 @@
 ---
-description: Perform a non-destructive post-implementation verification gate validating
-  the implementation against spec.md, plan.md, tasks.md, and constitution.md.
+description: Perform a non-destructive post-implementation verification gate validating the implementation against spec.md, plan.md, tasks.md, and constitution.md.
 scripts:
   sh: .specify/scripts/bash/check-prerequisites.sh --json --paths-only
   ps: .specify/scripts/powershell/check-prerequisites.ps1 -Json -PathsOnly
 ---
 
+<!-- GENERATED FILE: Do not edit directly. Source: .specify/extensions/verify/commands/verify.md -->
+
 # Verify Command
 
-
-<!-- Extension: verify -->
-<!-- Config: .specify/extensions/verify/ -->
 ## User Input
 
 ```text
@@ -110,7 +108,9 @@ Create internal representations (do not include raw artifacts in output):
 
 ### 6. Verification Checks (Token-Efficient Analysis)
 
-Focus on high-signal findings. **Limit to the configured `max_findings` value** (loaded in Step 2); aggregate remainder in overflow summary.
+Focus on high-signal findings. Use `max_findings` from Step 2 with explicit semantics: when
+`max_findings > 0`, limit findings to that cap and aggregate overflow into the Step 2 overflow
+summary; when `max_findings == 0`, treat it as unlimited and include all findings.
 
 #### A. Task Completion
 
@@ -209,7 +209,8 @@ Ask the user: "Would you like me to suggest concrete remediation edits for the t
 
 - **Minimal high-signal tokens**: Focus on actionable findings, not exhaustive documentation
 - **Progressive disclosure**: Load artifacts and source files incrementally; don't dump all content into analysis
-- **Token-efficient output**: Limit findings table to the configured `max_findings` value; summarize overflow
+- **Token-efficient output**: Apply a findings cap only when `max_findings > 0`; when capped,
+  summarize overflow, and when `max_findings == 0` include all findings
 - **Deterministic results**: Rerunning without changes should produce consistent IDs and counts
 
 ### Analysis Guidelines
