@@ -18,6 +18,12 @@ from typing import Any
 
 from llama_manager.build_pipeline import BuildBackend, BuildLock
 from llama_manager.config import Config
+from llama_manager.profile_cache import (
+    ProfileRecord,
+    StalenessReason,
+    StalenessResult,
+    check_staleness,
+)
 from llama_manager.setup_venv import check_venv_integrity, get_venv_path
 from llama_manager.toolchain import (
     ToolchainStatus,
@@ -37,6 +43,8 @@ class DoctorCheckResult:
     build_lock_free: bool
     staging_dirs_clean: bool
     reports_dir_exists: bool
+    profiles_total: int = 0
+    profiles_stale: int = 0
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -50,6 +58,8 @@ class DoctorCheckResult:
             "build_lock_free": self.build_lock_free,
             "staging_dirs_clean": self.staging_dirs_clean,
             "reports_dir_exists": self.reports_dir_exists,
+            "profiles_total": self.profiles_total,
+            "profiles_stale": self.profiles_stale,
             "warnings": self.warnings,
             "errors": self.errors,
         }
@@ -86,6 +96,7 @@ class DoctorRepairResult:
     performed_actions: list[str] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
     success: bool = True
+    warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -94,6 +105,7 @@ class DoctorRepairResult:
             "performed_actions": self.performed_actions,
             "failures": self.failures,
             "success": self.success,
+            "warnings": self.warnings,
         }
 
 
@@ -213,6 +225,111 @@ def _check_reports_dir(result: DoctorCheckResult, config: Config) -> None:
         result.warnings.append("Reports directory does not exist")
 
 
+def _check_profiles(
+    result: DoctorCheckResult,
+    config: Config,
+    max_age_days: int = 90,
+    current_driver_version: str | None = None,
+    current_binary_version: str | None = None,
+) -> None:
+    """Check cached performance profiles for staleness.
+
+    Lists all profile JSON files in the profiles directory, parses each as a
+    ProfileRecord, and checks staleness using the record's own driver/binary
+    versions *unless* explicit current versions are provided (which enables
+    driver- and binary-change detection).  Stale profiles are added as
+    warnings with actionable guidance, and the total/stale counts are
+    recorded on *result*.
+
+    Args:
+        result: DoctorCheckResult to update with profile findings.
+        config: Application config (provides profiles_dir).
+        max_age_days: Maximum acceptable profile age in days.
+        current_driver_version: Current GPU driver version (enables
+            driver-change detection when provided).
+        current_binary_version: Current llama-server binary version
+            (enables binary-change detection when provided).
+    """
+    profiles_dir = config.profiles_dir
+    if not profiles_dir.exists():
+        return
+
+    total = 0
+    stale = 0
+
+    for profile_path in sorted(profiles_dir.glob("*.json")):
+        try:
+            raw = profile_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            record = ProfileRecord.from_dict(data)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            # Corrupt or unrecognised file — warn and skip
+            result.warnings.append(f"Corrupt profile file skipped: {profile_path.name}")
+            continue
+
+        total += 1
+
+        # Use the record's own versions when current versions are not
+        # provided (age-only staleness).  When current versions are
+        # supplied, driver/binary changes are also detected.
+        staleness = check_staleness(
+            record,
+            current_driver_version=current_driver_version or record.driver_version,
+            current_binary_version=current_binary_version or record.server_binary_version,
+            staleness_days=max_age_days,
+        )
+
+        if staleness.is_stale:
+            stale += 1
+            reasons = ", ".join(r.value for r in staleness.reasons)
+            guidance = _build_profile_guidance(staleness, record, max_age_days)
+            result.warnings.append(
+                f"Stale profile: {profile_path.name} ({reasons}, "
+                f"{staleness.age_days:.0f} days old) — {guidance}"
+            )
+
+    result.profiles_total = total
+    result.profiles_stale = stale
+
+
+def _build_profile_guidance(
+    staleness: "StalenessResult",
+    record: "ProfileRecord",
+    max_age_days: int = 90,
+) -> str:
+    """Build actionable guidance for a stale profile.
+
+    Args:
+        staleness: The staleness result with reasons and version info.
+        record: The profile record that was found stale.
+        max_age_days: Maximum acceptable profile age in days.
+
+    Returns:
+        A human-readable guidance string.
+    """
+    parts: list[str] = []
+
+    if StalenessReason.DRIVER_CHANGED in staleness.reasons:
+        parts.append(
+            f"Re-profile recommended: driver version changed "
+            f"from {record.driver_version} to {staleness.driver_version_display}"
+        )
+
+    if StalenessReason.BINARY_CHANGED in staleness.reasons:
+        parts.append("Re-profile recommended: llama-server binary was updated")
+
+    if StalenessReason.AGE_EXCEEDED in staleness.reasons:
+        parts.append(
+            f"Re-profile recommended: profile is {staleness.age_days:.0f} days old "
+            f"(threshold: {max_age_days} days)"
+        )
+
+    if parts:
+        return "; ".join(parts)
+
+    return "Re-profile recommended"
+
+
 def _print_check_results(result: DoctorCheckResult) -> int:
     """Print doctor check results in human-readable format.
 
@@ -226,6 +343,7 @@ def _print_check_results(result: DoctorCheckResult) -> int:
     _print_success(f"  Build lock free: {'YES' if result.build_lock_free else 'NO'}")
     _print_success(f"  Staging dirs clean: {'YES' if result.staging_dirs_clean else 'NO'}")
     _print_success(f"  Reports dir exists: {'YES' if result.reports_dir_exists else 'NO'}")
+    _print_success(f"  Profiles: {result.profiles_total} total, {result.profiles_stale} stale")
 
     if result.warnings:
         _print_success("")
@@ -251,11 +369,13 @@ def _print_check_results(result: DoctorCheckResult) -> int:
 def cmd_doctor_check(parsed: argparse.Namespace) -> int:
     """Execute doctor check command.
 
-    Validates toolchain, venv, build directories, and lock status.
+    Validates toolchain, venv, build directories, lock status, and cached
+    performance profiles.
     Returns exit code 0 if healthy, 1 if any issues found.
     """
     backend_str = parsed.backend if hasattr(parsed, "backend") else None
     json_output = getattr(parsed, "json", False)
+    max_age_days = getattr(parsed, "max_age_days", 90)
 
     config = Config()
     result = DoctorCheckResult(
@@ -276,6 +396,17 @@ def cmd_doctor_check(parsed: argparse.Namespace) -> int:
     _check_build_lock(result, config)
     _check_staging_dirs(result, config)
     _check_reports_dir(result, config)
+    # Pass None for current versions to preserve age-only staleness
+    # detection.  Driver/binary-change detection requires actual GPU
+    # driver version queries (nvidia-smi, SYCL device info) which are
+    # not yet integrated here.
+    _check_profiles(
+        result,
+        config,
+        max_age_days=max_age_days,
+        current_driver_version=None,
+        current_binary_version=None,
+    )
 
     if json_output:
         _print_json(result.to_dict())
@@ -421,6 +552,67 @@ def _collect_lock_repair_actions(result: DoctorRepairResult, config: Config) -> 
         )
 
 
+def _collect_profile_repair_actions(
+    result: DoctorRepairResult,
+    config: Config,
+    max_age_days: int,
+    current_driver_version: str | None = None,
+    current_binary_version: str | None = None,
+) -> None:
+    """Collect repair actions for stale cached performance profiles.
+
+    Scans the profiles directory for JSON files, parses each as a
+    ProfileRecord, and checks staleness.  Profiles that are stale beyond
+    *max_age_days* are added as deletion actions.
+
+    Args:
+        result: DoctorRepairResult to append actions to.
+        config: Application config (provides profiles_dir).
+        max_age_days: Maximum acceptable profile age in days.
+        current_driver_version: Current GPU driver version (enables
+            driver-change detection when provided).
+        current_binary_version: Current llama-server binary version
+            (enables binary-change detection when provided).
+    """
+    profiles_dir = config.profiles_dir
+    if not profiles_dir.exists():
+        return
+
+    for profile_path in sorted(profiles_dir.glob("*.json")):
+        try:
+            raw = profile_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            record = ProfileRecord.from_dict(data)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            # Corrupt or unrecognised file — warn and skip
+            result.warnings.append(f"Corrupt profile file skipped: {profile_path.name}")
+            continue
+
+        staleness = check_staleness(
+            record,
+            current_driver_version=current_driver_version or record.driver_version,
+            current_binary_version=current_binary_version or record.server_binary_version,
+            staleness_days=max_age_days,
+        )
+
+        if staleness.is_stale:
+            reasons = ", ".join(r.value for r in staleness.reasons)
+            guidance = _build_profile_guidance(staleness, record, max_age_days)
+            result.actions.append(
+                RepairAction(
+                    action_type="remove_stale_profile",
+                    description=(
+                        f"Remove stale profile: {profile_path.name} "
+                        f"({reasons}, {staleness.age_days:.0f} days old) — {guidance}"
+                    ),
+                    command="rm",
+                    args=[str(profile_path)],
+                    dry_run_command=f"# rm '{profile_path}'",
+                    requires_confirmation=True,
+                )
+            )
+
+
 def _execute_repair_action(action: RepairAction, result: DoctorRepairResult) -> None:
     """Execute a single repair action and update result."""
     if not action.command:
@@ -490,6 +682,7 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
     """
     dry_run = parsed.dry_run if hasattr(parsed, "dry_run") else False
     json_output = getattr(parsed, "json", False)
+    max_age_days = getattr(parsed, "max_age_days", 90)
 
     config = Config()
     result = DoctorRepairResult(actions=[], performed_actions=[], failures=[])
@@ -498,6 +691,15 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
     _collect_venv_repair_actions(result)
     _collect_staging_repair_actions(result, config)
     _collect_lock_repair_actions(result, config)
+    # Pass None for current versions to preserve age-only staleness
+    # detection.  See cmd_doctor_check for rationale.
+    _collect_profile_repair_actions(
+        result,
+        config,
+        max_age_days=max_age_days,
+        current_driver_version=None,
+        current_binary_version=None,
+    )
 
     if not dry_run:
         _execute_repair_actions(result)
@@ -547,6 +749,12 @@ FR-004.7: doctor --repair command for failed staging cleanup
         action="store_true",
         help="Output in JSON format",
     )
+    check_parser.add_argument(
+        "--max-age-days",
+        type=int,
+        default=90,
+        help="Maximum profile age in days before considered stale (default: 90)",
+    )
     check_parser.set_defaults(func=cmd_doctor_check)
 
     # doctor --repair
@@ -569,6 +777,12 @@ FR-004.7: doctor --repair command for failed staging cleanup
         "--yes",
         action="store_true",
         help="Skip confirmation prompts (use with caution)",
+    )
+    repair_parser.add_argument(
+        "--max-age-days",
+        type=int,
+        default=90,
+        help="Remove profiles stale beyond this age in days (default: 90)",
     )
     repair_parser.set_defaults(func=cmd_doctor_repair)
 

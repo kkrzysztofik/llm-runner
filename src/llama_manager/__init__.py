@@ -15,6 +15,14 @@ GPU statistics, log buffering, and lockfile management. It exports:
 - Server command building and validation utilities
 """
 
+from .benchmark import (
+    BenchmarkResult,
+    BenchmarkRunner,
+    SubprocessResult,
+    build_benchmark_cmd,
+    parse_benchmark_output,
+    run_benchmark,
+)
 from .build_pipeline import (
     GGML_CUDA,
     GGML_SYCL,
@@ -39,7 +47,7 @@ from .config_builder import (
     create_summary_balanced_cfg,
     create_summary_fast_cfg,
 )
-from .gpu_stats import GPUStats
+from .gpu_stats import GPUStats, get_gpu_identifier
 from .log_buffer import LogBuffer
 from .process_manager import (
     ArtifactMetadata,
@@ -54,6 +62,24 @@ from .process_manager import (
     resolve_runtime_dir,
     update_lock,
     write_artifact,
+)
+from .profile_cache import (
+    CURRENT_SCHEMA_VERSION,
+    PROFILE_OVERRIDE_FIELDS,
+    ProfileFlavor,
+    ProfileMetrics,
+    ProfileRecord,
+    StalenessReason,
+    StalenessResult,
+    check_staleness,
+    compute_driver_version_hash,
+    compute_gpu_identifier,
+    ensure_profiles_dir,
+    get_profile_path,
+    load_profile_with_staleness,
+    profile_to_override_dict,
+    read_profile,
+    write_profile,
 )
 from .reports import (
     FailureReport,
@@ -175,6 +201,7 @@ __all__ = [
     # Components
     "LogBuffer",
     "GPUStats",
+    "get_gpu_identifier",
     "ServerManager",
     # Lockfile and artifacts
     "ArtifactMetadata",
@@ -188,4 +215,28 @@ __all__ = [
     "resolve_runtime_dir",
     "update_lock",
     "write_artifact",
+    # Benchmark
+    "SubprocessResult",
+    "BenchmarkResult",
+    "BenchmarkRunner",
+    "build_benchmark_cmd",
+    "parse_benchmark_output",
+    "run_benchmark",
+    # Profile cache
+    "ProfileFlavor",
+    "ProfileMetrics",
+    "ProfileRecord",
+    "StalenessReason",
+    "StalenessResult",
+    "PROFILE_OVERRIDE_FIELDS",
+    "CURRENT_SCHEMA_VERSION",
+    "compute_gpu_identifier",
+    "compute_driver_version_hash",
+    "ensure_profiles_dir",
+    "get_profile_path",
+    "read_profile",
+    "write_profile",
+    "check_staleness",
+    "load_profile_with_staleness",
+    "profile_to_override_dict",
 ]

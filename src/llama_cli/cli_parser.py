@@ -10,6 +10,12 @@ import sys
 
 VALID_MODES = ("summary-balanced", "summary-fast", "qwen35", "both", "build", "setup", "doctor")
 
+# NOTE: --strict-profiles is documented as post-MVP deferral (FR-M3-009).
+# In MVP, stale profiles produce a warning only — they never block model
+# launch.  When --strict-profiles is eventually implemented it would treat
+# stale profiles as non-existent, requiring explicit user re-profiling before
+# profile guidance is applied.
+
 
 def parse_jobs_arg(arg: str) -> int:
     """Parse a jobs argument in various forms (-jN, --jobs=N).
@@ -371,6 +377,21 @@ def _handle_doctor_case(args: list[str]) -> argparse.Namespace | None:
     sys.exit(1)
 
 
+def _handle_profile_case(args: list[str]) -> argparse.Namespace | None:
+    """Handle profile subcommand — detect and forward raw args to profile_cli.main().
+
+    Args:
+        args: List of command-line arguments.
+
+    Returns:
+        Minimal namespace if profile subcommand, None otherwise.
+    """
+    if not (len(args) >= 1 and args[0] == "profile"):
+        return None
+
+    return argparse.Namespace(mode="profile", sub_argv=args[1:])
+
+
 def _handle_dry_run_case(args: list[str]) -> argparse.Namespace | None:
     """Handle dry-run mode special case.
 
@@ -423,6 +444,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     doctor_result = _handle_doctor_case(args)
     if doctor_result is not None:
         return doctor_result
+
+    # Handle profile subcommand (not in VALID_MODES)
+    profile_result = _handle_profile_case(args)
+    if profile_result is not None:
+        return profile_result
 
     # Handle dry-run mode (special case)
     dry_run_result = _handle_dry_run_case(args)

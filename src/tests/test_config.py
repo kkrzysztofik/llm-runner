@@ -276,7 +276,7 @@ class TestErrorCode:
         """ErrorCode should have deterministic iteration order for sorting."""
         codes = list(ErrorCode)
         # Should be in definition order for predictable sorting
-        assert len(codes) == 24  # All error codes defined (13 original + 11 M2)
+        assert len(codes) == 23  # All error codes defined (13 original + 10 M2)
 
 
 class TestValidationResult:
@@ -331,7 +331,7 @@ class TestProcessOwnershipVerification:
         manager = ServerManager()
 
         # Mock subprocess.Popen to avoid actually starting a process
-        with patch("subprocess.Popen") as mock_popen:
+        with patch("llama_manager.process_manager.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
@@ -339,7 +339,7 @@ class TestProcessOwnershipVerification:
             mock_proc.wait.return_value = 0
 
             # Mock psutil.Process to return a creation time
-            with patch("psutil.Process") as mock_psutil:
+            with patch("llama_manager.process_manager.psutil.Process") as mock_psutil:
                 mock_proc_obj = mock_psutil.return_value
                 mock_proc_obj.create_time.return_value = 1234567890.123
 
@@ -352,14 +352,14 @@ class TestProcessOwnershipVerification:
         """ServerManager should fall back to PID existence check when metadata unavailable."""
         manager = ServerManager()
 
-        with patch("subprocess.Popen") as mock_popen:
+        with patch("llama_manager.process_manager.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
             mock_proc.stderr = None
 
             # Simulate psutil failure (AccessDenied)
-            with patch("psutil.Process") as mock_psutil:
+            with patch("llama_manager.process_manager.psutil.Process") as mock_psutil:
                 mock_psutil.side_effect = psutil.AccessDenied(12345, "denied")
 
                 manager.start_server_background("test", ["cmd"])
@@ -420,23 +420,26 @@ class TestProcessOwnershipVerification:
         manager.pids = [12345]
         manager.pid_metadata[12345] = 1234567890.0
 
-        with patch("subprocess.Popen") as mock_popen:
+        with (
+            patch("llama_manager.process_manager.subprocess.Popen") as mock_popen,
+            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("os.kill") as mock_kill,
+        ):
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
             mock_proc.stderr = None
             mock_proc.wait.return_value = 0
 
-            with patch("psutil.Process") as mock_psutil:
-                mock_proc_obj = mock_psutil.return_value
-                # Different creation time - simulating PID reuse by attacker
-                mock_proc_obj.create_time.return_value = 1234567900.0
+            mock_proc_obj = mock_psutil.return_value
+            # Different creation time - simulating PID reuse by attacker
+            mock_proc_obj.create_time.return_value = 1234567900.0
 
-                # os.kill should NOT be called because ownership doesn't match
-                with patch("os.kill") as mock_kill:
-                    mock_kill.return_value = None
-                    manager.cleanup_servers()
-                    mock_kill.assert_not_called()
+            # os.kill should NOT be called because ownership doesn't match
+            mock_kill.return_value = None
+            manager.cleanup_servers()
+            mock_kill.assert_not_called()
 
     def test_cleanup_signals_matching_process(self, monkeypatch) -> None:
         """cleanup_servers should signal processes with matching creation time."""
@@ -447,14 +450,14 @@ class TestProcessOwnershipVerification:
         manager.pids = [12345]
         manager.pid_metadata[12345] = 1234567890.0
 
-        with patch("subprocess.Popen") as mock_popen:
+        with patch("llama_manager.process_manager.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
             mock_proc.stderr = None
             mock_proc.wait.return_value = 0
 
-            with patch("psutil.Process") as mock_psutil:
+            with patch("llama_manager.process_manager.psutil.Process") as mock_psutil:
                 mock_proc_obj = mock_psutil.return_value
                 mock_proc_obj.create_time.return_value = 1234567890.05  # matches
 
@@ -720,13 +723,13 @@ class TestLifecycleAuditTrail:
         """start_server_background should record start event in audit trail."""
         manager = ServerManager()
 
-        with patch("subprocess.Popen") as mock_popen:
+        with patch("llama_manager.process_manager.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
             mock_proc.stderr = None
 
-            with patch("psutil.Process") as mock_psutil:
+            with patch("llama_manager.process_manager.psutil.Process") as mock_psutil:
                 mock_proc_obj = mock_psutil.return_value
                 mock_proc_obj.create_time.return_value = 1234567890.123
 
@@ -745,14 +748,14 @@ class TestLifecycleAuditTrail:
         manager.pids = [12345]
         manager.pid_metadata[12345] = 1234567890.0
 
-        with patch("subprocess.Popen") as mock_popen:
+        with patch("llama_manager.process_manager.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
             mock_proc.stderr = None
             mock_proc.wait.return_value = 0
 
-            with patch("psutil.Process") as mock_psutil:
+            with patch("llama_manager.process_manager.psutil.Process") as mock_psutil:
                 mock_proc_obj = mock_psutil.return_value
                 mock_proc_obj.create_time.return_value = 1234567890.05
 
@@ -774,31 +777,34 @@ class TestLifecycleAuditTrail:
         manager.pids = [12345]
         manager.pid_metadata[12345] = 1234567890.0
 
-        with patch("subprocess.Popen") as mock_popen:
+        with (
+            patch("llama_manager.process_manager.subprocess.Popen") as mock_popen,
+            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("os.kill") as mock_kill,
+        ):
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
             mock_proc.stderr = None
             mock_proc.wait.return_value = 0
 
-            with patch("psutil.Process") as mock_psutil:
-                mock_proc_obj = mock_psutil.return_value
-                # Stubborn process - create time still matches after TERM
-                mock_proc_obj.create_time.return_value = 1234567890.05
+            mock_proc_obj = mock_psutil.return_value
+            # Stubborn process - create time still matches after TERM
+            mock_proc_obj.create_time.return_value = 1234567890.05
 
-                # Mock uid() to return same as current process
-                mock_uids = Mock()
-                mock_uids.real = os.getuid()
-                mock_proc_obj.uids.return_value = mock_uids
+            # Mock uid() to return same as current process
+            mock_uids = Mock()
+            mock_uids.real = os.getuid()
+            mock_proc_obj.uids.return_value = mock_uids
 
-                with patch("os.kill") as mock_kill:
-                    mock_kill.return_value = None
-                    manager.cleanup_servers()
+            mock_kill.return_value = None
+            manager.cleanup_servers()
 
-                    # Should have recorded kill events
-                    audit = manager._lifecycle_audit
-                    kill_events = [e for e in audit if e["event"] == "kill"]
-                    assert len(kill_events) >= 1
+            # Should have recorded kill events
+            audit = manager._lifecycle_audit
+            kill_events = [e for e in audit if e["event"] == "kill"]
+            assert len(kill_events) >= 1
 
     def test_audit_trail_records_skip_events(self) -> None:
         """cleanup_servers should record skip events for failed ownership checks."""
@@ -807,27 +813,30 @@ class TestLifecycleAuditTrail:
         manager.pids = [12345]
         manager.pid_metadata[12345] = 1234567890.0
 
-        with patch("subprocess.Popen") as mock_popen:
+        with (
+            patch("llama_manager.process_manager.subprocess.Popen") as mock_popen,
+            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("os.kill") as mock_kill,
+        ):
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
             mock_proc.stderr = None
             mock_proc.wait.return_value = 0
 
-            with patch("psutil.Process") as mock_psutil:
-                mock_proc_obj = mock_psutil.return_value
-                # Different creation time - ownership fails
-                mock_proc_obj.create_time.return_value = 1234567900.0
+            mock_proc_obj = mock_psutil.return_value
+            # Different creation time - ownership fails
+            mock_proc_obj.create_time.return_value = 1234567900.0
 
-                # os.kill should NOT be called because ownership doesn't match
-                with patch("os.kill") as mock_kill:
-                    mock_kill.return_value = None
-                    manager.cleanup_servers()
+            # os.kill should NOT be called because ownership doesn't match
+            mock_kill.return_value = None
+            manager.cleanup_servers()
 
-                    # Should have recorded skip event
-                    audit = manager._lifecycle_audit
-                    skip_events = [e for e in audit if e["event"] == "skip"]
-                    assert any(e["details"] == "ownership_failed" for e in skip_events)
+            # Should have recorded skip event
+            audit = manager._lifecycle_audit
+            skip_events = [e for e in audit if e["event"] == "skip"]
+            assert any(e["details"] == "ownership_failed" for e in skip_events)
 
     def test_audit_trail_multiple_servers(self, tmp_path) -> None:
         """Audit trail should track multiple servers correctly."""

@@ -104,7 +104,7 @@ class ProfileRecord:
 
     Serialized to JSON in ~/.cache/llm-runner/profiles/.
     Unrecognized schema versions cause the profile to be skipped with a warning.
-    Uses Unix timestamp (float) for profiled_at to match existing LockMetadata pattern.
+    Uses ISO 8601 UTC timestamp for profiled_at per spec.md.
     """
     schema_version: int
     gpu_identifier: str
@@ -113,7 +113,7 @@ class ProfileRecord:
     driver_version: str
     driver_version_hash: str  # 16 hex chars
     server_binary_version: str
-    profiled_at: float  # Unix timestamp, consistent with LockMetadata.started_at
+    profiled_at: str  # ISO 8601 UTC timestamp, e.g. "2026-04-20T14:30:00Z"
     metrics: ProfileMetrics
     parameters: dict[str, Any] = field(default_factory=dict)
 
@@ -142,15 +142,16 @@ class StalenessReason(StrEnum):
 
 ```python
 # In src/llama_manager/config.py — additions to existing Config class
+import os
 
 @property
 def profiles_dir(self) -> Path:
     """Return the profile cache directory."""
     return Path(self.xdg_cache_base) / "llm-runner" / "profiles"
 
-# New fields (with defaults)
+# New fields (with defaults) - use field(default_factory=...) for env var reading
 profile_staleness_days: int = 30
-server_binary_version: str = ""  # Populated from SERVER_BINARY_VERSION env var, default ""
+server_binary_version: str = field(default_factory=lambda: os.environ.get("SERVER_BINARY_VERSION", ""))
 ```
 
 ### 6. merge_config_overrides Extension (Non-Breaking)
@@ -161,14 +162,21 @@ def merge_config_overrides(
     defaults: Config,
     slot_config: dict | None = None,
     workstation_config: dict | None = None,
-    profile_config: dict | None = None,
+    profile_config: dict | StalenessResult | None = None,
     override_config: dict | None = None,
     warnings: list[str] | None = None,
 ) -> ServerConfig:
     """Returns merged ServerConfig.
 
+    Precedence: defaults < slot < workstation < profile < override
+
+    IMPORTANT: profile_config values are internally filtered to PROFILE_OVERRIDE_FIELDS
+    (threads, ctx_size, ubatch_size, cache_type_k, cache_type_v) before merging.
+    Non-whitelisted keys are silently ignored to prevent profiles from overriding
+    structural config (ports, models, hardware assignments).
+
     If ``warnings`` is provided (a mutable list), staleness and override
-    warnings are appended to it. This preserves backward compatibility
+    warnings are appended to it as a side effect. This preserves backward compatibility
     while enabling callers that need warning accumulation.
     """
 ```
@@ -232,7 +240,7 @@ class ProfileRecord:
     driver_version: str
     driver_version_hash: str
     server_binary_version: str
-    profiled_at: float  # Unix timestamp
+    profiled_at: str  # ISO 8601 UTC timestamp
     metrics: ProfileMetrics
     parameters: dict[str, Any] = field(default_factory=dict)
 
@@ -376,7 +384,7 @@ class BenchmarkResult:
 # --- Command Construction ---
 
 def build_benchmark_cmd(
-    server_bin: str,
+    bench_bin: str,
     model: str,
     port: int,
     threads: int,
@@ -387,10 +395,18 @@ def build_benchmark_cmd(
     n_gpu_layers: int | str = "all",
 ) -> list[str]:
     """Build llama-bench command as list of strings.
-    
-    The benchmark tool is assumed to be co-located with llama-server
-    (same directory, different name) or available on PATH.
-    
+
+    Args:
+        bench_bin: Path to the llama-bench binary (co-located with llama-server or on PATH).
+        model: Path to the model file.
+        port: Server port for benchmark.
+        threads: Number of CPU threads.
+        ctx_size: Context size.
+        ubatch_size: Micro-batch size.
+        cache_type_k: KV cache quantization for K.
+        cache_type_v: KV cache quantization for V.
+        n_gpu_layers: Number of GPU layers ("all" or integer).
+
     Returns a subprocess-safe list of arguments.
     """
 
@@ -586,7 +602,7 @@ def cmd_profile(parsed: argparse.Namespace) -> int
 
 **Files**: `cli_parser.py`, `profile_cli.py`, `server_runner.py`
 
-1. **Add `profile` to `VALID_MODES`** in `cli_parser.py`
+1. **Add `profile` subcommand parser** in `cli_parser.py` — following `doctor` subcommand pattern (NOT added to `VALID_MODES`), positional args: `<slot_id> <flavor>`
 2. **Add `_handle_profile_case`** function in `cli_parser.py` — parses `profile <slot_id> <flavor>` with `--json` flag
 3. **Create `profile_cli.py`** with `cmd_profile` handler:
    - Validates slot is not running (check lockfile using existing `read_lock` or `ServerManager` state)
@@ -731,7 +747,9 @@ src/
 2. **GPU stats**: Mock `get_gpu_identifier` and `compute_driver_version_hash` to return deterministic values
 3. **Lockfile checks**: Mock `read_lock` to simulate "slot running" vs "slot free"
 4. **File I/O**: Use `tmp_path` fixture for all profile cache operations
-5. **Time-based staleness**: Use fixed Unix timestamps for `profiled_at`
+5. **Time-based staleness**: Use fixed ISO 8601 UTC timestamps for `profiled_at`
+   (for example, `"2024-01-01T00:00:00Z"`), and assert via ProfileRecord
+   ISO serialization/deserialization behavior rather than Unix epoch integers.
 
 ---
 

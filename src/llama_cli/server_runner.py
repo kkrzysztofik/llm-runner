@@ -53,6 +53,7 @@ def usage() -> None:
   src/run_opencode_models.py qwen35 [port]
   src/run_opencode_models.py both [summary_balanced_port qwen35_port]
   src/run_opencode_models.py dry-run <mode> [ports...]
+  src/run_opencode_models.py profile <slot_id> <flavor> [--json]
   src/run_opencode_models.py setup <subcommand>
 
 Modes:
@@ -62,6 +63,7 @@ Modes:
   both             Run summary-balanced and qwen35 side-by-side
   dry-run          Preview commands without executing
   setup            Toolchain diagnostics and venv management
+  profile          Run benchmark profile
 
 Setup Subcommands:
   check           Check toolchain availability (FR-005.1)
@@ -75,6 +77,7 @@ Examples:
   src/run_opencode_models.py both 8080 8081
   src/run_opencode_models.py dry-run summary-balanced
   src/run_opencode_models.py dry-run both 8080 8081
+  src/run_opencode_models.py profile slot0 balanced --json
   src/run_opencode_models.py setup --check
   src/run_opencode_models.py setup venv
   src/run_opencode_models.py setup clean-venv --yes""")
@@ -316,6 +319,7 @@ def _normalize_main_args(args: list[str] | None) -> list[str]:
         "doctor",
         "build",
         "setup",
+        "profile",
     }
     if args[0] in modes or args[0].startswith("-"):
         return args
@@ -361,6 +365,12 @@ def main(args: list[str] | None = None) -> int:
         from llama_cli.doctor_cli import main as doctor_main
 
         return doctor_main(argv[1:])
+
+    # Handle profile subcommand
+    if parsed.mode == "profile":
+        from llama_cli.profile_cli import main as profile_main
+
+        return profile_main(argv[1:])
 
     manager = ServerManager()
     signal.signal(signal.SIGINT, manager.on_interrupt)

@@ -27,6 +27,7 @@ RISK_ACK_LABEL = "warning_bypass"
 RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
 ELIGIBLE_LABEL = "    Eligible"
 REASON_LABEL = "    Reason"
+DEVICE_SYCL0_LABEL = "  Device: SYCL0"
 
 
 def _print_acknowledgement_required_and_exit() -> NoReturn:
@@ -149,7 +150,7 @@ def _run_summary_balanced_mode(
     payload = slot_payloads[-1]
     print("summary-balanced:")
     print(f"  Port: {payload.port}")
-    print("  Device: SYCL0")
+    print(DEVICE_SYCL0_LABEL)
     print(f"  Context: {cfg.default_ctx_size_summary}")
     print(f"  Threads: {cfg.default_threads_summary_balanced}")
     print(f"  UBatch: {cfg.default_ubatch_size_summary_balanced}")
@@ -176,7 +177,7 @@ def _run_summary_fast_mode(
     payload = slot_payloads[-1]
     print("summary-fast:")
     print(f"  Port: {payload.port}")
-    print("  Device: SYCL0")
+    print(DEVICE_SYCL0_LABEL)
     print(f"  Context: {cfg.default_ctx_size_summary}")
     print(f"  Threads: {cfg.default_threads_summary_fast}")
     print(f"  UBatch: {cfg.default_ubatch_size_summary_fast}")
@@ -230,7 +231,7 @@ def _run_both_mode(
         payload1 = slot_payloads[-1]
         print("summary-balanced:")
         print(f"  Port: {payload1.port}")
-        print("  Device: SYCL0")
+        print(DEVICE_SYCL0_LABEL)
         print(f"  Context: {cfg.default_ctx_size_both_summary}")
         print(f"  Threads: {cfg.default_threads_summary_balanced}")
         print(f"  UBatch: {cfg.default_ubatch_size_summary_balanced}")

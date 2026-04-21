@@ -455,3 +455,96 @@ class TestDryRunPortParsing:
         assert args.dry_run_mode == "both"
         assert args.acknowledge_risky is True
         assert args.ports == [8080]
+
+
+class TestHandleProfileCase:
+    """Tests for _handle_profile_case function.
+
+    _handle_profile_case is a simple detector — it only checks whether
+    args[0] == "profile" and returns a minimal namespace with sub_argv
+    forwarded to profile_cli.main() for full parsing/validation.
+    """
+
+    def test_handle_profile_balanced(self) -> None:
+        """_handle_profile_case detects profile subcommand and forwards args."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["profile", "slot1", "balanced"])
+        assert result is not None
+        assert result.mode == "profile"
+        assert result.sub_argv == ["slot1", "balanced"]
+
+    def test_handle_profile_fast(self) -> None:
+        """_handle_profile_case detects profile subcommand."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["profile", "slot1", "fast"])
+        assert result is not None
+        assert result.mode == "profile"
+        assert result.sub_argv == ["slot1", "fast"]
+
+    def test_handle_profile_quality(self) -> None:
+        """_handle_profile_case detects profile subcommand."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["profile", "slot1", "quality"])
+        assert result is not None
+        assert result.mode == "profile"
+        assert result.sub_argv == ["slot1", "quality"]
+
+    def test_handle_profile_with_json(self) -> None:
+        """_handle_profile_case forwards --json in sub_argv."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["profile", "slot1", "balanced", "--json"])
+        assert result is not None
+        assert result.mode == "profile"
+        assert result.sub_argv == ["slot1", "balanced", "--json"]
+
+    def test_handle_profile_slot_id_with_dashes(self) -> None:
+        """_handle_profile_case accepts slot_id with dashes."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["profile", "gpu-0", "balanced"])
+        assert result is not None
+        assert result.mode == "profile"
+        assert result.sub_argv == ["gpu-0", "balanced"]
+
+    def test_handle_profile_slot_id_with_underscores(self) -> None:
+        """_handle_profile_case accepts slot_id with underscores."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["profile", "gpu_0", "balanced"])
+        assert result is not None
+        assert result.mode == "profile"
+        assert result.sub_argv == ["gpu_0", "balanced"]
+
+    def test_handle_profile_not_profile_command(self) -> None:
+        """_handle_profile_case should return None for non-profile commands."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case(["summary-balanced"])
+        assert result is None
+
+    def test_handle_profile_empty_args(self) -> None:
+        """_handle_profile_case returns None for empty args."""
+        from llama_cli.cli_parser import _handle_profile_case
+
+        result = _handle_profile_case([])
+        assert result is None
+
+
+class TestParseArgsProfile:
+    """Tests for profile subcommand through parse_args."""
+
+    def test_parse_args_profile_balanced(self) -> None:
+        """parse_args should handle 'profile slot balanced'."""
+        args = parse_args(["profile", "slot1", "balanced"])
+        assert args.mode == "profile"
+        assert args.sub_argv == ["slot1", "balanced"]
+
+    def test_parse_args_profile_with_json(self) -> None:
+        """parse_args should handle 'profile slot balanced --json'."""
+        args = parse_args(["profile", "slot1", "balanced", "--json"])
+        assert args.mode == "profile"
+        assert args.sub_argv == ["slot1", "balanced", "--json"]

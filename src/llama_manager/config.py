@@ -3,6 +3,7 @@
 
 import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -117,6 +118,12 @@ class Config:
     build_output_truncate_bytes: int = 8192
     toolchain_timeout_seconds: int = 30
 
+    # Profile management
+    profile_staleness_days: int = field(default_factory=lambda: 30)
+    server_binary_version: str = field(
+        default_factory=lambda: os.environ.get("SERVER_BINARY_VERSION", "")
+    )
+
     # M2 XDG path utilities
     @property
     def venv_path(self) -> Path:
@@ -153,6 +160,20 @@ class Config:
             Path to $XDG_CACHE_BASE/llm-runner/.build.lock
         """
         return Path(self.xdg_cache_base) / "llm-runner" / ".build.lock"
+
+    @property
+    def profiles_dir(self) -> Path:
+        """Return the profiles directory path.
+
+        Returns:
+            Path to $XDG_RUNTIME_DIR/llm-runner/profiles when XDG_RUNTIME_DIR
+            is set to an absolute path; otherwise falls back to the system
+            temporary directory at <tempdir>/llm-runner/profiles.
+        """
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+        if not runtime_dir or not Path(runtime_dir).is_absolute():
+            runtime_dir = tempfile.gettempdir()
+        return Path(runtime_dir).resolve() / "llm-runner" / "profiles"
 
 
 @dataclass
@@ -315,7 +336,6 @@ class ErrorCode(StrEnum):
     GIT_CHECKOUT_FAILED = "GIT_CHECKOUT_FAILED"
     REPORT_WRITE_FAILURE = "REPORT_WRITE_FAILURE"
     TOOL_VERSION_MISMATCH = "TOOL_VERSION_MISMATCH"
-    CMAKE_INCOMPATIBLE = "CMAKE_INCOMPATIBLE"
 
 
 @dataclass
