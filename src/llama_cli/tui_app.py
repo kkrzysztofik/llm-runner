@@ -107,7 +107,7 @@ class TUIApp:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
-    def _signal_handler(self, signum: int, frame: object | None) -> None:
+    def _signal_handler(self, signum: int, frame: FrameType | None) -> None:
         """Handle shutdown signals by stopping the TUI loop.
 
         If a build is in progress, release the build lock before stopping.
@@ -119,7 +119,7 @@ class TUIApp:
 
         self.stop()
 
-    def _signal_handler_build(self, signum: int, frame: object | None) -> None:
+    def _signal_handler_build(self, signum: int, frame: FrameType | None) -> None:
         """Signal handler specifically for build process.
 
         Releases build lock and stops the build gracefully.

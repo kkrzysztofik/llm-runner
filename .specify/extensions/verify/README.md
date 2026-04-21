@@ -90,7 +90,18 @@ If the `after_implement` hook is enabled, you'll be prompted automatically after
 
 ## Environment Variables
 
-This extension does not currently support environment variable overrides. All configuration is managed through `verify-config.yml`.
+This extension supports the `SPECKIT_VERIFY_MAX_FINDINGS` override.
+
+- **Variable**: `SPECKIT_VERIFY_MAX_FINDINGS`
+- **Type**: integer (`0` for unlimited, or a positive integer such as `50`)
+- **Maps to**: `report.max_findings`
+- **Precedence**: when `SPECKIT_VERIFY_MAX_FINDINGS` is non-empty, it overrides
+  `verify-config.yml`; otherwise the configured file value is used.
+
+Implementation reference:
+
+- `.specify/extensions/verify/scripts/bash/load-config.sh`
+- `.specify/extensions/verify/scripts/powershell/load-config.ps1`
 
 ## Examples
 
@@ -150,7 +161,7 @@ The verify command analyzes implemented code against specification artifacts:
 
 ```text
 /speckit.specify → /speckit.plan → /speckit.tasks → /speckit.implement → /speckit.verify.run
-```text
+```
 
 ## Operating Principles
 

@@ -14,6 +14,7 @@ Flavors: balanced, fast, quality
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -33,8 +34,14 @@ from llama_manager import (
     write_profile,
 )
 
+LOGGER = logging.getLogger(__name__)
+BENCHMARK_RUN_TIMEOUT_SECONDS = 600
+BENCHMARK_PROMPT_TOKENS = 512
 
-def _default_subprocess_runner(cmd: list[str]) -> SubprocessResult:
+
+def _default_subprocess_runner(
+    cmd: list[str], timeout_seconds: int = BENCHMARK_RUN_TIMEOUT_SECONDS
+) -> SubprocessResult:
     """Execute *cmd* via ``subprocess.run`` and return the result.
 
     Args:
@@ -43,12 +50,28 @@ def _default_subprocess_runner(cmd: list[str]) -> SubprocessResult:
     Returns:
         A :class:`SubprocessResult` with exit code and captured output.
     """
-    result = subprocess.run(cmd, capture_output=True, text=True, shell=False)
-    return SubprocessResult(
-        exit_code=result.returncode,
-        stdout=result.stdout,
-        stderr=result.stderr,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            shell=False,
+            timeout=timeout_seconds,
+        )
+        return SubprocessResult(
+            exit_code=result.returncode,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
+    except subprocess.TimeoutExpired as exc:
+        timeout_stderr = f"benchmark timed out after {timeout_seconds}s"
+        if exc.stderr:
+            timeout_stderr = f"{timeout_stderr}: {exc.stderr}"
+        return SubprocessResult(
+            exit_code=124,
+            stdout=exc.stdout or "",
+            stderr=timeout_stderr,
+        )
 
 
 def require_executable(path: str) -> None:
@@ -146,9 +169,8 @@ def cmd_profile(
                 "proceeding anyway",
                 file=sys.stderr,
             )
-    except Exception:
-        # Can't determine slot status — proceed without check
-        pass
+    except (FileNotFoundError, PermissionError, OSError) as exc:
+        LOGGER.warning("Unable to inspect slot lockfile for %s", slot_id, exc_info=exc)
 
     # Auto-detect backend
     backend = _detect_backend(config)
@@ -177,17 +199,14 @@ def cmd_profile(
     flavor_obj = ProfileFlavor(flavor)
     if flavor_obj == ProfileFlavor.BALANCED:
         model = config.model_summary_balanced
-        port = config.summary_balanced_port
         threads = config.default_threads_summary_balanced
         ubatch_size = config.default_ubatch_size_summary_balanced
     elif flavor_obj == ProfileFlavor.FAST:
         model = config.model_summary_fast
-        port = config.summary_fast_port
         threads = config.default_threads_summary_fast
         ubatch_size = config.default_ubatch_size_summary_fast
     else:  # quality — use balanced as base
         model = config.model_summary_balanced
-        port = config.summary_balanced_port
         threads = config.default_threads_summary_balanced
         ubatch_size = config.default_ubatch_size_summary_balanced
 
@@ -195,7 +214,7 @@ def cmd_profile(
     cmd = build_benchmark_cmd(
         bench_bin=bench_bin,
         model=model,
-        port=port,
+        n_prompt=BENCHMARK_PROMPT_TOKENS,
         threads=threads,
         ctx_size=config.default_ctx_size_summary,
         ubatch_size=ubatch_size,
@@ -299,4 +318,4 @@ def main(args: list[str] | None = None) -> int:
     # Parse remaining flags
     json_output = "--json" in remaining
 
-    return cmd_profile(slot_id, flavor, json_output=json_output)
+    return cmd_profile(slot_id, flavor.value, json_output=json_output)

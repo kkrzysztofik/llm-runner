@@ -145,7 +145,7 @@ def parse_benchmark_output(output: str) -> BenchmarkResult | None:
 def build_benchmark_cmd(
     bench_bin: str,
     model: str,
-    port: int,
+    n_prompt: int,
     threads: int,
     ctx_size: int,
     ubatch_size: int,
@@ -161,7 +161,7 @@ def build_benchmark_cmd(
     Args:
         bench_bin: Path to the llama-bench binary.
         model: Path to the model file to benchmark.
-        port: Port number for the benchmark server.
+        n_prompt: Number of prompt tokens for benchmarking.
         threads: Number of threads to use.
         ctx_size: Context size (number of tokens).
         ubatch_size: Ubatch size for the benchmark.
@@ -188,7 +188,7 @@ def build_benchmark_cmd(
         "-m",
         model,
         "-p",
-        str(port),
+        str(n_prompt),
         "-t",
         str(threads),
         "-c",

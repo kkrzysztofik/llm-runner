@@ -142,7 +142,7 @@ jobs:
         run: |
           uv export --frozen --format requirements-txt --no-editable --no-dev --no-hashes --output-file .snyk-requirements.txt
           # Remove the '.' project reference that Snyk's pip parser cannot handle
-          grep -v '^\.$' .snyk-requirements.txt > .snyk-requirements-clean.txt
+          grep -v '^\.$' .snyk-requirements.txt > .snyk-requirements-clean.txt || :
 
       - name: Install exported dependencies for Snyk resolver
         if: env.SNYK_TOKEN != ''

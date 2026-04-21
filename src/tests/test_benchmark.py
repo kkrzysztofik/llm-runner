@@ -34,7 +34,7 @@ class TestBuildBenchmarkCmd:
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/models/test.gguf",
-            port=8080,
+            n_prompt=8080,
             threads=4,
             ctx_size=4096,
             ubatch_size=512,
@@ -64,7 +64,7 @@ class TestBuildBenchmarkCmd:
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/models/test.gguf",
-            port=8080,
+            n_prompt=8080,
             threads=4,
             ctx_size=4096,
             ubatch_size=512,
@@ -81,7 +81,7 @@ class TestBuildBenchmarkCmd:
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/models/test.gguf",
-            port=8080,
+            n_prompt=8080,
             threads=4,
             ctx_size=4096,
             ubatch_size=512,
@@ -98,7 +98,7 @@ class TestBuildBenchmarkCmd:
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/models/test.gguf",
-            port=8080,
+            n_prompt=8080,
             threads=4,
             ctx_size=4096,
             ubatch_size=512,
@@ -116,7 +116,7 @@ class TestBuildBenchmarkCmd:
             build_benchmark_cmd(
                 bench_bin="/nonexistent/llama-bench",
                 model="/models/test.gguf",
-                port=8080,
+                n_prompt=8080,
                 threads=4,
                 ctx_size=4096,
                 ubatch_size=512,
@@ -132,7 +132,7 @@ class TestBuildBenchmarkCmd:
             build_benchmark_cmd(
                 bench_bin=str(path),
                 model="/models/test.gguf",
-                port=8080,
+                n_prompt=8080,
                 threads=4,
                 ctx_size=4096,
                 ubatch_size=512,
@@ -255,7 +255,7 @@ class TestBuildBenchmarkCmdEdgeCases:
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/tmp/model.gguf",
-            port=8080,
+            n_prompt=8080,
             threads=4,
             ctx_size=2048,
             ubatch_size=512,
@@ -273,7 +273,7 @@ class TestBuildBenchmarkCmdEdgeCases:
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/tmp/model.gguf",
-            port=8080,
+            n_prompt=8080,
             threads=4,
             ctx_size=2048,
             ubatch_size=512,
@@ -744,7 +744,7 @@ class TestBuildBenchmarkCmdAllParams:
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/models/qwen2.5-7b-q4_k_m.gguf",
-            port=8080,
+            n_prompt=8080,
             threads=16,
             ctx_size=8192,
             ubatch_size=2048,
@@ -777,7 +777,7 @@ class TestBuildBenchmarkCmdAllParams:
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/model.gguf",
-            port=8080,
+            n_prompt=8080,
             threads=4,
             ctx_size=2048,
             ubatch_size=512,
@@ -786,7 +786,7 @@ class TestBuildBenchmarkCmdAllParams:
         )
 
         # bench_bin(1) + 9 flag-value pairs(18) = 19 elements
-        # Wait, let me count: bin, -m, model, -p, port, -t, threads, -c, ctx,
+        # Wait, let me count: bin, -m, model, -p, n_prompt, -t, threads, -c, ctx,
         # --ubatch-size, size, --cache-type-k, type_k, --cache-type-v, type_v,
         # -ngl, layers = 17 elements
         assert len(cmd) == 17
@@ -797,7 +797,7 @@ class TestBuildBenchmarkCmdAllParams:
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/model.gguf",
-            port=8080,
+            n_prompt=8080,
             threads=4,
             ctx_size=2048,
             ubatch_size=512,
@@ -805,7 +805,7 @@ class TestBuildBenchmarkCmdAllParams:
             cache_type_v="F16",
         )
 
-        # Verify order: bin, -m model, -p port, -t threads, -c ctx, --ubatch-size size,
+        # Verify order: bin, -m model, -p n_prompt, -t threads, -c ctx, --ubatch-size size,
         # --cache-type-k type, --cache-type-v type, -ngl layers
         assert cmd[0] == str(bin_path)
         assert cmd[1] == "-m"
@@ -823,7 +823,7 @@ class TestBuildBenchmarkCmdAllParams:
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/models/qwen2.5-7b-q4_k_m.gguf",
-            port=8080,
+            n_prompt=8080,
             threads=4,
             ctx_size=2048,
             ubatch_size=512,
@@ -839,7 +839,7 @@ class TestBuildBenchmarkCmdAllParams:
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/model.gguf",
-            port=8080,
+            n_prompt=8080,
             threads=4,
             ctx_size=2048,
             ubatch_size=512,

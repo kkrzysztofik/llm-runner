@@ -747,7 +747,9 @@ src/
 2. **GPU stats**: Mock `get_gpu_identifier` and `compute_driver_version_hash` to return deterministic values
 3. **Lockfile checks**: Mock `read_lock` to simulate "slot running" vs "slot free"
 4. **File I/O**: Use `tmp_path` fixture for all profile cache operations
-5. **Time-based staleness**: Use fixed Unix timestamps for `profiled_at`
+5. **Time-based staleness**: Use fixed ISO 8601 UTC timestamps for `profiled_at`
+   (for example, `"2024-01-01T00:00:00Z"`), and assert via ProfileRecord
+   ISO serialization/deserialization behavior rather than Unix epoch integers.
 
 ---
 

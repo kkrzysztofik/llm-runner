@@ -61,8 +61,8 @@ Modes:
   qwen35           Run qwen35-coding model (NVIDIA CUDA)
   both             Run summary-balanced and qwen35 side-by-side
   dry-run          Preview commands without executing
-   setup            Toolchain diagnostics and venv management
-   profile          Run benchmark profile
+  setup            Toolchain diagnostics and venv management
+  profile          Run benchmark profile
 
 Setup Subcommands:
   check           Check toolchain availability (FR-005.1)
@@ -76,6 +76,7 @@ Examples:
   src/run_opencode_models.py both 8080 8081
   src/run_opencode_models.py dry-run summary-balanced
   src/run_opencode_models.py dry-run both 8080 8081
+  src/run_opencode_models.py profile slot0 balanced --json
   src/run_opencode_models.py setup --check
   src/run_opencode_models.py setup venv
   src/run_opencode_models.py setup clean-venv --yes""")

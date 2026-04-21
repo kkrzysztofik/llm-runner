@@ -6,6 +6,8 @@ scripts:
   ps: .specify/scripts/powershell/check-prerequisites.ps1 -Json -PathsOnly
 ---
 
+# Verify Command
+
 
 <!-- Extension: verify -->
 <!-- Config: .specify/extensions/verify/ -->

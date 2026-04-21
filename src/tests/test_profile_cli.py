@@ -688,6 +688,7 @@ class TestCmdProfile:
                 capture_output=True,
                 text=True,
                 shell=False,
+                timeout=600,
             )
 
     def test_cuda_backend_detection_in_profile(
