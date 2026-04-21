@@ -5,6 +5,8 @@ scripts:
   ps: ../../scripts/powershell/check-prerequisites.ps1 -Json -PathsOnly
 ---
 
+# Verify Command
+
 ## User Input
 
 ```text

@@ -83,6 +83,13 @@ class TUIApp:
         self._profile_flavor: dict[str, str] = {}  # alias -> flavor string
         self._profile_lock = threading.Lock()
 
+        # TUI-safe status message buffer (avoids print() inside Live context)
+        self._status_messages: list[str] = []
+        self._status_lock = threading.Lock()
+
+        # Non-blocking profile flavor request queue
+        self._profile_request: str | None = None
+
         self.server_manager = ServerManager()
 
         for cfg in configs:
@@ -171,6 +178,11 @@ class TUIApp:
         profile_panel = self._build_profile_status_panel()
         if profile_panel is not None:
             alerts.append(profile_panel)
+
+        # Add status messages panel
+        status_msgs_panel = self._build_status_messages_panel()
+        if status_msgs_panel is not None:
+            alerts.append(status_msgs_panel)
 
         if alerts:
             layout["alerts"].update(
@@ -384,9 +396,20 @@ class TUIApp:
                 # Use the first config (left column = focused slot)
                 cfg = self.configs[0]
                 self._prompt_profile_flavor(cfg.alias)
+                continue
+
+        # Handle queued profile flavor request non-blockingly
+        if self._profile_request is not None:
+            alias = self._profile_request
+            self._profile_request = None
+            self._wait_for_flavor_selection(alias)
 
     def _prompt_profile_flavor(self, alias: str) -> None:
-        """Prompt the user to select a profile flavor via stderr console."""
+        """Queue a non-blocking profile flavor request for the given alias.
+
+        The actual prompt is processed by _process_keypresses via the keypress
+        queue so the TUI Live context is never blocked.
+        """
         # Check if already profiling
         with self._profile_lock:
             if self._profile_status.get(alias) == "running":
@@ -396,21 +419,44 @@ class TUIApp:
         with self._profile_lock:
             self._profile_status[alias] = "idle"
 
-        # Show prompt on stderr (outside Live context)
-        print(f"\nProfile '{alias}' — select flavor:", file=sys.stderr)
-        print("  1) balanced  2) fast  3) quality", file=sys.stderr)
-        try:
-            raw = input("  choice [1/2/3]: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            return
+        # Queue the alias so _process_keypresses can handle it non-blockingly
+        self._profile_request = alias
 
+    def _wait_for_flavor_selection(self, alias: str) -> None:
+        """Non-blocking flavor selection — drain keypress queue once per cycle.
+
+        Called from _process_keypresses; does NOT sleep or block.
+        If the user hasn't pressed a valid key yet, the request stays queued
+        and _process_keypresses will try again on the next TUI render cycle.
+        """
         flavor_map = {"1": "balanced", "2": "fast", "3": "quality"}
-        flavor = flavor_map.get(raw)
-        if flavor is None:
-            print("  invalid choice, skipping.", file=sys.stderr)
-            return
 
-        self._run_profile_background(alias, flavor)
+        while not self._keypress_queue.empty():
+            try:
+                key = self._keypress_queue.get_nowait()
+            except queue.Empty:
+                break
+            if key in flavor_map:
+                self._profile_request = None
+                self._run_profile_background(alias, flavor_map[key])
+                return
+            if key == "^C":
+                self._profile_request = None
+                self._push_status_message(f"Profile '{alias}' cancelled.")
+                return
+            # Ignore other keys silently
+
+    def _push_status_message(self, message: str) -> None:
+        """Push a message to the TUI-safe status buffer and trigger a refresh.
+
+        This method is safe to call inside the Live context — it does NOT
+        call print() or console.print().
+        """
+        with self._status_lock:
+            self._status_messages.append(message)
+            # Keep at most 5 messages
+            if len(self._status_messages) > 5:
+                self._status_messages.pop(0)
 
     def _run_profile_background(self, alias: str, flavor: str) -> None:
         """Run profiling in a background thread so the TUI stays responsive."""
@@ -453,7 +499,7 @@ class TUIApp:
             with self._profile_lock:
                 if self._profile_status.get(cfg.alias) == "running":
                     self._profile_status[cfg.alias] = "failed"
-                    print(f"\nProfile '{cfg.alias}' aborted.", file=sys.stderr)
+                    self._push_status_message(f"Profile '{cfg.alias}' aborted.")
 
     # ------------------------------------------------------------------
     # Profile staleness helpers
@@ -468,7 +514,7 @@ class TUIApp:
             record, staleness = load_profile_with_staleness(
                 profiles_dir=self.config.profiles_dir,
                 gpu_identifier=cfg.device,
-                backend=cfg.backend if hasattr(cfg, "backend") else "sycl",
+                backend=cfg.backend,
                 flavor=ProfileFlavor.BALANCED,
                 current_driver_version=self.config.server_binary_version or "unknown",
                 current_binary_version=self.config.server_binary_version or "unknown",
@@ -508,6 +554,19 @@ class TUIApp:
             text.append("\n")
 
         return Panel(text, title="Profile Status", border_style="yellow")
+
+    def _build_status_messages_panel(self) -> Panel | None:
+        """Build a panel showing TUI-safe status messages."""
+        with self._status_lock:
+            if not self._status_messages:
+                return None
+            messages = list(self._status_messages)
+            self._status_messages.clear()
+
+        text = Text()
+        for msg in messages:
+            text.append(msg + "\n", style="green")
+        return Panel(text, title="Status", border_style="green")
 
     def _acknowledge_risks(
         self, launch_attempt_id: str, ack_token: str, acknowledged: bool

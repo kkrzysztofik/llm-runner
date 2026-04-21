@@ -3,6 +3,7 @@
 
 import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -168,7 +169,7 @@ class Config:
             Path to $XDG_RUNTIME_DIR/llm-runner/profiles, or
             /tmp/llm-runner/profiles if XDG_RUNTIME_DIR is not set
         """
-        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", tempfile.gettempdir())
         return Path(runtime_dir) / "llm-runner" / "profiles"
 
 

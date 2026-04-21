@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import math
-import os
-import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,30 +20,27 @@ from llama_manager.benchmark import (
 class TestBuildBenchmarkCmd:
     """Tests for build_benchmark_cmd."""
 
-    def _make_temp_bin(self, executable: bool = True) -> str:
+    def _make_temp_bin(self, tmp_path: Path, executable: bool = True) -> Path:
         """Create a temporary file to serve as a fake llama-bench binary."""
-        fd, path = tempfile.mkstemp(prefix="llama-bench-")
-        os.close(fd)
+        path = tmp_path / "llama-bench"
+        path.touch()
         if executable:
-            os.chmod(path, 0o755)  # noqa: S103
+            path.chmod(0o755)
         return path
 
-    def test_contains_required_flags(self) -> None:
+    def test_contains_required_flags(self, tmp_path: Path) -> None:
         """build_benchmark_cmd should contain all required flags."""
-        bin_path = self._make_temp_bin()
-        try:
-            cmd = build_benchmark_cmd(
-                bench_bin=bin_path,
-                model="/models/test.gguf",
-                port=8080,
-                threads=4,
-                ctx_size=4096,
-                ubatch_size=512,
-                cache_type_k="F16",
-                cache_type_v="F16",
-            )
-        finally:
-            os.unlink(bin_path)
+        bin_path = self._make_temp_bin(tmp_path)
+        cmd = build_benchmark_cmd(
+            bench_bin=str(bin_path),
+            model="/models/test.gguf",
+            port=8080,
+            threads=4,
+            ctx_size=4096,
+            ubatch_size=512,
+            cache_type_k="F16",
+            cache_type_v="F16",
+        )
 
         assert "-m" in cmd
         assert "/models/test.gguf" in cmd
@@ -62,63 +58,54 @@ class TestBuildBenchmarkCmd:
         assert "F16" in cmd
         assert "-ngl" in cmd
 
-    def test_returns_list_of_strings(self) -> None:
+    def test_returns_list_of_strings(self, tmp_path: Path) -> None:
         """build_benchmark_cmd should return a list[str]."""
-        bin_path = self._make_temp_bin()
-        try:
-            cmd = build_benchmark_cmd(
-                bench_bin=bin_path,
-                model="/models/test.gguf",
-                port=8080,
-                threads=4,
-                ctx_size=4096,
-                ubatch_size=512,
-                cache_type_k="F16",
-                cache_type_v="F16",
-            )
-        finally:
-            os.unlink(bin_path)
+        bin_path = self._make_temp_bin(tmp_path)
+        cmd = build_benchmark_cmd(
+            bench_bin=str(bin_path),
+            model="/models/test.gguf",
+            port=8080,
+            threads=4,
+            ctx_size=4096,
+            ubatch_size=512,
+            cache_type_k="F16",
+            cache_type_v="F16",
+        )
 
         assert isinstance(cmd, list)
         assert all(isinstance(part, str) for part in cmd)
 
-    def test_n_gpu_layers_default_all(self) -> None:
+    def test_n_gpu_layers_default_all(self, tmp_path: Path) -> None:
         """n_gpu_layers should default to 'all'."""
-        bin_path = self._make_temp_bin()
-        try:
-            cmd = build_benchmark_cmd(
-                bench_bin=bin_path,
-                model="/models/test.gguf",
-                port=8080,
-                threads=4,
-                ctx_size=4096,
-                ubatch_size=512,
-                cache_type_k="F16",
-                cache_type_v="F16",
-            )
-        finally:
-            os.unlink(bin_path)
+        bin_path = self._make_temp_bin(tmp_path)
+        cmd = build_benchmark_cmd(
+            bench_bin=str(bin_path),
+            model="/models/test.gguf",
+            port=8080,
+            threads=4,
+            ctx_size=4096,
+            ubatch_size=512,
+            cache_type_k="F16",
+            cache_type_v="F16",
+        )
 
         ngl_idx = cmd.index("-ngl")
         assert cmd[ngl_idx + 1] == "all"
 
-    def test_n_gpu_layers_custom_value(self) -> None:
+    def test_n_gpu_layers_custom_value(self, tmp_path: Path) -> None:
         """n_gpu_layers should accept a custom int value."""
-        bin_path = self._make_temp_bin()
-        try:
-            cmd = build_benchmark_cmd(
-                bench_bin=bin_path,
-                model="/models/test.gguf",
-                port=8080,
-                threads=4,
-                ctx_size=4096,
-                ubatch_size=512,
-                cache_type_k="F16",
-                cache_type_v="F16",
-                n_gpu_layers=33,
-            )
-        finally:
-            os.unlink(bin_path)
+        bin_path = self._make_temp_bin(tmp_path)
+        cmd = build_benchmark_cmd(
+            bench_bin=str(bin_path),
+            model="/models/test.gguf",
+            port=8080,
+            threads=4,
+            ctx_size=4096,
+            ubatch_size=512,
+            cache_type_k="F16",
+            cache_type_v="F16",
+            n_gpu_layers=33,
+        )
 
         ngl_idx = cmd.index("-ngl")
         assert cmd[ngl_idx + 1] == "33"
@@ -137,25 +124,21 @@ class TestBuildBenchmarkCmd:
                 cache_type_v="F16",
             )
 
-    def test_nonexecutable_binary_raises_permission_error(self) -> None:
+    def test_nonexecutable_binary_raises_permission_error(self, tmp_path: Path) -> None:
         """build_benchmark_cmd should raise PermissionError for non-executable binary."""
-        fd, path = tempfile.mkstemp(prefix="llama-bench-noexec-")
-        os.close(fd)
-        try:
-            os.chmod(path, 0o644)
-            with pytest.raises(PermissionError, match="llama-bench binary is not executable"):
-                build_benchmark_cmd(
-                    bench_bin=path,
-                    model="/models/test.gguf",
-                    port=8080,
-                    threads=4,
-                    ctx_size=4096,
-                    ubatch_size=512,
-                    cache_type_k="F16",
-                    cache_type_v="F16",
-                )
-        finally:
-            os.unlink(path)
+        path = tmp_path / "llama-bench-noexec"
+        path.touch(mode=0o644)
+        with pytest.raises(PermissionError, match="llama-bench binary is not executable"):
+            build_benchmark_cmd(
+                bench_bin=str(path),
+                model="/models/test.gguf",
+                port=8080,
+                threads=4,
+                ctx_size=4096,
+                ubatch_size=512,
+                cache_type_k="F16",
+                cache_type_v="F16",
+            )
 
 
 class TestParseBenchmarkOutput:
@@ -182,13 +165,10 @@ class TestParseBenchmarkOutput:
         assert parse_benchmark_output("\n\n") is None
 
     def test_partial_output_only_tokens_per_second(self) -> None:
-        """parse_benchmark_output should return partial result with tokens/s only."""
+        """parse_benchmark_output returns None when only tokens/s is present (avg_latency_ms missing)."""
         output = "tokens per second: 999.99\n"
         result = parse_benchmark_output(output)
-        assert result is not None
-        assert result.tokens_per_second == pytest.approx(999.99)
-        assert result.avg_latency_ms == pytest.approx(0.0)
-        assert result.peak_vram_mb is None
+        assert result is None
 
     def test_partial_output_tokens_and_latency(self) -> None:
         """parse_benchmark_output should return partial result without VRAM."""
@@ -200,45 +180,38 @@ class TestParseBenchmarkOutput:
         assert result.peak_vram_mb is None
 
     def test_various_tokens_per_second_formats(self) -> None:
-        """parse_benchmark_output should handle different tokens/s formats."""
+        """parse_benchmark_output returns None when only tokens/s is present (avg_latency_ms missing)."""
         # t/s format
         result = parse_benchmark_output("t/s: 100.0\n")
-        assert result is not None
-        assert result.tokens_per_second == pytest.approx(100.0)
+        assert result is None
 
         # tokens/s format
         result = parse_benchmark_output("tokens/s: 200.0\n")
-        assert result is not None
-        assert result.tokens_per_second == pytest.approx(200.0)
+        assert result is None
 
         # tok/s format
         result = parse_benchmark_output("tok/s: 300.0\n")
-        assert result is not None
-        assert result.tokens_per_second == pytest.approx(300.0)
+        assert result is None
 
     def test_various_latency_formats(self) -> None:
-        """parse_benchmark_output should handle different latency formats."""
+        """parse_benchmark_output returns None when only latency is present (tokens_per_second missing)."""
         # avg latency
         result = parse_benchmark_output("avg latency: 10.5 ms\n")
-        assert result is not None
-        assert result.avg_latency_ms == pytest.approx(10.5)
+        assert result is None
 
         # latency
         result = parse_benchmark_output("latency: 20.3 ms\n")
-        assert result is not None
-        assert result.avg_latency_ms == pytest.approx(20.3)
+        assert result is None
 
     def test_various_vram_formats(self) -> None:
-        """parse_benchmark_output should handle different VRAM formats."""
-        # peak memory (with tokens/s so result is not None)
+        """parse_benchmark_output returns None when only VRAM is present without latency."""
+        # peak memory without latency → None
         result = parse_benchmark_output("tokens per second: 100.0\npeak memory: 4096.0 MB\n")
-        assert result is not None
-        assert result.peak_vram_mb == pytest.approx(4096.0)
+        assert result is None
 
-        # peak vram (with tokens/s so result is not None)
+        # peak vram without latency → None
         result = parse_benchmark_output("tokens per second: 100.0\npeak vram: 8192.0 mb\n")
-        assert result is not None
-        assert result.peak_vram_mb == pytest.approx(8192.0)
+        assert result is None
 
     def test_no_matching_metrics_returns_none(self) -> None:
         """parse_benchmark_output should return None when no metrics match."""
@@ -251,75 +224,63 @@ class TestParseBenchmarkOutput:
         assert parse_benchmark_output(output) is None
 
     def test_non_finite_tokens_per_second(self) -> None:
-        """Test that inf/nan tokens_per_second is handled gracefully."""
+        """Test that inf tokens_per_second (regex doesn't match) returns None."""
         # "inf" does not match the numeric regex in parse_benchmark_output,
-        # but avg latency still parses, so a partial result is returned.
+        # so tokens_per_second stays None → returns None.
         output = "tok/s: inf\navg latency: 100.0 ms\npeak memory: 2048"
         result = parse_benchmark_output(output)
-        assert result is not None
-        # tokens_per_second defaults to 0.0 when the regex doesn't match
-        assert result.tokens_per_second == pytest.approx(0.0)
-        assert result.avg_latency_ms == pytest.approx(100.0)
+        assert result is None
 
     def test_nan_tokens_per_second(self) -> None:
-        """Test that nan tokens_per_second is handled gracefully."""
+        """Test that nan tokens_per_second (regex doesn't match) returns None."""
         output = "tokens per second: nan\navg latency: 50.0 ms\n"
         result = parse_benchmark_output(output)
-        assert result is not None
-        # "nan" does not match the numeric regex, so defaults to 0.0
-        assert result.tokens_per_second == pytest.approx(0.0)
-        assert result.avg_latency_ms == pytest.approx(50.0)
+        assert result is None
 
 
 class TestBuildBenchmarkCmdEdgeCases:
     """Edge-case tests for build_benchmark_cmd."""
 
-    def _make_temp_bin(self, executable: bool = True) -> str:
+    def _make_temp_bin(self, tmp_path: Path, executable: bool = True) -> Path:
         """Create a temporary file to serve as a fake llama-bench binary."""
-        fd, path = tempfile.mkstemp(prefix="llama-bench-")
-        os.close(fd)
+        path = tmp_path / "llama-bench"
+        path.touch()
         if executable:
-            os.chmod(path, 0o755)  # noqa: S103
+            path.chmod(0o755)
         return path
 
-    def test_n_gpu_layers_explicit_string_all(self) -> None:
+    def test_n_gpu_layers_explicit_string_all(self, tmp_path: Path) -> None:
         """Test build_benchmark_cmd with n_gpu_layers='all' as explicit string."""
-        bin_path = self._make_temp_bin()
-        try:
-            cmd = build_benchmark_cmd(
-                bench_bin=bin_path,
-                model="/tmp/model.gguf",
-                port=8080,
-                threads=4,
-                ctx_size=2048,
-                ubatch_size=512,
-                cache_type_k="q4_0",
-                cache_type_v="q4_0",
-                n_gpu_layers="all",  # explicit string, not default
-            )
-        finally:
-            os.unlink(bin_path)
+        bin_path = self._make_temp_bin(tmp_path)
+        cmd = build_benchmark_cmd(
+            bench_bin=str(bin_path),
+            model="/tmp/model.gguf",
+            port=8080,
+            threads=4,
+            ctx_size=2048,
+            ubatch_size=512,
+            cache_type_k="q4_0",
+            cache_type_v="q4_0",
+            n_gpu_layers="all",  # explicit string, not default
+        )
         assert "-ngl" in cmd
         ngl_idx = cmd.index("-ngl")
         assert cmd[ngl_idx + 1] == "all"
 
-    def test_n_gpu_layers_custom_int_value(self) -> None:
+    def test_n_gpu_layers_custom_int_value(self, tmp_path: Path) -> None:
         """Test build_benchmark_cmd with n_gpu_layers as an int."""
-        bin_path = self._make_temp_bin()
-        try:
-            cmd = build_benchmark_cmd(
-                bench_bin=bin_path,
-                model="/tmp/model.gguf",
-                port=8080,
-                threads=4,
-                ctx_size=2048,
-                ubatch_size=512,
-                cache_type_k="q4_0",
-                cache_type_v="q4_0",
-                n_gpu_layers=99,
-            )
-        finally:
-            os.unlink(bin_path)
+        bin_path = self._make_temp_bin(tmp_path)
+        cmd = build_benchmark_cmd(
+            bench_bin=str(bin_path),
+            model="/tmp/model.gguf",
+            port=8080,
+            threads=4,
+            ctx_size=2048,
+            ubatch_size=512,
+            cache_type_k="q4_0",
+            cache_type_v="q4_0",
+            n_gpu_layers=99,
+        )
         assert "-ngl" in cmd
         ngl_idx = cmd.index("-ngl")
         assert cmd[ngl_idx + 1] == "99"
@@ -530,25 +491,23 @@ class TestBenchmarkResult:
 
 
 class TestParseBenchmarkOutputOnlyLatency:
-    """Tests for parse_benchmark_output with only latency present."""
+    """Tests for parse_benchmark_output with only latency present.
+
+    Since both tokens_per_second AND avg_latency_ms are required,
+    output with only latency returns None.
+    """
 
     def test_only_latency_parsed(self) -> None:
-        """parse_benchmark_output should return result with only latency."""
+        """parse_benchmark_output returns None when only latency is present."""
         output = "avg latency: 50.0 ms\n"
         result = parse_benchmark_output(output)
-        assert result is not None
-        assert result.tokens_per_second == pytest.approx(0.0)
-        assert result.avg_latency_ms == pytest.approx(50.0)
-        assert result.peak_vram_mb is None
+        assert result is None
 
     def test_only_latency_no_ms_unit(self) -> None:
-        """parse_benchmark_output should parse latency without ms unit."""
+        """parse_benchmark_output returns None when only latency (no ms unit) is present."""
         output = "latency: 25.5\n"
         result = parse_benchmark_output(output)
-        assert result is not None
-        assert result.tokens_per_second == pytest.approx(0.0)
-        assert result.avg_latency_ms == pytest.approx(25.5)
-        assert result.peak_vram_mb is None
+        assert result is None
 
 
 class TestParseBenchmarkOutputValueErrorBranches:
@@ -560,7 +519,7 @@ class TestParseBenchmarkOutputValueErrorBranches:
     """
 
     def test_valueerror_in_tokens_parsing(self) -> None:
-        """parse_benchmark_output should handle ValueError in tokens parsing."""
+        """parse_benchmark_output returns None when tokens parsing raises ValueError."""
         with patch("re.search") as mock_search:
             call_count = [0]
 
@@ -583,17 +542,15 @@ class TestParseBenchmarkOutputValueErrorBranches:
             result = parse_benchmark_output(
                 "tokens per second: not_a_number\navg latency: 100.0 ms\n"
             )
-            assert result is not None
-            # tokens_per_second defaults to 0.0 when ValueError occurs
-            assert result.tokens_per_second == pytest.approx(0.0)
-            assert result.avg_latency_ms == pytest.approx(100.0)
+            # tokens_per_second becomes None after ValueError → returns None
+            assert result is None
 
     def test_valueerror_in_latency_parsing(self) -> None:
-        """parse_benchmark_output should handle ValueError in latency parsing."""
+        """parse_benchmark_output returns None when latency parsing raises ValueError."""
         with patch("re.search") as mock_search:
             call_count = [0]
 
-            def side_effect(pattern, string, flags=0):
+            def side_effect(pattern: str, string: str, flags: int = 0) -> MagicMock | None:
                 call_count[0] += 1
                 # Tokens pattern matches valid number (first call)
                 if call_count[0] == 1:
@@ -621,17 +578,15 @@ class TestParseBenchmarkOutputValueErrorBranches:
 
             mock_search.side_effect = side_effect
             result = parse_benchmark_output("tokens per second: 500.0\navg latency: slow\n")
-            assert result is not None
-            assert result.tokens_per_second == pytest.approx(500.0)
-            # avg_latency_ms defaults to 0.0 when ValueError occurs
-            assert result.avg_latency_ms == pytest.approx(0.0)
+            # avg_latency_ms becomes None after ValueError → returns None
+            assert result is None
 
     def test_valueerror_in_vram_parsing(self) -> None:
         """parse_benchmark_output should handle ValueError in VRAM parsing."""
         with patch("re.search") as mock_search:
             call_count = [0]
 
-            def side_effect(pattern, string, flags=0):
+            def side_effect(pattern: str, string: str, flags: int = 0) -> MagicMock | None:
                 call_count[0] += 1
                 # Tokens pattern 1 matches valid number
                 if call_count[0] == 1:
@@ -680,32 +635,26 @@ class TestParseBenchmarkOutputIsfiniteBranches:
     """
 
     def test_isfinite_false_for_tokens(self) -> None:
-        """parse_benchmark_output should set tokens_per_second to None when isfinite returns False."""
+        """parse_benchmark_output returns None when tokens_per_second fails isfinite check."""
         with patch.object(
             math,
             "isfinite",
             side_effect=[False, True],  # first call (tokens) False, second (latency) True
         ):
             result = parse_benchmark_output("tokens per second: 123.45\navg latency: 10.0 ms\n")
-            assert result is not None
-            # tokens_per_second is invalidated by isfinite check
-            assert result.tokens_per_second == pytest.approx(0.0)
-            # avg_latency_ms is still valid
-            assert result.avg_latency_ms == pytest.approx(10.0)
+            # tokens_per_second invalidated → returns None
+            assert result is None
 
     def test_isfinite_false_for_latency(self) -> None:
-        """parse_benchmark_output should set avg_latency_ms to None when isfinite returns False."""
+        """parse_benchmark_output returns None when avg_latency_ms fails isfinite check."""
         with patch.object(
             math,
             "isfinite",
             side_effect=[True, False],  # first call (tokens) True, second (latency) False
         ):
             result = parse_benchmark_output("tokens per second: 100.0\navg latency: 50.0 ms\n")
-            assert result is not None
-            # avg_latency_ms is invalidated by isfinite check
-            assert result.avg_latency_ms == pytest.approx(0.0)
-            # tokens_per_second is still valid
-            assert result.tokens_per_second == pytest.approx(100.0)
+            # avg_latency_ms invalidated → returns None
+            assert result is None
 
     def test_isfinite_false_for_both_returns_none(self) -> None:
         """parse_benchmark_output should return None when both metrics fail isfinite."""
@@ -727,22 +676,19 @@ class TestParseBenchmarkOutputMixedFormats:
     """Tests for parse_benchmark_output with mixed format strings."""
 
     def test_uppercase_tokens_format(self) -> None:
-        """parse_benchmark_output should handle uppercase tokens format."""
+        """parse_benchmark_output returns None when only uppercase tokens format present."""
         result = parse_benchmark_output("TOKENS PER SECOND: 100.0\n")
-        assert result is not None
-        assert result.tokens_per_second == pytest.approx(100.0)
+        assert result is None
 
     def test_mixed_case_latency_format(self) -> None:
-        """parse_benchmark_output should handle mixed case latency format."""
+        """parse_benchmark_output returns None when only mixed case latency present."""
         result = parse_benchmark_output("AvG lAtEnCy: 25.0 ms\n")
-        assert result is not None
-        assert result.avg_latency_ms == pytest.approx(25.0)
+        assert result is None
 
     def test_mixed_case_vram_format(self) -> None:
-        """parse_benchmark_output should handle mixed case VRAM format."""
+        """parse_benchmark_output returns None when only VRAM is present without latency."""
         result = parse_benchmark_output("tokens per second: 100.0\nPEAK VRAM: 8192.0 MB\n")
-        assert result is not None
-        assert result.peak_vram_mb == pytest.approx(8192.0)
+        assert result is None
 
     def test_multiple_metrics_same_line(self) -> None:
         """parse_benchmark_output should handle metrics on same line."""
@@ -770,49 +716,44 @@ class TestParseBenchmarkOutputMixedFormats:
         assert result.peak_vram_mb == pytest.approx(4096.5)
 
     def test_whitespace_around_colon(self) -> None:
-        """parse_benchmark_output should handle various whitespace around colons."""
+        """parse_benchmark_output returns None when only tokens/s present (with space before colon)."""
         # Space before colon
         result = parse_benchmark_output("tokens per second : 100.0\n")
-        assert result is not None
-        assert result.tokens_per_second == pytest.approx(100.0)
+        assert result is None
 
     def test_no_space_after_colon(self) -> None:
-        """parse_benchmark_output should handle no space after colon."""
+        """parse_benchmark_output returns None when only tokens/s present (no space after colon)."""
         result = parse_benchmark_output("tokens per second:100.0\n")
-        assert result is not None
-        assert result.tokens_per_second == pytest.approx(100.0)
+        assert result is None
 
 
 class TestBuildBenchmarkCmdAllParams:
     """Tests for build_benchmark_cmd with all parameter combinations."""
 
-    def _make_temp_bin(self, executable: bool = True) -> str:
+    def _make_temp_bin(self, tmp_path: Path, executable: bool = True) -> Path:
         """Create a temporary file to serve as a fake llama-bench binary."""
-        fd, path = tempfile.mkstemp(prefix="llama-bench-")
-        os.close(fd)
+        path = tmp_path / "llama-bench"
+        path.touch()
         if executable:
-            os.chmod(path, 0o755)  # noqa: S103
+            path.chmod(0o755)
         return path
 
-    def test_all_parameters_included(self) -> None:
+    def test_all_parameters_included(self, tmp_path: Path) -> None:
         """build_benchmark_cmd should include all parameters in the command."""
-        bin_path = self._make_temp_bin()
-        try:
-            cmd = build_benchmark_cmd(
-                bench_bin=bin_path,
-                model="/models/qwen2.5-7b-q4_k_m.gguf",
-                port=8080,
-                threads=16,
-                ctx_size=8192,
-                ubatch_size=2048,
-                cache_type_k="F16",
-                cache_type_v="F32",
-                n_gpu_layers=99,
-            )
-        finally:
-            os.unlink(bin_path)
+        bin_path = self._make_temp_bin(tmp_path)
+        cmd = build_benchmark_cmd(
+            bench_bin=str(bin_path),
+            model="/models/qwen2.5-7b-q4_k_m.gguf",
+            port=8080,
+            threads=16,
+            ctx_size=8192,
+            ubatch_size=2048,
+            cache_type_k="F16",
+            cache_type_v="F32",
+            n_gpu_layers=99,
+        )
 
-        assert cmd[0] == bin_path
+        assert cmd[0] == str(bin_path)
         assert "-m" in cmd
         assert "/models/qwen2.5-7b-q4_k_m.gguf" in cmd
         assert "-p" in cmd
@@ -830,22 +771,19 @@ class TestBuildBenchmarkCmdAllParams:
         assert "-ngl" in cmd
         assert "99" in cmd
 
-    def test_cmd_length(self) -> None:
+    def test_cmd_length(self, tmp_path: Path) -> None:
         """build_benchmark_cmd should produce a command with expected length."""
-        bin_path = self._make_temp_bin()
-        try:
-            cmd = build_benchmark_cmd(
-                bench_bin=bin_path,
-                model="/model.gguf",
-                port=8080,
-                threads=4,
-                ctx_size=2048,
-                ubatch_size=512,
-                cache_type_k="F16",
-                cache_type_v="F16",
-            )
-        finally:
-            os.unlink(bin_path)
+        bin_path = self._make_temp_bin(tmp_path)
+        cmd = build_benchmark_cmd(
+            bench_bin=str(bin_path),
+            model="/model.gguf",
+            port=8080,
+            threads=4,
+            ctx_size=2048,
+            ubatch_size=512,
+            cache_type_k="F16",
+            cache_type_v="F16",
+        )
 
         # bench_bin(1) + 9 flag-value pairs(18) = 19 elements
         # Wait, let me count: bin, -m, model, -p, port, -t, threads, -c, ctx,
@@ -853,26 +791,23 @@ class TestBuildBenchmarkCmdAllParams:
         # -ngl, layers = 17 elements
         assert len(cmd) == 17
 
-    def test_cmd_order(self) -> None:
+    def test_cmd_order(self, tmp_path: Path) -> None:
         """build_benchmark_cmd should maintain correct argument order."""
-        bin_path = self._make_temp_bin()
-        try:
-            cmd = build_benchmark_cmd(
-                bench_bin=bin_path,
-                model="/model.gguf",
-                port=8080,
-                threads=4,
-                ctx_size=2048,
-                ubatch_size=512,
-                cache_type_k="F16",
-                cache_type_v="F16",
-            )
-        finally:
-            os.unlink(bin_path)
+        bin_path = self._make_temp_bin(tmp_path)
+        cmd = build_benchmark_cmd(
+            bench_bin=str(bin_path),
+            model="/model.gguf",
+            port=8080,
+            threads=4,
+            ctx_size=2048,
+            ubatch_size=512,
+            cache_type_k="F16",
+            cache_type_v="F16",
+        )
 
         # Verify order: bin, -m model, -p port, -t threads, -c ctx, --ubatch-size size,
         # --cache-type-k type, --cache-type-v type, -ngl layers
-        assert cmd[0] == bin_path
+        assert cmd[0] == str(bin_path)
         assert cmd[1] == "-m"
         assert cmd[3] == "-p"
         assert cmd[5] == "-t"
@@ -882,40 +817,34 @@ class TestBuildBenchmarkCmdAllParams:
         assert cmd[13] == "--cache-type-v"
         assert cmd[15] == "-ngl"
 
-    def test_special_characters_in_model_path(self) -> None:
+    def test_special_characters_in_model_path(self, tmp_path: Path) -> None:
         """build_benchmark_cmd should handle special characters in model path."""
-        bin_path = self._make_temp_bin()
-        try:
-            cmd = build_benchmark_cmd(
-                bench_bin=bin_path,
-                model="/models/qwen2.5-7b-q4_k_m.gguf",
-                port=8080,
-                threads=4,
-                ctx_size=2048,
-                ubatch_size=512,
-                cache_type_k="F16",
-                cache_type_v="F16",
-            )
-        finally:
-            os.unlink(bin_path)
+        bin_path = self._make_temp_bin(tmp_path)
+        cmd = build_benchmark_cmd(
+            bench_bin=str(bin_path),
+            model="/models/qwen2.5-7b-q4_k_m.gguf",
+            port=8080,
+            threads=4,
+            ctx_size=2048,
+            ubatch_size=512,
+            cache_type_k="F16",
+            cache_type_v="F16",
+        )
 
         assert "/models/qwen2.5-7b-q4_k_m.gguf" in cmd
 
-    def test_cache_type_q8_0(self) -> None:
+    def test_cache_type_q8_0(self, tmp_path: Path) -> None:
         """build_benchmark_cmd should accept Q8_0 cache types."""
-        bin_path = self._make_temp_bin()
-        try:
-            cmd = build_benchmark_cmd(
-                bench_bin=bin_path,
-                model="/model.gguf",
-                port=8080,
-                threads=4,
-                ctx_size=2048,
-                ubatch_size=512,
-                cache_type_k="Q8_0",
-                cache_type_v="Q8_0",
-            )
-        finally:
-            os.unlink(bin_path)
+        bin_path = self._make_temp_bin(tmp_path)
+        cmd = build_benchmark_cmd(
+            bench_bin=str(bin_path),
+            model="/model.gguf",
+            port=8080,
+            threads=4,
+            ctx_size=2048,
+            ubatch_size=512,
+            cache_type_k="Q8_0",
+            cache_type_v="Q8_0",
+        )
 
         assert "Q8_0" in cmd

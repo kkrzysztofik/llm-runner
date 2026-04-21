@@ -39,7 +39,7 @@ def test_precedence_slot_wins_over_defaults() -> None:
     assert result.port == 9000
 
 
-def test_deep_merge_dict_fields() -> None:
+def test_scalar_field_precedence() -> None:
     """Scalar fields in profile_config take precedence over slot_config."""
     defaults = Config()
     slot_cfg: dict[str, object] = {"threads": 4}

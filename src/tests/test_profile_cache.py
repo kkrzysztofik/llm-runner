@@ -71,7 +71,7 @@ class TestSanitizeFilenameComponent:
     def test_none_raises(self) -> None:
         """None raises ValueError."""
         with pytest.raises(ValueError, match="non-empty string"):
-            _sanitize_filename_component("")  # type: ignore[arg-type]
+            _sanitize_filename_component(None)  # type: ignore[arg-type]
 
     def test_whitespace_only_raises(self) -> None:
         """Whitespace-only string raises ValueError."""
@@ -210,7 +210,7 @@ class TestComputeDriverVersionHash:
     def test_none_raises(self) -> None:
         """None raises ValueError."""
         with pytest.raises(ValueError, match="non-empty string"):
-            compute_driver_version_hash("")  # type: ignore[arg-type]
+            compute_driver_version_hash(None)  # type: ignore[arg-type]
 
     def test_whitespace_only_produces_hash(self) -> None:
         """Whitespace-only strings produce a valid hash (not stripped)."""

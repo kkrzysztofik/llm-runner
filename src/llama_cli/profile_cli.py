@@ -20,6 +20,7 @@ import sys
 from datetime import UTC, datetime
 
 from llama_manager import (
+    BenchmarkRunner,
     Config,
     ProfileFlavor,
     ProfileMetrics,
@@ -119,7 +120,7 @@ def cmd_profile(
     slot_id: str,
     flavor: str,
     json_output: bool = False,
-    runner: object | None = None,
+    runner: BenchmarkRunner | None = None,
 ) -> int:
     """Run a GPU benchmark and persist the profile record.
 
@@ -172,14 +173,32 @@ def cmd_profile(
     # Compute driver version hash
     driver_version_hash = compute_driver_version_hash(driver_version)
 
+    # Flavor-based config selection
+    flavor_obj = ProfileFlavor(flavor)
+    if flavor_obj == ProfileFlavor.BALANCED:
+        model = config.model_summary_balanced
+        port = config.summary_balanced_port
+        threads = config.default_threads_summary_balanced
+        ubatch_size = config.default_ubatch_size_summary_balanced
+    elif flavor_obj == ProfileFlavor.FAST:
+        model = config.model_summary_fast
+        port = config.summary_fast_port
+        threads = config.default_threads_summary_fast
+        ubatch_size = config.default_ubatch_size_summary_fast
+    else:  # quality — use balanced as base
+        model = config.model_summary_balanced
+        port = config.summary_balanced_port
+        threads = config.default_threads_summary_balanced
+        ubatch_size = config.default_ubatch_size_summary_balanced
+
     # Build benchmark command
     cmd = build_benchmark_cmd(
         bench_bin=bench_bin,
-        model=config.model_summary_balanced,
-        port=config.summary_balanced_port,
-        threads=config.default_threads_summary_balanced,
+        model=model,
+        port=port,
+        threads=threads,
         ctx_size=config.default_ctx_size_summary,
-        ubatch_size=config.default_ubatch_size_summary_balanced,
+        ubatch_size=ubatch_size,
         cache_type_k=config.default_cache_type_summary_k,
         cache_type_v=config.default_cache_type_summary_v,
         n_gpu_layers=config.default_n_gpu_layers_qwen35
@@ -188,8 +207,8 @@ def cmd_profile(
     )
 
     # Run benchmark
-    effective_runner = runner if runner is not None else _default_subprocess_runner  # type: ignore[assignment]
-    benchmark_result = run_benchmark(cmd, effective_runner)  # type: ignore[arg-type]
+    effective_runner: BenchmarkRunner = runner if runner is not None else _default_subprocess_runner
+    benchmark_result = run_benchmark(cmd, effective_runner)
 
     if benchmark_result is None:
         print(

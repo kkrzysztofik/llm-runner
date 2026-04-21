@@ -66,8 +66,8 @@ if [ -z "$max_findings" ]; then
 fi
 
 if ! [[ "$max_findings" =~ ^[0-9]+$ ]]; then
-  echo "❌ Error: 'report.max_findings' must be a positive integer, got '$max_findings'"
-  echo "Edit $config_file and set 'report.max_findings' to a number (e.g. 50)"
+  echo "❌ Error: 'report.max_findings' must be a number (0 for unlimited, or e.g. 50), got '$max_findings'"
+  echo "Edit $config_file and set 'report.max_findings' to a number (0 for unlimited, or e.g. 50)"
   exit 1
 fi
 

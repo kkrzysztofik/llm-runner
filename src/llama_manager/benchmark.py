@@ -132,12 +132,12 @@ def parse_benchmark_output(output: str) -> BenchmarkResult | None:
     if avg_latency_ms is not None and not math.isfinite(avg_latency_ms):
         avg_latency_ms = None
 
-    if tokens_per_second is None and avg_latency_ms is None:
+    if tokens_per_second is None or avg_latency_ms is None:
         return None
 
     return BenchmarkResult(
-        tokens_per_second=tokens_per_second or 0.0,
-        avg_latency_ms=avg_latency_ms or 0.0,
+        tokens_per_second=tokens_per_second,
+        avg_latency_ms=avg_latency_ms,
         peak_vram_mb=peak_vram_mb,
     )
 

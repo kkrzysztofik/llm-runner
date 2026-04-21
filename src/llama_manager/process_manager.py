@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -828,6 +829,11 @@ class ServerManager:
         """
         owned: list[int] = []
         for pid in pids:
+            # Check if PID is still running first
+            if not psutil.pid_exists(pid):
+                self._record_lifecycle_event("skip", pid=pid, details="exited")
+                continue
+            # PID is running; verify ownership
             if self._verify_process_ownership(pid):
                 owned.append(pid)
             else:
@@ -857,15 +863,27 @@ class ServerManager:
         """Wait for all managed server processes to exit.
 
         Waits up to 5 seconds per process, silently ignoring timeouts
-        and any other exceptions.
+        but recording diagnostics for unexpected errors.
         """
         for proc in self.servers:
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 pass
-            except Exception:
-                pass
+            except Exception as e:
+                # Capture diagnostics for unexpected errors instead of silently discarding
+                pid = proc.pid
+                args = proc.args if proc.args else []
+                tb_str = traceback.format_exc()
+                self._lifecycle_audit.append(
+                    {
+                        "event": "wait_failed",
+                        "pid": pid,
+                        "details": f"{type(e).__name__}: {e}",
+                        "traceback": tb_str,
+                        "proc_args": str(args),
+                    }
+                )
 
     def cleanup_servers(self) -> None:
         """Clean up all server processes with ownership verification and audit trail.

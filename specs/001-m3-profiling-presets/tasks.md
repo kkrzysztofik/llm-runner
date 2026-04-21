@@ -237,6 +237,7 @@ uv run pytest --cov --cov-report=term-missing  # Coverage — no unexpected gaps
 ```
 
 **Pre-commit hooks** (if installed):
+
 ```bash
 uv run pre-commit run --all-files
 ```

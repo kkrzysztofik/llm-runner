@@ -61,7 +61,8 @@ Modes:
   qwen35           Run qwen35-coding model (NVIDIA CUDA)
   both             Run summary-balanced and qwen35 side-by-side
   dry-run          Preview commands without executing
-  setup            Toolchain diagnostics and venv management
+   setup            Toolchain diagnostics and venv management
+   profile          Run benchmark profile
 
 Setup Subcommands:
   check           Check toolchain availability (FR-005.1)

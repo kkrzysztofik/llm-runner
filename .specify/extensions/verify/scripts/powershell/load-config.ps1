@@ -56,7 +56,7 @@ if ($maxFindings -eq 'null' -or $maxFindings -eq '~') {
 
 # Apply environment variable overrides
 
-if ($env:SPECKIT_VERIFY_MAX_FINDINGS -ne $null -and $env:SPECKIT_VERIFY_MAX_FINDINGS -ne '') {
+if ($null -ne $env:SPECKIT_VERIFY_MAX_FINDINGS -and $env:SPECKIT_VERIFY_MAX_FINDINGS -ne '') {
     $maxFindings = $env:SPECKIT_VERIFY_MAX_FINDINGS
 }
 

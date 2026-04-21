@@ -237,6 +237,17 @@ validate_ports() {
   return 0
 }
 
+# Append Qwen35 speculative-decoding flags to a command array (by nameref).
+append_qwen35_spec_flags() {
+  local -n _target="$1"
+  _target+=(
+    --spec-type "$DEFAULT_SPEC_TYPE_QWEN35_BOTH"
+    --spec-ngram-size-n "$DEFAULT_SPEC_NGRAM_SIZE_N_QWEN35_BOTH"
+    --draft-min "$DEFAULT_DRAFT_MIN_QWEN35_BOTH"
+    --draft-max "$DEFAULT_DRAFT_MAX_QWEN35_BOTH"
+  )
+}
+
 # ============================================================
 # HELPER FUNCTIONS
 # ============================================================
@@ -538,13 +549,8 @@ start_both_qwen35() {
     "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
   qwen35_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   qwen35_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
-  qwen35_cmd+=(
-    --spec-type "$DEFAULT_SPEC_TYPE_QWEN35_BOTH"
-    --spec-ngram-size-n "$DEFAULT_SPEC_NGRAM_SIZE_N_QWEN35_BOTH"
-    --draft-min "$DEFAULT_DRAFT_MIN_QWEN35_BOTH"
-    --draft-max "$DEFAULT_DRAFT_MAX_QWEN35_BOTH"
-  )
-  
+  append_qwen35_spec_flags qwen35_cmd
+
   # Setup signal handlers BEFORE launching servers
   trap on_interrupt INT
   trap on_terminate TERM
@@ -873,12 +879,7 @@ dry_run() {
         "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
-      tmp_cmd+=(
-        --spec-type "$DEFAULT_SPEC_TYPE_QWEN35_BOTH"
-        --spec-ngram-size-n "$DEFAULT_SPEC_NGRAM_SIZE_N_QWEN35_BOTH"
-        --draft-min "$DEFAULT_DRAFT_MIN_QWEN35_BOTH"
-        --draft-max "$DEFAULT_DRAFT_MAX_QWEN35_BOTH"
-      )
+      append_qwen35_spec_flags tmp_cmd
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;

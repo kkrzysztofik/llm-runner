@@ -8,12 +8,17 @@ Test Tasks:
 - T085-T087: Test profile staleness check and repair via doctor CLI
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import time
+from contextlib import ExitStack
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from _pytest.capture import CaptureFixture
 
 from llama_cli.doctor_cli import (
     DoctorCheckResult,
@@ -26,7 +31,59 @@ from llama_cli.doctor_cli import (
 from llama_cli.doctor_cli import (
     main as doctor_main,
 )
+from llama_manager.profile_cache import (
+    ProfileRecord,
+    StalenessResult,
+)
 from llama_manager.toolchain import ToolchainStatus
+
+
+def doctor_mocks(
+    tmp_path: Path,
+) -> tuple[MagicMock, MagicMock, MagicMock, MagicMock, MagicMock, ExitStack]:
+    """Set up common mocks for doctor CLI tests.
+
+    Returns:
+        Tuple of (mock_detect, mock_venv_path, mock_config_cls, mock_integrity,
+        mock_config_instance, exit_stack). The caller MUST call exit_stack.close()
+        when done to stop all patches.
+    """
+    stack = ExitStack()
+    mock_detect = stack.enter_context(patch("llama_cli.doctor_cli.detect_toolchain"))
+    mock_venv_path = stack.enter_context(patch("llama_cli.doctor_cli.get_venv_path"))
+    mock_config_cls = stack.enter_context(patch("llama_cli.doctor_cli.Config"))
+
+    mock_detect.return_value = ToolchainStatus(
+        gcc="11.4.0",
+        make="4.3",
+        git="2.34.1",
+        cmake="3.25.0",
+        sycl_compiler="2023.1.0",
+        cuda_toolkit="12.2.0",
+        nvtop="3.1.0",
+    )
+    mock_venv_path.return_value = tmp_path / "venv"
+    (tmp_path / "venv").mkdir()
+
+    mock_integrity = stack.enter_context(patch("llama_cli.doctor_cli.check_venv_integrity"))
+    mock_integrity.return_value = (True, None)
+
+    mock_config_instance = MagicMock()
+    mock_config_instance.build_lock_path = tmp_path / "lock"
+    mock_config_instance.reports_dir = tmp_path / "reports"
+    mock_config_instance.toolchain_timeout_seconds = 3600
+    mock_config_instance.llama_cpp_root = str(tmp_path)
+    mock_config_instance.profiles_dir = tmp_path / "profiles"
+    mock_config_cls.return_value = mock_config_instance
+
+    return (
+        mock_detect,
+        mock_venv_path,
+        mock_config_cls,
+        mock_integrity,
+        mock_config_instance,
+        stack,
+    )
 
 
 def _make_namespace(**kwargs: object) -> argparse.Namespace:
@@ -764,7 +821,7 @@ class TestProfileStalenessCheck:
         flavor: str = "balanced",
         driver_version: str = "535.104.05",
         binary_version: str = "1.18.0",
-    ) -> dict:
+    ) -> dict[str, object]:
         """Create a profile record dict with a given age."""
         from datetime import UTC, datetime, timedelta
 
@@ -789,45 +846,35 @@ class TestProfileStalenessCheck:
             "parameters": {"threads": 8},
         }
 
-    def test_check_profiles_finds_no_profiles(self, tmp_path, capsys) -> None:
+    def test_check_profiles_finds_no_profiles(
+        self, tmp_path: Path, capsys: CaptureFixture[str]
+    ) -> None:
         """doctor check should handle empty profiles directory gracefully."""
         # Create empty profiles dir
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
 
-        with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
-        ):
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
-            mock_venv_path.return_value = tmp_path / "venv"
-            (tmp_path / "venv").mkdir()
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
-                mock_integrity.return_value = (True, None)
-                mock_config_instance = MagicMock()
-                mock_config_instance.build_lock_path = tmp_path / "lock"
-                mock_config_instance.reports_dir = tmp_path / "reports"
-                mock_config_instance.toolchain_timeout_seconds = 3600
-                mock_config_instance.llama_cpp_root = str(tmp_path)
-                mock_config_instance.profiles_dir = profiles_dir
-                mock_config.return_value = mock_config_instance
+        (
+            mock_detect,
+            mock_venv_path,
+            mock_config_cls,
+            mock_integrity,
+            mock_config_instance,
+            stack,
+        ) = doctor_mocks(tmp_path)
+        mock_config_instance.profiles_dir = profiles_dir
+        try:
+            exit_code = cmd_doctor_check(_make_namespace(backend="all", json=False))
 
-                exit_code = cmd_doctor_check(_make_namespace(backend="all", json=False))
+            assert exit_code == 0
+            captured = capsys.readouterr()
+            assert "Profiles: 0 total, 0 stale" in captured.out
+        finally:
+            stack.close()
 
-                assert exit_code == 0
-                captured = capsys.readouterr()
-                assert "Profiles: 0 total, 0 stale" in captured.out
-
-    def test_check_profiles_detects_stale_profiles(self, tmp_path, capsys) -> None:
+    def test_check_profiles_detects_stale_profiles(
+        self, tmp_path: Path, capsys: CaptureFixture[str]
+    ) -> None:
         """doctor check should detect stale profiles and report them as warnings."""
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
@@ -840,41 +887,29 @@ class TestProfileStalenessCheck:
         fresh_record = self._make_profile_record(days_old=10)
         (profiles_dir / "fresh-profile.json").write_text(json.dumps(fresh_record))
 
-        with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
-        ):
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
-            mock_venv_path.return_value = tmp_path / "venv"
-            (tmp_path / "venv").mkdir()
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
-                mock_integrity.return_value = (True, None)
-                mock_config_instance = MagicMock()
-                mock_config_instance.build_lock_path = tmp_path / "lock"
-                mock_config_instance.reports_dir = tmp_path / "reports"
-                mock_config_instance.toolchain_timeout_seconds = 3600
-                mock_config_instance.llama_cpp_root = str(tmp_path)
-                mock_config_instance.profiles_dir = profiles_dir
-                mock_config.return_value = mock_config_instance
+        (
+            mock_detect,
+            mock_venv_path,
+            mock_config_cls,
+            mock_integrity,
+            mock_config_instance,
+            stack,
+        ) = doctor_mocks(tmp_path)
+        mock_config_instance.profiles_dir = profiles_dir
+        try:
+            exit_code = cmd_doctor_check(_make_namespace(backend="all", json=False))
 
-                exit_code = cmd_doctor_check(_make_namespace(backend="all", json=False))
+            assert exit_code == 0  # doctor reports but doesn't fail on stale profiles
+            captured = capsys.readouterr()
+            assert "Profiles: 2 total, 1 stale" in captured.out
+            assert "Stale profile: test-profile.json" in captured.out
+            assert "age_exceeded" in captured.out
+        finally:
+            stack.close()
 
-                assert exit_code == 0  # doctor reports but doesn't fail on stale profiles
-                captured = capsys.readouterr()
-                assert "Profiles: 2 total, 1 stale" in captured.out
-                assert "Stale profile: test-profile.json" in captured.out
-                assert "age_exceeded" in captured.out
-
-    def test_check_profiles_json_output_includes_profile_stats(self, tmp_path, capsys) -> None:
+    def test_check_profiles_json_output_includes_profile_stats(
+        self, tmp_path: Path, capsys: CaptureFixture[str]
+    ) -> None:
         """doctor check --json should include profile stats in output."""
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
@@ -882,41 +917,29 @@ class TestProfileStalenessCheck:
         stale_record = self._make_profile_record(days_old=200)
         (profiles_dir / "test-profile.json").write_text(json.dumps(stale_record))
 
-        with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
-        ):
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
-            mock_venv_path.return_value = tmp_path / "venv"
-            (tmp_path / "venv").mkdir()
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
-                mock_integrity.return_value = (True, None)
-                mock_config_instance = MagicMock()
-                mock_config_instance.build_lock_path = tmp_path / "lock"
-                mock_config_instance.reports_dir = tmp_path / "reports"
-                mock_config_instance.toolchain_timeout_seconds = 3600
-                mock_config_instance.llama_cpp_root = str(tmp_path)
-                mock_config_instance.profiles_dir = profiles_dir
-                mock_config.return_value = mock_config_instance
+        (
+            mock_detect,
+            mock_venv_path,
+            mock_config_cls,
+            mock_integrity,
+            mock_config_instance,
+            stack,
+        ) = doctor_mocks(tmp_path)
+        mock_config_instance.profiles_dir = profiles_dir
+        try:
+            exit_code = cmd_doctor_check(_make_namespace(backend="all", json=True))
 
-                exit_code = cmd_doctor_check(_make_namespace(backend="all", json=True))
+            assert exit_code == 0  # doctor reports but doesn't fail on stale profiles
+            captured = capsys.readouterr()
+            parsed = json.loads(captured.out)
+            assert parsed["profiles_total"] == 1
+            assert parsed["profiles_stale"] == 1
+        finally:
+            stack.close()
 
-                assert exit_code == 0  # doctor reports but doesn't fail on stale profiles
-                captured = capsys.readouterr()
-                parsed = json.loads(captured.out)
-                assert parsed["profiles_total"] == 1
-                assert parsed["profiles_stale"] == 1
-
-    def test_check_profiles_custom_max_age(self, tmp_path, capsys) -> None:
+    def test_check_profiles_custom_max_age(
+        self, tmp_path: Path, capsys: CaptureFixture[str]
+    ) -> None:
         """doctor check --max-age-days should use custom threshold."""
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
@@ -925,42 +948,30 @@ class TestProfileStalenessCheck:
         stale_record = self._make_profile_record(days_old=100)
         (profiles_dir / "test-profile.json").write_text(json.dumps(stale_record))
 
-        with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
-        ):
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
+        (
+            mock_detect,
+            mock_venv_path,
+            mock_config_cls,
+            mock_integrity,
+            mock_config_instance,
+            stack,
+        ) = doctor_mocks(tmp_path)
+        mock_config_instance.profiles_dir = profiles_dir
+        try:
+            # With max-age-days=200, the 100-day-old profile should NOT be stale
+            exit_code = cmd_doctor_check(
+                _make_namespace(backend="all", json=False, max_age_days=200)
             )
-            mock_venv_path.return_value = tmp_path / "venv"
-            (tmp_path / "venv").mkdir()
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
-                mock_integrity.return_value = (True, None)
-                mock_config_instance = MagicMock()
-                mock_config_instance.build_lock_path = tmp_path / "lock"
-                mock_config_instance.reports_dir = tmp_path / "reports"
-                mock_config_instance.toolchain_timeout_seconds = 3600
-                mock_config_instance.llama_cpp_root = str(tmp_path)
-                mock_config_instance.profiles_dir = profiles_dir
-                mock_config.return_value = mock_config_instance
 
-                # With max-age-days=200, the 100-day-old profile should NOT be stale
-                exit_code = cmd_doctor_check(
-                    _make_namespace(backend="all", json=False, max_age_days=200)
-                )
+            assert exit_code == 0  # no stale profiles
+            captured = capsys.readouterr()
+            assert "Profiles: 1 total, 0 stale" in captured.out
+        finally:
+            stack.close()
 
-                assert exit_code == 0  # no stale profiles
-                captured = capsys.readouterr()
-                assert "Profiles: 1 total, 0 stale" in captured.out
-
-    def test_repair_collects_stale_profile_actions(self, tmp_path, capsys) -> None:
+    def test_repair_collects_stale_profile_actions(
+        self, tmp_path: Path, capsys: CaptureFixture[str]
+    ) -> None:
         """doctor --repair should collect stale profile removal actions."""
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
@@ -968,40 +979,26 @@ class TestProfileStalenessCheck:
         stale_record = self._make_profile_record(days_old=200)
         (profiles_dir / "stale-profile.json").write_text(json.dumps(stale_record))
 
-        with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
-        ):
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
-            mock_venv_path.return_value = tmp_path / "venv"
-            (tmp_path / "venv").mkdir()
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
-                mock_integrity.return_value = (True, None)
-                mock_config_instance = MagicMock()
-                mock_config_instance.build_lock_path = tmp_path / "lock"
-                mock_config_instance.reports_dir = tmp_path / "reports"
-                mock_config_instance.toolchain_timeout_seconds = 3600
-                mock_config_instance.llama_cpp_root = str(tmp_path)
-                mock_config_instance.profiles_dir = profiles_dir
-                mock_config.return_value = mock_config_instance
+        (
+            mock_detect,
+            mock_venv_path,
+            mock_config_cls,
+            mock_integrity,
+            mock_config_instance,
+            stack,
+        ) = doctor_mocks(tmp_path)
+        mock_config_instance.profiles_dir = profiles_dir
+        try:
+            result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False))
 
-                result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False))
+            assert result.success is True
+            action_types = [a.action_type for a in result.actions]
+            assert "remove_stale_profile" in action_types
+            assert len(result.actions) > 0
+        finally:
+            stack.close()
 
-                assert result.success is True
-                action_types = [a.action_type for a in result.actions]
-                assert "remove_stale_profile" in action_types
-                assert len(result.actions) > 0
-
-    def test_repair_respects_max_age_days(self, tmp_path) -> None:
+    def test_repair_respects_max_age_days(self, tmp_path: Path) -> None:
         """doctor --repair --max-age-days should only flag profiles older than threshold."""
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
@@ -1010,41 +1007,25 @@ class TestProfileStalenessCheck:
         stale_record = self._make_profile_record(days_old=100)
         (profiles_dir / "medium-age.json").write_text(json.dumps(stale_record))
 
-        with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
-        ):
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
-            mock_venv_path.return_value = tmp_path / "venv"
-            (tmp_path / "venv").mkdir()
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
-                mock_integrity.return_value = (True, None)
-                mock_config_instance = MagicMock()
-                mock_config_instance.build_lock_path = tmp_path / "lock"
-                mock_config_instance.reports_dir = tmp_path / "reports"
-                mock_config_instance.toolchain_timeout_seconds = 3600
-                mock_config_instance.llama_cpp_root = str(tmp_path)
-                mock_config_instance.profiles_dir = profiles_dir
-                mock_config.return_value = mock_config_instance
+        (
+            mock_detect,
+            mock_venv_path,
+            mock_config_cls,
+            mock_integrity,
+            mock_config_instance,
+            stack,
+        ) = doctor_mocks(tmp_path)
+        mock_config_instance.profiles_dir = profiles_dir
+        try:
+            # With max-age-days=200, the 100-day-old profile should NOT be stale
+            result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False, max_age_days=200))
 
-                # With max-age-days=200, the 100-day-old profile should NOT be stale
-                result = cmd_doctor_repair(
-                    _make_namespace(dry_run=True, json=False, max_age_days=200)
-                )
+            action_types = [a.action_type for a in result.actions]
+            assert "remove_stale_profile" not in action_types
+        finally:
+            stack.close()
 
-                action_types = [a.action_type for a in result.actions]
-                assert "remove_stale_profile" not in action_types
-
-    def test_repair_skips_corrupt_profile_files(self, tmp_path) -> None:
+    def test_repair_skips_corrupt_profile_files(self, tmp_path: Path) -> None:
         """doctor --repair should skip corrupt/unparseable profile files."""
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
@@ -1052,80 +1033,54 @@ class TestProfileStalenessCheck:
         # Write corrupt JSON
         (profiles_dir / "corrupt.json").write_text("not valid json {{{")
 
-        with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
-        ):
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
-            mock_venv_path.return_value = tmp_path / "venv"
-            (tmp_path / "venv").mkdir()
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
-                mock_integrity.return_value = (True, None)
-                mock_config_instance = MagicMock()
-                mock_config_instance.build_lock_path = tmp_path / "lock"
-                mock_config_instance.reports_dir = tmp_path / "reports"
-                mock_config_instance.toolchain_timeout_seconds = 3600
-                mock_config_instance.llama_cpp_root = str(tmp_path)
-                mock_config_instance.profiles_dir = profiles_dir
-                mock_config.return_value = mock_config_instance
+        (
+            mock_detect,
+            mock_venv_path,
+            mock_config_cls,
+            mock_integrity,
+            mock_config_instance,
+            stack,
+        ) = doctor_mocks(tmp_path)
+        mock_config_instance.profiles_dir = profiles_dir
+        try:
+            result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False))
 
-                result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False))
+            # Should not crash and should have no stale profile actions
+            assert result.success is True
+            action_types = [a.action_type for a in result.actions]
+            assert "remove_stale_profile" not in action_types
 
-                # Should not crash and should have no stale profile actions
-                assert result.success is True
-                action_types = [a.action_type for a in result.actions]
-                assert "remove_stale_profile" not in action_types
+            # Should emit a warning for the corrupt profile file
+            warnings = [w for w in result.warnings if "corrupt" in w.lower()]
+            assert len(warnings) >= 1, "Expected warning for corrupt profile file"
+            assert "corrupt.json" in warnings[0]
+        finally:
+            stack.close()
 
-                # Should emit a warning for the corrupt profile file
-                warnings = [w for w in result.warnings if "corrupt" in w.lower()]
-                assert len(warnings) >= 1, "Expected warning for corrupt profile file"
-                assert "corrupt.json" in warnings[0]
-
-    def test_check_profiles_no_profiles_dir(self, tmp_path, capsys) -> None:
+    def test_check_profiles_no_profiles_dir(
+        self, tmp_path: Path, capsys: CaptureFixture[str]
+    ) -> None:
         """doctor check should handle missing profiles directory gracefully."""
         profiles_dir = tmp_path / "profiles"
         # Don't create the directory
 
-        with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
-        ):
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
-            mock_venv_path.return_value = tmp_path / "venv"
-            (tmp_path / "venv").mkdir()
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
-                mock_integrity.return_value = (True, None)
-                mock_config_instance = MagicMock()
-                mock_config_instance.build_lock_path = tmp_path / "lock"
-                mock_config_instance.reports_dir = tmp_path / "reports"
-                mock_config_instance.toolchain_timeout_seconds = 3600
-                mock_config_instance.llama_cpp_root = str(tmp_path)
-                mock_config_instance.profiles_dir = profiles_dir
-                mock_config.return_value = mock_config_instance
+        (
+            mock_detect,
+            mock_venv_path,
+            mock_config_cls,
+            mock_integrity,
+            mock_config_instance,
+            stack,
+        ) = doctor_mocks(tmp_path)
+        mock_config_instance.profiles_dir = profiles_dir
+        try:
+            exit_code = cmd_doctor_check(_make_namespace(backend="all", json=False))
 
-                exit_code = cmd_doctor_check(_make_namespace(backend="all", json=False))
-
-                assert exit_code == 0
-                captured = capsys.readouterr()
-                assert "Profiles: 0 total, 0 stale" in captured.out
+            assert exit_code == 0
+            captured = capsys.readouterr()
+            assert "Profiles: 0 total, 0 stale" in captured.out
+        finally:
+            stack.close()
 
 
 class TestBuildProfileGuidance:
@@ -1137,16 +1092,14 @@ class TestBuildProfileGuidance:
         driver_version: str = "535.104.05",
         current_driver_version: str = "545.23.08",
         age_days: float = 200.0,
-    ) -> tuple:
+    ) -> tuple[StalenessResult, ProfileRecord]:
         """Helper to create a staleness result and profile record."""
         from datetime import UTC, datetime, timedelta
 
         from llama_manager.profile_cache import (
             ProfileFlavor,
             ProfileMetrics,
-            ProfileRecord,
             StalenessReason,
-            StalenessResult,
             compute_driver_version_hash,
         )
 

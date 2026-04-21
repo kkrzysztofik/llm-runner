@@ -148,9 +148,9 @@ The verify command analyzes implemented code against specification artifacts:
 
 ## Workflow Integration
 
-```
+```text
 /speckit.specify → /speckit.plan → /speckit.tasks → /speckit.implement → /speckit.verify.run
-```
+```text
 
 ## Operating Principles
 

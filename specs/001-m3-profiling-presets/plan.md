@@ -162,7 +162,7 @@ def merge_config_overrides(
     defaults: Config,
     slot_config: dict | None = None,
     workstation_config: dict | None = None,
-    profile_config: dict | None = None,
+    profile_config: dict | StalenessResult | None = None,
     override_config: dict | None = None,
     warnings: list[str] | None = None,
 ) -> ServerConfig:
