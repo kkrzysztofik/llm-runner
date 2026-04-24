@@ -451,11 +451,11 @@ Generate minimal valid GGUF test fixtures using the `gguf.GGUFWriter` class. Eac
 #!/usr/bin/env python3
 """Generate minimal GGUF test fixtures for unit testing.
 
-Generates files under tests/fixtures/gguf/ containing only header metadata
+Generates files under tests/fixtures/ containing only header metadata
 (no tensor data). All files are under 10 KiB.
 
 Usage:
-    python scripts/generate_gguf_fixtures.py
+    python src/scripts/generate_gguf_fixtures.py
 """
 
 import struct
@@ -470,7 +470,7 @@ from gguf import GGUFWriter
 from gguf.constants import GGUF_MAGIC, GGUF_VERSION
 
 
-FIXTURES_DIR = Path(__file__).parent.parent / "tests" / "fixtures" / "gguf"
+FIXTURES_DIR = Path(__file__).parent.parent / "tests" / "fixtures"
 
 
 def write_fixture(
@@ -603,12 +603,11 @@ src/llama_cli/
 src/tests/
   test_gguf_metadata.py  # Unit tests: fixture-based, mocked file I/O
   fixtures/
-    gguf/
-      valid_gguf_v3_all_keys.gguf
-      valid_gguf_v3_missing_name.gguf
-      corrupt_bad_magic.gguf
-      truncated_no_kv.gguf
-      valid_gguf_v4.gguf
+    valid_gguf_v3_all_keys.gguf
+    valid_gguf_v3_missing_name.gguf
+    corrupt_bad_magic.gguf
+    truncated_no_kv.gguf
+    valid_gguf_v4.gguf
 scripts/
   generate_gguf_fixtures.py  # Maintainer script to regenerate fixtures
 ```
@@ -650,7 +649,7 @@ from llama_manager.gguf_metadata import (
     normalize_gguf_string,
 )
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures" / "gguf"
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 class TestValidGgufV3:
@@ -784,7 +783,7 @@ The `gguf` package has a `py.typed` marker, so all types are available for stati
    - `read_gguf_metadata()` — core parsing with prefix cap and timeout
    - `read_gguf_metadata_safe()` — safe wrapper with error classification
    - `normalize_gguf_string()` — NFKC normalization
-3. **Phase 3**: Generate test fixtures with `scripts/generate_gguf_fixtures.py`
+3. **Phase 3**: Generate test fixtures with `src/scripts/generate_gguf_fixtures.py`
 4. **Phase 4**: Write unit tests in `tests/test_gguf_metadata.py`
 5. **Phase 5**: Integrate with existing `doctor` command in `cli_parser.py`
 6. **Phase 6**: Wire up smoke model ID resolution (FR-005) to use `general.name` from GGUF metadata
@@ -798,7 +797,7 @@ The `gguf` package has a `py.typed` marker, so all types are available for stati
 | `gguf` library API changes between versions | Pin to `>=0.18.0` and test against latest release in CI. The library is maintained by GGML and stable. |
 | Large GGUF files cause memory pressure from `np.memmap` | Use prefix cap (32 MiB) and write header to temp file. The temp file is at most 32 MiB. |
 | Timeout thread doesn't stop cleanly | Use daemon thread — it's killed when the main thread exits. No resource leak. |
-| Fixture files drift from real GGUF structure | Regenerate fixtures with `scripts/generate_gguf_fixtures.py` if `gguf` library changes. CI uses committed bytes only. |
+| Fixture files drift from real GGUF structure | Regenerate fixtures with `src/scripts/generate_gguf_fixtures.py` if `gguf` library changes. CI uses committed bytes only. |
 | `gguf` library reads tensor data eagerly | `GGUFReader` uses `np.memmap` and only reads tensors when `reader.tensors` is accessed. We never access tensors for metadata extraction. |
 | `gguf` package adds transitive dependencies (numpy, pyyaml, requests, tqdm) | These are all lightweight, well-tested packages. `numpy` is the largest but is already used by `psutil` indirectly. `pip-audit` will catch any CVEs. |
 

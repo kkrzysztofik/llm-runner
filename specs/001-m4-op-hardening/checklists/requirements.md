@@ -34,7 +34,7 @@
 
 - [x] All M4 functional requirements (FR-010–FR-018) represented
 - [x] All M4 non-functional requirements (NFR-002, NFR-003, NFR-006, NFR-007) represented
-- [x] All M4 acceptance criteria (AC-010–AC-020) represented
+- [x] All M4 acceptance criteria (AC-010–AC-014, AC-016–AC-018) represented; AC-015 and AC-019 are out of M4 scope
 - [x] All Appendix D parameters and defaults captured
 - [x] Spec gaps from initial validation closed
 

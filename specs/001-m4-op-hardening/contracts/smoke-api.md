@@ -44,7 +44,7 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 **Parameters**:
 | Parameter | Config Key | Default | Description |
 | --- | --- | --- | --- |
-| `listen_timeout_s` | `smoke_listen_timeout_s` | 30 | Maximum seconds to wait for TCP connection |
+| `listen_timeout_s` | `smoke.listen_timeout_s` | 120 | Maximum seconds to wait for TCP connection |
 
 **Flow**:
 1. Create a `socket.socket(socket.AF_INET, socket.SOCK_STREAM)`
@@ -77,7 +77,7 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 **Parameters**:
 | Parameter | Config Key | Default | Description |
 | --- | --- | --- | --- |
-| `http_request_timeout_s` | `smoke_http_request_timeout_s` | 10 | HTTP request timeout |
+| `http_request_timeout_s` | `smoke.http_request_timeout_s` | 10 | HTTP request timeout |
 | `skip_models_discovery` | `smoke.skip_models_discovery` | `False` | Skip this phase entirely |
 
 **Flow**:
@@ -97,11 +97,11 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 | HTTP 5xx | Exit 11 (`fail` — HTTP/API error). |
 | Network error (DNS, SSL, connection reset) | Exit 11 (`fail`). |
 
-**Model ID resolution chain** (FR-005):
-1. `--model-id` CLI flag (highest precedence)
-2. GGUF `general.name` from metadata extraction
-3. First model's `id` from `/v1/models` response
-4. Fallback: normalized filename stem prefixed with `path:`
+**Model ID resolution chain** (FR-005, matching PRD FR-015 order):
+1. GGUF `general.name` from metadata extraction (highest precedence)
+2. Normalized filename stem (if `general.name` is absent or invalid, fallback to raw file path prefixed with `path:`)
+3. Catalog `smoke.model_id` / override
+4. Optional `/v1/models` match
 
 **Exit codes**:
 | Code | Condition |
@@ -125,7 +125,9 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 | `max_tokens` | `smoke.max_tokens` | 16 | 8–32 |
 | `temperature` | — | 0 | Fixed |
 | `prompt` | `smoke.prompt` | `"Respond with exactly one word."` | Non-empty |
-| `http_request_timeout_s` | `smoke_http_request_timeout_s` | 10 | ≥ 1 |
+| `http_request_timeout_s` | `smoke.http_request_timeout_s` | 10 | ≥ 1 |
+| `first_token_timeout_s` | `smoke.first_token_timeout_s` | 1200 | ≥ 1 (Phase 3 chat probe only) |
+| `total_chat_timeout_s` | `smoke.total_chat_timeout_s` | 1500 | ≥ 1 (Phase 3 chat probe only) |
 
 **Request payload** (minimal, no system prompt):
 
@@ -156,9 +158,10 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 | Timeout | Exit 14 (`timeout`) |
 | Network error | Exit 11 (`fail`) |
 
-**Timeout strategy**:
+**Timeout strategy** (all timeouts apply to Phase 3 chat probe only):
 - The `httpx` request timeout (`smoke_http_request_timeout_s`, default 10s) applies to the full response.
-- A separate first-token timeout (1200s / 20 min) and total chat timeout (1500s / 25 min) are configurable but default to very generous values to handle large models on constrained hardware.
+- **First-token timeout** (1200s / 20 min, configurable via `smoke.first_token_timeout_s`): wall clock from chat request to first token received. Applies to Phase 3 chat probe when streaming is enabled.
+- **Total chat completion timeout** (1500s / 25 min, configurable via `smoke.total_chat_timeout_s`): hard cap from chat request to final response for Phase 3 chat probe, regardless of streaming mode.
 - If streaming is enabled, first-token timeout applies; for non-streaming (default), the full-request timeout applies.
 
 **Exit codes**:
@@ -335,9 +338,10 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
       }
     },
     "overall_exit_code": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 19
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 19 },
+        { "type": "integer", "enum": [130] }
+      ]
     }
   }
 }
@@ -381,8 +385,9 @@ if args[0] == "smoke":
 | `--api-key <key>` | string | (from config/env) | Override API key for smoke probes |
 | `--model-id <id>` | string | (from GGUF metadata) | Override model ID for smoke chat probes |
 | `--max-tokens <n>` | int | 16 (`smoke.max_tokens`) | Max tokens in smoke chat probe (range 8–32) |
-| `--delay <seconds>` | int | 2 (`smoke_inter_slot_delay_s`) | Pause between slot probes |
-| `--timeout <seconds>` | int | 30 (`smoke_listen_timeout_s`) | TCP ready-check timeout per slot |
+| `--prompt <text>` | string | `"Respond with exactly one word."` (`smoke.prompt`) | Single-turn user message for chat probe |
+| `--delay <seconds>` | int | 2 (`smoke.inter_slot_delay_s`) | Pause between slot probes |
+| `--timeout <seconds>` | int | 120 (`smoke.listen_timeout_s`) | TCP ready-check timeout per slot |
 
 ### 5.3 `smoke slot <slot_id>` Arguments
 
@@ -392,7 +397,8 @@ if args[0] == "smoke":
 | `--api-key <key>` | string | (from config/env) | Override API key for smoke probes |
 | `--model-id <id>` | string | (from GGUF metadata) | Override model ID for smoke chat probes |
 | `--max-tokens <n>` | int | 16 (`smoke.max_tokens`) | Max tokens in smoke chat probe (range 8–32) |
-| `--timeout <seconds>` | int | 30 (`smoke_listen_timeout_s`) | TCP ready-check timeout |
+| `--prompt <text>` | string | `"Respond with exactly one word."` (`smoke.prompt`) | Single-turn user message for chat probe |
+| `--timeout <seconds>` | int | 120 (`smoke.listen_timeout_s`) | TCP ready-check timeout |
 
 ### 5.4 Exit Codes
 
@@ -450,16 +456,20 @@ class SmokeProbeConfiguration:
         skip_models_discovery: Skip /v1/models phase.
         api_key: API key from CLI flag, config, or env.
         model_id_override: User-provided model ID override.
+        first_token_timeout_s: Wall-clock timeout to first token (Phase 3 only).
+        total_chat_timeout_s: Hard cap from chat request to final response (Phase 3 only).
     """
 
     inter_slot_delay_s: int = 2
-    listen_timeout_s: int = 30
+    listen_timeout_s: int = 120
     http_request_timeout_s: int = 10
     max_tokens: int = 16
     prompt: str = "Respond with exactly one word."
     skip_models_discovery: bool = False
     api_key: str = ""
     model_id_override: str | None = None
+    first_token_timeout_s: int = 1200
+    total_chat_timeout_s: int = 1500
 
     def __post_init__(self) -> None:
         if not (8 <= self.max_tokens <= 32):
@@ -479,13 +489,15 @@ Highest to lowest:
 
 | Config Field | Default | Source |
 | --- | --- | --- |
-| `smoke_listen_timeout_s` | 30 | `Config` dataclass |
-| `smoke_http_request_timeout_s` | 10 | `Config` dataclass |
-| `smoke_inter_slot_delay_s` | 2 | `Config` dataclass |
+| `smoke.listen_timeout_s` | 120 | `Config` dataclass |
+| `smoke.http_request_timeout_s` | 10 | `Config` dataclass |
+| `smoke.inter_slot_delay_s` | 2 | `Config` dataclass |
 | `smoke.max_tokens` | 16 | `Config` dataclass |
 | `smoke.prompt` | `"Respond with exactly one word."` | `Config` dataclass |
 | `smoke.skip_models_discovery` | `False` | `Config` dataclass |
 | `smoke.api_key` | `""` (empty = use env) | `Config` dataclass |
+| `smoke.first_token_timeout_s` | 1200 | `Config` dataclass (Phase 3 chat probe only) |
+| `smoke.total_chat_timeout_s` | 1500 | `Config` dataclass (Phase 3 chat probe only) |
 
 ---
 
@@ -641,12 +653,14 @@ src/tests/
 ├── test_smoke_cli.py      # CLI parsing and output format tests
 ├── test_metadata.py       # GGUF metadata extraction tests
 └── fixtures/
-    ├── gguf_v3_valid.bin      # Valid GGUF v3 with all required keys
-    ├── gguf_v3_no_name.bin    # Valid GGUF v3 missing general.name
-    ├── gguf_corrupt.bin       # Corrupt file (bad magic bytes)
-    ├── gguf_truncated.bin     # Truncated file (valid header, no KV data)
-    └── gguf_v4_unsupported.bin # Valid GGUF v4 (expected error)
+    ├── gguf_v3_valid.gguf      # Valid GGUF v3 with all required keys
+    ├── gguf_v3_no_name.gguf    # Valid GGUF v3 missing general.name
+    ├── gguf_corrupt.gguf       # Corrupt file (bad magic bytes)
+    ├── gguf_truncated.gguf     # Truncated file (valid header, no KV data)
+    └── gguf_v4_unsupported.gguf # Valid GGUF v4 (expected error)
 ```
+
+Fixture files are committed under `src/tests/fixtures/`, generated by `src/scripts/generate_gguf_fixtures.py`.
 
 ### 8.2 What Must Be Mocked
 
@@ -715,7 +729,7 @@ MOCK_MODEL_MISMATCH = httpx.Response(
 
 #### GGUF Fixtures
 
-Generated by `scripts/generate_gguf_fixtures.py`. Committed as binary files under `tests/fixtures/`. CI consumes static fixture bytes only.
+Generated by `src/scripts/generate_gguf_fixtures.py`. Committed as binary files under `src/tests/fixtures/`. CI consumes static fixture bytes only.
 
 ### 8.4 Test Categories
 
@@ -882,7 +896,7 @@ def resolve_version() -> str:
 
 ## Appendix C: Inter-Slot Delay
 
-When running `smoke both`, after successfully completing a slot probe (either pass or fail), the probe pauses for `smoke_inter_slot_delay_s` (default 2 seconds) before starting the next slot. This prevents rapid-fire probing from overwhelming the servers.
+When running `smoke both`, after successful completion of a slot probe, the probe pauses for `smoke.inter_slot_delay_s` (default 2 seconds) before starting the next slot. This prevents rapid-fire probing from overwhelming the servers.
 
 ```python
 import time

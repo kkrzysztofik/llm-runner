@@ -102,12 +102,13 @@ uv run llm-runner smoke both --json
 | `--api-key <key>` | (from config/env) | Override API key for smoke probes |
 | `--model-id <id>` | (from GGUF) | Override resolved model ID |
 | `--max-tokens <n>` | 16 (range 8–32) | Max tokens in chat probe |
+| `--prompt <text>` | "Respond with exactly one word." | Single-turn user message for chat probe |
 | `--delay <s>` | 2 | Pause between slot probes |
-| `--timeout <s>` | 30 | TCP ready-check timeout per slot |
+| `--timeout <s>` | 120 (`smoke.listen_timeout_s`) | TCP ready-check timeout per slot |
 
 ### Smoke probe phases
 
-1. **listen** — TCP connection to slot host:port (timeout: `smoke_listen_timeout_s`)
+1. **listen** — TCP connection to slot host:port (timeout: `smoke.listen_timeout_s`)
 2. **models** — GET `/v1/models` (optional; skipped if `smoke.skip_models_discovery: true`)
 3. **chat** — POST `/v1/chat/completions` with `temperature=0`, 16 tokens, prompt `Respond with exactly one word.`
 
@@ -163,7 +164,7 @@ Press `y` to continue, `n` or `q` to abort. If no input within 30 seconds, the s
 ### CLI workflow
 
 ```bash
-uv run llm-runner smoke both --ack-nonstandard-hardware
+uv run llm-runner both --ack-nonstandard-hardware
 ```
 
 ### Hardware allowlist
@@ -218,7 +219,7 @@ After shutdown, the tool scans for orphan `llama-server` processes owned by the 
 | **15** | `smoke` | Auth failure (API key rejected) |
 | **16–18** | `smoke` | Reserved for future |
 | **19** | `smoke` | Slot crashed during probe |
-| **130** | Any | Process manager SIGKILL escalation failure |
+| **130** | `Any` | Process manager SIGKILL escalation failure (process stuck in D state) — implementation-level process-manager code, outside doctor/smoke families |
 
 When multiple slots are probed, the exit code reflects the highest-severity (lowest-numbered) failure.
 
@@ -228,7 +229,7 @@ When multiple slots are probed, the exit code reflects the highest-severity (low
 
 ### Smoke fails with exit 10 (listen timeout)
 
-The server hasn't accepted connections within `smoke_listen_timeout_s` (default 30 s). Check that the server process is running and the port matches.
+The server hasn't accepted connections within `smoke.listen_timeout_s` (default 120 s). Check that the server process is running and the port matches.
 
 ### Smoke fails with exit 13 (model not found)
 
@@ -254,9 +255,9 @@ The heuristic flags `free_vram × 0.85 < gguf_file_size × 1.2`. Confirm with `-
 
 | Field | Default | Description |
 | --- | --- | --- |
-| `smoke_inter_slot_delay_s` | 2 | Pause between slot smoke probes |
-| `smoke_listen_timeout_s` | 30 | TCP ready-check timeout per slot |
-| `smoke_http_request_timeout_s` | 10 | HTTP request timeout for `/v1/models` and chat |
+| `smoke.inter_slot_delay_s` | 2 | Pause applied after each successful slot probe, before starting the next (not before the first slot) |
+| `smoke.listen_timeout_s` | 120 | TCP ready-check timeout per slot |
+| `smoke.http_request_timeout_s` | 10 | HTTP request timeout for `/v1/models` and chat |
 | `smoke.max_tokens` | 16 | Max tokens in smoke chat probe (range 8–32) |
 | `smoke.prompt` | `"Respond with exactly one word."` | Smoke chat prompt |
 | `smoke.skip_models_discovery` | `false` | Skip `/v1/models` phase |

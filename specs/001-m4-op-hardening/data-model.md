@@ -19,7 +19,7 @@ A GPU slot owning bind host, port, backend flavor, environment overlays, and at 
 | `backend_flavor` | `BackendFlavor` | `cuda` or `sycl` |
 | `env_overlays` | `dict[str, str]` | Free-form environment overrides |
 | `model_path` | `str` | Absolute or relative path to GGUF file |
-| `lock_path` | `Path` | Derived: `runtime_dir / f"slot-{slot_id}.lock"` |
+| `lock_path` | `Path` | Computed at runtime from resolved runtime dir + slot ID; not persisted on the Slot entity |
 | `state` | `SlotState` | One of the six states defined in §1.1.1 |
 | `pid` | `int \| None` | Set on launch, cleared on shutdown |
 | `server_config` | `ServerConfig` | Per-instance launch parameters (existing dataclass) |
@@ -71,7 +71,7 @@ Per-slot outcome from a smoke probe session.
 | `slot_id` | `str` | Non-empty, normalized |
 | `status` | `SmokeProbeStatus` | One of the values in §1.2.1 |
 | `phase_reached` | `SmokePhase` | The last phase that was attempted (§1.2.2) |
-| `failure_phase` | `SmokePhase \| None` | The phase where failure occurred; `null` if `status == "pass"` |
+| `failure_phase` | `SmokeFailurePhase \| None` | The phase where failure occurred; `null` if `status == "pass"` |
 | `model_id` | `str \| None` | Resolved from GGUF `general.name`, `/v1/models`, or fallback |
 | `latency_ms` | `int \| None` | Single observed value for the probe session; `null` if not measured |
 | `provenance` | `ProvenanceRecord` | Binary SHA + tool version (§1.6) |
@@ -100,6 +100,18 @@ class SmokePhase(StrEnum):
     MODELS = "models"
     CHAT = "chat"
     COMPLETE = "complete"
+
+
+class SmokeFailurePhase(StrEnum):
+    """Phases where a failure can occur (excludes 'complete').
+
+    A failure can only occur during listen, models, or chat phases.
+    'complete' signifies all phases passed — it is never a failure phase.
+    """
+
+    LISTEN = "listen"
+    MODELS = "models"
+    CHAT = "chat"
 ```
 
 Phase progression: `listen` → `models` (optional) → `chat` → `complete`. Each phase attempted exactly once; failure is immediate and non-recoverable for that probe session.
@@ -260,16 +272,26 @@ Rotating log entry for mutating actions.
 
 Runtime settings for smoke probes (subset of `Config`).
 
-| Field | Type | Default | Range |
-| --- | --- | --- | --- |
-| `inter_slot_delay_s` | `int` | 2 | ≥ 0 |
-| `listen_timeout_s` | `int` | 30 | ≥ 1 |
-| `http_request_timeout_s` | `int` | 10 | ≥ 1 |
-| `max_tokens` | `int` | 16 | 8–32 |
-| `prompt` | `str` | `"Respond with exactly one word."` | Non-empty |
-| `skip_models_discovery` | `bool` | `False` | — |
-| `api_key` | `str` | `""` (from env/config) | — |
-| `model_id_override` | `str \| None` | `None` | — |
+> **Naming note**: The fields below are dataclass attribute names on `SmokeProbeConfiguration`.
+> In config files, CLI help text, and the PRD/spec, these are expressed as nested config keys
+> under the `smoke` namespace using dot notation (e.g., `smoke.inter_slot_delay_s`). The mapping
+> is one-to-one: the dataclass field `inter_slot_delay_s` maps to the config key `smoke.inter_slot_delay_s`,
+> `listen_timeout_s` → `smoke.listen_timeout_s`, etc. This is distinct from the `ServerConfig` fields
+> `smoke_api_key` (per-slot override) — the `SmokeProbeConfiguration.api_key` is the global default
+> used when no per-slot override is provided.
+
+| Field (dataclass) | Config key | Type | Default | Range |
+| --- | --- | --- | --- | --- |
+| `inter_slot_delay_s` | `smoke.inter_slot_delay_s` | `int` | 2 | ≥ 0 |
+| `listen_timeout_s` | `smoke.listen_timeout_s` | `int` | 120 | ≥ 1 |
+| `http_request_timeout_s` | `smoke.http_request_timeout_s` | `int` | 10 | ≥ 1 |
+| `max_tokens` | `smoke.max_tokens` | `int` | 16 | 8–32 |
+| `prompt` | `smoke.prompt` | `str` | `"Respond with exactly one word."` | Non-empty |
+| `skip_models_discovery` | `smoke.skip_models_discovery` | `bool` | `False` | — |
+| `api_key` | `smoke.api_key` | `str` | `""` (from env/config) | — |
+| `model_id_override` | `smoke.model_id_override` | `str \| None` | `None` | — |
+| `first_token_timeout_s` | `smoke.first_token_timeout_s` | `int` | 1200 | ≥ 1 (Phase 3 chat probe only) |
+| `total_chat_timeout_s` | `smoke.total_chat_timeout_s` | `int` | 1500 | ≥ 1 (Phase 3 chat probe only) |
 
 ---
 
@@ -543,7 +565,8 @@ ModelSlot ──► LockMetadata (via slot_id)
 ModelSlot ──► GGUFMetadataRecord (via model_path)
 
 SlotState (enum) ◄── SlotRuntime.state
-SmokePhase (enum)  ◄── SmokeProbeResult.phase_reached
+SmokePhase (enum)     ◄── SmokeProbeResult.phase_reached
+SmokeFailurePhase (enum) ◄── SmokeProbeResult.failure_phase
 SmokeProbeStatus (enum) ◄── SmokeProbeResult.status
 VRamRecommendation (enum) ◄── VRAMRiskAssessment.recommendation
 ```
@@ -584,6 +607,14 @@ class SmokePhase(StrEnum):
     MODELS = "models"
     CHAT = "chat"
     COMPLETE = "complete"
+
+
+class SmokeFailurePhase(StrEnum):
+    """Phases where a failure can occur (excludes 'complete')."""
+
+    LISTEN = "listen"
+    MODELS = "models"
+    CHAT = "chat"
 
 
 class SmokeProbeStatus(StrEnum):
@@ -660,7 +691,7 @@ class SmokeProbeResult:
     slot_id: str
     status: SmokeProbeStatus
     phase_reached: SmokePhase
-    failure_phase: SmokePhase | None
+    failure_phase: SmokeFailurePhase | None
     model_id: str | None
     latency_ms: int | None
     provenance: ProvenanceRecord
@@ -784,16 +815,20 @@ class SmokeProbeConfiguration:
         skip_models_discovery: Skip /v1/models phase.
         api_key: API key from CLI flag, config, or env.
         model_id_override: User-provided model ID override.
+        first_token_timeout_s: Wall-clock timeout to first token (Phase 3 only).
+        total_chat_timeout_s: Hard cap from chat request to final response (Phase 3 only).
     """
 
     inter_slot_delay_s: int = 2
-    listen_timeout_s: int = 30
+    listen_timeout_s: int = 120
     http_request_timeout_s: int = 10
     max_tokens: int = 16
     prompt: str = "Respond with exactly one word."
     skip_models_discovery: bool = False
     api_key: str = ""
     model_id_override: str | None = None
+    first_token_timeout_s: int = 1200
+    total_chat_timeout_s: int = 1500
 
     def __post_init__(self) -> None:
         if not (8 <= self.max_tokens <= 32):

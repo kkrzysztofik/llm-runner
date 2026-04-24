@@ -9,10 +9,10 @@
 ## 1. httpx for Smoke Probes
 
 ### Decision: Per-Request `httpx.Timeout` Object with Per-Probe Client Lifecycle
-Use a fine-grained `httpx.Timeout(connect=30s, read=10s)` per smoke probe, with a fresh `httpx.Client` created per slot via `with httpx.Client() as client:`. No shared client across slots — probes are sequential, so connection pooling provides no benefit.
+Use a fine-grained `httpx.Timeout(connect=120s, read=10s)` per smoke probe, with a fresh `httpx.Client` created per slot via `with httpx.Client() as client:`. No shared client across slots — probes are sequential, so connection pooling provides no benefit.
 
 **Rationale**:
-- The M4 spec requires two distinct timeout values: `smoke_listen_timeout_s` (30s, for TCP ready-check) and `smoke_http_request_timeout_s` (10s, for HTTP requests). A single scalar timeout cannot express this distinction.
+- The M4 spec requires two distinct timeout values: `smoke_listen_timeout_s` (120s, for TCP ready-check) and `smoke_http_request_timeout_s` (10s, for HTTP requests). A single scalar timeout cannot express this distinction.
 - Per-request timeout is preferred over client-level because each smoke probe targets a different port.
 - Each probe may use a different API key (resolved via precedence: `--api-key` CLI > `smoke.api_key` config > `LLM_RUNNER_SMOKE_API_KEY` env).
 - The spec explicitly states: "Each phase attempted exactly once — no retries." Per-request timeouts align with this no-retry semantics.
@@ -56,7 +56,7 @@ Use `GGUFReader` from the `gguf` PyPI library for header-only parsing. For prefi
 ```
 src/llama_manager/metadata.py      # Pure library (GGUFReader wrapper)
 src/tests/fixtures/gguf/           # 5 committed synthetic fixtures
-scripts/generate_gguf_fixtures.py  # Maintainer fixture generator
+src/scripts/generate_gguf_fixtures.py  # Maintainer fixture generator
 ```
 
 **Fixture Generation**:

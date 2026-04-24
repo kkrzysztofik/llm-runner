@@ -9,14 +9,14 @@
 ## Decision 1: Per-Request Timeout via `httpx.Timeout` Object
 
 ### Decision
-Use a fine-grained `httpx.Timeout` object with separate `connect` and `read` timeouts for each smoke probe request. Set `connect` to the listen timeout (30s default) and `read` to the HTTP request timeout (10s default).
+Use a fine-grained `httpx.Timeout` object with separate `connect` and `read` timeouts for each smoke probe request. Set `connect` to the listen timeout (120s default) and `read` to the HTTP request timeout (10s default).
 
 ```python
 import httpx
 
 # For smoke probes: connect=listen_timeout, read=http_request_timeout
 timeout = httpx.Timeout(
-    connect=smoke_listen_timeout_s,   # 30s default
+    connect=smoke_listen_timeout_s,   # 120s default (per final spec)
     read=smoke_http_request_timeout_s,  # 10s default
     write=5.0,
     pool=5.0,
@@ -24,7 +24,7 @@ timeout = httpx.Timeout(
 ```
 
 ### Rationale
-- The M4 spec requires two distinct timeout values: `smoke_listen_timeout_s` (30s, for TCP ready-check) and `smoke_http_request_timeout_s` (10s, for HTTP requests). A single scalar timeout cannot express this distinction.
+- The M4 spec requires two distinct timeout values: `smoke_listen_timeout_s` (120s, for TCP ready-check) and `smoke_http_request_timeout_s` (10s, for HTTP requests). A single scalar timeout cannot express this distinction.
 - `httpx.Timeout` with a default + `connect` override cleanly maps to the spec's two-phase timeout model.
 - Per-request timeout (passed to `client.get()`, `client.post()`, etc.) is preferred over client-level in this case because each smoke probe targets a different port and may have different timeout requirements.
 - The spec explicitly states: "Each phase attempted exactly once — no retries." Per-request timeouts align with this no-retry semantics.
