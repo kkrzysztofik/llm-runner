@@ -231,6 +231,8 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 
 ## 4. JSON Output Schema
 
+> **Reference**: The JSON format is defined in `spec.md` FR-020. This section provides the detailed field descriptions and the complete JSON Schema Draft 2020-12 definition.
+
 ### 4.1 Smoke Probe Result (Per Slot)
 
 ```json
@@ -402,21 +404,13 @@ if args[0] == "smoke":
 
 ### 5.4 Exit Codes
 
-Smoke exit codes (10–19) are distinct from doctor exit codes (1–9):
+> **Authoritative source**: `spec.md` Appendix B defines all exit codes. This section is a **concise reference** — always update Appendix B first when changing exit codes.
 
-| Code | Meaning |
-| --- | --- |
-| 0 | All probed slots passed |
-| 10 | Server not ready (listen/accept timeout) |
-| 11 | HTTP / API / network error |
-| 12 | Config validation failure (smoke-specific) |
-| 13 | Model not found (wrong model ID) |
-| 14 | Chat completion timeout |
-| 15 | Auth failure |
-| 19 | Slot crashed during probe |
-| 16–18 | Reserved for future smoke codes |
+Smoke exit codes (10–19) are distinct from doctor exit codes (1–9). Full definitions: `spec.md` Appendix B.
 
 **Composite exit code rule**: When multiple slots are probed (`smoke both`), the exit code reflects the **highest-severity (lowest-numbered) failure** among all slots. If all slots pass, exit 0.
+
+**SIGKILL escalation** (exit 130): Defined in `spec.md` Appendix B; applies to all commands, outside doctor/smoke families.
 
 ### 5.5 Output Formats
 

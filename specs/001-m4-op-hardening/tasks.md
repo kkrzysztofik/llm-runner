@@ -42,9 +42,10 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 - [ ] T006b Add smoke config factory functions to `src/llama_manager/config_builder.py` (depends on T006 for Config fields)
 - [ ] T007 Create `src/llama_manager/smoke.py` with: `SmokeProbeResult`, `SmokeCompositeReport`, `ProvenanceRecord`, `ConsecutiveFailureCounter` dataclasses; `probe_slot()`, `resolve_provenance()`, `compute_overall_exit_code()` functions
 - [ ] T008 Create `src/llama_manager/metadata.py` with: `GGUFMetadataRecord` dataclass; `extract_gguf_metadata()`, `normalize_filename()` functions
-- [ ] T009 Create `src/scripts/generate_gguf_fixtures.py` to generate synthetic GGUF test fixtures in `src/tests/fixtures/`
-- [ ] T010 Create `src/tests/fixtures/README.md` documenting fixture generator script and usage
-- [ ] T011 Run `uv run python src/scripts/generate_gguf_fixtures.py` to generate fixture files
+- [ ] T009 [AC-018] Create `src/scripts/generate_gguf_fixtures.py` to generate synthetic GGUF test fixtures in `src/tests/fixtures/`
+- [ ] T010 [AC-018] Create `src/tests/fixtures/README.md` documenting fixture generator script and usage
+- [ ] T011 [AC-018] Run `uv run python src/scripts/generate_gguf_fixtures.py` to generate fixture files
+- [ ] T011b [P] Validate fixture files: verify each fixture in `src/tests/fixtures/` is a valid binary file, non-empty, and under 10 KiB; confirm `gguf_v4_unsupported.gguf` triggers the expected unsupported-version error path in a dry-run metadata parse
 - [ ] T012 Run `uv run pip-audit` to verify new dependencies have no known CVEs
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
@@ -62,12 +63,12 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 ### Tests for User Story 1 (REQUIRED) ⚠️
 
 - [ ] T013 [P] [US1] Write unit test for `SlotState` enum transitions in `src/tests/test_config.py`
-- [ ] T014 [US1] Write unit test for SIGTERM→SIGKILL shutdown flow in `src/tests/test_process_manager.py`
+- [ ] T014 [US1] [AC-012] Write unit test for SIGTERM→SIGKILL shutdown flow in `src/tests/test_process_manager.py`
 - [ ] T015 Write unit test for lockfile acquisition and staleness detection in `src/tests/test_process_manager.py`
-- [ ] T016 [US1] Write unit test for rotating log appending with redaction in `src/tests/test_process_manager.py`
+- [ ] T016 [US1] Write unit test for rotating log appending with redaction in `src/tests/test_process_manager.py` (tests the `_append_audit_log` helper and secret pattern matching)
 - [ ] T016b [US1] Write unit test for `SlotRuntime` dataclass in `src/tests/test_process_manager.py`
 - [ ] T016c [US1] Write unit test for per-slot status display in `src/tests/test_tui.py`
-- [ ] T016d [US1] Write unit test for GPU telemetry panel update in `src/tests/test_tui.py` (runs after T016c — same file `test_tui.py`, sequential execution required)
+- [ ] T016d [US1] Write unit test for GPU telemetry panel update in `src/tests/test_tui.py` (runs after T016c — same file, sequential execution required)
 - [ ] T016e [US1] Write unit test for slot state transition handling in `src/tests/test_tui.py` (runs after T016d — same file, sequential execution required)
 - [ ] T016f [US1] Write unit test for graceful shutdown key handler (Ctrl+C) in `src/tests/test_tui.py` (runs after T016e — same file, sequential execution required)
 
@@ -75,12 +76,14 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 
 - [ ] T017 [US1] Add `SlotRuntime` dataclass to `src/llama_manager/process_manager.py`
 - [ ] T018 [US1] Add lockfile methods (`acquire_lock`, `release_lock`, `check_lock_stale`) to `src/llama_manager/process_manager.py`
-- [ ] T019 [US1] Add SIGTERM→SIGKILL shutdown implementation to `src/llama_manager/process_manager.py`
+- [ ] T019 [US1] [AC-012] Add SIGTERM→SIGKILL shutdown implementation to `src/llama_manager/process_manager.py`
 - [ ] T020 [US1] Add rotating audit log implementation to `src/llama_manager/process_manager.py`
-- [ ] T021 [US1] Add per-slot status display to `src/llama_cli/tui_app.py`
-- [ ] T022 [US1] Add GPU telemetry panel update to `src/llama_cli/tui_app.py`
-- [ ] T023 [US1] Add slot state transition handling for launching→running, running→degraded, etc. in `src/llama_cli/tui_app.py`
+- [ ] T021 [US1] [AC-011] Add per-slot status display (health, logs, GPU stats, backend label) to `src/llama_cli/tui_app.py`
+- [ ] T022 [US1] [AC-011] Add GPU telemetry panel update to `src/llama_cli/tui_app.py`
+- [ ] T023 [US1] [AC-013] Add slot state transition handling for launching→running, running→degraded, etc. in `src/llama_cli/tui_app.py`
 - [ ] T024 [US1] Add graceful shutdown key handler (Ctrl+C) in `src/llama_cli/tui_app.py`
+- [ ] T024b [US1] Write integration test for SC-001a: full launch + monitor + shutdown cycle completes in under 120 seconds (mocked servers, timing assertion)
+- [ ] T024c [US1] [AC-012] Write integration test for SC-001b: shutdown initiates within 1s of user request and completes without orphan processes within 30s; test scans for running `llama-server` processes owned by current user
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -99,27 +102,27 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 - [ ] T027 [US2] Write unit test for Phase 3 chat completion (success, timeout, auth failure) in `src/tests/test_smoke.py`
 - [ ] T028 [US2] Write unit test for slot crash detection (exit 19) in `src/tests/test_smoke.py`
 - [ ] T029 [US2] Write unit test for provenance resolution (SHA, version) in `src/tests/test_smoke.py`
-- [ ] T030 [US2] Write unit test for `compute_overall_exit_code()` in `src/tests/test_smoke.py`
+- [ ] T030 [US2] [AC-014] Write unit test for `compute_overall_exit_code()` in `src/tests/test_smoke.py`
 - [ ] T031 [US2] Write unit test for API key precedence (CLI > config > env) in `src/tests/test_smoke.py`
-- [ ] T032 [US2] Write unit test for consecutive failure counter (FR-006) in `src/tests/test_smoke.py`
-- [ ] T033 [US2] Write CLI test for `smoke both` and `smoke slot <id>` argument parsing in `src/tests/test_smoke_cli.py`
+- [ ] T032 [US2] [AC-014][FR-006] Write unit test for consecutive failure counter (FR-006) in `src/tests/test_smoke.py`
+- [ ] T033 [US2] [AC-014][AC-017] Write CLI test for `smoke both` and `smoke slot <id>` argument parsing in `src/tests/test_smoke_cli.py`
 - [ ] T034 [US2] Write test for human-readable and JSON output formatting in `src/tests/test_smoke.py`
 
 ### Implementation for User Story 2
 
-- [ ] T035 [US2] Add `smoke` subcommand to `src/llama_cli/cli_parser.py` with `both` and `slot <id>` arguments
-- [ ] T036 [US2] Create `src/llama_cli/smoke_cli.py` with CLI entry point, output formatters
-- [ ] T037 [US2] Implement Phase 1 (listen/accept) in `src/llama_manager/smoke.py`
+- [ ] T035 [US2] [AC-014][AC-017] Add `smoke` subcommand to `src/llama_cli/cli_parser.py` with `both` and `slot <id>` arguments
+- [ ] T036 [US2] [AC-017] Create `src/llama_cli/smoke_cli.py` with CLI entry point, output formatters
+- [ ] T037 [US2] [AC-017] Implement Phase 1 (listen/accept) in `src/llama_manager/smoke.py`
 - [ ] T037b [US2] Wire smoke command entry point in `src/llama_cli/server_runner.py` to call `smoke_cli.run_smoke()` (depends on T037 — Phase 1 must exist before wiring)
-- [ ] T038 [US2] Implement Phase 2 (/v1/models discovery) in `src/llama_manager/smoke.py`
-- [ ] T039 [US2] Implement Phase 3 (chat completion) in `src/llama_manager/smoke.py`
-- [ ] T040 [US2] Implement Phase 3b (slot crash detection) in `src/llama_manager/smoke.py`
-- [ ] T040b [US2] Implement model ID resolution chain (GGUF name → filename stem → catalog override → /v1/models match) in `src/llama_manager/smoke.py`
-- [ ] T041 [US2] Implement inter-slot delay and overall exit code computation in `src/llama_manager/smoke.py`
-- [ ] T042 Add `--api-key`, `--model-id`, `--max-tokens`, `--prompt`, `--delay`, `--timeout` flags to CLI in `src/llama_cli/cli_parser.py`
-- [ ] T043 Add `--json` output support to `src/llama_cli/smoke_cli.py`
-- [ ] T044 [US2] Implement consecutive failure counter in `src/llama_manager/smoke.py`
-- [ ] T044b [US2] Integrate smoke flag bundles into dry-run output in `src/llama_cli/dry_run.py`
+- [ ] T038 [US2] [AC-017] Implement Phase 2 (/v1/models discovery) in `src/llama_manager/smoke.py`
+- [ ] T039 [US2] [AC-017] Implement Phase 3 (chat completion) in `src/llama_manager/smoke.py`
+- [ ] T040 [US2] [AC-017] Implement Phase 3b (slot crash detection) in `src/llama_manager/smoke.py`
+- [ ] T040b [US2] [AC-017] Implement model ID resolution chain (GGUF name → filename stem → catalog override → /v1/models match) in `src/llama_manager/smoke.py`
+- [ ] T041 [US2] [AC-017] Implement inter-slot delay and overall exit code computation in `src/llama_manager/smoke.py`
+- [ ] T042 [AC-017] Add `--api-key`, `--model-id`, `--max-tokens`, `--prompt`, `--delay`, `--timeout` flags to CLI in `src/llama_cli/cli_parser.py`
+- [ ] T043 [AC-017] Add `--json` output support to `src/llama_cli/smoke_cli.py`
+- [ ] T044 [US2] [FR-006] Implement consecutive failure counter in `src/llama_manager/smoke.py`
+- [ ] T044b [US2] [CA-003] Integrate smoke flag bundles into dry-run output in `src/llama_cli/dry_run.py`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -133,21 +136,21 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 
 ### Tests for User Story 3 (REQUIRED) ⚠️
 
-- [ ] T045 [US3] Write unit test for valid GGUF v3 metadata extraction in `src/tests/test_metadata.py`
-- [ ] T046 [US3] Write unit test for missing general.name (use normalized filename stem) in `src/tests/test_metadata.py`
-- [ ] T047 [US3] Write unit test for corrupt file (bad magic bytes) in `src/tests/test_metadata.py`
-- [ ] T048 [US3] Write unit test for truncated file handling in `src/tests/test_metadata.py`
-- [ ] T049 [US3] Write unit test for GGUF v4 unsupported version error in `src/tests/test_metadata.py`
-- [ ] T050 [US3] Write unit test for parse timeout in `src/tests/test_metadata.py`
-- [ ] T051 [US3] Write unit test for filename NFKC normalization in `src/tests/test_metadata.py`
+- [ ] T045 [US3] [AC-010] Write unit test for valid GGUF v3 metadata extraction in `src/tests/test_metadata.py`
+- [ ] T046 [US3] [AC-010] Write unit test for missing general.name (use normalized filename stem) in `src/tests/test_metadata.py`
+- [ ] T047 [US3] [AC-010] Write unit test for corrupt file (bad magic bytes) in `src/tests/test_metadata.py`
+- [ ] T048 [US3] [AC-010] Write unit test for truncated file handling in `src/tests/test_metadata.py`
+- [ ] T049 [US3] [AC-010] Write unit test for GGUF v4 unsupported version error in `src/tests/test_metadata.py`
+- [ ] T050 [US3] [AC-010] Write unit test for parse timeout in `src/tests/test_metadata.py`
+- [ ] T051 [US3] [AC-010] Write unit test for filename NFKC normalization in `src/tests/test_metadata.py`
 
 ### Implementation for User Story 3
 
-- [ ] T052 [US3] Implement GGUF header parser in `src/llama_manager/metadata.py` using `gguf` library
-- [ ] T053 [US3] Add prefix cap enforcement (default 32 MiB) to `src/llama_manager/metadata.py`
-- [ ] T054 [US3] Add parse timeout enforcement (default 5s) to `src/llama_manager/metadata.py`
-- [ ] T055 [US3] Implement filename normalization (NFKC, whitespace replacement) in `src/llama_manager/metadata.py`
-- [ ] T056 [US3] Add error variants (CORRUPT_FILE, PARSE_TIMEOUT, UNSUPPORTED_VERSION, READ_ERROR) to metadata module
+- [ ] T052 [US3] [AC-010] Implement GGUF header parser in `src/llama_manager/metadata.py` using `gguf` library
+- [ ] T053 [US3] [AC-010] Add prefix cap enforcement (default 32 MiB) to `src/llama_manager/metadata.py`
+- [ ] T054 [US3] [AC-010] Add parse timeout enforcement (default 5s) to `src/llama_manager/metadata.py`
+- [ ] T055 [US3] [AC-010] Implement filename normalization (NFKC, whitespace replacement) in `src/llama_manager/metadata.py`
+- [ ] T056 [US3] [AC-010] Add error variants (CORRUPT_FILE, PARSE_TIMEOUT, UNSUPPORTED_VERSION, READ_ERROR) to metadata module
 - [ ] T057 [US3] Integrate GGUF metadata extraction with smoke model ID resolution chain in `src/llama_manager/smoke.py`
 
 **Checkpoint**: At this point, User Stories 1, 2, AND 3 should all work independently
@@ -164,8 +167,9 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 
 - [ ] T058 [US4] Write unit test for machine fingerprint computation in `src/tests/test_server.py`
 - [ ] T059 [US4] Write unit test for hardware allowlist check (match, mismatch, invalidated) in `src/tests/test_server.py`
-- [ ] T060 [US4] Write unit test for VRAM heuristic (proceed, warn, confirm-required) in `src/tests/test_server.py`
-- [ ] T061 [US4] Write unit test for hardware warning TUI key handler (y/n/q) in `src/tests/test_tui.py` (runs after T016f — same file `test_tui.py`, sequential execution required)
+- [ ] T060 [US4] [AC-016] Write unit test for VRAM heuristic (proceed, warn, confirm-required) in `src/tests/test_server.py`
+- [ ] T061 [US4] Write unit test for hardware warning TUI key handler (y/n/q) in `src/tests/test_tui.py` (runs after T016f — same file, sequential execution required)
+- [ ] T061b [US4] Write unit test for VRAM risk confirmation TUI key handler (y/n) in `src/tests/test_tui.py` (runs after T061 — same file, sequential execution required)
 
 ### Implementation for User Story 4
 
@@ -173,9 +177,9 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 - [ ] T063 [US4] Add hardware allowlist read/write and session snooze file handling to `src/llama_manager/server.py`
 - [ ] T064 Add hardware mismatch warning to `src/llama_cli/tui_app.py` with key handler
 - [ ] T065 Add `--ack-nonstandard-hardware` CLI flag to `src/llama_cli/cli_parser.py`
+- [ ] T066 [US4] [AC-016] Implement VRAM heuristic formula in `src/llama_manager/server.py`
+- [ ] T067 [US4] [AC-016] Add VRAM risk assessment to `src/llama_manager/server.py`
 - [ ] T067b [US4] Add VRAM query method to `src/llama_manager/gpu_stats.py`
-- [ ] T066 [US4] Implement VRAM heuristic formula in `src/llama_manager/server.py`
-- [ ] T067 [US4] Add VRAM risk assessment to `src/llama_manager/server.py`
 - [ ] T068 Add VRAM warning to TUI in `src/llama_cli/tui_app.py` and `--confirm-vram-risk` CLI flag in `src/llama_cli/cli_parser.py` (runs after T064 — same file `tui_app.py`, sequential execution required)
 
 ---
@@ -194,6 +198,11 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 - [ ] T076 Run `uv run pyright` and fix any type errors
 - [ ] T077 Run `uv run pytest` and ensure all tests pass
 - [ ] T078 Run `uv run pytest --cov --cov-report=term-missing` and verify coverage
+- [ ] T079 [US1] Write state-machine integration test: verify full lifecycle (idle→launching→running→degraded→running→offline→idle) in TUI context with mocked process events
+- [ ] T080 [US2] Write CA-003 parity test: smoke results (TUI vs CLI) produce identical slot status and phase data for the same server state
+- [ ] T081 [US2] Write CA-003 parity test: `--json` output from smoke CLI matches the FR-020 schema defined in spec Appendix B and contracts/smoke-api.md Section 4
+- [ ] T082 [US4] Write CA-003 parity test: dry-run output includes OpenAI flag bundles and compatibility matrix rows in both TUI and CLI modes
+- [ ] T083 [US2] Write test for dry-run smoke flag bundle output: verify `dry-run` shows smoke-relevant flags (model ID, prompt, /v1/models probe, API key source) per contracts/smoke-api.md Appendix D
 
 ---
 
