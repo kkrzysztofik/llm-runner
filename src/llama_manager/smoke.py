@@ -201,6 +201,28 @@ class ConsecutiveFailureCounter:
 
 
 # ---------------------------------------------------------------------------
+# Report directory management (T072)
+# ---------------------------------------------------------------------------
+
+
+def _ensure_report_dir(report_dir: Path) -> Path:
+    """Create report directory if it doesn't exist.
+
+    Creates the directory with owner-only permissions (0o700).
+    Returns the path to the report directory regardless of whether
+    it already existed or was newly created.
+
+    Args:
+        report_dir: Path to the report directory.
+
+    Returns:
+        The report directory path (absolute).
+    """
+    report_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return report_dir
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 

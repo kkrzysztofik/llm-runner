@@ -800,6 +800,39 @@ def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
 
 # Audit log rotation threshold: 10 MiB
 _AUDIT_LOG_MAX_BYTES: Final[int] = 10 * 1024 * 1024
+# Maximum number of rotated log files to retain (including current)
+_AUDIT_LOG_MAX_FILES: Final[int] = 5
+
+
+def _rotate_audit_log(log_path: Path) -> None:
+    """Rotate audit log files, keeping up to ``_AUDIT_LOG_MAX_FILES``.
+
+    Strategy:
+    1. Shift existing rotated files (.4 → .5, .3 → .4, etc.)
+    2. Rename current log to .1
+    3. Delete files exceeding ``_AUDIT_LOG_MAX_FILES``
+
+    Args:
+        log_path: Path to the current audit log file.
+
+    """
+    # Delete the oldest file if we already have MAX_FILES
+    oldest = log_path.with_suffix(f".{_AUDIT_LOG_MAX_FILES}")
+    with contextlib.suppress(OSError):
+        oldest.unlink()
+
+    # Shift existing rotated files upward
+    for i in range(_AUDIT_LOG_MAX_FILES - 1, 0, -1):
+        src = log_path.with_suffix(f".{i}")
+        dst = log_path.with_suffix(f".{i + 1}")
+        with contextlib.suppress(OSError):
+            if src.exists():
+                src.rename(dst)
+
+    # Rename current log to .1
+    rotated = log_path.with_suffix(".1")
+    with contextlib.suppress(OSError):
+        log_path.rename(rotated)
 
 
 def _redact_sensitive(text: str) -> str:
@@ -826,7 +859,8 @@ def _append_audit_log(
     """Append a line to the audit log file, rotating if needed.
 
     Rotation strategy: if the log file exceeds ``_AUDIT_LOG_MAX_BYTES``,
-    rename it to ``.1`` and create a fresh log file.
+    rotate files using ``_rotate_audit_log()`` which keeps up to
+    ``_AUDIT_LOG_MAX_FILES`` rotated copies (.1 through .5).
 
     Args:
         log_path: Path to the audit log file.
@@ -839,9 +873,7 @@ def _append_audit_log(
         try:
             size = log_path.stat().st_size
             if size > _AUDIT_LOG_MAX_BYTES:
-                rotated = log_path.with_suffix(".1")
-                with contextlib.suppress(OSError):
-                    log_path.rename(rotated)
+                _rotate_audit_log(log_path)
         except OSError:
             pass
 

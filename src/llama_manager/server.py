@@ -1,6 +1,7 @@
 # Server command building and validation functions
 
 
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -18,6 +19,68 @@ from .config import (
 
 # Precompiled regex pattern for sensitive key detection (Finding 172)
 _SENSITIVE_KEY_PATTERN = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|AUTH)", re.IGNORECASE)
+
+# ---------------------------------------------------------------------------
+# Doctor diagnostics (T069)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DoctorCheckResult:
+    """Result of a single doctor diagnostic check.
+
+    Attributes:
+        name: Check identifier (e.g. 'sycl_device', 'cuda_memory').
+        status: One of 'pass', 'warn', 'fail'.
+        message: Human-readable description of the result.
+    """
+
+    name: str
+    status: str  # "pass", "warn", "fail"
+    message: str = ""
+
+
+@dataclass
+class DoctorReport:
+    """Aggregated doctor diagnostic report.
+
+    Attributes:
+        checks: List of individual check results.
+    """
+
+    checks: list[DoctorCheckResult]
+
+    def to_json(self) -> str:
+        """Return JSON string representation.
+
+        Returns:
+            JSON string with check results.
+        """
+        return json.dumps(
+            {
+                "checks": [
+                    {
+                        "name": c.name,
+                        "status": c.status,
+                        "message": c.message,
+                    }
+                    for c in self.checks
+                ]
+            },
+            indent=2,
+        )
+
+    def to_text(self) -> str:
+        """Return human-readable text representation.
+
+        Returns:
+            Formatted text with pass/warn/fail indicators.
+        """
+        lines: list[str] = ["=== DOCTOR DIAGNOSTIC REPORT ==="]
+        for check in self.checks:
+            icon = {"pass": "✓", "warn": "⚠", "fail": "✗"}.get(check.status, "?")
+            lines.append(f"  [{icon}] {check.name}: {check.message}")
+        return "\n".join(lines)
 
 
 # FR-003: Canonical dry-run payload types

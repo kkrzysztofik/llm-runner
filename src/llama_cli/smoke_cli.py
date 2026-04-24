@@ -22,9 +22,11 @@ from llama_manager import (
     Config,
     SmokeCompositeReport,
     SmokeProbeConfiguration,
+    resolve_runtime_dir,
 )
 from llama_manager.smoke import (
     SmokeProbeResult,
+    _ensure_report_dir,
     probe_slot,
 )
 
@@ -160,6 +162,11 @@ def run_smoke(args: list[str]) -> int:
 
     # Build composite report
     report = SmokeCompositeReport(results=results)
+
+    # Ensure report directory exists when there are failures (T072)
+    if report.fail_count > 0:
+        runtime_dir = resolve_runtime_dir()
+        _ensure_report_dir(runtime_dir / "smoke_reports")
 
     # Output results
     if json_output:

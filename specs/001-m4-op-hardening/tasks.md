@@ -188,15 +188,15 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T069 Add `DoctorCheckResult` and `DoctorReport` dataclasses and `--json` output logic to `src/llama_manager/server.py`
-- [ ] T070 Add exit code documentation (doctor 1-9, smoke 10-19, 130) to CLI help text in `src/llama_cli/cli_parser.py`
-- [ ] T071 Add rotating log file management (max size, retention) to `src/llama_manager/process_manager.py`
-- [ ] T072 Add report directory generation for smoke failures in `src/llama_manager/smoke.py`
-- [ ] T073 Add secret redaction patterns to audit log in `src/llama_manager/process_manager.py`
-- [ ] T074 Run `uv run ruff check .` and fix any lint errors
-- [ ] T075 Run `uv run ruff format --check .` and fix any formatting issues
-- [ ] T076 Run `uv run pyright` and fix any type errors
-- [ ] T077 Run `uv run pytest` and ensure all tests pass
+- [x] T069 Add `DoctorCheckResult` and `DoctorReport` dataclasses and `--json` output logic to `src/llama_manager/server.py`
+- [x] T070 Add exit code documentation (doctor 1-9, smoke 10-19, 130) to CLI help text in `src/llama_cli/cli_parser.py`
+- [x] T071 Add rotating log file management (max size, retention) to `src/llama_manager/process_manager.py`
+- [x] T072 Add report directory generation for smoke failures in `src/llama_manager/smoke.py`
+- [x] T073 Add secret redaction patterns to audit log in `src/llama_manager/process_manager.py`
+- [x] T074 Run `uv run ruff check .` and fix any lint errors
+- [x] T075 Run `uv run ruff format --check .` and fix any formatting issues
+- [x] T076 Run `uv run pyright` and fix any type errors
+- [x] T077 Run `uv run pytest` and ensure all tests pass
 - [ ] T078 Run `uv run pytest --cov --cov-report=term-missing` and verify coverage
 - [ ] T079 [US1] Write state-machine integration test: verify full lifecycle (idle→launching→running→degraded→running→offline→idle) in TUI context with mocked process events
 - [ ] T080 [US2] Write CA-003 parity test: smoke results (TUI vs CLI) produce identical slot status and phase data for the same server state

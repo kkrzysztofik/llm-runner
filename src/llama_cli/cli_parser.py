@@ -115,6 +115,12 @@ def _parse_normal_mode_args(args: list[str]) -> argparse.Namespace:
       build            Run build pipeline
       setup            Run setup commands (use subcommands: check, venv, clean-venv)
 
+    Exit codes:
+      0    Success
+      1-9  Doctor check failures
+      10-19 Smoke test failures
+      130  Interrupted (Ctrl+C)
+
     Examples:
       %(prog)s summary-balanced
       %(prog)s summary-fast 8082
