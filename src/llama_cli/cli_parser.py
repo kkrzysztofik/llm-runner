@@ -461,7 +461,10 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
         )
         sys.exit(1)
 
-    # Parse remaining args for slot_id (when mode is "slot") and flags
+    # Parse remaining args for slot_id (when mode is "slot") and flags.
+    # Strategy: parse ALL flags first, then extract slot_id from the
+    # remaining non-flag tokens. This correctly handles flags appearing
+    # before or after the slot_id (e.g. "smoke slot --json summary-balanced").
     slot_id: str | None = None
     api_key: str = ""
     model_id: str | None = None
@@ -474,123 +477,121 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
     remaining = args[2:]
     i = 0
 
-    # If mode is "slot", first non-flag arg is slot_id
-    if mode == "slot" and remaining:
-        while i < len(remaining) and remaining[i].startswith("--"):
-            i += 1
-        if i < len(remaining):
-            slot_id = remaining[i]
-            i += 1
-            remaining = remaining[i:]
-            i = 0
+    # Flags that take a value (consume the next token)
+    _FLAGS_WITH_VALUE: set[str] = {
+        "--api-key",
+        "--model-id",
+        "--max-tokens",
+        "--prompt",
+        "--delay",
+        "--timeout",
+    }
 
-    # Parse flags with value support
+    # Phase 1 — parse all flags, collecting known values and skipping
+    # unknown ones (with their values).  slot_id is extracted from the
+    # first non-flag token.
     while i < len(remaining):
         arg = remaining[i]
-        if arg == "--api-key":
-            i += 1
-            if i < len(remaining):
-                api_key = remaining[i]
-            else:
-                print("error: --api-key requires a value", file=sys.stderr)
-                sys.exit(1)
-        elif arg.startswith("--api-key="):
-            api_key = arg.split("=", 1)[1]
-        elif arg == "--json":
-            json_output = True
-        elif arg == "--model-id":
-            i += 1
-            if i < len(remaining):
-                model_id = remaining[i]
-            else:
-                print("error: --model-id requires a value", file=sys.stderr)
-                sys.exit(1)
-        elif arg.startswith("--model-id="):
-            model_id = arg.split("=", 1)[1]
-        elif arg == "--max-tokens":
-            i += 1
-            if i < len(remaining):
-                try:
-                    max_tokens = int(remaining[i])
-                except ValueError:
-                    print(
-                        f"error: invalid --max-tokens value '{remaining[i]}': must be an integer",
-                        file=sys.stderr,
-                    )
+        if arg.startswith("--"):
+            if "=" in arg:
+                # Handle --flag=value syntax
+                key, _, value = arg.partition("=")
+                if key == "--api-key":
+                    api_key = value
+                elif key == "--model-id":
+                    model_id = value
+                elif key == "--max-tokens":
+                    try:
+                        max_tokens = int(value)
+                    except ValueError:
+                        print(
+                            f"error: invalid --max-tokens value '{value}': "
+                            "must be an integer",
+                            file=sys.stderr,
+                        )
+                        sys.exit(1)
+                elif key == "--prompt":
+                    prompt = value
+                elif key == "--delay":
+                    try:
+                        delay = int(value)
+                    except ValueError:
+                        print(
+                            f"error: invalid --delay value '{value}': "
+                            "must be an integer",
+                            file=sys.stderr,
+                        )
+                        sys.exit(1)
+                elif key == "--timeout":
+                    try:
+                        timeout = int(value)
+                    except ValueError:
+                        print(
+                            f"error: invalid --timeout value '{value}': "
+                            "must be an integer",
+                            file=sys.stderr,
+                        )
+                        sys.exit(1)
+                # else: unknown flag=value, skip
+            elif arg in _FLAGS_WITH_VALUE:
+                i += 1
+                if i < len(remaining):
+                    val = remaining[i]
+                    if arg == "--api-key":
+                        api_key = val
+                    elif arg == "--model-id":
+                        model_id = val
+                    elif arg == "--max-tokens":
+                        try:
+                            max_tokens = int(val)
+                        except ValueError:
+                            print(
+                                f"error: invalid --max-tokens value '{val}': "
+                                "must be an integer",
+                                file=sys.stderr,
+                            )
+                            sys.exit(1)
+                    elif arg == "--prompt":
+                        prompt = val
+                    elif arg == "--delay":
+                        try:
+                            delay = int(val)
+                        except ValueError:
+                            print(
+                                f"error: invalid --delay value '{val}': "
+                                "must be an integer",
+                                file=sys.stderr,
+                            )
+                            sys.exit(1)
+                    elif arg == "--timeout":
+                        try:
+                            timeout = int(val)
+                        except ValueError:
+                            print(
+                                f"error: invalid --timeout value '{val}': "
+                                "must be an integer",
+                                file=sys.stderr,
+                            )
+                            sys.exit(1)
+                    i += 1  # skip past the value
+                else:
+                    print(f"error: {arg} requires a value", file=sys.stderr)
                     sys.exit(1)
+            elif arg == "--json":
+                json_output = True
+                i += 1
             else:
-                print("error: --max-tokens requires a value", file=sys.stderr)
-                sys.exit(1)
-        elif arg.startswith("--max-tokens="):
-            try:
-                max_tokens = int(arg.split("=", 1)[1])
-            except ValueError:
-                print(
-                    f"error: invalid --max-tokens value '{arg.split('=', 1)[1]}': must be an integer",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-        elif arg == "--prompt":
+                # Unknown flag — skip it and its value (if present)
+                i += 1
+                if i < len(remaining) and not remaining[i].startswith("--"):
+                    i += 1
+        else:
+            # First non-flag token — this is the slot_id in "slot" mode
+            if mode == "slot":
+                slot_id = arg
             i += 1
-            if i < len(remaining):
-                prompt = remaining[i]
-            else:
-                print("error: --prompt requires a value", file=sys.stderr)
-                sys.exit(1)
-        elif arg.startswith("--prompt="):
-            prompt = arg.split("=", 1)[1]
-        elif arg == "--delay":
-            i += 1
-            if i < len(remaining):
-                try:
-                    delay = int(remaining[i])
-                except ValueError:
-                    print(
-                        f"error: invalid --delay value '{remaining[i]}': must be an integer",
-                        file=sys.stderr,
-                    )
-                    sys.exit(1)
-            else:
-                print("error: --delay requires a value", file=sys.stderr)
-                sys.exit(1)
-        elif arg.startswith("--delay="):
-            try:
-                delay = int(arg.split("=", 1)[1])
-            except ValueError:
-                print(
-                    f"error: invalid --delay value '{arg.split('=', 1)[1]}': must be an integer",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-        elif arg == "--timeout":
-            i += 1
-            if i < len(remaining):
-                try:
-                    timeout = int(remaining[i])
-                except ValueError:
-                    print(
-                        f"error: invalid --timeout value '{remaining[i]}': must be an integer",
-                        file=sys.stderr,
-                    )
-                    sys.exit(1)
-            else:
-                print("error: --timeout requires a value", file=sys.stderr)
-                sys.exit(1)
-        elif arg.startswith("--timeout="):
-            try:
-                timeout = int(arg.split("=", 1)[1])
-            except ValueError:
-                print(
-                    f"error: invalid --timeout value '{arg.split('=', 1)[1]}': must be an integer",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-        elif arg.startswith("--"):
-            print(f"error: unknown option '{arg}'", file=sys.stderr)
-            sys.exit(1)
-        i += 1
 
-    # Validate max_tokens range
+    # Phase 2 — validate max_tokens range
     if max_tokens != 0 and not (8 <= max_tokens <= 32):
         print(
             f"error: --max-tokens must be between 8 and 32, got: {max_tokens}",

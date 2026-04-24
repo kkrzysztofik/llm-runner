@@ -122,7 +122,7 @@ def _resolve_slot_model(cfg: Config, slot_id: str) -> str:
 
 
 def _probe_server(
-    model: str,
+    model_path: str,
     host: str,
     port: int,
     smoke_cfg: SmokeProbeConfiguration,
@@ -130,7 +130,7 @@ def _probe_server(
     """Probe a single server instance.
 
     Args:
-        model: Model path.
+        model_path: Path to the GGUF model file.
         host: Server hostname.
         port: Server port.
         smoke_cfg: Smoke probe configuration.
@@ -142,7 +142,7 @@ def _probe_server(
         host=host,
         port=port,
         smoke_cfg=smoke_cfg,
-        model_path=model,
+        model_path=model_path,
         model_id=None,
         expected_model_id=None,
     )
