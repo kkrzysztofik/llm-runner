@@ -136,22 +136,22 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 
 ### Tests for User Story 3 (REQUIRED) ⚠️
 
-- [ ] T045 [US3] [AC-010] Write unit test for valid GGUF v3 metadata extraction in `src/tests/test_metadata.py`
-- [ ] T046 [US3] [AC-010] Write unit test for missing general.name (use normalized filename stem) in `src/tests/test_metadata.py`
-- [ ] T047 [US3] [AC-010] Write unit test for corrupt file (bad magic bytes) in `src/tests/test_metadata.py`
-- [ ] T048 [US3] [AC-010] Write unit test for truncated file handling in `src/tests/test_metadata.py`
-- [ ] T049 [US3] [AC-010] Write unit test for GGUF v4 unsupported version error in `src/tests/test_metadata.py`
-- [ ] T050 [US3] [AC-010] Write unit test for parse timeout in `src/tests/test_metadata.py`
-- [ ] T051 [US3] [AC-010] Write unit test for filename NFKC normalization in `src/tests/test_metadata.py`
+- [x] T045 [US3] [AC-010] Write unit test for valid GGUF v3 metadata extraction in `src/tests/test_metadata.py`
+- [x] T046 [US3] [AC-010] Write unit test for missing general.name (use normalized filename stem) in `src/tests/test_metadata.py`
+- [x] T047 [US3] [AC-010] Write unit test for corrupt file (bad magic bytes) in `src/tests/test_metadata.py`
+- [x] T048 [US3] [AC-010] Write unit test for truncated file handling in `src/tests/test_metadata.py`
+- [x] T049 [US3] [AC-010] Write unit test for GGUF v4 unsupported version error in `src/tests/test_metadata.py`
+- [x] T050 [US3] [AC-010] Write unit test for parse timeout in `src/tests/test_metadata.py`
+- [x] T051 [US3] [AC-010] Write unit test for filename NFKC normalization in `src/tests/test_metadata.py`
 
 ### Implementation for User Story 3
 
-- [ ] T052 [US3] [AC-010] Implement GGUF header parser in `src/llama_manager/metadata.py` using `gguf` library
-- [ ] T053 [US3] [AC-010] Add prefix cap enforcement (default 32 MiB) to `src/llama_manager/metadata.py`
-- [ ] T054 [US3] [AC-010] Add parse timeout enforcement (default 5s) to `src/llama_manager/metadata.py`
-- [ ] T055 [US3] [AC-010] Implement filename normalization (NFKC, whitespace replacement) in `src/llama_manager/metadata.py`
-- [ ] T056 [US3] [AC-010] Add error variants (CORRUPT_FILE, PARSE_TIMEOUT, UNSUPPORTED_VERSION, READ_ERROR) to metadata module
-- [ ] T057 [US3] Integrate GGUF metadata extraction with smoke model ID resolution chain in `src/llama_manager/smoke.py`
+- [x] T052 [US3] [AC-010] Implement GGUF header parser in `src/llama_manager/metadata.py` using `gguf` library
+- [x] T053 [US3] [AC-010] Add prefix cap enforcement (default 32 MiB) to `src/llama_manager/metadata.py`
+- [x] T054 [US3] [AC-010] Add parse timeout enforcement (default 5s) to `src/llama_manager/metadata.py`
+- [x] T055 [US3] [AC-010] Implement filename normalization (NFKC, whitespace replacement) in `src/llama_manager/metadata.py`
+- [x] T056 [US3] [AC-010] Add error variants (CORRUPT_FILE, PARSE_TIMEOUT, UNSUPPORTED_VERSION, READ_ERROR) to metadata module
+- [x] T057 [US3] Integrate GGUF metadata extraction with smoke model ID resolution chain in `src/llama_manager/smoke.py`
 
 **Checkpoint**: At this point, User Stories 1, 2, AND 3 should all work independently
 

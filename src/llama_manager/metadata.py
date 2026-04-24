@@ -1,21 +1,26 @@
 """GGUF metadata extraction without loading full model weights.
 
 Parses GGUF file headers to extract model metadata (architecture,
-context length, attention heads, etc.) using a bounded prefix read
-and optional timeout.
+context length, attention heads, etc.) using the ``gguf`` library's
+key constants and optional timeout.
 """
 
 import re
 import unicodedata
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
+
+from gguf.constants import Keys
+from gguf.gguf_reader import ReaderField
 
 # GGUF magic bytes (little-endian)
 _GGUF_V2_MAGIC = b"GGUF\x02\x00\x00\x00"
 _GGUF_V3_MAGIC = b"GGUF\x03\x00\x00\x00"
 _GGUF_V4_MAGIC = b"GGUF\x04\x00\x00\x00"
 
-# Pattern for general.name key in GGUF metadata
+# Pattern for general.name key in GGUF metadata (raw binary format)
 _GENERAL_NAME_PATTERN = re.compile(
     rb"general\.name\s*\x00([^\x00]+)\x00",
 )
@@ -224,6 +229,141 @@ def _parse_numeric_field(data: bytes, key: bytes | str) -> int | None:
     return None
 
 
+def _extract_architecture_from_reader(
+    reader_fields: dict[str, ReaderField],
+) -> str | None:
+    """Extract architecture from GGUFReader fields dict.
+
+    Uses the ``gguf`` library's ``Keys.General.ARCHITECTURE`` constant.
+
+    Args:
+        reader_fields: The fields dict from GGUFReader.
+
+    Returns:
+        Architecture string, or None if not found.
+
+    """
+    field = reader_fields.get(Keys.General.ARCHITECTURE)
+    if field is None:
+        return None
+    try:
+        return str(field.contents())
+    except (ValueError, AttributeError):
+        return None
+
+
+def _extract_field_from_reader(
+    reader_fields: dict[str, ReaderField],
+    key: str,
+) -> str | None:
+    """Extract a string field from GGUFReader fields dict.
+
+    Args:
+        reader_fields: The fields dict from GGUFReader.
+        key: The GGUF key to look up.
+
+    Returns:
+        The string value, or None if not found.
+
+    """
+    field = reader_fields.get(key)
+    if field is None:
+        return None
+    try:
+        return str(field.contents())
+    except (ValueError, AttributeError):
+        return None
+    try:
+        return str(field.contents())
+    except (ValueError, AttributeError):
+        return None
+
+
+def _extract_int_field_from_reader(
+    reader_fields: dict[str, ReaderField],
+    key: str,
+) -> int | None:
+    """Extract an integer field from GGUFReader fields dict.
+
+    Args:
+        reader_fields: The fields dict from GGUFReader.
+        key: The GGUF key to look up.
+
+    Returns:
+        The integer value, or None if not found or not an integer type.
+
+    """
+    field = reader_fields.get(key)
+    if field is None:
+        return None
+    try:
+        val = field.contents()
+        return int(val)
+    except (ValueError, TypeError, AttributeError):
+        return None
+    try:
+        val = field.contents()
+        return int(val)
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _detect_tokenizer_type_from_reader(
+    fields: dict[str, ReaderField],
+) -> str | None:
+    """Detect tokenizer type from GGUFReader fields.
+
+    Checks for common tokenizer key patterns in the GGUF KV store.
+
+    Args:
+        fields: The fields dict from GGUFReader.
+
+    Returns:
+        Tokenizer type string, or None if not found.
+
+    """
+    for key in fields:
+        if "tokenizer.ggml" in key:
+            return "ggml"
+        if "tokenizer.model" in key:
+            return "model"
+        if "tokenizer.json" in key:
+            return "huggingface"
+    return None
+
+
+def _try_gguf_reader(
+    model_path: str,
+) -> tuple[dict[str, ReaderField], int] | None:
+    """Try to read GGUF file using the gguf library's GGUFReader.
+
+    Returns fields dict and version, or None if GGUFReader fails.
+
+    Args:
+        model_path: Path to the GGUF file.
+
+    Returns:
+        A tuple of (fields_dict, version) or None on failure.
+
+    """
+    try:
+        import gguf
+
+        reader = gguf.GGUFReader(model_path, mode="r")
+        fields = dict(reader.fields)
+
+        # Get version
+        version_field = fields.get("GGUF.version")
+        version = 3
+        if version_field is not None:
+            with suppress(ValueError, TypeError):
+                version = int(version_field.contents())
+
+        return fields, version
+    except Exception:
+        return None
+
+
 def extract_gguf_metadata(
     model_path: str,
     prefix_cap_bytes: int = 32 * 1024 * 1024,
@@ -231,12 +371,13 @@ def extract_gguf_metadata(
 ) -> GGUFMetadataRecord:
     """Extract metadata from a GGUF file without loading full weights.
 
-    Reads only the first ``prefix_cap_bytes`` of the file and parses
-    the GGUF header to extract available metadata fields.
+    Attempts to use the ``gguf`` library's ``GGUFReader`` for robust
+    parsing.  Falls back to raw bytes parsing using the ``gguf``
+    library's key constants for compatibility with existing test
+    fixtures.
 
-    The file is read synchronously in a single ``read()`` call bounded
-    by ``prefix_cap_bytes``.  The entire operation is wrapped in a
-    timeout to prevent indefinite hangs.
+    The entire operation is wrapped in a timeout to prevent
+    indefinite hangs.
 
     Args:
         model_path: Path to the GGUF model file.
@@ -263,25 +404,57 @@ def extract_gguf_metadata(
     def _parse() -> None:
         nonlocal result, exception, done
         try:
-            data = _read_gguf_header(model_path, prefix_cap_bytes)
-            version = _detect_gguf_version(data[:8])
+            # Attempt GGUFReader first
+            reader_result = _try_gguf_reader(model_path)
 
-            # GGUF v4 is not yet widely supported
-            if version == 4:
-                raise ValueError("GGUF v4 format not yet supported")
+            if reader_result is not None:
+                fields, version = reader_result
 
-            general_name = _parse_general_name(data)
-            architecture = _parse_architecture(data)
-            tokenizer_type = _parse_tokenizer_type(data)
-            embedding_length = _parse_numeric_field(data, b"embedding_length")
-            block_count = _parse_numeric_field(data, b"block_count")
-            context_length = _parse_numeric_field(data, b"context_length")
-            attention_head_count = _parse_numeric_field(data, b"attention_head_count")
-            attention_head_count_kv = _parse_numeric_field(data, b"attention_head_count_kv")
+                # Check version
+                if version == 4:
+                    raise ValueError("GGUF v4 format not yet supported")
+
+                # Extract using GGUFReader
+                general_name = _extract_field_from_reader(fields, Keys.General.NAME)
+                architecture = _extract_architecture_from_reader(fields)
+                tokenizer_type = _detect_tokenizer_type_from_reader(fields)
+
+                if architecture:
+                    ctx_key = Keys.LLM.CONTEXT_LENGTH.format(arch=architecture)
+                    emb_key = Keys.LLM.EMBEDDING_LENGTH.format(arch=architecture)
+                    blk_key = Keys.LLM.BLOCK_COUNT.format(arch=architecture)
+                    atc_key = Keys.Attention.HEAD_COUNT.format(arch=architecture)
+                    atc_kv_key = Keys.Attention.HEAD_COUNT_KV.format(arch=architecture)
+
+                    context_length = _extract_int_field_from_reader(fields, ctx_key)
+                    embedding_length = _extract_int_field_from_reader(fields, emb_key)
+                    block_count = _extract_int_field_from_reader(fields, blk_key)
+                    attention_head_count = _extract_int_field_from_reader(fields, atc_key)
+                    attention_head_count_kv = _extract_int_field_from_reader(fields, atc_kv_key)
+                else:
+                    context_length = None
+                    embedding_length = None
+                    block_count = None
+                    attention_head_count = None
+                    attention_head_count_kv = None
+            else:
+                # Fall back to raw bytes parsing
+                data = _read_gguf_header(model_path, prefix_cap_bytes)
+                version = _detect_gguf_version(data[:8])
+
+                if version == 4:
+                    raise ValueError("GGUF v4 format not yet supported")
+
+                general_name = _parse_general_name(data)
+                architecture = _parse_architecture(data)
+                tokenizer_type = _parse_tokenizer_type(data)
+                embedding_length = _parse_numeric_field(data, b"embedding_length")
+                block_count = _parse_numeric_field(data, b"block_count")
+                context_length = _parse_numeric_field(data, b"context_length")
+                attention_head_count = _parse_numeric_field(data, b"attention_head_count")
+                attention_head_count_kv = _parse_numeric_field(data, b"attention_head_count_kv")
 
             # Derive normalized stem from path
-            from pathlib import Path
-
             stem = Path(model_path).stem
             normalized_stem = normalize_filename(stem)
 

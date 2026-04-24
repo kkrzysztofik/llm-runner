@@ -20,6 +20,39 @@ from .config import (
     SmokeProbeConfiguration,
     SmokeProbeStatus,
 )
+from .metadata import extract_gguf_metadata, normalize_filename
+
+# ---------------------------------------------------------------------------
+# GGUF model ID resolution
+# ---------------------------------------------------------------------------
+
+
+def resolve_model_id_from_gguf(model_path: str) -> str | None:
+    """Resolve model ID from GGUF metadata.
+
+    Extracts the ``general.name`` from GGUF metadata via the ``gguf``
+    library.  Returns the normalized filename stem as a fallback when
+    ``general.name`` is missing.
+
+    Args:
+        model_path: Path to the GGUF model file.
+
+    Returns:
+        The model ID string, or ``None`` if extraction fails.
+
+    """
+    try:
+        record = extract_gguf_metadata(model_path)
+    except (ValueError, OSError, TimeoutError):
+        return None
+
+    # Prefer general.name from GGUF metadata
+    if record.general_name:
+        return normalize_filename(record.general_name)
+
+    # Fallback to normalized filename stem
+    return record.normalized_stem
+
 
 # ---------------------------------------------------------------------------
 # Exit code mapping (per spec Appendix B)
@@ -178,6 +211,7 @@ def probe_slot(
     smoke_cfg: SmokeProbeConfiguration,
     model_id: str | None = None,
     expected_model_id: str | None = None,
+    model_path: str | None = None,
 ) -> SmokeProbeResult:
     """Probe a single slot through sequential smoke test phases.
 
@@ -194,6 +228,8 @@ def probe_slot(
         smoke_cfg: Smoke probe configuration.
         model_id: Resolved model ID (from GGUF metadata or config).
         expected_model_id: Expected model ID for /v1/models comparison.
+        model_path: Optional path to GGUF file for model ID resolution
+            via ``general.name`` metadata.
 
     Returns:
         A SmokeProbeResult with the probe outcome.
@@ -202,8 +238,10 @@ def probe_slot(
     start_time = time.monotonic()
     provenance = resolve_provenance()
 
-    # Determine model ID for probe
+    # Determine model ID for probe — try GGUF metadata if not provided
     resolved_model_id = model_id or expected_model_id or ""
+    if not resolved_model_id and model_path:
+        resolved_model_id = resolve_model_id_from_gguf(model_path) or ""
 
     # Phase 1: TCP connect
     phase = SmokePhase.LISTEN
