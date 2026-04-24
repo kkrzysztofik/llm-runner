@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import psutil
 import pytest
 
 from llama_manager.config import ErrorCode, ErrorDetail, SlotState
@@ -453,7 +454,7 @@ class TestCleanupServersIdempotency:
 
         # Should have at least SIGTERM
         sigterm_calls = [s for s in signals_sent if s[1] == signal.SIGTERM]
-        assert len(sigterm_calls) >= 1
+        assert len(sigterm_calls) >= 1, f"Expected SIGTERM in {signals_sent}"
 
     def test_cleanup_sends_sigkill_to_stubborn_processes(self, monkeypatch) -> None:
         """cleanup_servers should send SIGKILL to processes that survive SIGTERM."""
@@ -1113,14 +1114,27 @@ class TestFullLifecycleAndShutdown:
             # After SIGTERM: process no longer exists → graceful exit
             return call_count == 1
 
+        # Mock net_connections to return a matching connection
+        mock_net_conn = MagicMock()
+        mock_net_conn.laddr.port = 8080
+        mock_net_conn.pid = 12345
+
         with (
             patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
             patch("llama_manager.process_manager.psutil.pid_exists", side_effect=pid_exists),
+            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.process_manager.psutil.net_connections", return_value=[mock_net_conn]
+            ),
             patch("os.kill", side_effect=track_kill),
             patch("llama_manager.process_manager.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
+            # Satisfy ownership check: mock Process.uids()
+            mock_uids = MagicMock()
+            mock_uids.real = os.getuid()
+            mock_psutil.return_value.uids.return_value = mock_uids
 
             result = manager.shutdown_slot("test-slot", timeout=1.0)
 
@@ -1164,3 +1178,417 @@ class TestFullLifecycleAndShutdown:
             e["event"] == "cleanup" and e["details"] == "initiated"
             for e in manager2._lifecycle_audit
         )
+
+    def test_shutdown_slot_no_ownership_access_denied(self, tmp_path: Path) -> None:
+        """shutdown_slot should return True no-op when psutil.AccessDenied on ownership check."""
+        manager = ServerManager()
+
+        signals_sent: list[int] = []
+
+        def track_kill(pid: int, sig: int) -> None:
+            signals_sent.append(sig)
+
+        with (
+            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("os.kill", side_effect=track_kill),
+            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("time.sleep", lambda x: None),
+        ):
+            mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
+            # Simulate AccessDenied during ownership check
+            mock_psutil.side_effect = psutil.AccessDenied(pid=12345)
+
+            result = manager.shutdown_slot("test-slot", timeout=1.0)
+
+        # Should return True (no-op) without signaling
+        assert result is True
+        assert len(signals_sent) == 0
+
+    def test_shutdown_slot_no_ownership_no_such_process(self, tmp_path: Path) -> None:
+        """shutdown_slot should return True and release lock when process no longer exists."""
+        manager = ServerManager()
+
+        signals_sent: list[int] = []
+
+        def track_kill(pid: int, sig: int) -> None:
+            signals_sent.append(sig)
+
+        with (
+            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("os.kill", side_effect=track_kill),
+            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("time.sleep", lambda x: None),
+        ):
+            mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
+            # Simulate NoSuchProcess during ownership check
+            mock_psutil.side_effect = psutil.NoSuchProcess(pid=12345)
+
+            result = manager.shutdown_slot("test-slot", timeout=1.0)
+
+        # Should return True (no-op) without signaling
+        assert result is True
+        assert len(signals_sent) == 0
+
+    def test_shutdown_slot_valid_ownership_signals(self, tmp_path: Path) -> None:
+        """shutdown_slot should signal process when ownership is verified."""
+        manager = ServerManager()
+
+        signals_sent: list[int] = []
+
+        def track_kill(pid: int, sig: int) -> None:
+            signals_sent.append(sig)
+
+        # Simulate process exiting after SIGTERM
+        call_count = 0
+
+        def pid_exists(pid: int) -> bool:
+            nonlocal call_count
+            call_count += 1
+            return call_count == 1
+
+        # Mock net_connections to return a matching connection
+        mock_net_conn = MagicMock()
+        mock_net_conn.laddr.port = 8080
+        mock_net_conn.pid = 12345
+
+        with (
+            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
+            patch("llama_manager.process_manager.psutil.pid_exists", side_effect=pid_exists),
+            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.process_manager.psutil.net_connections", return_value=[mock_net_conn]
+            ),
+            patch("os.kill", side_effect=track_kill),
+            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("time.sleep", lambda x: None),
+        ):
+            mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
+            # Satisfy ownership check: mock Process.uids()
+            mock_uids = MagicMock()
+            mock_uids.real = os.getuid()
+            mock_psutil.return_value.uids.return_value = mock_uids
+
+            result = manager.shutdown_slot("test-slot", timeout=1.0)
+
+        # Should have sent SIGTERM and returned True
+        assert result is True
+        assert signal.SIGTERM in signals_sent
+
+    def test_shutdown_slot_pid_reuse_port_mismatch_no_signal(self, tmp_path: Path) -> None:
+        """shutdown_slot must NOT signal a PID-reused process (port mismatch)."""
+        manager = ServerManager()
+
+        signals_sent: list[int] = []
+
+        def track_kill(pid: int, sig: int) -> None:
+            signals_sent.append(sig)
+
+        with (
+            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("os.kill", side_effect=track_kill),
+            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("time.sleep", lambda x: None),
+        ):
+            mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
+            # Simulate a different process at the same PID — different port
+            mock_conn = MagicMock()
+            mock_conn.laddr.port = 4444  # NOT 8080
+            mock_psutil.return_value.connections.return_value = [mock_conn]
+
+            result = manager.shutdown_slot("test-slot", timeout=1.0)
+
+        # Should return True (no-op) without signaling — port mismatch
+        assert result is True
+        assert len(signals_sent) == 0
+
+    def test_shutdown_slot_uid_mismatch_no_signal(self, tmp_path: Path) -> None:
+        """shutdown_slot must NOT signal when UID does not match."""
+        manager = ServerManager()
+
+        signals_sent: list[int] = []
+
+        def track_kill(pid: int, sig: int) -> None:
+            signals_sent.append(sig)
+
+        with (
+            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("os.kill", side_effect=track_kill),
+            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("time.sleep", lambda x: None),
+        ):
+            mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
+            # Port matches but UID is different
+            mock_conn = MagicMock()
+            mock_conn.laddr.port = 8080
+            mock_psutil.return_value.connections.return_value = [mock_conn]
+            mock_uids = MagicMock()
+            mock_uids.real = 9999  # Different from current process UID
+            mock_psutil.return_value.uids.return_value = mock_uids
+
+            result = manager.shutdown_slot("test-slot", timeout=1.0)
+
+        # Should return True (no-op) without signaling — UID mismatch
+        assert result is True
+        assert len(signals_sent) == 0
+
+    def test_shutdown_slot_no_such_process_no_signal(self, tmp_path: Path) -> None:
+        """shutdown_slot must NOT signal when psutil.NoSuchProcess."""
+        manager = ServerManager()
+
+        signals_sent: list[int] = []
+
+        def track_kill(pid: int, sig: int) -> None:
+            signals_sent.append(sig)
+
+        with (
+            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("os.kill", side_effect=track_kill),
+            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("time.sleep", lambda x: None),
+        ):
+            mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
+            # Simulate NoSuchProcess
+            mock_psutil.side_effect = psutil.NoSuchProcess(pid=99999)
+
+            result = manager.shutdown_slot("test-slot", timeout=1.0)
+
+        # Should return True (no-op) without signaling
+        assert result is True
+        assert len(signals_sent) == 0
+
+    def test_shutdown_slot_access_denied_no_signal(self, tmp_path: Path) -> None:
+        """shutdown_slot must NOT signal when psutil.AccessDenied."""
+        manager = ServerManager()
+
+        signals_sent: list[int] = []
+
+        def track_kill(pid: int, sig: int) -> None:
+            signals_sent.append(sig)
+
+        with (
+            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("os.kill", side_effect=track_kill),
+            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("time.sleep", lambda x: None),
+        ):
+            mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
+            # Simulate AccessDenied
+            mock_psutil.side_effect = psutil.AccessDenied(pid=99999)
+
+            result = manager.shutdown_slot("test-slot", timeout=1.0)
+
+        # Should return True (no-op) without signaling
+        assert result is True
+        assert len(signals_sent) == 0
+
+    def test_shutdown_slot_valid_ownership_with_uid_and_port(self, tmp_path: Path) -> None:
+        """shutdown_slot should signal when port + UID both match."""
+        manager = ServerManager()
+
+        signals_sent: list[int] = []
+
+        def track_kill(pid: int, sig: int) -> None:
+            signals_sent.append(sig)
+
+        call_count = 0
+
+        def pid_exists(pid: int) -> bool:
+            nonlocal call_count
+            call_count += 1
+            return call_count == 1
+
+        # Mock net_connections to return a matching connection
+        mock_net_conn = MagicMock()
+        mock_net_conn.laddr.port = 8080
+        mock_net_conn.pid = 12345
+
+        with (
+            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
+            patch("llama_manager.process_manager.psutil.pid_exists", side_effect=pid_exists),
+            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.process_manager.psutil.net_connections", return_value=[mock_net_conn]
+            ),
+            patch("os.kill", side_effect=track_kill),
+            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("time.sleep", lambda x: None),
+        ):
+            mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
+            # Satisfy ownership check: mock Process.uids()
+            mock_uids = MagicMock()
+            mock_uids.real = os.getuid()
+            mock_psutil.return_value.uids.return_value = mock_uids
+
+            result = manager.shutdown_slot("test-slot", timeout=1.0)
+
+        # Should have sent SIGTERM
+        assert result is True
+        assert signal.SIGTERM in signals_sent
+
+
+class TestVerifyShutdownOwnership:
+    """Tests for the _verify_shutdown_ownership helper function."""
+
+    def test_verify_returns_false_when_pid_does_not_exist(self) -> None:
+        """_verify_shutdown_ownership should return False when PID doesn't exist."""
+        from llama_manager.process_manager import _verify_shutdown_ownership
+
+        with patch("llama_manager.process_manager.psutil.pid_exists", return_value=False):
+            result = _verify_shutdown_ownership(99999, 8080)
+
+        assert result is False
+
+    def test_verify_returns_false_when_process_creation_fails(self) -> None:
+        """_verify_shutdown_ownership should return False on NoSuchProcess."""
+        from llama_manager.process_manager import _verify_shutdown_ownership
+
+        with (
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.process_manager.psutil.Process") as mock_proc,
+        ):
+            mock_proc.side_effect = psutil.NoSuchProcess(pid=99999)
+            result = _verify_shutdown_ownership(99999, 8080)
+
+        assert result is False
+
+    def test_verify_returns_false_on_access_denied(self) -> None:
+        """_verify_shutdown_ownership should return False on AccessDenied."""
+        from llama_manager.process_manager import _verify_shutdown_ownership
+
+        with (
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.process_manager.psutil.Process") as mock_proc,
+        ):
+            mock_proc.side_effect = psutil.AccessDenied(pid=99999)
+            result = _verify_shutdown_ownership(99999, 8080)
+
+        assert result is False
+
+    def test_verify_returns_false_when_port_mismatch(self) -> None:
+        """_verify_shutdown_ownership should return False when port doesn't match."""
+        from llama_manager.process_manager import _verify_shutdown_ownership
+
+        mock_conn = MagicMock()
+        mock_conn.laddr.port = 4444  # Not 8080
+        mock_conn.pid = 99999
+
+        with (
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.process_manager.psutil.net_connections", return_value=[mock_conn]),
+        ):
+            result = _verify_shutdown_ownership(99999, 8080)
+
+        assert result is False
+
+    def test_verify_returns_false_when_uid_mismatch(self) -> None:
+        """_verify_shutdown_ownership should return False when UID doesn't match."""
+        from llama_manager.process_manager import _verify_shutdown_ownership
+
+        mock_conn = MagicMock()
+        mock_conn.laddr.port = 8080
+        mock_conn.pid = 99999
+        mock_uids = MagicMock()
+        mock_uids.real = 9999  # Different from current process
+
+        with (
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.process_manager.psutil.Process") as mock_proc,
+            patch("llama_manager.process_manager.psutil.net_connections", return_value=[mock_conn]),
+        ):
+            mock_proc.return_value.uids.return_value = mock_uids
+            result = _verify_shutdown_ownership(99999, 8080)
+
+        assert result is False
+
+    def test_verify_returns_true_when_port_and_uid_match(self) -> None:
+        """_verify_shutdown_ownership should return True when port + UID match."""
+        from llama_manager.process_manager import _verify_shutdown_ownership
+
+        mock_conn = MagicMock()
+        mock_conn.laddr.port = 8080
+        mock_conn.pid = 99999
+        mock_uids = MagicMock()
+        mock_uids.real = os.getuid()
+
+        with (
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.process_manager.psutil.Process") as mock_proc,
+            patch("llama_manager.process_manager.psutil.net_connections", return_value=[mock_conn]),
+        ):
+            mock_proc.return_value.uids.return_value = mock_uids
+            result = _verify_shutdown_ownership(99999, 8080)
+
+        assert result is True
+
+    def test_verify_net_connections_access_denied_returns_false(self) -> None:
+        """_verify_shutdown_ownership should return False when net_connections raises AccessDenied."""
+        from llama_manager.process_manager import _verify_shutdown_ownership
+
+        with (
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch(
+                "llama_manager.process_manager.psutil.net_connections",
+                side_effect=psutil.AccessDenied(pid=99999),
+            ),
+        ):
+            result = _verify_shutdown_ownership(99999, 8080)
+
+        assert result is False
+
+
+class TestAuditLogRotationPermissions:
+    """T016b: Audit log rotation should enforce 0600 permissions on rotated files."""
+
+    def test_rotate_sets_owner_only_permissions(self, tmp_path: Path) -> None:
+        """_rotate_audit_log should chmod rotated files to 0600."""
+        from llama_manager.process_manager import _rotate_audit_log
+
+        # Create initial log file
+        log_path = tmp_path / "audit.log"
+        log_path.write_text("initial log content\n")
+        # Set a permissive mode deliberately
+        log_path.chmod(0o644)
+
+        _rotate_audit_log(log_path)
+
+        # Rotated file should exist with 0600 permissions
+        rotated = log_path.with_suffix(".1")
+        assert rotated.exists()
+        mode = stat.S_IMODE(rotated.stat().st_mode)
+        assert mode == 0o600
+
+    def test_rotate_multiple_files_all_chmod(self, tmp_path: Path) -> None:
+        """_rotate_audit_log should chmod all existing rotated files."""
+        from llama_manager.process_manager import _rotate_audit_log
+
+        log_path = tmp_path / "audit.log"
+
+        # Create existing rotated files with permissive mode
+        for i in range(1, 4):
+            rotated = log_path.with_suffix(f".{i}")
+            rotated.write_text(f"rotated {i}\n")
+            rotated.chmod(0o644)
+
+        # Create current log
+        log_path.write_text("current\n")
+
+        _rotate_audit_log(log_path)
+
+        # All rotated files should have 0600
+        for i in range(1, 5):
+            rotated = log_path.with_suffix(f".{i}")
+            if rotated.exists():
+                mode = stat.S_IMODE(rotated.stat().st_mode)
+                assert mode == 0o600, f"Rotated file .{i} has mode {oct(mode)}"

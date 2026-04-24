@@ -8,7 +8,10 @@
 
 ## Decision 1: Per-Request Timeout via `httpx.Timeout` Object
 
-### Decision
+### Research Finding
+The M4 spec requires two distinct timeout values (`smoke_listen_timeout_s` for TCP ready-check, `smoke_http_request_timeout_s` for HTTP requests). An `httpx.Timeout` object with separate `connect` and `read` parameters cleanly maps to this two-phase model.
+
+### Proposed Approach
 Use a fine-grained `httpx.Timeout` object with separate `connect` and `read` timeouts for each smoke probe request. Set `connect` to the listen timeout (120s default) and `read` to the HTTP request timeout (10s default).
 
 ```python
@@ -28,6 +31,9 @@ timeout = httpx.Timeout(
 - `httpx.Timeout` with a default + `connect` override cleanly maps to the spec's two-phase timeout model.
 - Per-request timeout (passed to `client.get()`, `client.post()`, etc.) is preferred over client-level in this case because each smoke probe targets a different port and may have different timeout requirements.
 - The spec explicitly states: "Each phase attempted exactly once — no retries." Per-request timeouts align with this no-retry semantics.
+
+### Note on Implementation Status
+This is a research finding — the per-request `httpx.Timeout` pattern is proposed but not yet implemented in source code. The actual implementation will follow this design.
 
 ### Alternatives Considered
 - **Client-level timeout**: Would require creating a new `httpx.Client` per probe to apply different timeouts. This adds unnecessary object lifecycle management. Per-request timeout is simpler and equally correct.
@@ -162,7 +168,10 @@ The `llama_manager` library is pure and does not spawn threads for smoke probes.
 
 ## Decision 4: API Key Injection via Client Headers
 
-### Decision
+### Research Finding
+The M4 spec defines an API key precedence chain: CLI flag > config field > environment variable. The `Authorization: Bearer <token>` header is the standard pattern for OpenAI-compatible APIs.
+
+### Proposed Approach
 Inject the API key as a `Bearer` token in the `Authorization` header at the client level (not per-request). This is the standard OpenAI-compatible API authentication pattern.
 
 ```python
@@ -189,6 +198,9 @@ def resolve_smoke_api_key(
 - **Client-level injection**: Setting the header on the client means all requests (`/v1/models`, `/v1/chat/completions`) automatically include the key. No per-request header management needed.
 - **Precedence chain**: The spec requires CLI > config > env precedence. The `resolve_smoke_api_key` function implements this as a simple short-circuit chain.
 - **Security**: The API key should NOT be logged. The `llama_manager` library's `sys.stderr` logging should redact the key (e.g., replace with `***`).
+
+### Note on Implementation Status
+The full CLI > config > env API key resolution chain is a research proposal. The current codebase does not yet implement this precedence chain — it is documented here as the intended design for the smoke probe module.
 
 ### Alternatives Considered
 - **`httpx.BasicAuth`**: Designed for username/password pairs, not bearer tokens. Would produce `Authorization: Basic <base64>` header, which llama.cpp does not expect.

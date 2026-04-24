@@ -80,7 +80,7 @@ uv run llm-runner smoke both --json
 
 ```json
 {
-  "slots": [
+  "results": [
     {
       "slot_id": "arc_b580",
       "status": "pass",

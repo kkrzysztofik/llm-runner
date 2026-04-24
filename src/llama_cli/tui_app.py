@@ -725,14 +725,14 @@ class TUIApp:
         """Build a panel showing per-slot status (health, logs, GPU stats, backend label)."""
         sections: list[Text] = []
 
-        for cfg in self.configs:
+        for idx, cfg in enumerate(self.configs):
             alias = cfg.alias
             state = self._slot_states.get(alias, SlotState.OFFLINE.value)
 
-            # Determine process status
+            # Determine process status — match by index, not by value lookup
             status = state
             if state == SlotState.RUNNING.value:
-                proc = self.server_manager.servers[self.configs.index(cfg)]
+                proc = self.server_manager.servers[idx]
                 if not proc or not (proc.pid and psutil.pid_exists(proc.pid)):
                     status = SlotState.CRASHED.value
 

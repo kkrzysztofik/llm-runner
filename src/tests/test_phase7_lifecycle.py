@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 from llama_manager.config import SlotState
 from llama_manager.log_buffer import LogBuffer
-from llama_manager.process_manager import SlotRuntime
+from llama_manager.process_manager import SlotRuntime  # noqa: T079
 
 
 class TestStateMachineLifecycle:

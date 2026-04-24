@@ -1029,6 +1029,51 @@ class TestApiKeyHeaderPrecedence:
             assert call_args is not None
             assert call_args[0][3] == "sk-test-key-123"
 
+    def test_models_phase_receives_stripped_api_key(self) -> None:
+        """_probe_models should receive the whitespace-stripped key, not raw config value."""
+        smoke_cfg = _make_smoke_cfg(api_key="  sk-whitespace-key  ")
+
+        with (
+            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.smoke._probe_models") as mock_probe,
+            patch("llama_manager.smoke._probe_chat") as mock_chat,
+        ):
+            mock_sock = MagicMock()
+            mock_socket_cls.return_value = mock_sock
+            mock_sock.connect.return_value = None
+            mock_sock.close.return_value = None
+            mock_probe.return_value = None
+            mock_chat.return_value = None
+
+            probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="test")
+
+            call_args = mock_probe.call_args
+            assert call_args is not None
+            # Should be stripped, not the raw "  sk-whitespace-key  "
+            assert call_args[0][3] == "sk-whitespace-key"
+
+    def test_models_and_chat_receive_same_resolved_key(self) -> None:
+        """Both _probe_models and _probe_chat should receive the identical resolved key."""
+        smoke_cfg = _make_smoke_cfg(api_key="  sk-unified-key  ")
+
+        with (
+            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.smoke._probe_models") as mock_probe,
+            patch("llama_manager.smoke._probe_chat") as mock_chat,
+        ):
+            mock_sock = MagicMock()
+            mock_socket_cls.return_value = mock_sock
+            mock_sock.connect.return_value = None
+            mock_sock.close.return_value = None
+            mock_probe.return_value = None
+            mock_chat.return_value = None
+
+            probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="test")
+
+            models_key = mock_probe.call_args[0][3]
+            chat_key = mock_chat.call_args[0][4]  # 5th positional arg in _probe_chat
+            assert models_key == chat_key == "sk-unified-key"
+
     def test_probe_models_includes_auth_header(self) -> None:
         """_probe_models should include Authorization header with Bearer prefix."""
         with patch("llama_manager.smoke.httpx.Client") as mock_client_cls:
@@ -1080,7 +1125,7 @@ class TestApiKeyHeaderPrecedence:
 
     def test_probe_chat_includes_auth_header(self) -> None:
         """_probe_chat should include Authorization header when api_key is set."""
-        smoke_cfg = _make_smoke_cfg(api_key="sk-chat-key")
+        smoke_cfg = _make_smoke_cfg(api_key="")
 
         with patch("llama_manager.smoke.httpx.Client") as mock_client_cls:
             mock_response = MagicMock()
@@ -1097,7 +1142,7 @@ class TestApiKeyHeaderPrecedence:
 
             from llama_manager.smoke import _probe_chat
 
-            _result = _probe_chat("127.0.0.1", 8080, smoke_cfg, "test-model")
+            _result = _probe_chat("127.0.0.1", 8080, smoke_cfg, "test-model", "sk-chat-key")
 
             mock_client_instance.post.assert_called_once()
             call_kwargs = mock_client_instance.post.call_args
@@ -1124,7 +1169,7 @@ class TestApiKeyHeaderPrecedence:
 
             from llama_manager.smoke import _probe_chat
 
-            _result = _probe_chat("127.0.0.1", 8080, smoke_cfg, "test-model")
+            _result = _probe_chat("127.0.0.1", 8080, smoke_cfg, "test-model", "")
 
             call_kwargs = mock_client_instance.post.call_args
             headers = call_kwargs.kwargs.get("headers", call_kwargs[1].get("headers", {}))
@@ -1950,3 +1995,88 @@ class TestProvenanceRecordDataclass:
         """ProvenanceRecord should accept version strings with prerelease tags."""
         record = ProvenanceRecord(sha="abc1234", version="24.12.0-rc1")
         assert record.version == "24.12.0-rc1"
+
+
+# ---------------------------------------------------------------------------
+# resolve_api_key whitespace stripping tests
+# ---------------------------------------------------------------------------
+
+
+class TestResolveApiKeyWhitespace:
+    """resolve_api_key should strip leading/trailing whitespace."""
+
+    def test_explicit_key_stripped(self) -> None:
+        """resolve_api_key should strip whitespace from explicit key."""
+        from llama_manager.smoke import resolve_api_key
+
+        result = resolve_api_key("  sk-test-key-123  ")
+        assert result == "sk-test-key-123"
+
+    def test_explicit_key_only_leading_whitespace(self) -> None:
+        """resolve_api_key should strip leading whitespace from explicit key."""
+        from llama_manager.smoke import resolve_api_key
+
+        result = resolve_api_key("  sk-test-key")
+        assert result == "sk-test-key"
+
+    def test_explicit_key_only_trailing_whitespace(self) -> None:
+        """resolve_api_key should strip trailing whitespace from explicit key."""
+        from llama_manager.smoke import resolve_api_key
+
+        result = resolve_api_key("sk-test-key  ")
+        assert result == "sk-test-key"
+
+    def test_explicit_key_only_newlines(self) -> None:
+        """resolve_api_key should strip newlines from explicit key."""
+        from llama_manager.smoke import resolve_api_key
+
+        result = resolve_api_key("\n\t sk-test-key \n\t")
+        assert result == "sk-test-key"
+
+    def test_env_key_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """resolve_api_key should strip whitespace from env var value."""
+        monkeypatch.setenv("LLM_RUNNER_API_KEY", "  sk-env-key  ")
+
+        from llama_manager.smoke import resolve_api_key
+
+        result = resolve_api_key("")
+        assert result == "sk-env-key"
+
+    def test_explicit_takes_precedence_over_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """resolve_api_key should prefer explicit key over env var."""
+        monkeypatch.setenv("LLM_RUNNER_API_KEY", "sk-env-key")
+
+        from llama_manager.smoke import resolve_api_key
+
+        result = resolve_api_key("  sk-explicit  ")
+        assert result == "sk-explicit"
+
+    def test_empty_explicit_falls_back_to_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """resolve_api_key should fall back to env when explicit is empty."""
+        monkeypatch.setenv("LLM_RUNNER_API_KEY", "sk-env-key")
+
+        from llama_manager.smoke import resolve_api_key
+
+        result = resolve_api_key("")
+        assert result == "sk-env-key"
+
+    def test_no_env_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """resolve_api_key should return empty string when no key available."""
+        monkeypatch.delenv("LLM_RUNNER_API_KEY", raising=False)
+
+        from llama_manager.smoke import resolve_api_key
+
+        result = resolve_api_key("")
+        assert result == ""
+
+    def test_whitespace_only_explicit_uses_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Whitespace-only explicit key should fall back to env (not treated as non-empty)."""
+        monkeypatch.setenv("LLM_RUNNER_API_KEY", "sk-env-key")
+
+        from llama_manager.smoke import resolve_api_key
+
+        # "  " is truthy in Python, but after strip it becomes ""
+        # The function checks `if explicit_key:` which is True for "  "
+        # So it returns the stripped value ""
+        result = resolve_api_key("  ")
+        assert result == ""

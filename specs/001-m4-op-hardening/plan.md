@@ -79,7 +79,7 @@ src/
 │   ├── test_metadata.py    # NEW: GGUF metadata extraction tests
 │   ├── test_smoke.py       # NEW: smoke probe logic tests (mocked HTTP)
 │   ├── test_smoke_cli.py   # NEW: smoke CLI argument parsing tests
-  │   ├── test_process_manager.py   # MODIFY: shutdown + lockfile tests
+│   ├── test_process_manager.py   # MODIFY: shutdown + lockfile tests
 │   └── fixtures/
 │       ├── gguf_v3_valid.gguf         # NEW: valid GGUF v3 with all required keys
 │       ├── gguf_v3_no_name.gguf       # NEW: valid GGUF v3 missing general.name

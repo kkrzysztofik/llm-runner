@@ -239,6 +239,7 @@ class TestDryRunFlagBundlesParity:
         with (
             patch("llama_cli.dry_run._run_summary_balanced_mode") as mock_run,
             patch("llama_cli.dry_run._print_smoke_probe_info"),
+            patch("llama_cli.dry_run._write_dry_run_artifact"),
         ):
             mock_run.return_value = False
             mock_run.slot_payloads = []
@@ -255,6 +256,7 @@ class TestDryRunFlagBundlesParity:
         with (
             patch("llama_cli.dry_run._run_both_mode") as mock_run,
             patch("llama_cli.dry_run._print_smoke_probe_info"),
+            patch("llama_cli.dry_run._write_dry_run_artifact"),
         ):
             mock_run.return_value = False
 
@@ -262,6 +264,42 @@ class TestDryRunFlagBundlesParity:
                 dry_run(mode="both", primary_port="8080", secondary_port="8081")
 
             mock_run.assert_called()
+
+    # ------------------------------------------------------------------
+    # Integration tests — call dry_run directly, patch only _print_smoke_probe_info
+    # ------------------------------------------------------------------
+
+    def test_dry_run_summary_balanced_integration_no_mock_handlers(self, capsys) -> None:
+        """dry-run summary-balanced: call dry_run() directly, capture stdout, assert OpenAI Bundle."""
+        from llama_cli.dry_run import dry_run
+
+        with (
+            patch("llama_cli.dry_run._print_smoke_probe_info"),
+            patch("llama_cli.dry_run._write_dry_run_artifact"),
+            contextlib.suppress(SystemExit),
+        ):
+            dry_run(mode="summary-balanced", primary_port="8080")
+
+        captured = capsys.readouterr()
+        assert "OpenAI Bundle" in captured.out
+
+    def test_dry_run_both_integration_no_mock_handlers(self, capsys) -> None:
+        """dry-run both: call dry_run() directly, assert both bundle labels appear."""
+        from llama_cli.dry_run import dry_run
+
+        with (
+            patch("llama_cli.dry_run._print_smoke_probe_info"),
+            patch("llama_cli.dry_run._write_dry_run_artifact"),
+            contextlib.suppress(SystemExit),
+        ):
+            dry_run(mode="both", primary_port="8080", secondary_port="8081")
+
+        captured = capsys.readouterr()
+        # Both summary-balanced and qwen35 slots should have OpenAI Bundle
+        openai_bundle_count = captured.out.count("OpenAI Bundle")
+        assert openai_bundle_count == 2, (
+            f"Expected 2 OpenAI Bundle sections, got {openai_bundle_count}"
+        )
 
     def test_dry_run_summary_balanced_integration(self, capsys) -> None:
         """dry-run summary-balanced integration test without mocking mode handlers."""

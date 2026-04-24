@@ -8,6 +8,7 @@ Pure library — no argparse, no Rich, no subprocess at module level.
 """
 
 import json
+import os
 import socket
 import time
 from dataclasses import dataclass, field
@@ -22,6 +23,36 @@ from .config import (
     SmokeProbeStatus,
 )
 from .metadata import extract_gguf_metadata, normalize_filename
+
+# ---------------------------------------------------------------------------
+# API key resolution (env fallback — pure library)
+# ---------------------------------------------------------------------------
+
+_API_KEY_ENV_VAR: str = "LLM_RUNNER_API_KEY"
+
+
+def resolve_api_key(explicit_key: str = "") -> str:
+    """Resolve API key with env-fallback.
+
+    Returns the ``explicit_key`` (stripped) when non-empty; otherwise
+    falls back to the ``LLM_RUNNER_API_KEY`` environment variable
+    (stripped).  This provides a consistent resolution order (explicit
+    → env) without importing CLI modules.
+
+    Args:
+        explicit_key: API key passed explicitly by the caller.
+
+    Returns:
+        The resolved API key (stripped, may be empty string).
+
+    """
+    if explicit_key:
+        return explicit_key.strip()
+    env_key = os.environ.get(_API_KEY_ENV_VAR, "")
+    if env_key:
+        return env_key.strip()
+    return ""
+
 
 # ---------------------------------------------------------------------------
 # GGUF model ID resolution
@@ -281,6 +312,9 @@ def probe_slot(
             provenance=provenance,
         )
 
+    # Resolve API key once — consistent stripping for all phases (explicit → env)
+    resolved_api_key = resolve_api_key(smoke_cfg.api_key)
+
     # Phase 2: Models discovery
     phase = SmokePhase.MODELS
     if not smoke_cfg.skip_models_discovery:
@@ -288,8 +322,9 @@ def probe_slot(
             host,
             port,
             smoke_cfg.http_request_timeout_s,
-            smoke_cfg.api_key,
+            resolved_api_key,
             expected_model_id or resolved_model_id,
+            smoke_cfg.listen_timeout_s,
         )
         if result is not None:
             return result
@@ -302,6 +337,7 @@ def probe_slot(
         port,
         smoke_cfg,
         resolved_model_id,
+        resolved_api_key,
     )
     if result is not None:
         return result
@@ -345,6 +381,7 @@ def _probe_models(
     timeout_s: int,
     api_key: str,
     expected_model_id: str,
+    listen_timeout_s: int = 5,
 ) -> SmokeProbeResult | None:
     """Probe /v1/models endpoint.
 
@@ -357,6 +394,7 @@ def _probe_models(
         timeout_s: HTTP request timeout.
         api_key: API key for authentication.
         expected_model_id: Expected model ID from the response.
+        listen_timeout_s: TCP connect timeout (used for httpx connect timeout).
 
     Returns:
         SmokeProbeResult on failure, None on success.
@@ -367,8 +405,15 @@ def _probe_models(
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    # Use explicit httpx.Timeout with distinct connect/read/write/pool values
+    timeout = httpx.Timeout(
+        connect=listen_timeout_s,
+        read=timeout_s,
+        write=timeout_s,
+        pool=timeout_s,
+    )
     try:
-        with httpx.Client(timeout=timeout_s) as client:
+        with httpx.Client(timeout=timeout) as client:
             response = client.get(url, headers=headers)
     except httpx.TimeoutException:
         return SmokeProbeResult(
@@ -468,6 +513,7 @@ def _probe_chat(
     port: int,
     smoke_cfg: SmokeProbeConfiguration,
     model_id: str,
+    api_key: str = "",
 ) -> SmokeProbeResult | None:
     """Probe /v1/chat/completions endpoint.
 
@@ -478,6 +524,7 @@ def _probe_chat(
         port: Server port.
         smoke_cfg: Smoke probe configuration.
         model_id: Model ID to use for chat completion.
+        api_key: Resolved API key for authentication.
 
     Returns:
         SmokeProbeResult on failure, None on success.
@@ -485,8 +532,8 @@ def _probe_chat(
     """
     url = f"http://{host}:{port}/v1/chat/completions"
     headers: dict[str, str] = {"Content-Type": "application/json"}
-    if smoke_cfg.api_key:
-        headers["Authorization"] = f"Bearer {smoke_cfg.api_key}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     payload = {
         "model": model_id,
@@ -496,8 +543,15 @@ def _probe_chat(
         "stream": False,
     }
 
+    # Use explicit httpx.Timeout with distinct connect/read/write/pool values
+    timeout = httpx.Timeout(
+        connect=smoke_cfg.listen_timeout_s,
+        read=smoke_cfg.http_request_timeout_s,
+        write=smoke_cfg.http_request_timeout_s,
+        pool=smoke_cfg.http_request_timeout_s,
+    )
     try:
-        with httpx.Client(timeout=smoke_cfg.http_request_timeout_s) as client:
+        with httpx.Client(timeout=timeout) as client:
             response = client.post(url, json=payload, headers=headers)
     except httpx.TimeoutException:
         return SmokeProbeResult(

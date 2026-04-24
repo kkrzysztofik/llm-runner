@@ -13,6 +13,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 import time
@@ -175,6 +176,10 @@ def _validate_smoke_args(parsed: argparse.Namespace) -> int | None:
 def _build_smoke_config(parsed: argparse.Namespace) -> SmokeProbeConfiguration:
     """Build SmokeProbeConfiguration from parsed CLI arguments.
 
+    Uses create_smoke_config() as the base factory, then applies CLI overrides
+    via dataclasses.replace(). Validation failures in __post_init__ are caught
+    and reported as clean error messages (no traceback).
+
     Args:
         parsed: Parsed argparse namespace.
 
@@ -186,47 +191,32 @@ def _build_smoke_config(parsed: argparse.Namespace) -> SmokeProbeConfiguration:
     """
     cfg = Config()
 
-    # Handle max_tokens override if provided (8-32 range)
-    max_tokens = parsed.max_tokens
-    if max_tokens != 0 and not (8 <= max_tokens <= 32):
-        print(
-            f"error: --max-tokens must be between 8 and 32, got: {max_tokens}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    # Handle delay override if provided
-    delay = parsed.delay
-
-    # Handle timeout override if provided
-    timeout = parsed.timeout
-
-    # Build effective config values
-    effective_delay = delay if delay > 0 else cfg.smoke_inter_slot_delay_s
-    effective_timeout = timeout if timeout > 0 else cfg.smoke_listen_timeout_s
-    effective_max_tokens = max_tokens if max_tokens > 0 else cfg.smoke_max_tokens
-    effective_prompt = parsed.prompt if parsed.prompt else cfg.smoke_prompt
-
-    # Use create_smoke_config factory but pass CLI overrides
+    # Build base config via factory
     smoke_cfg = create_smoke_config(
         config=cfg,
         api_key=parsed.api_key or cfg.smoke_api_key,
         model_id_override=parsed.model_id,
     )
 
-    # Override the values from CLI
-    return SmokeProbeConfiguration(
-        inter_slot_delay_s=effective_delay,
-        listen_timeout_s=effective_timeout,
-        http_request_timeout_s=smoke_cfg.http_request_timeout_s,
-        max_tokens=effective_max_tokens,
-        prompt=effective_prompt,
-        skip_models_discovery=smoke_cfg.skip_models_discovery,
-        api_key=smoke_cfg.api_key,
-        model_id_override=smoke_cfg.model_id_override,
-        first_token_timeout_s=smoke_cfg.first_token_timeout_s,
-        total_chat_timeout_s=smoke_cfg.total_chat_timeout_s,
-    )
+    # Apply CLI overrides where provided (0 means "use default")
+    overrides: dict[str, int | str] = {}
+    if parsed.delay > 0:
+        overrides["inter_slot_delay_s"] = parsed.delay
+    if parsed.timeout > 0:
+        overrides["listen_timeout_s"] = parsed.timeout
+    if parsed.max_tokens > 0:
+        overrides["max_tokens"] = parsed.max_tokens
+    if parsed.prompt:
+        overrides["prompt"] = parsed.prompt
+
+    if overrides:
+        try:
+            smoke_cfg = dataclasses.replace(smoke_cfg, **overrides)  # type: ignore[arg-type]
+        except ValueError as exc:
+            print(f"error: invalid smoke configuration: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    return smoke_cfg
 
 
 def _run_probes(

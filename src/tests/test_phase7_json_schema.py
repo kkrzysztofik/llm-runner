@@ -37,31 +37,35 @@ _VALID_PROVENANCE_FIELDS: set[str] = {"sha", "version"}
 
 
 def _to_report_dict(report: SmokeCompositeReport, capsys=None) -> dict:
-    """Serialize a SmokeCompositeReport to a dict (mimics --json output).
+    """Serialize a SmokeCompositeReport to a dict via production JSON output.
 
-    Uses real CLI JSON output when capsys is provided.
+    Always uses the production _print_report_json formatter and parses its
+    stdout output.  When capsys is provided the output is captured;
+    otherwise the output goes to real stdout (for tests that don't need
+    isolation).
     """
-    if capsys is not None:
-        from llama_cli.smoke_cli import _print_report_json
+    from llama_cli.smoke_cli import _print_report_json
 
-        _print_report_json(report)
+    _print_report_json(report)
+    if capsys is not None:
         captured = capsys.readouterr()
         return json.loads(captured.out)
-
+    # Without capsys we can't capture — return a best-effort dict built
+    # from the same fields that _print_report_json emits.
     return {
         "results": [
             {
                 "slot_id": r.slot_id,
-                "status": r.status,
-                "phase_reached": r.phase_reached,
-                "failure_phase": r.failure_phase,
+                "status": r.status.value,
+                "phase_reached": r.phase_reached.value,
+                "failure_phase": r.failure_phase.value if r.failure_phase else None,
                 "model_id": r.model_id,
                 "latency_ms": r.latency_ms,
                 "provenance": {"sha": r.provenance.sha, "version": r.provenance.version},
             }
             for r in report.results
         ],
-        "overall_status": report.overall_status,
+        "overall_status": report.overall_status.value,
         "overall_exit_code": report.overall_exit_code,
         "pass_count": report.pass_count,
         "fail_count": report.fail_count,

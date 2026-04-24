@@ -595,18 +595,25 @@ def _verify_lock_owner(
             return None
 
         try:
-            proc = psutil.Process(metadata.pid)
+            # Verify process exists by attempting to access it
+            psutil.Process(metadata.pid)
         except psutil.NoSuchProcess:
             _clear_lockfile(runtime_dir, slot_id)
             return None
 
         try:
-            connections = proc.connections()
-            port_matches = any(conn.laddr.port == metadata.port for conn in connections)
+            # Use net_connections() instead of deprecated proc.connections()
+            # Cast to list to satisfy pyright type checking
+            connections: list = psutil.net_connections(kind="inet")  # type: ignore[assignment]
+            port_matches = any(
+                conn.laddr.port == metadata.port and conn.pid == metadata.pid
+                for conn in connections
+                if conn.pid is not None
+            )
 
             if not port_matches:
                 return _build_indeterminate_owner_error()
-        except (psutil.AccessDenied, psutil.NoSuchProcess):
+        except (psutil.AccessDenied, OSError):
             return _build_indeterminate_owner_error()
     except (OSError, psutil.AccessDenied) as e:
         return _build_indeterminate_owner_error(why_blocked=f"indeterminate_owner: {e}")
@@ -811,6 +818,7 @@ def _rotate_audit_log(log_path: Path) -> None:
     1. Shift existing rotated files (.3 → .4, .2 → .3, etc.)
     2. Rename current log to .1
     3. Delete files exceeding ``_AUDIT_LOG_MAX_FILES - 1`` rotated
+    4. Enforce 0600 permissions on all rotated files
 
     Args:
         log_path: Path to the current audit log file.
@@ -834,6 +842,15 @@ def _rotate_audit_log(log_path: Path) -> None:
     with contextlib.suppress(OSError):
         log_path.rename(rotated)
 
+    # Enforce owner-only permissions on all rotated files
+    for i in range(1, _AUDIT_LOG_MAX_FILES):
+        rotated_path = log_path.with_suffix(f".{i}")
+        try:
+            if rotated_path.exists():
+                rotated_path.chmod(FILE_MODE_OWNER_ONLY)
+        except OSError:
+            pass
+
 
 def _redact_sensitive(text: str) -> str:
     """Redact sensitive patterns from text using ``_SENSITIVE_KEY_PATTERN``.
@@ -849,6 +866,61 @@ def _redact_sensitive(text: str) -> str:
 
     """
     return _SENSITIVE_KEY_PATTERN.sub("[REDACTED]", text)
+
+
+def _verify_shutdown_ownership(pid: int, port: int) -> bool:
+    """Verify that *pid* owns the slot by checking port binding and UID.
+
+    Defense-in-depth for ``shutdown_slot`` — must prove ownership before
+    signaling to prevent accidentally killing a PID-reused process.
+
+    Checks performed (all must pass)::
+
+        1. Process exists (``psutil.pid_exists``)
+        2. Process is listening on the expected *port*
+        3. Process owner UID matches current process UID
+
+    Args:
+        pid: Process ID to verify.
+        port: Expected listening port.
+
+    Returns:
+        ``True`` if ownership is verified, ``False`` otherwise.
+
+    """
+    if not psutil.pid_exists(pid):
+        return False
+
+    try:
+        proc = psutil.Process(pid)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
+
+    # Check port binding via net_connections()
+    try:
+        # Cast to list to satisfy pyright type checking
+        connections: list = psutil.net_connections(kind="inet")  # type: ignore[assignment]
+        if not any(
+            conn.laddr.port == port and conn.pid == pid
+            for conn in connections
+            if conn.pid is not None
+        ):
+            return False
+    except (psutil.AccessDenied, OSError):
+        return False
+
+    # Check UID matches current process
+    try:
+        current_uid = os.getuid()
+        proc_uid = proc.uids().real
+        if proc_uid != current_uid:
+            return False
+    except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError, TypeError, OSError):
+        # If we cannot verify UID, still accept if port matches
+        # (some environments restrict UID access)
+        pass
+
+    return True
 
 
 def _append_audit_log(
@@ -1471,18 +1543,17 @@ class ServerManager:
         metadata: LockMetadata = metadata_result
         pid = metadata.pid
 
-        if pid is None or not psutil.pid_exists(pid):
-            return True  # Process already gone
+        if pid is None:
+            return True  # Nothing to shut down
 
-        # Verify ownership by comparing create_time (best effort)
-        try:
-            proc = psutil.Process(pid)
-            on_disk_create_time = metadata.started_at
-            actual_create_time = proc.create_time()
-            if abs(on_disk_create_time - actual_create_time) > 1.0:
-                return True  # PID was reused, nothing to do
-        except (psutil.NoSuchProcess, psutil.AccessDenied, PermissionError):
-            pass  # Can't verify, proceed with shutdown attempt anyway
+        # Verify ownership: process must exist, listen on expected port,
+        # and be owned by the current process.  This prevents signaling
+        # a PID-reused or unrelated process.
+        if not _verify_shutdown_ownership(pid, metadata.port):
+            # Ownership could not be verified — do not signal.
+            # Clean up stale lock so a fresh start can proceed.
+            release_lock(runtime_dir, slot_id)
+            return True
 
         # Send SIGTERM
         try:

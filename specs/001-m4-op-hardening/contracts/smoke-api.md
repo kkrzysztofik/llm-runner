@@ -264,7 +264,7 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 
 ```json
 {
-  "slots": [
+  "results": [
     {
       "slot_id": "string",
       "status": "pass" | "fail" | "timeout" | "crashed" | "model_not_found" | "auth_failure",
@@ -283,7 +283,7 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 ```
 
 **Field descriptions**:
-- `slots`: Per-slot results in declaration order from config.
+- `results`: Per-slot results in declaration order from config.
 - `overall_exit_code`: Highest-severity (lowest-numbered) failure code among all slots. 0 if all pass.
 
 ### 4.3 JSON Schema (Draft 2020-12)
@@ -293,9 +293,9 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "SmokeCompositeReport",
   "type": "object",
-  "required": ["slots", "overall_exit_code"],
+  "required": ["results", "overall_exit_code"],
   "properties": {
-    "slots": {
+    "results": {
       "type": "array",
       "items": {
         "type": "object",

@@ -200,8 +200,10 @@ class TestTuiVsCliSmokeParity:
     # Phase data parity
     # ------------------------------------------------------------------
 
-    def test_phase_data_identical_across_outputs(self) -> None:
+    def test_phase_data_identical_across_outputs(self, capsys) -> None:
         """phase_reached and failure_phase must be identical in both TUI and CLI output."""
+        from llama_cli.smoke_cli import _print_report_json
+
         results = [
             _make_result(
                 slot_id="slot1",
@@ -218,22 +220,10 @@ class TestTuiVsCliSmokeParity:
         ]
         report = SmokeCompositeReport(results=results)
 
-        # JSON output
-        json_output = json.dumps(
-            {
-                "results": [
-                    {
-                        "slot_id": r.slot_id,
-                        "status": r.status.value,
-                        "phase_reached": r.phase_reached.value,
-                        "failure_phase": r.failure_phase.value if r.failure_phase else None,
-                    }
-                    for r in results
-                ],
-                "overall_status": report.overall_status.value,
-            }
-        )
-        parsed = json.loads(json_output)
+        # Use production JSON formatter
+        _print_report_json(report)
+        captured = capsys.readouterr()
+        parsed = json.loads(captured.out)
 
         for i, r in enumerate(results):
             assert parsed["results"][i]["phase_reached"] == r.phase_reached.value
@@ -245,8 +235,10 @@ class TestTuiVsCliSmokeParity:
     # Provenance parity
     # ------------------------------------------------------------------
 
-    def test_provenance_included_in_both_outputs(self) -> None:
+    def test_provenance_included_in_both_outputs(self, capsys) -> None:
         """Provenance data must be present in both TUI and CLI output."""
+        from llama_cli.smoke_cli import _print_report_json
+
         results = [
             _make_result(
                 slot_id="slot1",
@@ -255,18 +247,9 @@ class TestTuiVsCliSmokeParity:
         ]
         report = SmokeCompositeReport(results=results)
 
-        json_output = json.dumps(
-            {
-                "results": [
-                    {
-                        "slot_id": r.slot_id,
-                        "provenance": {"sha": r.provenance.sha, "version": r.provenance.version},
-                    }
-                    for r in results
-                ],
-                "overall_status": report.overall_status,
-            }
-        )
-        parsed = json.loads(json_output)
+        # Use production JSON formatter
+        _print_report_json(report)
+        captured = capsys.readouterr()
+        parsed = json.loads(captured.out)
         assert parsed["results"][0]["provenance"]["sha"] == "deadbeef"
         assert parsed["results"][0]["provenance"]["version"] == "24.12.0"

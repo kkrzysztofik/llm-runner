@@ -125,7 +125,7 @@ Reuse the existing `_cbreak_stdin()` context manager + `_input_poller()` pattern
 | 3 | httpx error classification | Exception hierarchy → exit codes | Clean mapping to Appendix B |
 | 4 | gguf parsing | `GGUFReader` + temp file + threading timeout | Memory-efficient, official library |
 | 5 | gguf version detection | `GGUFReader` raises `ValueError` for v4+ | Clear error per FR-007 |
-| 6 | Lockfile creation | `O_CREAT`\|`O_EXCL` atomic creation | Zero TOCTOU window |
+| 6 | Lockfile creation | `O_CREAT` + `O_EXCL` atomic creation | Zero TOCTOU window |
 | 7 | Lockfile stale detection | PID check + 300s age threshold | Handles crashes and PID reuse |
 | 8 | Rich Live input | Extend existing `_input_poller` daemon thread | Zero blocking, cross-platform |
 | 9 | Rich Live timeout | Monotonic deadline on render cycle | No extra threads needed |

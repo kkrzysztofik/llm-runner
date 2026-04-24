@@ -529,7 +529,10 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
                             file=sys.stderr,
                         )
                         sys.exit(1)
-                # else: unknown flag=value, skip
+                else:
+                    # Unknown flag=value — hard error
+                    print(f"error: unknown flag '{key}'", file=sys.stderr)
+                    sys.exit(1)
             elif arg in _FLAGS_WITH_VALUE:
                 i += 1
                 if i < len(remaining):
@@ -575,10 +578,9 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
                 json_output = True
                 i += 1
             else:
-                # Unknown flag — skip it and its value (if present)
-                i += 1
-                if i < len(remaining) and not remaining[i].startswith("--"):
-                    i += 1
+                # Unknown flag — hard error
+                print(f"error: unknown flag '{arg}'", file=sys.stderr)
+                sys.exit(1)
         else:
             # First non-flag token — this is the slot_id in "slot" mode
             if mode == "slot":
