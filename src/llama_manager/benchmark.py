@@ -43,7 +43,7 @@ BenchmarkRunner = Callable[[list[str]], SubprocessResult]
 
 
 def _extract_first_float(text: str) -> float | None:
-    match = re.search(r"([0-9]*\.?[0-9]+)", text)
+    match = re.search(r"(\d*\.?\d+)", text)
     if match is None:
         return None
     try:
@@ -52,7 +52,76 @@ def _extract_first_float(text: str) -> float | None:
         return None
 
 
-def _parse_markdown_table_metrics(output: str) -> tuple[float | None, float | None, float | None]:
+# ── Markdown table parsing helpers ──────────────────────────────────────
+
+
+def _find_column_indices(
+    header_cells: list[str],
+) -> tuple[int | None, int | None, int | None]:
+    """Find column indices for tokens/s, latency, and VRAM in a table header.
+
+    Args:
+        header_cells: Stripped, lowercased header cell values.
+
+    Returns:
+        Tuple of (tokens_idx, latency_idx, vram_idx).
+    """
+    tokens_idx: int | None = None
+    latency_idx: int | None = None
+    vram_idx: int | None = None
+
+    for idx, header in enumerate(header_cells):
+        if tokens_idx is None and any(token in header for token in ("t/s", "tok/s", "tokens/s")):
+            tokens_idx = idx
+        if latency_idx is None and "latency" in header:
+            latency_idx = idx
+        if vram_idx is None and any(token in header for token in ("vram", "memory")):
+            vram_idx = idx
+
+    return tokens_idx, latency_idx, vram_idx
+
+
+def _parse_data_row(
+    cells: list[str],
+    tokens_idx: int,
+    latency_idx: int,
+    vram_idx: int | None,
+) -> tuple[float | None, float | None, float | None]:
+    """Parse a single data row from a markdown table.
+
+    Args:
+        cells: Stripped cell values from the row.
+        tokens_idx: Column index for tokens/s.
+        latency_idx: Column index for latency.
+        vram_idx: Column index for VRAM, or ``None`` if not present.
+
+    Returns:
+        Tuple of (tokens_per_second, avg_latency_ms, peak_vram_mb).
+    """
+    tokens_per_second = _extract_first_float(cells[tokens_idx])
+    avg_latency_ms = _extract_first_float(cells[latency_idx])
+    peak_vram_mb = (
+        _extract_first_float(cells[vram_idx])
+        if vram_idx is not None and len(cells) > vram_idx
+        else None
+    )
+    return tokens_per_second, avg_latency_ms, peak_vram_mb
+
+
+def _parse_markdown_table_metrics(
+    output: str,
+) -> tuple[float | None, float | None, float | None]:
+    """Extract metrics from a markdown table in benchmark output.
+
+    Looks for a table with headers containing tokens/s, latency, and optionally
+    VRAM/memory columns. Returns the first valid data row found.
+
+    Args:
+        output: Raw stdout string from a benchmark subprocess.
+
+    Returns:
+        Tuple of (tokens_per_second, avg_latency_ms, peak_vram_mb).
+    """
     table_lines = [line for line in output.splitlines() if line.strip().startswith("|")]
     if len(table_lines) < 3:
         return None, None, None
@@ -61,16 +130,7 @@ def _parse_markdown_table_metrics(output: str) -> tuple[float | None, float | No
     if not header_cells:
         return None, None, None
 
-    tokens_idx = None
-    latency_idx = None
-    vram_idx = None
-    for idx, header in enumerate(header_cells):
-        if tokens_idx is None and any(token in header for token in ("t/s", "tok/s", "tokens/s")):
-            tokens_idx = idx
-        if latency_idx is None and "latency" in header:
-            latency_idx = idx
-        if vram_idx is None and any(token in header for token in ("vram", "memory")):
-            vram_idx = idx
+    tokens_idx, latency_idx, vram_idx = _find_column_indices(header_cells)
 
     if tokens_idx is None or latency_idx is None:
         return None, None, None
@@ -82,16 +142,92 @@ def _parse_markdown_table_metrics(output: str) -> tuple[float | None, float | No
         if len(cells) <= max(tokens_idx, latency_idx):
             continue
 
-        tokens_per_second = _extract_first_float(cells[tokens_idx])
-        avg_latency_ms = _extract_first_float(cells[latency_idx])
-        peak_vram_mb = (
-            _extract_first_float(cells[vram_idx])
-            if vram_idx is not None and len(cells) > vram_idx
-            else None
-        )
-        return tokens_per_second, avg_latency_ms, peak_vram_mb
+        return _parse_data_row(cells, tokens_idx, latency_idx, vram_idx)
 
     return None, None, None
+
+
+# ── Regex-based extractors ─────────────────────────────────────────────
+
+_TOKENS_PATTERNS: list[str] = [
+    r"tokens?\s+per\s+second[:\s]+(\d*\.?\d+)",
+    r"t/s[:\s]+(\d*\.?\d+)",
+    r"tokens?/s[:\s]+(\d*\.?\d+)",
+    r"tok/s[:\s]+(\d*\.?\d+)",
+]
+
+_LATENCY_PATTERNS: list[str] = [
+    r"avg\s+latency[:\s]+(\d*\.?\d+)\s*ms",
+    r"latency[:\s]+(\d*\.?\d+)\s*ms",
+    r"avg\s+latency[:\s]+(\d*\.?\d+)",
+    r"latency[:\s]+(\d*\.?\d+)",
+]
+
+_VRAM_PATTERNS: list[str] = [
+    r"peak\s+memory[:\s]+(\d*\.?\d+)\s*mb",
+    r"peak\s+vram[:\s]+(\d*\.?\d+)\s*mb",
+    r"vram[:\s]+(\d*\.?\d+)\s*mb",
+    r"peak\s+memory[:\s]+(\d*\.?\d+)",
+    r"memory[:\s]+(\d*\.?\d+)\s*mb",
+    r"memory[:\s]+(\d*\.?\d+)",
+]
+
+
+def _extract_tokens_per_second(output: str) -> float | None:
+    """Search all tokens-per-second patterns in output.
+
+    Args:
+        output: Raw stdout string from a benchmark subprocess.
+
+    Returns:
+        Parsed tokens/s value or ``None`` if not found.
+    """
+    for pattern in _TOKENS_PATTERNS:
+        match = re.search(pattern, output, re.IGNORECASE)
+        if match:
+            try:
+                return float(match.group(1))
+            except ValueError:
+                pass
+    return None
+
+
+def _extract_latency(output: str) -> float | None:
+    """Search all latency patterns in output.
+
+    Args:
+        output: Raw stdout string from a benchmark subprocess.
+
+    Returns:
+        Parsed latency value or ``None`` if not found.
+    """
+    for pattern in _LATENCY_PATTERNS:
+        match = re.search(pattern, output, re.IGNORECASE)
+        if match:
+            try:
+                return float(match.group(1))
+            except ValueError:
+                pass
+    return None
+
+
+def _extract_vram(output: str) -> float | None:
+    """Search all VRAM/memory patterns in output.
+
+    Args:
+        output: Raw stdout string from a benchmark subprocess.
+
+    Returns:
+        Parsed VRAM value or ``None`` if not found.
+    """
+    for pattern in _VRAM_PATTERNS:
+        match = re.search(pattern, output, re.IGNORECASE)
+        if match:
+            try:
+                return float(match.group(1))
+            except ValueError:
+                pass
+    return None
 
 
 def parse_benchmark_output(output: str) -> BenchmarkResult | None:
@@ -127,61 +263,14 @@ def parse_benchmark_output(output: str) -> BenchmarkResult | None:
         peak_vram_mb,
     ) = _parse_markdown_table_metrics(output)
 
-    # tokens/s — match "tokens per second", "t/s", "tokens/s", "tok/s"
-    tokens_patterns = [
-        r"tokens?\s+per\s+second[:\s]+([0-9]*\.?[0-9]+)",
-        r"t/s[:\s]+([0-9]*\.?[0-9]+)",
-        r"tokens?/s[:\s]+([0-9]*\.?[0-9]+)",
-        r"tok/s[:\s]+([0-9]*\.?[0-9]+)",
-    ]
     if tokens_per_second is None:
-        for pattern in tokens_patterns:
-            match = re.search(pattern, output, re.IGNORECASE)
-            if match:
-                try:
-                    tokens_per_second = float(match.group(1))
-                except ValueError:
-                    pass
-                else:
-                    break
+        tokens_per_second = _extract_tokens_per_second(output)
 
-    # avg latency in ms — match "avg latency", "latency", "ms"
-    latency_patterns = [
-        r"avg\s+latency[:\s]+([0-9]*\.?[0-9]+)\s*ms",
-        r"latency[:\s]+([0-9]*\.?[0-9]+)\s*ms",
-        r"avg\s+latency[:\s]+([0-9]*\.?[0-9]+)",
-        r"latency[:\s]+([0-9]*\.?[0-9]+)",
-    ]
     if avg_latency_ms is None:
-        for pattern in latency_patterns:
-            match = re.search(pattern, output, re.IGNORECASE)
-            if match:
-                try:
-                    avg_latency_ms = float(match.group(1))
-                except ValueError:
-                    pass
-                else:
-                    break
+        avg_latency_ms = _extract_latency(output)
 
-    # peak VRAM in MB — match "peak memory", "vram", "memory", "MB"
-    vram_patterns = [
-        r"peak\s+memory[:\s]+([0-9]*\.?[0-9]+)\s*mb",
-        r"peak\s+vram[:\s]+([0-9]*\.?[0-9]+)\s*mb",
-        r"vram[:\s]+([0-9]*\.?[0-9]+)\s*mb",
-        r"peak\s+memory[:\s]+([0-9]*\.?[0-9]+)",
-        r"memory[:\s]+([0-9]*\.?[0-9]+)\s*mb",
-        r"memory[:\s]+([0-9]*\.?[0-9]+)",
-    ]
     if peak_vram_mb is None:
-        for pattern in vram_patterns:
-            match = re.search(pattern, output, re.IGNORECASE)
-            if match:
-                try:
-                    peak_vram_mb = float(match.group(1))
-                except ValueError:
-                    pass
-                else:
-                    break
+        peak_vram_mb = _extract_vram(output)
 
     # Return None only if no metrics were found at all
     if tokens_per_second is None and avg_latency_ms is None:

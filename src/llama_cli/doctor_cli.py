@@ -190,7 +190,7 @@ def _check_build_lock(result: DoctorCheckResult, config: Config) -> None:
         else:
             result.build_lock_free = False
             result.warnings.append(f"Build lock held by PID {lock.pid} (backend: {lock.backend})")
-    except (json.JSONDecodeError, KeyError) as e:
+    except KeyError as e:
         result.is_healthy = False
         result.errors.append(f"Build lock file corrupted: {e}")
 
@@ -262,7 +262,7 @@ def _check_profiles(
             raw = profile_path.read_text(encoding="utf-8")
             data = json.loads(raw)
             record = ProfileRecord.from_dict(data)
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError):
             # Corrupt or unrecognised file — warn and skip
             result.warnings.append(f"Corrupt profile file skipped: {profile_path.name}")
             continue
@@ -539,7 +539,7 @@ def _collect_lock_repair_actions(result: DoctorRepairResult, config: Config) -> 
                     requires_confirmation=True,
                 )
             )
-    except (json.JSONDecodeError, KeyError):
+    except KeyError:
         result.actions.append(
             RepairAction(
                 action_type="remove_corrupt_lock",
@@ -583,7 +583,7 @@ def _collect_profile_repair_actions(
             raw = profile_path.read_text(encoding="utf-8")
             data = json.loads(raw)
             record = ProfileRecord.from_dict(data)
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError):
             # Corrupt or unrecognised file — warn and skip
             result.warnings.append(f"Corrupt profile file skipped: {profile_path.name}")
             continue

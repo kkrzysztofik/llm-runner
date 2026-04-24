@@ -376,33 +376,34 @@ class TUIApp:
             self._input_thread.join(timeout=1.0)
             self._input_thread = None
 
+    def _poll_windows_keypress(self) -> None:
+        """Poll for a single keypress on Windows via msvcrt."""
+        import msvcrt  # type: ignore[import-not-found]
+
+        if msvcrt.kbhit():  # type: ignore[attr-defined]
+            ch = msvcrt.getch()  # type: ignore[attr-defined]
+            # Handle Ctrl+C (0x03)
+            if ch == b"\x03":
+                self._keypress_queue.put("^C")
+            elif ch and len(ch) == 1:
+                self._keypress_queue.put(ch.decode("utf-8", errors="replace"))
+
+    def _poll_posix_keypress(self) -> None:
+        """Poll for a single keypress on POSIX systems via select."""
+        ready, _, _ = select.select([sys.stdin], [], [], 0.05)
+        if ready:
+            ch = sys.stdin.read(1)
+            if ch:
+                self._keypress_queue.put(ch)
+
     def _input_poller(self) -> None:
         """Daemon thread: poll stdin for single-character keypresses."""
         is_windows = os.name == "nt"
+        poll_fn = self._poll_windows_keypress if is_windows else self._poll_posix_keypress
         with _cbreak_stdin():
             while self.running:
                 try:
-                    if is_windows:
-                        import msvcrt  # type: ignore[import-not-found]
-
-                        if msvcrt.kbhit():  # type: ignore[attr-defined]
-                            ch = msvcrt.getch()  # type: ignore[attr-defined]
-                            # Handle Ctrl+C (0x03)
-                            if ch == b"\x03":
-                                self._keypress_queue.put("^C")
-                            elif ch and len(ch) == 1:
-                                self._keypress_queue.put(ch.decode("utf-8", errors="replace"))
-                    else:
-                        # select on Linux/macOS
-                        try:
-                            ready, _, _ = select.select([sys.stdin], [], [], 0.05)
-                            if ready:
-                                ch = sys.stdin.read(1)
-                                if ch:
-                                    self._keypress_queue.put(ch)
-                        except (OSError, ValueError):
-                            # stdin may be closed or in a bad state
-                            time.sleep(0.1)
+                    poll_fn()
                 except Exception:
                     # Don't crash the TUI if stdin polling fails
                     time.sleep(0.1)
@@ -424,8 +425,6 @@ class TUIApp:
             # Handle Ctrl+C during profiling — abort the current profile
             if key == "^C":
                 self._abort_profile()
-                continue
-
             # Handle 'P' key — trigger profiling on the focused slot
             if key.upper() == "P" and self.configs:
                 # Use the first config (left column = focused slot)
