@@ -433,6 +433,18 @@ class TUIApp:
                 self._prompt_profile_flavor(cfg.alias)
                 continue
 
+            # Handle hardware warning keys (y/n/q) and VRAM risk keys (y/n)
+            if self.risk_panel is not None:
+                # VRAM risk keys take priority for 'y'/'n'
+                if key in ("y", "n"):
+                    result = self.handle_vram_risk(key)
+                    if result in ("proceed", "abort"):
+                        continue
+
+                result = self.handle_hardware_warning(key)
+                if result in ("acknowledge", "abort", "quit"):
+                    continue
+
         # Handle queued profile flavor request non-blockingly
         if self._profile_request is not None:
             alias = self._profile_request
@@ -784,22 +796,28 @@ class TUIApp:
 
         transition_messages: dict[tuple[str, str], tuple[str, str]] = {
             (SlotState.LAUNCHING.value, SlotState.RUNNING.value): (
-                "Launched", "green",
+                "Launched",
+                "green",
             ),
             (SlotState.RUNNING.value, SlotState.DEGRADED.value): (
-                "Degraded", "yellow",
+                "Degraded",
+                "yellow",
             ),
             (SlotState.RUNNING.value, SlotState.CRASHED.value): (
-                "Crashed", "red",
+                "Crashed",
+                "red",
             ),
             (SlotState.DEGRADED.value, SlotState.OFFLINE.value): (
-                "Offline", "yellow",
+                "Offline",
+                "yellow",
             ),
             (SlotState.CRASHED.value, SlotState.OFFLINE.value): (
-                "Offline", "red",
+                "Offline",
+                "red",
             ),
             (SlotState.OFFLINE.value, SlotState.IDLE.value): (
-                "Idle", "dim",
+                "Idle",
+                "dim",
             ),
         }
 
@@ -852,6 +870,52 @@ class TUIApp:
         if key.upper() == "P" and self.configs:
             cfg = self.configs[0]
             self._prompt_profile_flavor(cfg.alias)
+
+    def handle_hardware_warning(self, key: str) -> str:
+        """Handle hardware mismatch warning key press.
+
+        Args:
+            key: The key pressed by the user.
+
+        Returns:
+            'acknowledge' if user acknowledged, 'abort' if rejected,
+            'quit' if user pressed q, or 'ignore' for unknown keys.
+
+        """
+        if key == "y":
+            # User acknowledged the hardware warning
+            self.risk_panel = None
+            return "acknowledge"
+        if key == "n":
+            # User rejected — abort
+            self.running = False
+            return "abort"
+        if key == "q":
+            # User wants to quit
+            self._graceful_shutdown()
+            return "quit"
+        return "ignore"
+
+    def handle_vram_risk(self, key: str) -> str:
+        """Handle VRAM risk confirmation key press.
+
+        Args:
+            key: The key pressed by the user.
+
+        Returns:
+            'proceed' if user confirmed, 'abort' if rejected,
+            or 'ignore' for unknown keys.
+
+        """
+        if key == "y":
+            # User confirmed the VRAM risk
+            self.risk_panel = None
+            return "proceed"
+        if key == "n":
+            # User rejected — abort
+            self.running = False
+            return "abort"
+        return "ignore"
 
     def _handle_build_progress(self, progress: BuildProgress) -> None:
         """Handle build progress updates from pipeline.

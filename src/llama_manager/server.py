@@ -696,3 +696,139 @@ def _parse_device_details(device: str) -> tuple[str | None, str]:
             return (":".join(parts[1:]), device)
 
     return (None, device)
+
+
+def compute_machine_fingerprint() -> str | None:
+    """Compute a deterministic machine fingerprint from hardware identifiers.
+
+    Gathers information from system tools (lspci, /proc/cpuinfo, /etc/os-release)
+    and combines them into a SHA-256 hash. Returns None if no tools succeed.
+
+    Returns:
+        A hex-encoded SHA-256 hash string, or None if all tools fail.
+
+    """
+    import subprocess
+
+    parts: list[str] = []
+
+    # GPU info from lspci
+    try:
+        result = subprocess.run(
+            ["lspci"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            parts.append("gpu:" + result.stdout.strip())
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    # CPU info from /proc/cpuinfo
+    try:
+        result = subprocess.run(
+            ["cat", "/proc/cpuinfo"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            # Extract model name for compact representation
+            for line in result.stdout.splitlines():
+                if line.startswith("model name"):
+                    parts.append("cpu:" + line.split(":", 1)[1].strip())
+                    break
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    # OS info from /etc/os-release
+    try:
+        result = subprocess.run(
+            ["cat", "/etc/os-release"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            for line in result.stdout.splitlines():
+                if line.startswith("NAME="):
+                    parts.append("os:" + line.split("=", 1)[1].strip().strip('"'))
+                    break
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    if not parts:
+        return None
+
+    import hashlib
+
+    raw = "|".join(parts)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def check_hardware_allowlist(
+    fingerprint: str,
+    allowlist: list[str] | None = None,
+) -> str:
+    """Check a machine fingerprint against a hardware allowlist.
+
+    Args:
+        fingerprint: The machine fingerprint to check.
+        allowlist: List of allowed fingerprints. If None, reads from
+                   LLM_RUNNER_HARDWARE_ALLOWLIST env var.
+
+    Returns:
+        'match' if fingerprint is in allowlist,
+        'mismatch' if allowlist has entries but fingerprint is not included,
+        'invalidated' if allowlist is empty (no trusted fingerprints).
+
+    """
+    if allowlist is None:
+        import os
+
+        raw = os.environ.get("LLM_RUNNER_HARDWARE_ALLOWLIST", "")
+        allowlist = [f for f in raw.split(",") if f.strip()] if raw else []
+
+    if not allowlist:
+        return "invalidated"
+
+    if fingerprint in allowlist:
+        return "match"
+
+    return "mismatch"
+
+
+def assess_vram_risk(
+    vram_total_gb: float,
+    vram_free_gb: float,
+    model_size_gb: float,
+) -> str:
+    """Assess VRAM risk for loading a model.
+
+    Heuristic thresholds:
+    - PROCEED: free VRAM >= 1.5x model size
+    - WARN: free VRAM >= 1.1x model size
+    - CONFIRM_REQUIRED: free VRAM < 1.1x model size
+
+    Args:
+        vram_total_gb: Total GPU VRAM in gigabytes.
+        vram_free_gb: Available (free) GPU VRAM in gigabytes.
+        model_size_gb: Estimated model size in gigabytes.
+
+    Returns:
+        VRamRecommendation string value.
+
+    """
+    from .config import VRamRecommendation
+
+    if model_size_gb <= 0:
+        return VRamRecommendation.PROCEED
+
+    ratio = vram_free_gb / model_size_gb
+
+    if ratio >= 1.5:
+        return VRamRecommendation.PROCEED
+    if ratio >= 1.1:
+        return VRamRecommendation.WARN
+    return VRamRecommendation.CONFIRM_REQUIRED

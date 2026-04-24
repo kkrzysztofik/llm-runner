@@ -555,3 +555,119 @@ class TestGracefulShutdownKeyHandler:
 
         # Profile should be marked as failed
         assert app._profile_status["test-slot"] == "failed"
+
+
+class TestHandleHardwareWarning:
+    """T061: Tests for hardware warning TUI key handler."""
+
+    def test_handle_hardware_warning_y_acknowledges(self) -> None:
+        """handle_hardware_warning should acknowledge and clear panel on 'y'."""
+        from llama_cli.tui_app import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
+
+        # Set up a risk panel to be cleared
+        app.risk_panel = MagicMock()
+
+        # Queue 'y' key
+        app._keypress_queue.put("y")
+        app._process_keypresses()
+
+        # Panel should be cleared
+        assert app.risk_panel is None
+
+    def test_handle_hardware_warning_n_aborts(self) -> None:
+        """handle_hardware_warning should abort on 'n' key."""
+        from llama_cli.tui_app import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
+
+        # Set up a risk panel so handler is invoked
+        app.risk_panel = MagicMock()
+
+        # Queue 'n' key
+        app._keypress_queue.put("n")
+        app._process_keypresses()
+
+        # running should be set to False (abort)
+        assert app.running is False
+
+    def test_handle_hardware_warning_q_quits(self) -> None:
+        """handle_hardware_warning should quit on 'q' key."""
+        from llama_cli.tui_app import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
+
+        # Set up a risk panel so handler is invoked
+        app.risk_panel = MagicMock()
+
+        # Queue 'q' key
+        app._keypress_queue.put("q")
+        app._process_keypresses()
+
+        # running should be set to False (quit)
+        assert app.running is False
+
+    def test_handle_hardware_warning_other_ignored(self) -> None:
+        """handle_hardware_warning should ignore non-action keys."""
+        from llama_cli.tui_app import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
+
+        # Set up a risk panel
+        app.risk_panel = MagicMock()
+
+        # Queue an unknown key
+        app._keypress_queue.put("x")
+        app._process_keypresses()
+
+        # Panel should remain unchanged
+        assert app.risk_panel is not None
+
+
+class TestHandleVramRisk:
+    """T061b: Tests for VRAM risk confirmation TUI key handler."""
+
+    def test_handle_vram_risk_y_proceeds(self) -> None:
+        """handle_vram_risk should proceed on 'y' key and clear panel."""
+        from llama_cli.tui_app import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
+
+        # Set up a risk panel
+        app.risk_panel = MagicMock()
+
+        # Queue 'y' key
+        app._keypress_queue.put("y")
+        app._process_keypresses()
+
+        # Panel should be cleared
+        assert app.risk_panel is None
+
+    def test_handle_vram_risk_n_aborts(self) -> None:
+        """handle_vram_risk should abort on 'n' key."""
+        from llama_cli.tui_app import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
+
+        # Call handle_vram_risk directly
+        result = app.handle_vram_risk("n")
+
+        assert result == "abort"
+        assert app.running is False
+
+    def test_handle_vram_risk_other_ignored(self) -> None:
+        """handle_vram_risk should ignore non-action keys."""
+        from llama_cli.tui_app import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
+
+        # Set up a risk panel
+        app.risk_panel = MagicMock()
+
+        # Queue an unknown key
+        app._keypress_queue.put("x")
+        app._process_keypresses()
+
+        # Panel should remain unchanged
+        assert app.risk_panel is not None
