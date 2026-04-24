@@ -19,6 +19,7 @@ from pathlib import Path
 from types import FrameType
 from typing import Any
 
+import psutil
 from rich.console import ConsoleDimensions, Group
 from rich.layout import Layout
 from rich.live import Live
@@ -36,6 +37,7 @@ from llama_manager import (
     ProfileFlavor,
     ServerConfig,
     ServerManager,
+    SlotState,
     get_gpu_identifier,
     load_profile_with_staleness,
 )
@@ -118,6 +120,9 @@ class TUIApp:
 
         self.server_manager = ServerManager()
 
+        # Slot state tracking for TUI dashboard
+        self._slot_states: dict[str, str] = {}  # alias -> SlotState value
+
         for cfg in configs:
             self.log_buffers[cfg.alias] = LogBuffer(redact_sensitive=True)
         for idx in gpu_indices:
@@ -192,6 +197,7 @@ class TUIApp:
         return layout
 
     def render(self) -> Layout:
+        self._update_gpu_telemetry()
         layout = self.build_layout()
 
         alerts: list[Panel] = []
@@ -684,6 +690,168 @@ class TUIApp:
             title="Status",
             border_style="dim",
         )
+
+    def _build_slot_status_panel(self) -> Panel:
+        """Build a panel showing per-slot status (health, logs, GPU stats, backend label)."""
+        sections: list[Text] = []
+
+        for cfg in self.configs:
+            alias = cfg.alias
+            state = self._slot_states.get(alias, SlotState.OFFLINE.value)
+
+            # Determine process status
+            status = state
+            if state == SlotState.RUNNING.value:
+                for proc in self.server_manager.servers:
+                    if proc.pid and psutil.pid_exists(proc.pid):
+                        break
+                else:
+                    status = SlotState.CRASHED.value
+
+            # Determine backend label
+            backend_map: dict[str, str] = {
+                "sycl": "SYCL",
+                "cuda": "CUDA",
+                "llama_cpp": "CPU",
+            }
+            backend_label = backend_map.get(cfg.backend, "llama_cpp")
+
+            # Color for status
+            status_colors: dict[str, str] = {
+                SlotState.RUNNING.value: "green",
+                SlotState.LAUNCHING.value: "yellow",
+                SlotState.DEGRADED.value: "yellow",
+                SlotState.CRASHED.value: "red",
+                SlotState.OFFLINE.value: "dim",
+                SlotState.IDLE.value: "dim",
+            }
+            color = status_colors.get(status, "white")
+
+            # Build section for this slot
+            header = Text()
+            header.append(f"[{alias}] ", style="bold")
+            header.append(f"{status.upper()} ", style=color)
+            header.append(f"| {backend_label} ", style="cyan")
+            header.append(f"| http://{self.config.host}:{cfg.port}", style="dim")
+            header.append("\n")
+
+            # Log buffer preview (last 3 lines)
+            buffer = self.log_buffers.get(alias)
+            if buffer is not None:
+                log_lines = buffer.get_lines()[-3:] if buffer.get_lines() else []
+                log_text = "\n".join(log_lines) if log_lines else "  (no logs yet)"
+                if log_text:
+                    header.append(Text(log_text + "\n", style="dim"))
+
+            sections.append(header)
+
+        group = Group(*sections)
+        return Panel(group, title="Slot Status", border_style="blue")
+
+    def _update_gpu_telemetry(self) -> None:
+        """Update GPU telemetry panel with latest stats."""
+        if not self.gpu_stats:
+            return
+
+        lines: list[str] = []
+        for gpu in self.gpu_stats:
+            gpu.update()  # Refresh stats from collector
+            lines.append(gpu.format_stats_text())
+
+        telemetry_text = Text("\n".join(lines))
+        self.status_panel = Panel(
+            telemetry_text,
+            title="GPU Telemetry",
+            border_style="yellow",
+        )
+
+    def handle_slot_transition(self, slot_id: str, new_state: SlotState) -> None:
+        """Handle a slot state transition and update the UI.
+
+        Args:
+            slot_id: The slot identifier.
+            new_state: The new state for the slot.
+        """
+        old_state = self._slot_states.get(slot_id)
+        self._slot_states[slot_id] = new_state.value
+
+        # Handle specific transitions
+        if old_state is None and new_state == SlotState.RUNNING:
+            # First launch - clear any previous status panels
+            self.status_panel = None
+            self._push_status_message(f"Slot '{slot_id}' launched successfully.")
+            return
+
+        transition_messages: dict[tuple[str, str], tuple[str, str]] = {
+            (SlotState.LAUNCHING.value, SlotState.RUNNING.value): (
+                "Launched", "green",
+            ),
+            (SlotState.RUNNING.value, SlotState.DEGRADED.value): (
+                "Degraded", "yellow",
+            ),
+            (SlotState.RUNNING.value, SlotState.CRASHED.value): (
+                "Crashed", "red",
+            ),
+            (SlotState.DEGRADED.value, SlotState.OFFLINE.value): (
+                "Offline", "yellow",
+            ),
+            (SlotState.CRASHED.value, SlotState.OFFLINE.value): (
+                "Offline", "red",
+            ),
+            (SlotState.OFFLINE.value, SlotState.IDLE.value): (
+                "Idle", "dim",
+            ),
+        }
+
+        if old_state is not None:
+            key = (old_state, new_state.value)
+            if key in transition_messages:
+                label, color = transition_messages[key]
+                msg = f"Slot '{slot_id}': {label} ({color})"
+                self._push_status_message(msg)
+
+    def _graceful_shutdown(self) -> None:
+        """Initiate graceful shutdown of all server processes."""
+        if not self.running:
+            return
+
+        self._push_status_message("Shutting down...")
+        self.server_manager.cleanup_servers()
+        self.running = False
+
+    def _on_key(self, key: str) -> None:
+        """Handle key presses from the keypress queue."""
+        # Handle Ctrl+C — abort profile or graceful shutdown
+        if key == "^C":
+            # Check if a profile is running
+            with self._profile_lock:
+                for cfg in self.configs:
+                    if self._profile_status.get(cfg.alias) == "running":
+                        cancel_event = self._profile_cancel_events.get(cfg.alias)
+                        if cancel_event is not None:
+                            cancel_event.set()
+                        self._profile_status[cfg.alias] = "failed"
+                        self._push_status_message(f"Profile '{cfg.alias}' aborted.")
+                        return
+
+            # No profile running — graceful shutdown
+            self._graceful_shutdown()
+            return
+
+        # Handle 'q' key — quit
+        if key == "q":
+            self._graceful_shutdown()
+            return
+
+        # Handle 'r' key — refresh display
+        if key == "r":
+            self._push_status_message("Display refreshed.")
+            return
+
+        # Handle 'P' key — trigger profiling on the focused slot
+        if key.upper() == "P" and self.configs:
+            cfg = self.configs[0]
+            self._prompt_profile_flavor(cfg.alias)
 
     def _handle_build_progress(self, progress: BuildProgress) -> None:
         """Handle build progress updates from pipeline.
