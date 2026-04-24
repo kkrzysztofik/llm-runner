@@ -12,6 +12,7 @@ Tests _print_smoke_probe_info() output from dry_run.py.
 from __future__ import annotations
 
 import contextlib
+import typing
 from unittest.mock import patch
 
 import pytest
@@ -295,7 +296,7 @@ class TestDryRunSmokeFlagBundleOutput:
         """All dry-run modes (summary-balanced, summary-fast, qwen35, both) must show Smoke Probe."""
         from llama_cli.dry_run import dry_run
 
-        test_cases: list[tuple[str, dict[str, str]]] = [
+        test_cases: list[tuple[str, dict[str, typing.Any]]] = [
             ("summary-balanced", {"primary_port": "8080"}),
             ("summary-fast", {"primary_port": "8080"}),
             ("qwen35", {"primary_port": "8081"}),

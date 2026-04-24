@@ -97,32 +97,32 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 
 ### Tests for User Story 2 (REQUIRED) ⚠️
 
-- [ ] T025 [US2] Write unit test for Phase 1 listen/accept timeout in `src/tests/test_smoke.py`
-- [ ] T026 [US2] Write unit test for Phase 2 /v1/models response handling (success, empty, mismatch, 404, auth failure) in `src/tests/test_smoke.py`
-- [ ] T027 [US2] Write unit test for Phase 3 chat completion (success, timeout, auth failure) in `src/tests/test_smoke.py`
-- [ ] T028 [US2] Write unit test for slot crash detection (exit 19) in `src/tests/test_smoke.py`
-- [ ] T029 [US2] Write unit test for provenance resolution (SHA, version) in `src/tests/test_smoke.py`
-- [ ] T030 [US2] [AC-014] Write unit test for `compute_overall_exit_code()` in `src/tests/test_smoke.py`
-- [ ] T031 [US2] Write unit test for API key precedence (CLI > config > env) in `src/tests/test_smoke.py`
-- [ ] T032 [US2] [AC-014][FR-006] Write unit test for consecutive failure counter (FR-006) in `src/tests/test_smoke.py`
-- [ ] T033 [US2] [AC-014][AC-017] Write CLI test for `smoke both` and `smoke slot <id>` argument parsing in `src/tests/test_smoke_cli.py`
-- [ ] T034 [US2] Write test for human-readable and JSON output formatting in `src/tests/test_smoke.py`
+- [x] T025 [US2] Write unit test for Phase 1 listen/accept timeout in `src/tests/test_smoke.py`
+- [x] T026 [US2] Write unit test for Phase 2 /v1/models response handling (success, empty, mismatch, 404, auth failure) in `src/tests/test_smoke.py`
+- [x] T027 [US2] Write unit test for Phase 3 chat completion (success, timeout, auth failure) in `src/tests/test_smoke.py`
+- [x] T028 [US2] Write unit test for slot crash detection (exit 19) in `src/tests/test_smoke.py`
+- [x] T029 [US2] Write unit test for provenance resolution (SHA, version) in `src/tests/test_smoke.py`
+- [x] T030 [US2] [AC-014] Write unit test for `compute_overall_exit_code()` in `src/tests/test_smoke.py`
+- [x] T031 [US2] Write unit test for API key precedence (CLI > config > env) in `src/tests/test_smoke.py`
+- [x] T032 [US2] [AC-014][FR-006] Write unit test for consecutive failure counter (FR-006) in `src/tests/test_smoke.py`
+- [x] T033 [US2] [AC-014][AC-017] Write CLI test for `smoke both` and `smoke slot <id>` argument parsing in `src/tests/test_smoke_cli.py`
+- [x] T034 [US2] Write test for human-readable and JSON output formatting in `src/tests/test_smoke.py`
 
 ### Implementation for User Story 2
 
-- [ ] T035 [US2] [AC-014][AC-017] Add `smoke` subcommand to `src/llama_cli/cli_parser.py` with `both` and `slot <id>` arguments
-- [ ] T036 [US2] [AC-017] Create `src/llama_cli/smoke_cli.py` with CLI entry point, output formatters
-- [ ] T037 [US2] [AC-017] Implement Phase 1 (listen/accept) in `src/llama_manager/smoke.py`
-- [ ] T037b [US2] Wire smoke command entry point in `src/llama_cli/server_runner.py` to call `smoke_cli.run_smoke()` (depends on T037 — Phase 1 must exist before wiring)
-- [ ] T038 [US2] [AC-017] Implement Phase 2 (/v1/models discovery) in `src/llama_manager/smoke.py`
-- [ ] T039 [US2] [AC-017] Implement Phase 3 (chat completion) in `src/llama_manager/smoke.py`
-- [ ] T040 [US2] [AC-017] Implement Phase 3b (slot crash detection) in `src/llama_manager/smoke.py`
-- [ ] T040b [US2] [AC-017] Implement model ID resolution chain (GGUF name → filename stem → catalog override → /v1/models match) in `src/llama_manager/smoke.py`
-- [ ] T041 [US2] [AC-017] Implement inter-slot delay and overall exit code computation in `src/llama_manager/smoke.py`
-- [ ] T042 [AC-017] Add `--api-key`, `--model-id`, `--max-tokens`, `--prompt`, `--delay`, `--timeout` flags to CLI in `src/llama_cli/cli_parser.py`
-- [ ] T043 [AC-017] Add `--json` output support to `src/llama_cli/smoke_cli.py`
-- [ ] T044 [US2] [FR-006] Implement consecutive failure counter in `src/llama_manager/smoke.py`
-- [ ] T044b [US2] [CA-003] Integrate smoke flag bundles into dry-run output in `src/llama_cli/dry_run.py`
+- [x] T035 [US2] [AC-014][AC-017] Add `smoke` subcommand to `src/llama_cli/cli_parser.py` with `both` and `slot <id>` arguments
+- [x] T036 [US2] [AC-017] Create `src/llama_cli/smoke_cli.py` with CLI entry point, output formatters
+- [x] T037 [US2] [AC-017] Implement Phase 1 (listen/accept) in `src/llama_manager/smoke.py`
+- [x] T037b [US2] Wire smoke command entry point in `src/llama_cli/server_runner.py` to call `smoke_cli.run_smoke()` (depends on T037 — Phase 1 must exist before wiring)
+- [x] T038 [US2] [AC-017] Implement Phase 2 (/v1/models discovery) in `src/llama_manager/smoke.py`
+- [x] T039 [US2] [AC-017] Implement Phase 3 (chat completion) in `src/llama_manager/smoke.py`
+- [x] T040 [US2] [AC-017] Implement Phase 3b (slot crash detection) in `src/llama_manager/smoke.py`
+- [x] T040b [US2] [AC-017] Implement model ID resolution chain (GGUF name → filename stem → catalog override → /v1/models match) in `src/llama_manager/smoke.py`
+- [x] T041 [US2] [AC-017] Implement inter-slot delay and overall exit code computation in `src/llama_manager/smoke.py`
+- [x] T042 [AC-017] Add `--api-key`, `--model-id`, `--max-tokens`, `--prompt`, `--delay`, `--timeout` flags to CLI in `src/llama_cli/cli_parser.py`
+- [x] T043 [AC-017] Add `--json` output support to `src/llama_cli/smoke_cli.py`
+- [x] T044 [US2] [FR-006] Implement consecutive failure counter in `src/llama_manager/smoke.py`
+- [x] T044b [US2] [CA-003] Integrate smoke flag bundles into dry-run output in `src/llama_cli/dry_run.py`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -165,22 +165,22 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 
 ### Tests for User Story 4 (REQUIRED) ⚠️
 
-- [ ] T058 [US4] Write unit test for machine fingerprint computation in `src/tests/test_server.py`
-- [ ] T059 [US4] Write unit test for hardware allowlist check (match, mismatch, invalidated) in `src/tests/test_server.py`
-- [ ] T060 [US4] [AC-016] Write unit test for VRAM heuristic (proceed, warn, confirm-required) in `src/tests/test_server.py`
-- [ ] T061 [US4] Write unit test for hardware warning TUI key handler (y/n/q) in `src/tests/test_tui.py` (runs after T016f — same file, sequential execution required)
-- [ ] T061b [US4] Write unit test for VRAM risk confirmation TUI key handler (y/n) in `src/tests/test_tui.py` (runs after T061 — same file, sequential execution required)
+- [x] T058 [US4] Write unit test for machine fingerprint computation in `src/tests/test_server.py`
+- [x] T059 [US4] Write unit test for hardware allowlist check (match, mismatch, invalidated) in `src/tests/test_server.py`
+- [x] T060 [US4] [AC-016] Write unit test for VRAM heuristic (proceed, warn, confirm-required) in `src/tests/test_server.py`
+- [x] T061 [US4] Write unit test for hardware warning TUI key handler (y/n/q) in `src/tests/test_tui.py` (runs after T016f — same file, sequential execution required)
+- [x] T061b [US4] Write unit test for VRAM risk confirmation TUI key handler (y/n) in `src/tests/test_tui.py` (runs after T061 — same file, sequential execution required)
 
 ### Implementation for User Story 4
 
-- [ ] T062 [US4] Add hardware fingerprint computation (lspci + sycl-ls) to `src/llama_manager/server.py`
-- [ ] T063 [US4] Add hardware allowlist read/write and session snooze file handling to `src/llama_manager/server.py`
-- [ ] T064 Add hardware mismatch warning to `src/llama_cli/tui_app.py` with key handler
-- [ ] T065 Add `--ack-nonstandard-hardware` CLI flag to `src/llama_cli/cli_parser.py`
-- [ ] T066 [US4] [AC-016] Implement VRAM heuristic formula in `src/llama_manager/server.py`
-- [ ] T067 [US4] [AC-016] Add VRAM risk assessment to `src/llama_manager/server.py`
-- [ ] T067b [US4] Add VRAM query method to `src/llama_manager/gpu_stats.py`
-- [ ] T068 Add VRAM warning to TUI in `src/llama_cli/tui_app.py` and `--confirm-vram-risk` CLI flag in `src/llama_cli/cli_parser.py` (runs after T064 — same file `tui_app.py`, sequential execution required)
+- [x] T062 [US4] Add hardware fingerprint computation (lspci + sycl-ls) to `src/llama_manager/server.py`
+- [x] T063 [US4] Add hardware allowlist read/write and session snooze file handling to `src/llama_manager/server.py`
+- [x] T064 Add hardware mismatch warning to `src/llama_cli/tui_app.py` with key handler
+- [x] T065 Add `--ack-nonstandard-hardware` CLI flag to `src/llama_cli/cli_parser.py`
+- [x] T066 [US4] [AC-016] Implement VRAM heuristic formula in `src/llama_manager/server.py`
+- [x] T067 [US4] [AC-016] Add VRAM risk assessment to `src/llama_manager/server.py`
+- [x] T067b [US4] Add VRAM query method to `src/llama_manager/gpu_stats.py`
+- [x] T068 Add VRAM warning to TUI in `src/llama_cli/tui_app.py` and `--confirm-vram-risk` CLI flag in `src/llama_cli/cli_parser.py` (runs after T064 — same file `tui_app.py`, sequential execution required)
 
 ---
 
@@ -197,12 +197,12 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 - [x] T075 Run `uv run ruff format --check .` and fix any formatting issues
 - [x] T076 Run `uv run pyright` and fix any type errors
 - [x] T077 Run `uv run pytest` and ensure all tests pass
-- [ ] T078 Run `uv run pytest --cov --cov-report=term-missing` and verify coverage
-- [ ] T079 [US1] Write state-machine integration test: verify full lifecycle (idle→launching→running→degraded→running→offline→idle) in TUI context with mocked process events
-- [ ] T080 [US2] Write CA-003 parity test: smoke results (TUI vs CLI) produce identical slot status and phase data for the same server state
-- [ ] T081 [US2] Write CA-003 parity test: `--json` output from smoke CLI matches the FR-020 schema defined in spec Appendix B and contracts/smoke-api.md Section 4
-- [ ] T082 [US4] Write CA-003 parity test: dry-run output includes OpenAI flag bundles and compatibility matrix rows in both TUI and CLI modes
-- [ ] T083 [US2] Write test for dry-run smoke flag bundle output: verify `dry-run` shows smoke-relevant flags (model ID, prompt, /v1/models probe, API key source) per contracts/smoke-api.md Appendix D
+- [x] T078 Run `uv run pytest --cov --cov-report=term-missing` and verify coverage
+- [x] T079 [US1] Write state-machine integration test: verify full lifecycle (idle→launching→running→degraded→running→offline→idle) in TUI context with mocked process events
+- [x] T080 [US2] Write CA-003 parity test: smoke results (TUI vs CLI) produce identical slot status and phase data for the same server state
+- [x] T081 [US2] Write CA-003 parity test: `--json` output from smoke CLI matches the FR-020 schema defined in spec Appendix B and contracts/smoke-api.md Section 4
+- [x] T082 [US4] Write CA-003 parity test: dry-run output includes OpenAI flag bundles and compatibility matrix rows in both TUI and CLI modes
+- [x] T083 [US2] Write test for dry-run smoke flag bundle output: verify `dry-run` shows smoke-relevant flags (model ID, prompt, /v1/models probe, API key source) per contracts/smoke-api.md Appendix D
 
 ---
 

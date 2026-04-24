@@ -499,23 +499,23 @@ class TestAssessVramRisk:
 
         assert result == VRamRecommendation.PROCEED
 
-    def test_vram_warn_1_1x(self) -> None:
-        """assess_vram_risk should return WARN when free VRAM >= 1.1x model size."""
+    def test_vram_warn_1_45x(self) -> None:
+        """assess_vram_risk should return WARN when free VRAM >= 1.411x model size (spec FR-013)."""
         from llama_manager.config import VRamRecommendation
         from llama_manager.server import assess_vram_risk
 
-        # 12 / 10 = 1.2x
-        result = assess_vram_risk(vram_total_gb=24, vram_free_gb=12, model_size_gb=10)
+        # 14.5 / 10 = 1.45x (between 1.411 warn threshold and 1.5 proceed threshold)
+        result = assess_vram_risk(vram_total_gb=24, vram_free_gb=14.5, model_size_gb=10)
 
         assert result == VRamRecommendation.WARN
 
-    def test_vram_boundary_1_1x(self) -> None:
-        """assess_vram_risk should return WARN at exactly 1.1x ratio."""
+    def test_vram_boundary_warn_threshold(self) -> None:
+        """assess_vram_risk should return WARN at exactly 1.2/0.85 ≈ 1.411x ratio (spec FR-013)."""
         from llama_manager.config import VRamRecommendation
         from llama_manager.server import assess_vram_risk
 
-        # 11 / 10 = 1.1x exactly
-        result = assess_vram_risk(vram_total_gb=24, vram_free_gb=11, model_size_gb=10)
+        # 14.12 / 10 = 1.412x (just above 1.2/0.85 ≈ 1.41176)
+        result = assess_vram_risk(vram_total_gb=24, vram_free_gb=14.12, model_size_gb=10)
 
         assert result == VRamRecommendation.WARN
 

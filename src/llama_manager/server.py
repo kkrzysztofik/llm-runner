@@ -5,7 +5,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 from .config import (
     Config,
@@ -869,10 +869,14 @@ def assess_vram_risk(
 ) -> str:
     """Assess VRAM risk for loading a model.
 
-    Heuristic thresholds:
+    Heuristic per spec FR-013 / AC-016:
+    warn if ``free_vram * 0.85 < model_size * 1.2``
+    which simplifies to ``free_vram < model_size * (1.2 / 0.85)`` ≈ model_size * 1.411.
+
+    Thresholds:
     - PROCEED: free VRAM >= 1.5x model size
-    - WARN: free VRAM >= 1.1x model size
-    - CONFIRM_REQUIRED: free VRAM < 1.1x model size
+    - WARN: free VRAM >= 1.411x model size (1.2/0.85 per spec)
+    - CONFIRM_REQUIRED: free VRAM < 1.411x model size
 
     Args:
         vram_total_gb: Total GPU VRAM in gigabytes.
@@ -888,10 +892,15 @@ def assess_vram_risk(
     if model_size_gb <= 0:
         return VRamRecommendation.PROCEED
 
+    # Spec formula: free_vram * 0.85 < model_size * 1.2
+    # => warn when free_vram < model_size * (1.2 / 0.85)
+    _WARN_THRESHOLD: Final[float] = 1.2 / 0.85  # ≈ 1.4117647
+    _PROCEED_THRESHOLD: Final[float] = 1.5
+
     ratio = vram_free_gb / model_size_gb
 
-    if ratio >= 1.5:
+    if ratio >= _PROCEED_THRESHOLD:
         return VRamRecommendation.PROCEED
-    if ratio >= 1.1:
+    if ratio >= _WARN_THRESHOLD:
         return VRamRecommendation.WARN
     return VRamRecommendation.CONFIRM_REQUIRED
