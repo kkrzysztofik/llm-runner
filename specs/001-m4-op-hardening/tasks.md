@@ -36,17 +36,17 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Add enums to `src/llama_manager/config.py`: `SlotState`, `SmokePhase`, `SmokeFailurePhase`, `SmokeProbeStatus`, `VRamRecommendation`, `DoctorCheckStatus`, `GgufParseError`
-- [ ] T005 Add `SmokeProbeConfiguration` dataclass to `src/llama_manager/config.py`
-- [ ] T006 Add smoke config fields to `Config` dataclass in `src/llama_manager/config.py`
-- [ ] T006b Add smoke config factory functions to `src/llama_manager/config_builder.py` (depends on T006 for Config fields)
-- [ ] T007 Create `src/llama_manager/smoke.py` with: `SmokeProbeResult`, `SmokeCompositeReport`, `ProvenanceRecord`, `ConsecutiveFailureCounter` dataclasses; `probe_slot()`, `resolve_provenance()`, `compute_overall_exit_code()` functions
-- [ ] T008 Create `src/llama_manager/metadata.py` with: `GGUFMetadataRecord` dataclass; `extract_gguf_metadata()`, `normalize_filename()` functions
-- [ ] T009 [AC-018] Create `src/scripts/generate_gguf_fixtures.py` to generate synthetic GGUF test fixtures in `src/tests/fixtures/`
-- [ ] T010 [AC-018] Create `src/tests/fixtures/README.md` documenting fixture generator script and usage
-- [ ] T011 [AC-018] Run `uv run python src/scripts/generate_gguf_fixtures.py` to generate fixture files
-- [ ] T011b [P] Validate fixture files: verify each fixture in `src/tests/fixtures/` is a valid binary file, non-empty, and under 10 KiB; confirm `gguf_v4_unsupported.gguf` triggers the expected unsupported-version error path in a dry-run metadata parse
-- [ ] T012 Run `uv run pip-audit` to verify new dependencies have no known CVEs
+- [x] T004 Add enums to `src/llama_manager/config.py`: `SlotState`, `SmokePhase`, `SmokeFailurePhase`, `SmokeProbeStatus`, `VRamRecommendation`, `DoctorCheckStatus`, `GgufParseError`
+- [x] T005 Add `SmokeProbeConfiguration` dataclass to `src/llama_manager/config.py`
+- [x] T006 Add smoke config fields to `Config` dataclass in `src/llama_manager/config.py`
+- [x] T006b Add smoke config factory functions to `src/llama_manager/config_builder.py` (depends on T006 for Config fields)
+- [x] T007 Create `src/llama_manager/smoke.py` with: `SmokeProbeResult`, `SmokeCompositeReport`, `ProvenanceRecord`, `ConsecutiveFailureCounter` dataclasses; `probe_slot()`, `resolve_provenance()`, `compute_overall_exit_code()` functions
+- [x] T008 Create `src/llama_manager/metadata.py` with: `GGUFMetadataRecord` dataclass; `extract_gguf_metadata()`, `normalize_filename()` functions
+- [x] T009 [AC-018] Create `src/scripts/generate_gguf_fixtures.py` to generate synthetic GGUF test fixtures in `src/tests/fixtures/`
+- [x] T010 [AC-018] Create `src/tests/fixtures/README.md` documenting fixture generator script and usage
+- [x] T011 [AC-018] Run `uv run python src/scripts/generate_gguf_fixtures.py` to generate fixture files
+- [x] T011b [P] Validate fixture files: verify each fixture in `src/tests/fixtures/` is a valid binary file, non-empty, and under 10 KiB; confirm `gguf_v4_unsupported.gguf` triggers the expected unsupported-version error path in a dry-run metadata parse
+- [x] T012 Run `uv run pip-audit` to verify new dependencies have no known CVEs
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 

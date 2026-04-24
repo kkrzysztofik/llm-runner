@@ -34,21 +34,37 @@ from .build_pipeline import (
 )
 from .config import (
     Config,
+    DoctorCheckStatus,
     ErrorCode,
     ErrorDetail,
+    GgufParseError,
     ModelSlot,
     MultiValidationError,
     ServerConfig,
+    SlotState,
+    SmokeFailurePhase,
+    SmokePhase,
+    SmokeProbeConfiguration,
+    SmokeProbeStatus,
+    VRamRecommendation,
     detect_duplicate_slots,
     normalize_slot_id,
+    validate_slot_id,
+    validate_slot_port,
 )
 from .config_builder import (
     create_qwen35_cfg,
+    create_smoke_config,
     create_summary_balanced_cfg,
     create_summary_fast_cfg,
 )
 from .gpu_stats import GPUStats, get_gpu_identifier
 from .log_buffer import LogBuffer
+from .metadata import (
+    GGUFMetadataRecord,
+    extract_gguf_metadata,
+    normalize_filename,
+)
 from .process_manager import (
     ArtifactMetadata,
     DryRunArtifactPayload,
@@ -109,6 +125,15 @@ from .setup_venv import (
     create_venv,
     get_venv_path,
 )
+from .smoke import (
+    ConsecutiveFailureCounter,
+    ProvenanceRecord,
+    SmokeCompositeReport,
+    SmokeProbeResult,
+    compute_overall_exit_code,
+    probe_slot,
+    resolve_provenance,
+)
 from .toolchain import (
     CMAKE_HINT,
     CMAKE_MINIMUM_VERSION,
@@ -150,6 +175,18 @@ __all__ = [
     "MultiValidationError",
     "normalize_slot_id",
     "detect_duplicate_slots",
+    # Enums
+    "SlotState",
+    "SmokePhase",
+    "SmokeFailurePhase",
+    "SmokeProbeStatus",
+    "VRamRecommendation",
+    "DoctorCheckStatus",
+    "GgufParseError",
+    # Smoke probe config
+    "SmokeProbeConfiguration",
+    "validate_slot_id",
+    "validate_slot_port",
     # Dry-run payload types
     "DryRunSlotPayload",
     "VllmEligibility",
@@ -215,6 +252,20 @@ __all__ = [
     "resolve_runtime_dir",
     "update_lock",
     "write_artifact",
+    # Smoke probe
+    "SmokeProbeResult",
+    "SmokeCompositeReport",
+    "ProvenanceRecord",
+    "ConsecutiveFailureCounter",
+    "probe_slot",
+    "resolve_provenance",
+    "compute_overall_exit_code",
+    # GGUF metadata
+    "GGUFMetadataRecord",
+    "extract_gguf_metadata",
+    "normalize_filename",
+    # Config builders
+    "create_smoke_config",
     # Benchmark
     "SubprocessResult",
     "BenchmarkResult",
