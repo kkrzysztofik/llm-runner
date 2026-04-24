@@ -62,15 +62,15 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 
 ### Tests for User Story 1 (REQUIRED) ⚠️
 
-- [ ] T013 [P] [US1] Write unit test for `SlotState` enum transitions in `src/tests/test_config.py`
-- [ ] T014 [US1] [AC-012] Write unit test for SIGTERM→SIGKILL shutdown flow in `src/tests/test_process_manager.py`
-- [ ] T015 Write unit test for lockfile acquisition and staleness detection in `src/tests/test_process_manager.py`
-- [ ] T016 [US1] Write unit test for rotating log appending with redaction in `src/tests/test_process_manager.py` (tests the `_append_audit_log` helper and secret pattern matching)
-- [ ] T016b [US1] Write unit test for `SlotRuntime` dataclass in `src/tests/test_process_manager.py`
-- [ ] T016c [US1] Write unit test for per-slot status display in `src/tests/test_tui.py`
-- [ ] T016d [US1] Write unit test for GPU telemetry panel update in `src/tests/test_tui.py` (runs after T016c — same file, sequential execution required)
-- [ ] T016e [US1] Write unit test for slot state transition handling in `src/tests/test_tui.py` (runs after T016d — same file, sequential execution required)
-- [ ] T016f [US1] Write unit test for graceful shutdown key handler (Ctrl+C) in `src/tests/test_tui.py` (runs after T016e — same file, sequential execution required)
+- [x] T013 [P] [US1] Write unit test for `SlotState` enum transitions in `src/tests/test_config.py`
+- [x] T014 [US1] [AC-012] Write unit test for SIGTERM→SIGKILL shutdown flow in `src/tests/test_process_manager.py`
+- [x] T015 Write unit test for lockfile acquisition and staleness detection in `src/tests/test_process_manager.py`
+- [x] T016 [US1] Write unit test for rotating log appending with redaction in `src/tests/test_process_manager.py` (tests the `_append_audit_log` helper and secret pattern matching)
+- [x] T016b [US1] Write unit test for `SlotRuntime` dataclass in `src/tests/test_process_manager.py`
+- [x] T016c [US1] Write unit test for per-slot status display in `src/tests/test_tui.py`
+- [x] T016d [US1] Write unit test for GPU telemetry panel update in `src/tests/test_tui.py` (runs after T016c — same file, sequential execution required)
+- [x] T016e [US1] Write unit test for slot state transition handling in `src/tests/test_tui.py` (runs after T016d — same file, sequential execution required)
+- [x] T016f [US1] Write unit test for graceful shutdown key handler (Ctrl+C) in `src/tests/test_tui.py` (runs after T016e — same file, sequential execution required)
 
 ### Implementation for User Story 1
 
