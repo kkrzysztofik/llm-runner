@@ -1402,8 +1402,8 @@ class ServerManager:
                 error_detail = ErrorDetail(
                     error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                     failed_check=LOCKFILE_CHECK_NAME,
-                    why_blocked=f"stale lock detected: {integrity.why_blocked}",
-                    how_to_fix="remove the lockfile or verify the owning process",
+                    why_blocked=integrity.why_blocked,
+                    how_to_fix="verify the owning process or clear the lockfile",
                 )
                 raise ValidationException(MultiValidationError(errors=[error_detail]))
 

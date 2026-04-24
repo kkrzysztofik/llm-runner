@@ -4,8 +4,14 @@
 
 Synthetic GGUF binary files used by unit tests for GGUF metadata extraction
 (`llama_manager.metadata`).  They exercise the parser's happy path, edge cases,
-and error paths without requiring real model weights or the `gguf` PyPI
-dependency at test time.
+and error paths without requiring real model weights.
+
+**Note on the `gguf` dependency:** The fixture files themselves are generated
+with Python's `struct` module — no external dependencies are needed to create
+them.  However, `llama_manager.metadata` has module-level imports from the
+`gguf` package (`from gguf.constants import Keys`,
+`from gguf.gguf_reader import ReaderField`), so the `gguf` PyPI dependency is
+still required at test time for any test that imports from `llama_manager`.
 
 ## How They Are Generated
 

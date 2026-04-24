@@ -86,7 +86,7 @@ def _write_gguf_v3(
     magic: bytes = b"GGUF",
     version: int = 3,
 ) -> None:
-    """Write a minimal GGUF v3 file.
+    """Write a minimal GGUF file with the specified version.
 
     Args:
         path: Output file path.

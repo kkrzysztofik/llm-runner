@@ -63,9 +63,14 @@ def _count_kv_pairs(kv_section: bytes) -> int:
     return count
 
 
-def _write_gguf_v3(path: Path, kv_section: bytes, magic: bytes = b"GGUF") -> None:
+def _write_gguf_v3(
+    path: Path,
+    kv_section: bytes,
+    magic: bytes = b"GGUF",
+    version: int = 3,
+) -> None:
     kv_count = struct.pack("<Q", _count_kv_pairs(kv_section))
-    header = magic + struct.pack("<I", 3) + kv_count
+    header = magic + struct.pack("<I", version) + kv_count
     path.write_bytes(header + kv_section)
 
 
@@ -91,7 +96,7 @@ def _generate_truncated(path: Path) -> None:
 def _generate_v4_unsupported(path: Path) -> None:
     kv = _build_kv_section(_REQUIRED_KEYS)
     kv = _pack_kv("general.name", _GGUF_TYPE_STRING, _GENERAL_NAME_VALUE) + kv
-    _write_gguf_v3(path, kv, magic=b"GGUF\x04\x00\x00\x00")
+    _write_gguf_v3(path, kv, magic=b"GGUF", version=4)
 
 
 def test_generate_gguf_fixtures(tmp_path: Path) -> None:
