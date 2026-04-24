@@ -24,9 +24,9 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Add `httpx` and `gguf` dependencies to `pyproject.toml` under `[project.dependencies]`
-- [ ] T002 [P] Create directory structure: `src/tests/fixtures/`, `src/scripts/`
-- [ ] T003 Update `pyproject.toml` test configuration to include fixtures path (runs after T001 — same file `pyproject.toml`, sequential execution required)
+- [x] T001 Add `httpx` and `gguf` dependencies to `pyproject.toml` under `[project.dependencies]`
+- [x] T002 [P] Create directory structure: `src/tests/fixtures/`, `src/scripts/`
+- [x] T003 Update `pyproject.toml` test configuration to include fixtures path (runs after T001 — same file `pyproject.toml`, sequential execution required)
 
 ---
 
