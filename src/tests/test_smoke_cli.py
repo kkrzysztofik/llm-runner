@@ -22,16 +22,59 @@ from llama_manager.smoke import probe_slot
 class TestSmokeCliParsing:
     """T033: CLI argument parsing for `smoke both` and `smoke slot <id>`."""
 
-    def test_smoke_both_mode_rejected(self) -> None:
-        """parse_args('smoke both') should reject 'smoke' as invalid mode."""
-        # 'smoke' is not in VALID_MODES, so argparse rejects it
-        with pytest.raises(SystemExit):
-            parse_args(["smoke", "both"])
+    def test_smoke_both_mode_accepted(self) -> None:
+        """parse_args('smoke both') should accept smoke mode."""
+        result = parse_args(["smoke", "both"])
+        assert result.mode == "smoke"
+        assert result.smoke_mode == "both"
 
-    def test_smoke_slot_id_rejected(self) -> None:
-        """parse_args('smoke slot slot1') should reject 'smoke' as invalid mode."""
+    def test_smoke_slot_mode_accepted(self) -> None:
+        """parse_args('smoke slot slot1') should accept smoke slot mode."""
+        result = parse_args(["smoke", "slot", "slot1"])
+        assert result.mode == "smoke"
+        assert result.smoke_mode == "slot"
+        assert result.slot_id == "slot1"
+
+    def test_smoke_with_json_flag(self) -> None:
+        """parse_args should handle --json flag for smoke subcommand."""
+        result = parse_args(["smoke", "both", "--json"])
+        assert result.mode == "smoke"
+        assert result.json is True
+
+    def test_smoke_with_api_key_flag(self) -> None:
+        """parse_args should handle --api-key flag for smoke subcommand."""
+        result = parse_args(["smoke", "both", "--api-key", "sk-test"])
+        assert result.api_key == "sk-test"
+
+    def test_smoke_with_model_id_flag(self) -> None:
+        """parse_args should handle --model-id flag for smoke subcommand."""
+        result = parse_args(["smoke", "both", "--model-id", "Qwen3.5-2B"])
+        assert result.model_id == "Qwen3.5-2B"
+
+    def test_smoke_with_max_tokens_flag(self) -> None:
+        """parse_args should handle --max-tokens flag for smoke subcommand."""
+        result = parse_args(["smoke", "both", "--max-tokens", "16"])
+        assert result.max_tokens == 16
+
+    def test_smoke_with_delay_flag(self) -> None:
+        """parse_args should handle --delay flag for smoke subcommand."""
+        result = parse_args(["smoke", "both", "--delay", "5"])
+        assert result.delay == 5
+
+    def test_smoke_with_timeout_flag(self) -> None:
+        """parse_args should handle --timeout flag for smoke subcommand."""
+        result = parse_args(["smoke", "both", "--timeout", "60"])
+        assert result.timeout == 60
+
+    def test_smoke_invalid_mode_rejected(self) -> None:
+        """parse_args should reject invalid smoke mode."""
         with pytest.raises(SystemExit):
-            parse_args(["smoke", "slot", "slot1"])
+            parse_args(["smoke", "invalid"])
+
+    def test_smoke_missing_mode_rejected(self) -> None:
+        """parse_args should reject smoke without mode argument."""
+        with pytest.raises(SystemExit):
+            parse_args(["smoke"])
 
     def test_valid_modes_accepted(self) -> None:
         """parse_args should accept all valid modes."""
@@ -44,6 +87,7 @@ class TestSmokeCliParsing:
             "build",
             "setup",
             "doctor",
+            "smoke",
         ]
         for mode in valid_modes:
             if mode == "dry-run":
@@ -55,6 +99,9 @@ class TestSmokeCliParsing:
                 result = parse_args(["setup", "check"])
             elif mode == "doctor":
                 result = parse_args(["doctor", "check"])
+            elif mode == "smoke":
+                # smoke requires a sub-mode argument
+                result = parse_args(["smoke", "both"])
             else:
                 result = parse_args([mode])
             assert result.mode == mode, f"Mode '{mode}' should be accepted"

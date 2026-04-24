@@ -8,7 +8,16 @@ a second argument specifying the mode to preview.
 import argparse
 import sys
 
-VALID_MODES = ("summary-balanced", "summary-fast", "qwen35", "both", "build", "setup", "doctor")
+VALID_MODES = (
+    "summary-balanced",
+    "summary-fast",
+    "qwen35",
+    "both",
+    "build",
+    "setup",
+    "doctor",
+    "smoke",
+)
 
 # NOTE: --strict-profiles is documented as post-MVP deferral (FR-M3-009).
 # In MVP, stale profiles produce a warning only — they never block model
@@ -415,6 +424,142 @@ def _handle_dry_run_case(args: list[str]) -> argparse.Namespace | None:
     return None
 
 
+def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
+    """Handle smoke subcommand special case.
+
+    Args:
+        args: List of command-line arguments.
+
+    Returns:
+        Parsed namespace if smoke subcommand, None otherwise.
+
+    Raises:
+        SystemExit: On missing or invalid smoke arguments.
+    """
+    if not (len(args) >= 1 and args[0] == "smoke"):
+        return None
+
+    if len(args) < 2:
+        print(
+            "error: smoke requires a mode argument (both|slot)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    mode = args[1]
+    if mode not in ("both", "slot"):
+        print(
+            f"error: invalid smoke mode '{mode}'. Valid modes: both, slot",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Parse remaining args for slot_id (when mode is "slot") and flags
+    slot_id: str | None = None
+    api_key: str = ""
+    model_id: str | None = None
+    max_tokens: int = 0
+    prompt: str = ""
+    delay: int = 0
+    timeout: int = 0
+    json_output: bool = False
+
+    remaining = args[2:]
+    i = 0
+
+    # If mode is "slot", first non-flag arg is slot_id
+    if mode == "slot" and remaining:
+        while i < len(remaining) and remaining[i].startswith("--"):
+            i += 1
+        if i < len(remaining):
+            slot_id = remaining[i]
+            i += 1
+            remaining = remaining[i:]
+            i = 0
+
+    # Parse flags with value support
+    while i < len(remaining):
+        arg = remaining[i]
+        if arg == "--api-key":
+            i += 1
+            if i < len(remaining):
+                api_key = remaining[i]
+        elif arg.startswith("--api-key="):
+            api_key = arg.split("=", 1)[1]
+        elif arg == "--json":
+            json_output = True
+        elif arg == "--model-id":
+            i += 1
+            if i < len(remaining):
+                model_id = remaining[i]
+        elif arg.startswith("--model-id="):
+            model_id = arg.split("=", 1)[1]
+        elif arg == "--max-tokens":
+            i += 1
+            if i < len(remaining):
+                try:
+                    max_tokens = int(remaining[i])
+                except ValueError:
+                    max_tokens = 16
+        elif arg.startswith("--max-tokens="):
+            try:
+                max_tokens = int(arg.split("=", 1)[1])
+            except ValueError:
+                max_tokens = 16
+        elif arg == "--prompt":
+            i += 1
+            if i < len(remaining):
+                prompt = remaining[i]
+        elif arg.startswith("--prompt="):
+            prompt = arg.split("=", 1)[1]
+        elif arg == "--delay":
+            i += 1
+            if i < len(remaining):
+                try:
+                    delay = int(remaining[i])
+                except ValueError:
+                    delay = 2
+        elif arg.startswith("--delay="):
+            try:
+                delay = int(arg.split("=", 1)[1])
+            except ValueError:
+                delay = 2
+        elif arg == "--timeout":
+            i += 1
+            if i < len(remaining):
+                try:
+                    timeout = int(remaining[i])
+                except ValueError:
+                    timeout = 120
+        elif arg.startswith("--timeout="):
+            try:
+                timeout = int(arg.split("=", 1)[1])
+            except ValueError:
+                timeout = 120
+        i += 1
+
+    # Validate max_tokens range
+    if max_tokens != 0 and not (8 <= max_tokens <= 32):
+        print(
+            f"error: --max-tokens must be between 8 and 32, got: {max_tokens}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    return argparse.Namespace(
+        mode="smoke",
+        smoke_mode=mode,
+        slot_id=slot_id,
+        api_key=api_key,
+        model_id=model_id,
+        max_tokens=max_tokens,
+        prompt=prompt,
+        delay=delay,
+        timeout=timeout,
+        json=json_output,
+    )
+
+
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments.
 
@@ -454,6 +599,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     dry_run_result = _handle_dry_run_case(args)
     if dry_run_result is not None:
         return dry_run_result
+
+    # Handle smoke subcommand (special case)
+    smoke_result = _handle_smoke_case(args)
+    if smoke_result is not None:
+        return smoke_result
 
     # Normal mode parsing
     return _parse_normal_mode_args(args)
