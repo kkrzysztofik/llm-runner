@@ -505,8 +505,7 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
                         max_tokens = int(value)
                     except ValueError:
                         print(
-                            f"error: invalid --max-tokens value '{value}': "
-                            "must be an integer",
+                            f"error: invalid --max-tokens value '{value}': must be an integer",
                             file=sys.stderr,
                         )
                         sys.exit(1)
@@ -517,8 +516,7 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
                         delay = int(value)
                     except ValueError:
                         print(
-                            f"error: invalid --delay value '{value}': "
-                            "must be an integer",
+                            f"error: invalid --delay value '{value}': must be an integer",
                             file=sys.stderr,
                         )
                         sys.exit(1)
@@ -527,8 +525,7 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
                         timeout = int(value)
                     except ValueError:
                         print(
-                            f"error: invalid --timeout value '{value}': "
-                            "must be an integer",
+                            f"error: invalid --timeout value '{value}': must be an integer",
                             file=sys.stderr,
                         )
                         sys.exit(1)
@@ -546,8 +543,7 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
                             max_tokens = int(val)
                         except ValueError:
                             print(
-                                f"error: invalid --max-tokens value '{val}': "
-                                "must be an integer",
+                                f"error: invalid --max-tokens value '{val}': must be an integer",
                                 file=sys.stderr,
                             )
                             sys.exit(1)
@@ -558,8 +554,7 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
                             delay = int(val)
                         except ValueError:
                             print(
-                                f"error: invalid --delay value '{val}': "
-                                "must be an integer",
+                                f"error: invalid --delay value '{val}': must be an integer",
                                 file=sys.stderr,
                             )
                             sys.exit(1)
@@ -568,8 +563,7 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
                             timeout = int(val)
                         except ValueError:
                             print(
-                                f"error: invalid --timeout value '{val}': "
-                                "must be an integer",
+                                f"error: invalid --timeout value '{val}': must be an integer",
                                 file=sys.stderr,
                             )
                             sys.exit(1)
