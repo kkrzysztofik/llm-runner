@@ -6,7 +6,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from .config import (
     Config,
@@ -16,6 +16,7 @@ from .config import (
     MultiValidationError,
     ServerConfig,
     ValidationResult,
+    VRamRecommendation,
 )
 
 # Precompiled regex pattern for sensitive key detection (Finding 172)
@@ -37,7 +38,7 @@ class DoctorCheckResult:
     """
 
     name: str
-    status: str  # "pass", "warn", "fail"
+    status: Literal["pass", "warn", "fail"]
     message: str = ""
 
 
@@ -896,7 +897,7 @@ def check_hardware_allowlist(
 def assess_vram_risk(
     vram_free_gb: float,
     model_size_gb: float,
-) -> str:
+) -> VRamRecommendation:
     """Assess VRAM risk for loading a model.
 
     Heuristic per spec FR-013 / AC-016:
@@ -913,7 +914,7 @@ def assess_vram_risk(
         model_size_gb: Estimated model size in gigabytes.
 
     Returns:
-        VRamRecommendation string value.
+        VRamRecommendation enum value.
 
     """
     from .config import VRamRecommendation

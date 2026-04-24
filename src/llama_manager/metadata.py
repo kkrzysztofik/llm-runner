@@ -540,7 +540,7 @@ def extract_gguf_metadata(
                 )
 
             result_queue.put(record, block=False)
-        except (ValueError, OSError, FileNotFoundError) as exc:
+        except Exception as exc:
             result_queue.put(exc, block=False)
 
     # Run parse in a thread with timeout

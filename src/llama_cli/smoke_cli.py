@@ -144,7 +144,7 @@ def _probe_server(
         port=port,
         smoke_cfg=smoke_cfg,
         model_path=model_path,
-        model_id=None,
+        model_id=smoke_cfg.model_id_override,
         expected_model_id=None,
     )
 

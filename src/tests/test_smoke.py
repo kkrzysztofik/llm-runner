@@ -49,6 +49,7 @@ def _make_smoke_cfg(
     prompt: str = "Respond with exactly one word.",
     skip_models_discovery: bool = False,
     api_key: str = "",
+    model_id_override: str | None = None,
 ) -> SmokeProbeConfiguration:
     """Create a SmokeProbeConfiguration with sensible defaults for testing."""
     return SmokeProbeConfiguration(
@@ -59,6 +60,7 @@ def _make_smoke_cfg(
         prompt=prompt,
         skip_models_discovery=skip_models_discovery,
         api_key=api_key,
+        model_id_override=model_id_override,
         first_token_timeout_s=1200,
         total_chat_timeout_s=1500,
     )
@@ -80,22 +82,24 @@ class TestPhase1ListenTimeout:
     """T025: Phase 1 — TCP connect (listen/accept) failure modes."""
 
     def test_phase1_socket_timeout(self) -> None:
-        """probe_slot should return FAIL with LISTEN failure on socket timeout."""
+        """probe_slot should return TIMEOUT with LISTEN failure on socket.timeout."""
         smoke_cfg = _make_smoke_cfg()
 
         with (
             patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
             patch("llama_manager.smoke.time.monotonic") as mock_monotonic,
+            patch("llama_manager.smoke._probe_models") as mock_probe_models,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.side_effect = TimeoutError("timed out")
             mock_sock.close.return_value = None
             mock_monotonic.side_effect = [0.0, 0.05]  # 50ms elapsed
+            mock_probe_models.return_value = (None, None)
 
             result = probe_slot("127.0.0.1", 8080, smoke_cfg)
 
-        assert result.status == SmokeProbeStatus.FAIL
+        assert result.status == SmokeProbeStatus.TIMEOUT
         assert result.failure_phase == SmokeFailurePhase.LISTEN
         assert result.phase_reached == SmokePhase.LISTEN
         assert result.model_id is None
@@ -119,6 +123,25 @@ class TestPhase1ListenTimeout:
         assert result.status == SmokeProbeStatus.FAIL
         assert result.failure_phase == SmokeFailurePhase.LISTEN
         assert result.slot_id == "127.0.0.1:8080"
+
+    def test_phase1_timeout_status(self) -> None:
+        """probe_slot should return TIMEOUT (not FAIL) on socket.timeout."""
+        smoke_cfg = _make_smoke_cfg()
+
+        with (
+            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.smoke._probe_models") as mock_probe_models,
+        ):
+            mock_sock = MagicMock()
+            mock_socket_cls.return_value = mock_sock
+            mock_sock.connect.side_effect = TimeoutError("timed out")
+            mock_sock.close.return_value = None
+            mock_probe_models.return_value = (None, None)
+
+            result = probe_slot("127.0.0.1", 8080, smoke_cfg)
+
+        assert result.status == SmokeProbeStatus.TIMEOUT
+        assert result.failure_phase == SmokeFailurePhase.LISTEN
 
     def test_phase1_oserror(self) -> None:
         """probe_slot should return FAIL with LISTEN failure on generic OSError."""
@@ -231,7 +254,7 @@ class TestPhase2ModelsDiscovery:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe.return_value = None  # Phase 2 passed
+            mock_probe.return_value = (None, None)  # Phase 2 passed
             mock_chat.return_value = None  # Phase 3 passed
 
             result = probe_slot(
@@ -250,13 +273,18 @@ class TestPhase2ModelsDiscovery:
         """probe_slot should return MODEL_NOT_FOUND when /v1/models returns empty data."""
         smoke_cfg = _make_smoke_cfg()
 
-        def probe_models_side_effect(*args: object, **kwargs: object) -> SmokeProbeResult | None:
-            return SmokeProbeResult(
-                slot_id="127.0.0.1:8080",
-                status=SmokeProbeStatus.MODEL_NOT_FOUND,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
-                model_id=None,
+        def probe_models_side_effect(
+            *args: object, **kwargs: object
+        ) -> tuple[SmokeProbeResult | None, str | None]:
+            return (
+                SmokeProbeResult(
+                    slot_id="127.0.0.1:8080",
+                    status=SmokeProbeStatus.MODEL_NOT_FOUND,
+                    phase_reached=SmokePhase.MODELS,
+                    failure_phase=SmokeFailurePhase.MODELS,
+                    model_id=None,
+                ),
+                None,
             )
 
         with (
@@ -277,13 +305,18 @@ class TestPhase2ModelsDiscovery:
         """probe_slot should return MODEL_NOT_FOUND when model ID does not match."""
         smoke_cfg = _make_smoke_cfg()
 
-        def probe_models_side_effect(*args: object, **kwargs: object) -> SmokeProbeResult | None:
-            return SmokeProbeResult(
-                slot_id="127.0.0.1:8080",
-                status=SmokeProbeStatus.MODEL_NOT_FOUND,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
-                model_id="unexpected-model",
+        def probe_models_side_effect(
+            *args: object, **kwargs: object
+        ) -> tuple[SmokeProbeResult | None, str | None]:
+            return (
+                SmokeProbeResult(
+                    slot_id="127.0.0.1:8080",
+                    status=SmokeProbeStatus.MODEL_NOT_FOUND,
+                    phase_reached=SmokePhase.MODELS,
+                    failure_phase=SmokeFailurePhase.MODELS,
+                    model_id="unexpected-model",
+                ),
+                None,
             )
 
         with (
@@ -313,7 +346,7 @@ class TestPhase2ModelsDiscovery:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe.return_value = None  # 404 → proceed
+            mock_probe.return_value = (None, None)  # 404 → proceed
             mock_chat.return_value = None  # Phase 3 passed
 
             result = probe_slot("127.0.0.1", 8080, smoke_cfg)
@@ -326,12 +359,17 @@ class TestPhase2ModelsDiscovery:
         """probe_slot should return AUTH_FAILURE on 401 from /v1/models."""
         smoke_cfg = _make_smoke_cfg()
 
-        def probe_models_side_effect(*args: object, **kwargs: object) -> SmokeProbeResult | None:
-            return SmokeProbeResult(
-                slot_id="127.0.0.1:8080",
-                status=SmokeProbeStatus.AUTH_FAILURE,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
+        def probe_models_side_effect(
+            *args: object, **kwargs: object
+        ) -> tuple[SmokeProbeResult | None, str | None]:
+            return (
+                SmokeProbeResult(
+                    slot_id="127.0.0.1:8080",
+                    status=SmokeProbeStatus.AUTH_FAILURE,
+                    phase_reached=SmokePhase.MODELS,
+                    failure_phase=SmokeFailurePhase.MODELS,
+                ),
+                None,
             )
 
         with (
@@ -352,12 +390,17 @@ class TestPhase2ModelsDiscovery:
         """probe_slot should return AUTH_FAILURE on 403 from /v1/models."""
         smoke_cfg = _make_smoke_cfg()
 
-        def probe_models_side_effect(*args: object, **kwargs: object) -> SmokeProbeResult | None:
-            return SmokeProbeResult(
-                slot_id="127.0.0.1:8080",
-                status=SmokeProbeStatus.AUTH_FAILURE,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
+        def probe_models_side_effect(
+            *args: object, **kwargs: object
+        ) -> tuple[SmokeProbeResult | None, str | None]:
+            return (
+                SmokeProbeResult(
+                    slot_id="127.0.0.1:8080",
+                    status=SmokeProbeStatus.AUTH_FAILURE,
+                    phase_reached=SmokePhase.MODELS,
+                    failure_phase=SmokeFailurePhase.MODELS,
+                ),
+                None,
             )
 
         with (
@@ -377,12 +420,17 @@ class TestPhase2ModelsDiscovery:
         """probe_slot should return FAIL on 500 from /v1/models."""
         smoke_cfg = _make_smoke_cfg()
 
-        def probe_models_side_effect(*args: object, **kwargs: object) -> SmokeProbeResult | None:
-            return SmokeProbeResult(
-                slot_id="127.0.0.1:8080",
-                status=SmokeProbeStatus.FAIL,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
+        def probe_models_side_effect(
+            *args: object, **kwargs: object
+        ) -> tuple[SmokeProbeResult | None, str | None]:
+            return (
+                SmokeProbeResult(
+                    slot_id="127.0.0.1:8080",
+                    status=SmokeProbeStatus.FAIL,
+                    phase_reached=SmokePhase.MODELS,
+                    failure_phase=SmokeFailurePhase.MODELS,
+                ),
+                None,
             )
 
         with (
@@ -424,12 +472,17 @@ class TestPhase2ModelsDiscovery:
         """probe_slot should return TIMEOUT on httpx.TimeoutException from /v1/models."""
         smoke_cfg = _make_smoke_cfg()
 
-        def probe_models_side_effect(*args: object, **kwargs: object) -> SmokeProbeResult | None:
-            return SmokeProbeResult(
-                slot_id="127.0.0.1:8080",
-                status=SmokeProbeStatus.TIMEOUT,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
+        def probe_models_side_effect(
+            *args: object, **kwargs: object
+        ) -> tuple[SmokeProbeResult | None, str | None]:
+            return (
+                SmokeProbeResult(
+                    slot_id="127.0.0.1:8080",
+                    status=SmokeProbeStatus.TIMEOUT,
+                    phase_reached=SmokePhase.MODELS,
+                    failure_phase=SmokeFailurePhase.MODELS,
+                ),
+                None,
             )
 
         with (
@@ -450,12 +503,17 @@ class TestPhase2ModelsDiscovery:
         """probe_slot should return FAIL on 400 from /v1/models."""
         smoke_cfg = _make_smoke_cfg()
 
-        def probe_models_side_effect(*args: object, **kwargs: object) -> SmokeProbeResult | None:
-            return SmokeProbeResult(
-                slot_id="127.0.0.1:8080",
-                status=SmokeProbeStatus.FAIL,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
+        def probe_models_side_effect(
+            *args: object, **kwargs: object
+        ) -> tuple[SmokeProbeResult | None, str | None]:
+            return (
+                SmokeProbeResult(
+                    slot_id="127.0.0.1:8080",
+                    status=SmokeProbeStatus.FAIL,
+                    phase_reached=SmokePhase.MODELS,
+                    failure_phase=SmokeFailurePhase.MODELS,
+                ),
+                None,
             )
 
         with (
@@ -475,12 +533,17 @@ class TestPhase2ModelsDiscovery:
         """probe_slot should return FAIL on httpx.ConnectError from /v1/models."""
         smoke_cfg = _make_smoke_cfg()
 
-        def probe_models_side_effect(*args: object, **kwargs: object) -> SmokeProbeResult | None:
-            return SmokeProbeResult(
-                slot_id="127.0.0.1:8080",
-                status=SmokeProbeStatus.FAIL,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
+        def probe_models_side_effect(
+            *args: object, **kwargs: object
+        ) -> tuple[SmokeProbeResult | None, str | None]:
+            return (
+                SmokeProbeResult(
+                    slot_id="127.0.0.1:8080",
+                    status=SmokeProbeStatus.FAIL,
+                    phase_reached=SmokePhase.MODELS,
+                    failure_phase=SmokeFailurePhase.MODELS,
+                ),
+                None,
             )
 
         with (
@@ -500,12 +563,17 @@ class TestPhase2ModelsDiscovery:
         """probe_slot should return FAIL when /v1/models returns invalid JSON."""
         smoke_cfg = _make_smoke_cfg()
 
-        def probe_models_side_effect(*args: object, **kwargs: object) -> SmokeProbeResult | None:
-            return SmokeProbeResult(
-                slot_id="127.0.0.1:8080",
-                status=SmokeProbeStatus.FAIL,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
+        def probe_models_side_effect(
+            *args: object, **kwargs: object
+        ) -> tuple[SmokeProbeResult | None, str | None]:
+            return (
+                SmokeProbeResult(
+                    slot_id="127.0.0.1:8080",
+                    status=SmokeProbeStatus.FAIL,
+                    phase_reached=SmokePhase.MODELS,
+                    failure_phase=SmokeFailurePhase.MODELS,
+                ),
+                None,
             )
 
         with (
@@ -543,7 +611,7 @@ class TestPhase3ChatCompletion:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe.return_value = None
+            mock_probe.return_value = (None, None)
             mock_chat.return_value = None  # Phase 3 passed
 
             result = probe_slot(
@@ -579,7 +647,7 @@ class TestPhase3ChatCompletion:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe.return_value = None
+            mock_probe.return_value = (None, None)
 
             result = probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="Qwen3.5-2B")
 
@@ -609,7 +677,7 @@ class TestPhase3ChatCompletion:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe.return_value = None
+            mock_probe.return_value = (None, None)
 
             result = probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="Qwen3.5-2B")
 
@@ -638,7 +706,7 @@ class TestPhase3ChatCompletion:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe.return_value = None
+            mock_probe.return_value = (None, None)
 
             result = probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="Qwen3.5-2B")
 
@@ -667,7 +735,7 @@ class TestPhase3ChatCompletion:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe.return_value = None
+            mock_probe.return_value = (None, None)
 
             result = probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="Qwen3.5-2B")
 
@@ -696,9 +764,9 @@ class TestCrashDetection:
         expected = {
             SmokeProbeStatus.PASS: 0,
             SmokeProbeStatus.FAIL: 10,
-            SmokeProbeStatus.TIMEOUT: 14,
+            SmokeProbeStatus.TIMEOUT: 13,
             SmokeProbeStatus.CRASHED: 19,
-            SmokeProbeStatus.MODEL_NOT_FOUND: 13,
+            SmokeProbeStatus.MODEL_NOT_FOUND: 14,
             SmokeProbeStatus.AUTH_FAILURE: 15,
         }
         for status, expected_code in expected.items():
@@ -884,7 +952,7 @@ class TestComputeOverallExitCode:
         assert compute_overall_exit_code(results) == 10
 
     def test_single_timeout_returns_timeout_code(self) -> None:
-        """compute_overall_exit_code should return 14 for a single TIMEOUT."""
+        """compute_overall_exit_code should return 13 for a single TIMEOUT."""
         results = [
             SmokeProbeResult(
                 slot_id="slot1",
@@ -892,7 +960,7 @@ class TestComputeOverallExitCode:
                 phase_reached=SmokePhase.MODELS,
             ),
         ]
-        assert compute_overall_exit_code(results) == 14
+        assert compute_overall_exit_code(results) == 13
 
     def test_single_crash_returns_crash_code(self) -> None:
         """compute_overall_exit_code should return 19 for a single CRASHED."""
@@ -940,8 +1008,25 @@ class TestComputeOverallExitCode:
                 phase_reached=SmokePhase.MODELS,
             ),
         ]
-        # AUTH_FAILURE=15 > TIMEOUT=14
+        # AUTH_FAILURE=15 > TIMEOUT=13
         assert compute_overall_exit_code(results) == 15
+
+    def test_mixed_results_model_not_found_wins_over_timeout(self) -> None:
+        """compute_overall_exit_code should prefer MODEL_NOT_FOUND over TIMEOUT."""
+        results = [
+            SmokeProbeResult(
+                slot_id="slot1",
+                status=SmokeProbeStatus.TIMEOUT,
+                phase_reached=SmokePhase.MODELS,
+            ),
+            SmokeProbeResult(
+                slot_id="slot2",
+                status=SmokeProbeStatus.MODEL_NOT_FOUND,
+                phase_reached=SmokePhase.MODELS,
+            ),
+        ]
+        # MODEL_NOT_FOUND=14 > TIMEOUT=13
+        assert compute_overall_exit_code(results) == 14
 
     def test_multiple_pass_one_fail(self) -> None:
         """compute_overall_exit_code should return FAIL code when one slot fails."""
@@ -965,7 +1050,7 @@ class TestComputeOverallExitCode:
         assert compute_overall_exit_code(results) == 10
 
     def test_model_not_found_exit_code(self) -> None:
-        """compute_overall_exit_code should return 13 for MODEL_NOT_FOUND."""
+        """compute_overall_exit_code should return 14 for MODEL_NOT_FOUND."""
         results = [
             SmokeProbeResult(
                 slot_id="slot1",
@@ -973,7 +1058,7 @@ class TestComputeOverallExitCode:
                 phase_reached=SmokePhase.MODELS,
             ),
         ]
-        assert compute_overall_exit_code(results) == 13
+        assert compute_overall_exit_code(results) == 14
 
 
 # ---------------------------------------------------------------------------
@@ -997,7 +1082,7 @@ class TestApiKeyHeaderPrecedence:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe.return_value = None
+            mock_probe.return_value = (None, None)
             mock_chat.return_value = None
 
             probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="test")
@@ -1020,7 +1105,7 @@ class TestApiKeyHeaderPrecedence:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe.return_value = None
+            mock_probe.return_value = (None, None)
             mock_chat.return_value = None
 
             probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="test")
@@ -1042,7 +1127,7 @@ class TestApiKeyHeaderPrecedence:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe.return_value = None
+            mock_probe.return_value = (None, None)
             mock_chat.return_value = None
 
             probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="test")
@@ -1065,7 +1150,7 @@ class TestApiKeyHeaderPrecedence:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe.return_value = None
+            mock_probe.return_value = (None, None)
             mock_chat.return_value = None
 
             probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="test")
@@ -1616,7 +1701,7 @@ class TestProbeSlotFullFlow:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe_models.return_value = None
+            mock_probe_models.return_value = (None, None)
             mock_probe_chat.return_value = None
 
             result = probe_slot(
@@ -1646,11 +1731,14 @@ class TestProbeSlotFullFlow:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe_models.return_value = SmokeProbeResult(
-                slot_id="127.0.0.1:8080",
-                status=SmokeProbeStatus.FAIL,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
+            mock_probe_models.return_value = (
+                SmokeProbeResult(
+                    slot_id="127.0.0.1:8080",
+                    status=SmokeProbeStatus.FAIL,
+                    phase_reached=SmokePhase.MODELS,
+                    failure_phase=SmokeFailurePhase.MODELS,
+                ),
+                None,
             )
 
             result = probe_slot("127.0.0.1", 8080, smoke_cfg)
@@ -1672,7 +1760,7 @@ class TestProbeSlotFullFlow:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe_models.return_value = None
+            mock_probe_models.return_value = (None, None)
             mock_probe_chat.return_value = SmokeProbeResult(
                 slot_id="127.0.0.1:8080",
                 status=SmokeProbeStatus.FAIL,
@@ -1701,7 +1789,7 @@ class TestProbeSlotFullFlow:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe_models.return_value = None
+            mock_probe_models.return_value = (None, None)
             mock_probe_chat.return_value = None
             mock_resolve.return_value = ProvenanceRecord(
                 sha="abc1234",
@@ -1725,11 +1813,14 @@ class TestProbeSlotFullFlow:
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
-            mock_probe_models.return_value = SmokeProbeResult(
-                slot_id="127.0.0.1:8080",
-                status=SmokeProbeStatus.FAIL,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
+            mock_probe_models.return_value = (
+                SmokeProbeResult(
+                    slot_id="127.0.0.1:8080",
+                    status=SmokeProbeStatus.FAIL,
+                    phase_reached=SmokePhase.MODELS,
+                    failure_phase=SmokeFailurePhase.MODELS,
+                ),
+                None,
             )
 
             result = probe_slot("127.0.0.1", 8080, smoke_cfg)
@@ -2080,3 +2171,171 @@ class TestResolveApiKeyWhitespace:
         # So it returns the stripped value ""
         result = resolve_api_key("  ")
         assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# model_id_override precedence tests
+# ---------------------------------------------------------------------------
+
+
+class TestModelIdOverridePrecedence:
+    """Tests for model_id_override in probe_slot resolution precedence."""
+
+    def test_model_id_override_used_when_no_explicit(self) -> None:
+        """probe_slot should use model_id_override when no explicit model_id."""
+        smoke_cfg = _make_smoke_cfg(model_id_override="override-model")
+
+        with (
+            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.smoke._probe_models") as mock_probe,
+            patch("llama_manager.smoke._probe_chat") as mock_chat,
+        ):
+            mock_sock = MagicMock()
+            mock_socket_cls.return_value = mock_sock
+            mock_sock.connect.return_value = None
+            mock_sock.close.return_value = None
+            mock_probe.return_value = (None, None)
+            mock_chat.return_value = None
+
+            _result = probe_slot("127.0.0.1", 8080, smoke_cfg)
+
+        # Chat should receive the override model, not expected_model_id
+        assert mock_chat.call_count == 1
+        assert mock_chat.call_args[0][3] == "override-model"
+
+    def test_explicit_model_id_takes_precedence_over_override(self) -> None:
+        """probe_slot should prefer explicit model_id over model_id_override."""
+        smoke_cfg = _make_smoke_cfg(model_id_override="override-model")
+
+        with (
+            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.smoke._probe_models") as mock_probe,
+            patch("llama_manager.smoke._probe_chat") as mock_chat,
+        ):
+            mock_sock = MagicMock()
+            mock_socket_cls.return_value = mock_sock
+            mock_sock.connect.return_value = None
+            mock_sock.close.return_value = None
+            mock_probe.return_value = (None, None)
+            mock_chat.return_value = None
+
+            _result = probe_slot(
+                "127.0.0.1",
+                8080,
+                smoke_cfg,
+                model_id="explicit-model",
+            )
+
+        assert mock_chat.call_args[0][3] == "explicit-model"
+
+    def test_expected_model_id_used_when_no_explicit_or_override(self) -> None:
+        """probe_slot should use expected_model_id when no explicit or override."""
+        smoke_cfg = _make_smoke_cfg()
+
+        with (
+            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.smoke._probe_models") as mock_probe,
+            patch("llama_manager.smoke._probe_chat") as mock_chat,
+        ):
+            mock_sock = MagicMock()
+            mock_socket_cls.return_value = mock_sock
+            mock_sock.connect.return_value = None
+            mock_sock.close.return_value = None
+            mock_probe.return_value = (None, None)
+            mock_chat.return_value = None
+
+            _result = probe_slot(
+                "127.0.0.1",
+                8080,
+                smoke_cfg,
+                expected_model_id="expected-model",
+            )
+
+        assert mock_chat.call_args[0][3] == "expected-model"
+
+
+# ---------------------------------------------------------------------------
+# _probe_models all-models check tests
+# ---------------------------------------------------------------------------
+
+
+class TestProbeModelsAllModelsCheck:
+    """Tests for _probe_models checking all models, not just the first."""
+
+    def test_non_matching_first_model_with_second_match(self) -> None:
+        """_probe_models should find expected_model_id even if not in first position."""
+        with patch("llama_manager.smoke.httpx.Client") as mock_client_cls:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "object": "list",
+                "data": [
+                    {"id": "other-model", "object": "model", "owned_by": "system"},
+                    {"id": "expected-model", "object": "model", "owned_by": "system"},
+                ],
+            }
+            mock_client_instance = MagicMock()
+            mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+            mock_client_instance.__exit__ = MagicMock(return_value=False)
+            mock_client_instance.get.return_value = mock_response
+            mock_client_cls.return_value = mock_client_instance
+
+            from llama_manager.smoke import _probe_models
+
+            result, discovered_id = _probe_models("127.0.0.1", 8080, 10, "", "expected-model")
+
+            # Should return None (success) since expected-model is in the list
+            assert result is None
+            assert discovered_id == "expected-model"
+
+    def test_no_match_returns_model_not_found(self) -> None:
+        """_probe_models should return MODEL_NOT_FOUND when no model matches."""
+        with patch("llama_manager.smoke.httpx.Client") as mock_client_cls:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "object": "list",
+                "data": [
+                    {"id": "model-a", "object": "model", "owned_by": "system"},
+                    {"id": "model-b", "object": "model", "owned_by": "system"},
+                ],
+            }
+            mock_client_instance = MagicMock()
+            mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+            mock_client_instance.__exit__ = MagicMock(return_value=False)
+            mock_client_instance.get.return_value = mock_response
+            mock_client_cls.return_value = mock_client_instance
+
+            from llama_manager.smoke import _probe_models
+
+            result, discovered_id = _probe_models("127.0.0.1", 8080, 10, "", "expected-model")
+
+            assert result is not None
+            assert result.status == SmokeProbeStatus.MODEL_NOT_FOUND
+            # Should return the first model id as discovered
+            assert result.model_id == "model-a"
+
+    def test_empty_expected_id_accepts_any_model(self) -> None:
+        """_probe_models should accept any model when expected_model_id is empty."""
+        with patch("llama_manager.smoke.httpx.Client") as mock_client_cls:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "object": "list",
+                "data": [
+                    {"id": "any-model", "object": "model", "owned_by": "system"},
+                ],
+            }
+            mock_client_instance = MagicMock()
+            mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+            mock_client_instance.__exit__ = MagicMock(return_value=False)
+            mock_client_instance.get.return_value = mock_response
+            mock_client_cls.return_value = mock_client_instance
+
+            from llama_manager.smoke import _probe_models
+
+            result, discovered_id = _probe_models("127.0.0.1", 8080, 10, "", "")
+
+            # Should return None (success) since expected_model_id is empty
+            assert result is None
+            assert discovered_id == "any-model"

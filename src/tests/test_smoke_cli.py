@@ -265,8 +265,8 @@ class TestSmokeProbeResultExitCodeMapping:
         )
         assert result.exit_code == 10
 
-    def test_exit_code_timeout_is_fourteen(self) -> None:
-        """TIMEOUT should map to exit code 14."""
+    def test_exit_code_timeout_is_thirteen(self) -> None:
+        """TIMEOUT should map to exit code 13 (less severe than MODEL_NOT_FOUND=14)."""
         from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
 
         result = SmokeProbeResult(
@@ -274,10 +274,10 @@ class TestSmokeProbeResultExitCodeMapping:
             status=SmokeProbeStatus.TIMEOUT,
             phase_reached=SmokePhase.MODELS,
         )
-        assert result.exit_code == 14
+        assert result.exit_code == 13
 
-    def test_exit_code_model_not_found_is_thirteen(self) -> None:
-        """MODEL_NOT_FOUND should map to exit code 13."""
+    def test_exit_code_model_not_found_is_fourteen(self) -> None:
+        """MODEL_NOT_FOUND should map to exit code 14 (more severe than TIMEOUT=13)."""
         from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
 
         result = SmokeProbeResult(
@@ -285,7 +285,7 @@ class TestSmokeProbeResultExitCodeMapping:
             status=SmokeProbeStatus.MODEL_NOT_FOUND,
             phase_reached=SmokePhase.MODELS,
         )
-        assert result.exit_code == 13
+        assert result.exit_code == 14
 
     def test_exit_code_auth_failure_is_fifteen(self) -> None:
         """AUTH_FAILURE should map to exit code 15."""

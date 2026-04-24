@@ -421,7 +421,7 @@ class TestComputeMachineFingerprint:
 class TestCheckHardwareAllowlist:
     """T059: Tests for hardware allowlist check."""
 
-    def test_allowlist_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_allowlist_match(self) -> None:
         """check_hardware_allowlist should return 'match' when fingerprint is in allowlist."""
         from llama_manager.server import check_hardware_allowlist
 
@@ -432,7 +432,7 @@ class TestCheckHardwareAllowlist:
 
         assert result == "match"
 
-    def test_allowlist_mismatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_allowlist_mismatch(self) -> None:
         """check_hardware_allowlist should return 'mismatch' when fingerprint is not in allowlist."""
         from llama_manager.server import check_hardware_allowlist
 
@@ -443,7 +443,7 @@ class TestCheckHardwareAllowlist:
 
         assert result == "mismatch"
 
-    def test_allowlist_invalidated(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_allowlist_invalidated(self) -> None:
         """check_hardware_allowlist should return 'invalidated' when allowlist is empty."""
         from llama_manager.server import check_hardware_allowlist
 
