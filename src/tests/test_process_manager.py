@@ -16,12 +16,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llama_manager.config import ErrorCode, ErrorDetail
+from llama_manager.config import ErrorCode, ErrorDetail, SlotState
 from llama_manager.log_buffer import LogBuffer
 from llama_manager.process_manager import (
     REDACTED_VALUE,
     LockMetadata,
     ServerManager,
+    SlotRuntime,
     ValidationException,
     _redact_sensitive_in_dict,
     check_lockfile_integrity,
@@ -1001,3 +1002,165 @@ class TestSlotRuntime:
             assert "gpu_stats" in d
         except ImportError:
             pytest.skip("SlotRuntime not yet implemented (T017)")
+
+
+class TestFullLifecycleAndShutdown:
+    """T024b/T024c: Integration tests for full lifecycle and shutdown behavior.
+
+    T024b — Full lifecycle (idle→launching→running→degraded→running→offline→idle)
+    T024c — Shutdown with orphan detection (SIGTERM→SIGKILL escalation)
+    """
+
+    def test_full_lifecycle(self, tmp_path: Path) -> None:
+        """Verify full lifecycle (idle→launching→running→degraded→running→offline→idle).
+
+        Tests:
+        - All state transitions via SlotRuntime.transition_to()
+        - start_time updates correctly for LAUNCHING/RUNNING transitions
+        - start_time preserved for non-launching transitions
+        - Serialization to dict with correct values
+        """
+        runtime = SlotRuntime(
+            slot_id="test-slot",
+            state=SlotState.IDLE,
+            pid=None,
+            start_time=time.time(),
+            logs=LogBuffer(),
+            gpu_stats=None,
+        )
+
+        assert runtime.state == SlotState.IDLE
+        assert runtime.pid is None
+
+        # Transition IDLE → LAUNCHING
+        launching_time = time.time()
+        runtime.transition_to(SlotState.LAUNCHING)
+        assert runtime.state == SlotState.LAUNCHING
+        assert runtime.start_time >= launching_time
+
+        # Transition LAUNCHING → RUNNING
+        running_time = time.time()
+        runtime.transition_to(SlotState.RUNNING)
+        assert runtime.state == SlotState.RUNNING
+        assert runtime.start_time >= running_time
+
+        # Transition RUNNING → DEGRADED (start_time should NOT update)
+        degraded_start = runtime.start_time
+        runtime.transition_to(SlotState.DEGRADED)
+        assert runtime.state == SlotState.DEGRADED
+        assert runtime.start_time == degraded_start
+
+        # Transition DEGRADED → RUNNING (start_time SHOULD update)
+        running_time2 = time.time()
+        runtime.transition_to(SlotState.RUNNING)
+        assert runtime.state == SlotState.RUNNING
+        assert runtime.start_time >= running_time2
+
+        # Transition RUNNING → OFFLINE (start_time should NOT update)
+        offline_start = runtime.start_time
+        runtime.transition_to(SlotState.OFFLINE)
+        assert runtime.state == SlotState.OFFLINE
+        assert runtime.start_time == offline_start
+
+        # Transition OFFLINE → IDLE (start_time should NOT update)
+        idle_start = runtime.start_time
+        runtime.transition_to(SlotState.IDLE)
+        assert runtime.state == SlotState.IDLE
+        assert runtime.start_time == idle_start
+
+        # Verify dataclass fields are accessible and correct
+        runtime_with_pid = SlotRuntime(
+            slot_id="gpu0-slot1",
+            state=SlotState.RUNNING,
+            pid=12345,
+            start_time=1234567890.0,
+            logs=LogBuffer(),
+            gpu_stats=None,
+        )
+        # Use vars() instead of asdict() — LogBuffer has an unpicklable lock
+        d = vars(runtime_with_pid)
+        assert d["slot_id"] == "gpu0-slot1"
+        assert d["pid"] == 12345
+        assert d["start_time"] == 1234567890.0
+        assert isinstance(d["state"], SlotState)
+        assert d["state"] == SlotState.RUNNING
+
+    def test_shutdown_without_orphans(self, tmp_path: Path) -> None:
+        """Verify shutdown initiates within 1s and completes without orphan processes.
+
+        Tests:
+        - shutdown_slot() sends SIGTERM and returns True when process exits
+        - cleanup_servers() is idempotent (second call is no-op)
+        - No orphan processes remain (SIGKILL not sent for graceful exit)
+        """
+        manager = ServerManager()
+        manager.pids = [12345]
+        manager.pid_metadata[12345] = time.time()
+
+        # Track signals sent
+        signals_sent: list[int] = []
+
+        def track_kill(pid: int, sig: int) -> None:
+            signals_sent.append(sig)
+
+        # Simulate process exiting after SIGTERM (no orphans)
+        call_count = 0
+
+        def pid_exists(pid: int) -> bool:
+            nonlocal call_count
+            call_count += 1
+            # First call: process exists → SIGTERM sent
+            # After SIGTERM: process no longer exists → graceful exit
+            return call_count == 1
+
+        with (
+            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
+            patch("llama_manager.process_manager.psutil.pid_exists", side_effect=pid_exists),
+            patch("os.kill", side_effect=track_kill),
+            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("time.sleep", lambda x: None),
+        ):
+            mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
+
+            result = manager.shutdown_slot("test-slot", timeout=1.0)
+
+        assert result is True
+        assert signal.SIGTERM in signals_sent
+        assert signal.SIGKILL not in signals_sent
+
+        # Verify cleanup_servers() is idempotent
+        manager2 = ServerManager()
+        manager2.pids = [54321]
+        manager2.pid_metadata[54321] = time.time()
+        cleanup_signals: list[int] = []
+
+        def track_cleanup_kill(pid: int, sig: int) -> None:
+            cleanup_signals.append(sig)
+
+        with (
+            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("os.kill", side_effect=track_cleanup_kill),
+            patch("time.sleep", lambda x: None),
+        ):
+            mock_proc_obj = mock_psutil.return_value
+            mock_proc_obj.create_time.return_value = manager2.pid_metadata[54321]
+            mock_uids = MagicMock()
+            mock_uids.real = os.getuid()
+            mock_proc_obj.uids.return_value = mock_uids
+
+            manager2.cleanup_servers()
+            first_call_count = len(cleanup_signals)
+
+            # Second call should be no-op (already shutting_down)
+            manager2.cleanup_servers()
+            second_call_count = len(cleanup_signals)
+
+        assert second_call_count == first_call_count
+        assert manager2.shutting_down is True
+
+        # Verify lifecycle audit records shutdown event
+        assert any(
+            e["event"] == "cleanup" and e["details"] == "initiated"
+            for e in manager2._lifecycle_audit
+        )

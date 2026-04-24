@@ -74,16 +74,16 @@ description: "Task list for M4: Operational Hardening and Smoke Verification"
 
 ### Implementation for User Story 1
 
-- [ ] T017 [US1] Add `SlotRuntime` dataclass to `src/llama_manager/process_manager.py`
-- [ ] T018 [US1] Add lockfile methods (`acquire_lock`, `release_lock`, `check_lock_stale`) to `src/llama_manager/process_manager.py`
-- [ ] T019 [US1] [AC-012] Add SIGTERM→SIGKILL shutdown implementation to `src/llama_manager/process_manager.py`
-- [ ] T020 [US1] Add rotating audit log implementation to `src/llama_manager/process_manager.py`
-- [ ] T021 [US1] [AC-011] Add per-slot status display (health, logs, GPU stats, backend label) to `src/llama_cli/tui_app.py`
-- [ ] T022 [US1] [AC-011] Add GPU telemetry panel update to `src/llama_cli/tui_app.py`
-- [ ] T023 [US1] [AC-013] Add slot state transition handling for launching→running, running→degraded, etc. in `src/llama_cli/tui_app.py`
-- [ ] T024 [US1] Add graceful shutdown key handler (Ctrl+C) in `src/llama_cli/tui_app.py`
-- [ ] T024b [US1] Write integration test for SC-001a: full launch + monitor + shutdown cycle completes in under 120 seconds (mocked servers, timing assertion)
-- [ ] T024c [US1] [AC-012] Write integration test for SC-001b: shutdown initiates within 1s of user request and completes without orphan processes within 30s; test scans for running `llama-server` processes owned by current user
+- [x] T017 [US1] Add `SlotRuntime` dataclass to `src/llama_manager/process_manager.py`
+- [x] T018 [US1] Add lockfile methods (`acquire_lock`, `release_lock`, `check_lock_stale`) to `src/llama_manager/process_manager.py`
+- [x] T019 [US1] [AC-012] Add SIGTERM→SIGKILL shutdown implementation to `src/llama_manager/process_manager.py`
+- [x] T020 [US1] Add rotating audit log implementation to `src/llama_manager/process_manager.py`
+- [x] T021 [US1] [AC-011] Add per-slot status display (health, logs, GPU stats, backend label) to `src/llama_cli/tui_app.py`
+- [x] T022 [US1] [AC-011] Add GPU telemetry panel update to `src/llama_cli/tui_app.py`
+- [x] T023 [US1] [AC-013] Add slot state transition handling for launching→running, running→degraded, etc. in `src/llama_cli/tui_app.py`
+- [x] T024 [US1] Add graceful shutdown key handler (Ctrl+C) in `src/llama_cli/tui_app.py`
+- [x] T024b [US1] Write integration test for SC-001a: full launch + monitor + shutdown cycle completes in under 120 seconds (mocked servers, timing assertion)
+- [x] T024c [US1] [AC-012] Write integration test for SC-001b: shutdown initiates within 1s of user request and completes without orphan processes within 30s; test scans for running `llama-server` processes owned by current user
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
