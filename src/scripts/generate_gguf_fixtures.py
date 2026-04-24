@@ -19,6 +19,7 @@ All fixtures are under 10 KiB and contain no tensor data.
 
 import struct
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 # GGUF value type constants
@@ -39,7 +40,7 @@ _REQUIRED_KEYS: dict[str, tuple[int, bytes]] = {
 # general.name is optional for the no_name variant
 _GENERAL_NAME: tuple[int, bytes] = (
     _GGUF_TYPE_STRING,
-    struct.pack("<Q", 11) + b"test-model-v1",
+    struct.pack("<Q", len(b"test-model-v1")) + b"test-model-v1",
 )
 
 
@@ -83,6 +84,7 @@ def _write_gguf_v3(
     path: Path,
     kv_section: bytes,
     magic: bytes = b"GGUF",
+    version: int = 3,
 ) -> None:
     """Write a minimal GGUF v3 file.
 
@@ -90,14 +92,11 @@ def _write_gguf_v3(
         path: Output file path.
         kv_section: Pre-built key-value section bytes.
         magic: Magic bytes prefix (default GGUF v3).
+        version: GGUF version number (default 3).
     """
     kv_count = struct.pack("<Q", _count_kv_pairs(kv_section) if kv_section else 0)
 
-    header = (
-        magic
-        + struct.pack("<I", 3)  # version = 3
-        + kv_count
-    )
+    header = magic + struct.pack("<I", version) + kv_count
     path.write_bytes(header + kv_section)
 
 
@@ -170,7 +169,7 @@ def generate_v4_unsupported(path: Path) -> None:
     """Generate a valid GGUF v4 file (unsupported version)."""
     kv = _build_kv_section(_REQUIRED_KEYS)
     kv = _pack_kv("general.name", _GGUF_TYPE_STRING, _GENERAL_NAME[1]) + kv
-    _write_gguf_v3(path, kv, magic=b"GGUF\x04\x00\x00\x00")
+    _write_gguf_v3(path, kv, magic=b"GGUF", version=4)
 
 
 def main() -> int:
@@ -182,7 +181,7 @@ def main() -> int:
     fixtures_dir = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
     fixtures_dir.mkdir(parents=True, exist_ok=True)
 
-    generators: list[tuple[str, Path, callable]] = [
+    generators: list[tuple[str, Path, Callable[[Path], None]]] = [
         ("gguf_v3_valid.gguf", fixtures_dir / "gguf_v3_valid.gguf", generate_valid_v3),
         ("gguf_v3_no_name.gguf", fixtures_dir / "gguf_v3_no_name.gguf", generate_valid_v3_no_name),
         ("gguf_corrupt.gguf", fixtures_dir / "gguf_corrupt.gguf", generate_corrupt),

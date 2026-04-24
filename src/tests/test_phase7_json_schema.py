@@ -36,8 +36,18 @@ _FAILURE_PHASE_ENUMS: list[str] = ["listen", "models", "chat"]
 _VALID_PROVENANCE_FIELDS: set[str] = {"sha", "version"}
 
 
-def _to_report_dict(report: SmokeCompositeReport) -> dict:
-    """Serialize a SmokeCompositeReport to a dict (mimics --json output)."""
+def _to_report_dict(report: SmokeCompositeReport, capsys=None) -> dict:
+    """Serialize a SmokeCompositeReport to a dict (mimics --json output).
+
+    Uses real CLI JSON output when capsys is provided.
+    """
+    if capsys is not None:
+        from llama_cli.smoke_cli import _print_report_json
+
+        _print_report_json(report)
+        captured = capsys.readouterr()
+        return json.loads(captured.out)
+
     return {
         "results": [
             {

@@ -48,66 +48,33 @@ class TestTuiVsCliSmokeParity:
     # All-pass scenario
     # ------------------------------------------------------------------
 
-    def test_passing_results_identical_status_phase(self) -> None:
+    def test_passing_results_identical_status_phase(self, capsys) -> None:
         """TUI and CLI must produce the same slot status and phase for passing results."""
+        from llama_cli.smoke_cli import _print_report_human, _print_report_json
+
         results = [
             _make_result(slot_id="arc_b580", status=SmokeProbeStatus.PASS),
             _make_result(slot_id="rtx3090", status=SmokeProbeStatus.PASS),
         ]
         report = SmokeCompositeReport(results=results)
 
-        # Build what _print_report_human would emit (slot status + phase lines)
-        human_lines: list[str] = []
-        human_lines.append(f"Smoke Test Report — {report.overall_status.value.upper()}")
-        human_lines.append(f"Overall exit code: {report.overall_exit_code}")
-        human_lines.append(f"Pass: {report.pass_count} / {len(results)}")
-        human_lines.append(f"Fail: {report.fail_count} / {len(results)}")
-        for r in results:
-            status_icon = "✓" if r.status == SmokeProbeStatus.PASS else "✗"
-            line = f"  {status_icon} {r.slot_id}: {r.status.value}"
-            if r.model_id:
-                line += f" (model={r.model_id})"
-            if r.latency_ms is not None:
-                line += f" ({r.latency_ms}ms)"
-            human_lines.append(line)
-        human_output = "\n".join(human_lines)
+        _print_report_human(report, mode="smoke")
+        captured_human = capsys.readouterr()
+        human_output = captured_human.out
 
-        # Build what CLI _print_report_json would emit
-        json_output = json.dumps(
-            {
-                "results": [
-                    {
-                        "slot_id": r.slot_id,
-                        "status": r.status,
-                        "phase_reached": r.phase_reached,
-                        "failure_phase": r.failure_phase,
-                        "model_id": r.model_id,
-                        "latency_ms": r.latency_ms,
-                        "provenance": {"sha": r.provenance.sha, "version": r.provenance.version},
-                    }
-                    for r in results
-                ],
-                "overall_status": report.overall_status,
-                "overall_exit_code": report.overall_exit_code,
-                "pass_count": report.pass_count,
-                "fail_count": report.fail_count,
-            },
-            indent=2,
-        )
+        _print_report_json(report)
+        captured_json = capsys.readouterr()
+        parsed = json.loads(captured_json.out)
 
-        # Parse JSON back — slot data must match
-        parsed = json.loads(json_output)
         for i, r in enumerate(results):
             assert parsed["results"][i]["slot_id"] == r.slot_id
             assert parsed["results"][i]["status"] == r.status.value
             assert parsed["results"][i]["phase_reached"] == r.phase_reached.value
 
-        # Human-readable output must contain the same slot IDs and statuses
         for r in results:
             assert r.slot_id in human_output
-            assert r.status.value in human_output
+            assert r.status.value.upper() in human_output
 
-        # Both outputs must agree on overall_status
         assert parsed["overall_status"] == report.overall_status.value
         assert report.overall_status.value.upper() in human_output
 
@@ -115,8 +82,10 @@ class TestTuiVsCliSmokeParity:
     # Mixed pass/fail scenario
     # ------------------------------------------------------------------
 
-    def test_mixed_results_identical_status_phase(self) -> None:
+    def test_mixed_results_identical_status_phase(self, capsys) -> None:
         """TUI and CLI must produce the same status/phase for mixed pass/fail results."""
+        from llama_cli.smoke_cli import _print_report_human, _print_report_json
+
         results = [
             _make_result(slot_id="slot1", status=SmokeProbeStatus.PASS),
             _make_result(
@@ -134,46 +103,19 @@ class TestTuiVsCliSmokeParity:
         ]
         report = SmokeCompositeReport(results=results)
 
-        human_lines: list[str] = []
-        human_lines.append(f"Smoke Test Report — {report.overall_status.value.upper()}")
-        for r in results:
-            status_icon = "✓" if r.status == SmokeProbeStatus.PASS else "✗"
-            line = f"  {status_icon} {r.slot_id}: {r.status.value}"
-            if r.model_id:
-                line += f" (model={r.model_id})"
-            if r.latency_ms is not None:
-                line += f" ({r.latency_ms}ms)"
-            human_lines.append(line)
-        human_output = "\n".join(human_lines)
+        _print_report_human(report, mode="smoke")
+        captured_human = capsys.readouterr()
+        human_output = captured_human.out
 
-        json_output = json.dumps(
-            {
-                "results": [
-                    {
-                        "slot_id": r.slot_id,
-                        "status": r.status,
-                        "phase_reached": r.phase_reached,
-                        "failure_phase": r.failure_phase,
-                        "model_id": r.model_id,
-                        "latency_ms": r.latency_ms,
-                    }
-                    for r in results
-                ],
-                "overall_status": report.overall_status,
-                "overall_exit_code": report.overall_exit_code,
-                "pass_count": report.pass_count,
-                "fail_count": report.fail_count,
-            }
-        )
-        parsed = json.loads(json_output)
+        _print_report_json(report)
+        captured_json = capsys.readouterr()
+        parsed = json.loads(captured_json.out)
 
-        # Both must agree on overall status
         assert parsed["overall_status"] == report.overall_status.value
         for r in results:
             assert r.slot_id in human_output
-            assert r.status.value in human_output
+            assert r.status.value.upper() in human_output
 
-        # Slot data in JSON must match
         for i, r in enumerate(results):
             assert parsed["results"][i]["slot_id"] == r.slot_id
             assert parsed["results"][i]["status"] == r.status.value
@@ -183,8 +125,10 @@ class TestTuiVsCliSmokeParity:
     # Failing results scenario
     # ------------------------------------------------------------------
 
-    def test_failing_results_identical_status_phase(self) -> None:
+    def test_failing_results_identical_status_phase(self, capsys) -> None:
         """TUI and CLI must produce the same status/phase for all-failing results."""
+        from llama_cli.smoke_cli import _print_report_human, _print_report_json
+
         results = [
             _make_result(
                 slot_id="slot1",
@@ -207,48 +151,21 @@ class TestTuiVsCliSmokeParity:
         ]
         report = SmokeCompositeReport(results=results)
 
-        human_lines: list[str] = []
-        human_lines.append(f"Smoke Test Report — {report.overall_status.value.upper()}")
-        for r in results:
-            status_icon = "✓" if r.status == SmokeProbeStatus.PASS else "✗"
-            line = f"  {status_icon} {r.slot_id}: {r.status.value}"
-            if r.model_id:
-                line += f" (model={r.model_id})"
-            if r.latency_ms is not None:
-                line += f" ({r.latency_ms}ms)"
-            human_lines.append(line)
-        human_output = "\n".join(human_lines)
+        _print_report_human(report, mode="smoke")
+        captured_human = capsys.readouterr()
+        human_output = captured_human.out
 
-        json_output = json.dumps(
-            {
-                "results": [
-                    {
-                        "slot_id": r.slot_id,
-                        "status": r.status,
-                        "phase_reached": r.phase_reached,
-                        "failure_phase": r.failure_phase,
-                        "model_id": r.model_id,
-                        "latency_ms": r.latency_ms,
-                    }
-                    for r in results
-                ],
-                "overall_status": report.overall_status,
-                "overall_exit_code": report.overall_exit_code,
-                "pass_count": report.pass_count,
-                "fail_count": report.fail_count,
-            }
-        )
-        parsed = json.loads(json_output)
+        _print_report_json(report)
+        captured_json = capsys.readouterr()
+        parsed = json.loads(captured_json.out)
 
-        # CRASHED is worst, so overall must be CRASHED
         assert report.overall_status == SmokeProbeStatus.CRASHED
         assert parsed["overall_status"] == "crashed"
 
         for r in results:
             assert r.slot_id in human_output
-            assert r.status.value in human_output
+            assert r.status.value.upper() in human_output
 
-        # All slots present in JSON
         assert len(parsed["results"]) == len(results)
         for i, r in enumerate(results):
             assert parsed["results"][i]["slot_id"] == r.slot_id

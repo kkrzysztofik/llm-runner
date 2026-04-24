@@ -228,10 +228,10 @@ Top-level output from `smoke both`.
 
 | Field | Type | Validation |
 | --- | --- | --- |
-| `slots` | `list[SmokeSlotResult]` | Per-slot results in declaration order |
+| `results` | `list[SmokeSlotResult]` | Per-slot results in declaration order |
 | `overall_exit_code` | `int` | Highest-severity (lowest-numbered) failure code; 0 if all pass |
 
-Each entry in `slots` maps to a `SmokeProbeResult` plus the per-slot exit code.
+Each entry in `results` maps to a `SmokeProbeResult` plus the per-slot exit code.
 
 ---
 
@@ -378,7 +378,7 @@ Transitions from any active state:
 
 ```json
 {
-  "slots": [
+  "results": [
     {
       "slot_id": "string",
       "status": "pass" | "fail" | "timeout" | "crashed" | "model_not_found" | "auth_failure",
@@ -702,11 +702,11 @@ class SmokeCompositeReport:
     """Top-level output from 'smoke both'.
 
     Attributes:
-        slots: Per-slot results in declaration order.
+        results: Per-slot results in declaration order.
         overall_exit_code: Highest-severity (lowest-numbered) failure code.
     """
 
-    slots: list[SmokeProbeResult]
+    results: list[SmokeProbeResult]
     overall_exit_code: int
 
 

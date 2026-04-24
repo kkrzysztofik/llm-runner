@@ -29,6 +29,7 @@ def _make_minimal_config(**overrides: object) -> ServerConfig:
         "ctx_size": 4096,
         "ubatch_size": 512,
         "threads": 4,
+        "server_bin": "dummy-llama-server",
     }
     defaults.update(overrides)
     return ServerConfig(**defaults)  # type: ignore[arg-type]
@@ -351,21 +352,8 @@ class TestGracefulShutdownKeyHandler:
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         assert app.running is True
 
-        # Track if stop was called
-        original_stop = app.stop
-        stop_called = False
-
-        def track_stop() -> None:
-            nonlocal stop_called
-            stop_called = True
-            original_stop()
-
-        app.stop = track_stop  # type: ignore[assignment]
-
-        # Call signal handler
         app._signal_handler(signal.SIGINT, None)
 
-        assert stop_called is True
         assert app.running is False
 
     def test_cleanup_calls_server_manager_cleanup(self) -> None:

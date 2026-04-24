@@ -223,7 +223,7 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 | Error | Exit Code | SmokeProbeStatus |
 | --- | --- | --- |
 | `socket.timeout` | 10 | `TIMEOUT` |
-| `ConnectionRefusedError` | 10 | `TIMEOUT` |
+| `ConnectionRefusedError` | 11 | `FAIL` |
 | `ConnectionResetError` | 11 | `FAIL` |
 | `OSError` (other network) | 10 | `TIMEOUT` |
 
@@ -548,6 +548,7 @@ def probe_slot(
     smoke_cfg: SmokeProbeConfiguration,
     model_id: str | None = None,
     expected_model_id: str | None = None,
+    model_path: str | None = None,
 ) -> SmokeProbeResult:
     """Run a complete smoke probe against a single slot.
 
@@ -557,6 +558,9 @@ def probe_slot(
         smoke_cfg: Smoke probe configuration.
         model_id: Model ID to use in chat completion request.
         expected_model_id: Expected model ID for /v1/models comparison.
+        model_path: Path to the GGUF model file for metadata extraction.
+            Used for resolving model ID from GGUF header when model_id is not
+            provided.
 
     Returns:
         SmokeProbeResult with probe outcome.

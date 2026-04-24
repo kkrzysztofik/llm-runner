@@ -743,7 +743,6 @@ class TestProvenanceResolution:
         ):
             record = resolve_provenance()
 
-        # Code truncates to 7 chars: sha[:7]
         assert record.sha == "abcdef1"
         assert record.version == "24.12.0"
 
@@ -756,7 +755,6 @@ class TestProvenanceResolution:
         ):
             record = resolve_provenance()
 
-        # Code truncates to 7 chars: sha[:7]
         assert record.sha == "abcdef1"
         assert record.version == "24.12.0"
 
@@ -786,7 +784,6 @@ class TestProvenanceResolution:
 
             record = resolve_provenance()
 
-        # Code truncates to 7 chars: sha[:7]
         assert record.sha == "fedcba0"
         assert record.version == "24.12.0"
 

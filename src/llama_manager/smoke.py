@@ -7,6 +7,7 @@ CLI output, JSON export, or TUI integration.
 Pure library — no argparse, no Rich, no subprocess at module level.
 """
 
+import json
 import socket
 import time
 from dataclasses import dataclass, field
@@ -150,7 +151,7 @@ class SmokeCompositeReport:
 
     @property
     def overall_exit_code(self) -> int:
-        """Return the lowest exit code across all results (worst failure)."""
+        """Return the highest/worst exit code across all results."""
         return compute_overall_exit_code(self.results)
 
     @property
@@ -293,8 +294,6 @@ def probe_slot(
         if result is not None:
             return result
         # Phase 2 passed or was skipped (404 → proceed to Phase 3)
-        # If models returned, capture the model ID
-        model_id = result.model_id if result else model_id
 
     # Phase 3: Chat completion
     phase = SmokePhase.CHAT
@@ -391,7 +390,7 @@ def _probe_models(
         )
 
     # Handle HTTP status codes
-    if response.status_code == 401 or response.status_code == 403:
+    if response.status_code in (401, 403):
         return SmokeProbeResult(
             slot_id=f"{host}:{port}",
             status=SmokeProbeStatus.AUTH_FAILURE,
@@ -428,7 +427,7 @@ def _probe_models(
     # Parse response
     try:
         data = response.json()
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         return SmokeProbeResult(
             slot_id=f"{host}:{port}",
             status=SmokeProbeStatus.FAIL,
@@ -530,16 +529,6 @@ def _probe_chat(
             provenance=resolve_provenance(),
         )
 
-    if response.status_code >= 400:
-        return SmokeProbeResult(
-            slot_id=f"{host}:{port}",
-            status=SmokeProbeStatus.FAIL,
-            phase_reached=SmokePhase.CHAT,
-            failure_phase=SmokeFailurePhase.CHAT,
-            model_id=model_id,
-            provenance=resolve_provenance(),
-        )
-
     if response.status_code != 200:
         return SmokeProbeResult(
             slot_id=f"{host}:{port}",
@@ -553,7 +542,7 @@ def _probe_chat(
     # Parse response and check choices
     try:
         data = response.json()
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         return SmokeProbeResult(
             slot_id=f"{host}:{port}",
             status=SmokeProbeStatus.FAIL,
@@ -656,7 +645,7 @@ def _resolve_version() -> str:
 def compute_overall_exit_code(results: list[SmokeProbeResult]) -> int:
     """Compute the overall exit code from a list of smoke probe results.
 
-    Returns the lowest exit code among all results (i.e., the worst
+    Returns the highest/maximum exit code among all results (i.e., the worst
     failure).  If all results pass, returns 0.
 
     Args:

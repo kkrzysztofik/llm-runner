@@ -1,6 +1,7 @@
 # Server command building and validation functions
 
 
+import hashlib
 import json
 import os
 import re
@@ -702,11 +703,8 @@ def _build_openai_flag_bundle(cfg: ServerConfig) -> dict[str, str | int | bool |
         Keys are deterministically ordered (sorted ascending).
 
     """
-    # Determine if chat completion is supported based on reasoning mode
     chat_completion_supported = cfg.reasoning_mode in ("auto", "enabled")
 
-    # Build bundle with explicit keys for Qwen-class configs
-    # Keys sorted alphabetically for deterministic serialization (FR-003)
     bundle: dict[str, str | int | bool | None] = {
         "--chat-format": "chatml" if chat_completion_supported else None,
         "--host": "127.0.0.1",
@@ -714,7 +712,7 @@ def _build_openai_flag_bundle(cfg: ServerConfig) -> dict[str, str | int | bool |
         "--port": cfg.port,
     }
 
-    return bundle
+    return dict(sorted(bundle.items()))
 
 
 def _build_hardware_notes(cfg: ServerConfig) -> dict[str, str | None]:
@@ -844,8 +842,6 @@ def compute_machine_fingerprint() -> str | None:
         A hex-encoded SHA-256 hash string, or None if all tools fail.
 
     """
-    import hashlib
-
     parts: list[str] = []
 
     gpu_output = _get_lspci_output()
@@ -885,8 +881,6 @@ def check_hardware_allowlist(
 
     """
     if allowlist is None:
-        import os
-
         raw = os.environ.get("LLM_RUNNER_HARDWARE_ALLOWLIST", "")
         allowlist = [f for f in raw.split(",") if f.strip()] if raw else []
 

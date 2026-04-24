@@ -557,7 +557,7 @@ def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | N
     metadata: LockMetadata = metadata_result
 
     # Use consistent wall-clock timebase (started_at uses time.time())
-    if time.time() - metadata.started_at > 300:
+    if time.time() - metadata.started_at > Config().lock_stale_threshold_s:
         _clear_lockfile(runtime_dir, slot_id)
         return None
 
@@ -798,8 +798,8 @@ def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
     return result
 
 
-# Audit log rotation threshold: 10 MiB
-_AUDIT_LOG_MAX_BYTES: Final[int] = 10 * 1024 * 1024
+# Audit log rotation threshold: 5 MiB
+_AUDIT_LOG_MAX_BYTES: Final[int] = 5 * 1024 * 1024
 # Maximum number of rotated log files to retain (including current)
 _AUDIT_LOG_MAX_FILES: Final[int] = 5
 
@@ -808,21 +808,21 @@ def _rotate_audit_log(log_path: Path) -> None:
     """Rotate audit log files, keeping up to ``_AUDIT_LOG_MAX_FILES``.
 
     Strategy:
-    1. Shift existing rotated files (.4 → .5, .3 → .4, etc.)
+    1. Shift existing rotated files (.3 → .4, .2 → .3, etc.)
     2. Rename current log to .1
-    3. Delete files exceeding ``_AUDIT_LOG_MAX_FILES``
+    3. Delete files exceeding ``_AUDIT_LOG_MAX_FILES - 1`` rotated
 
     Args:
         log_path: Path to the current audit log file.
 
     """
-    # Delete the oldest file if we already have MAX_FILES
-    oldest = log_path.with_suffix(f".{_AUDIT_LOG_MAX_FILES}")
+    # Delete the oldest file if we already have MAX_FILES - 1 rotated
+    oldest = log_path.with_suffix(f".{_AUDIT_LOG_MAX_FILES - 1}")
     with contextlib.suppress(OSError):
         oldest.unlink()
 
     # Shift existing rotated files upward
-    for i in range(_AUDIT_LOG_MAX_FILES - 1, 0, -1):
+    for i in range(_AUDIT_LOG_MAX_FILES - 2, 0, -1):
         src = log_path.with_suffix(f".{i}")
         dst = log_path.with_suffix(f".{i + 1}")
         with contextlib.suppress(OSError):
@@ -1408,7 +1408,7 @@ class ServerManager:
                 raise ValidationException(MultiValidationError(errors=[error_detail]))
 
         # Create the lockfile atomically
-        return create_lock(runtime_dir, slot_id, 0, port)
+        return create_lock(runtime_dir, slot_id, os.getpid(), port)
 
     def release_lock(self, slot_id: str) -> None:
         """Release lockfile for a slot.
@@ -1474,17 +1474,29 @@ class ServerManager:
         if pid is None or not psutil.pid_exists(pid):
             return True  # Process already gone
 
+        # Verify ownership by comparing create_time (best effort)
+        try:
+            proc = psutil.Process(pid)
+            on_disk_create_time = metadata.started_at
+            actual_create_time = proc.create_time()
+            if abs(on_disk_create_time - actual_create_time) > 1.0:
+                return True  # PID was reused, nothing to do
+        except (psutil.NoSuchProcess, psutil.AccessDenied, PermissionError):
+            pass  # Can't verify, proceed with shutdown attempt anyway
+
         # Send SIGTERM
         try:
             os.kill(pid, signal.SIGTERM)
         except OSError:
             # Process already gone
+            release_lock(runtime_dir, slot_id)
             return True
 
         # Wait for graceful exit
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if not psutil.pid_exists(pid):
+                release_lock(runtime_dir, slot_id)
                 return True
             time.sleep(0.1)
 
@@ -1493,12 +1505,14 @@ class ServerManager:
             os.kill(pid, signal.SIGKILL)
         except OSError:
             # Race: process exited between last check and SIGKILL
+            release_lock(runtime_dir, slot_id)
             return True
 
         # Final wait for SIGKILL to take effect
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
             if not psutil.pid_exists(pid):
+                release_lock(runtime_dir, slot_id)
                 return True
             time.sleep(0.1)
 

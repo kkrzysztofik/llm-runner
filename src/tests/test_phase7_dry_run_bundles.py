@@ -243,12 +243,9 @@ class TestDryRunFlagBundlesParity:
             mock_run.return_value = False
             mock_run.slot_payloads = []
 
-            # We need to capture what _print_common_payload_sections would print
-            # by checking the mock was called
             with contextlib.suppress(SystemExit):
                 dry_run(mode="summary-balanced", primary_port="8080")
 
-            # Verify the handler was invoked (meaning openai_flag_bundle would be printed)
             mock_run.assert_called()
 
     def test_dry_run_both_mode_prints_both_bundles(self, capsys) -> None:
@@ -265,6 +262,59 @@ class TestDryRunFlagBundlesParity:
                 dry_run(mode="both", primary_port="8080", secondary_port="8081")
 
             mock_run.assert_called()
+
+    def test_dry_run_summary_balanced_integration(self, capsys) -> None:
+        """dry-run summary-balanced integration test without mocking mode handlers."""
+        from llama_cli.dry_run import _print_common_payload_sections
+        from llama_manager.server import build_dry_run_slot_payload
+
+        server_cfg = _make_minimal_server_config(
+            alias="summary-balanced",
+            model="/models/qwen3.5-2b.gguf",
+            port=8080,
+        )
+        payload = build_dry_run_slot_payload(
+            server_cfg,
+            slot_id="summary-balanced",
+            validation_results=None,
+            warnings=[],
+        )
+
+        _print_common_payload_sections(payload)
+
+        captured = capsys.readouterr()
+        assert "OpenAI Bundle" in captured.out
+
+    def test_dry_run_both_integration(self, capsys) -> None:
+        """dry-run both mode integration test checking both bundles appear."""
+        from llama_cli.dry_run import _print_common_payload_sections
+        from llama_manager.server import build_dry_run_slot_payload
+
+        configs = [
+            _make_minimal_server_config(
+                alias="summary-balanced",
+                model="/models/qwen3.5-2b.gguf",
+                port=8080,
+            ),
+            _make_minimal_server_config(
+                alias="qwen35",
+                model="/models/qwen3.5-35b.gguf",
+                port=8081,
+                device="CUDA",
+            ),
+        ]
+
+        for cfg in configs:
+            payload = build_dry_run_slot_payload(
+                cfg,
+                slot_id=cfg.alias,
+                validation_results=None,
+                warnings=[],
+            )
+            _print_common_payload_sections(payload)
+
+        captured = capsys.readouterr()
+        assert "OpenAI Bundle" in captured.out
 
     # ------------------------------------------------------------------
     # TUI vs CLI consistency for flag bundles
@@ -339,6 +389,4 @@ class TestDryRunFlagBundlesParity:
         assert isinstance(bundle, dict)
         # Keys should start with -- (CLI flag style)
         for key in bundle:
-            assert key.startswith("--") or key == "", (
-                f"openai_flag_bundle key '{key}' should start with '--'"
-            )
+            assert key.startswith("--"), f"openai_flag_bundle key '{key}' should start with '--'"

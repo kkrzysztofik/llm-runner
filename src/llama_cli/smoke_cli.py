@@ -24,6 +24,7 @@ from llama_manager import (
     SmokeProbeConfiguration,
     resolve_runtime_dir,
 )
+from llama_manager.config_builder import create_smoke_config
 from llama_manager.smoke import (
     SmokeProbeResult,
     _ensure_report_dir,
@@ -33,11 +34,13 @@ from llama_manager.smoke import (
 
 def _build_slot_configs(
     mode: str,
+    slot_id: str | None = None,
 ) -> list[tuple[str, str, str, int]]:
     """Build list of (slot_id, model, host, port) for the given mode.
 
     Args:
         mode: Either "both" or "slot".
+        slot_id: User-supplied slot identifier (required when mode is "slot").
 
     Returns:
         List of (slot_id, model_path, host, port) tuples.
@@ -53,10 +56,69 @@ def _build_slot_configs(
             ("qwen35-coding", cfg.model_qwen35_both, cfg.host, cfg.qwen35_port),
         ]
     if mode == "slot":
-        return [("slot", cfg.model_summary_balanced, cfg.host, cfg.summary_balanced_port)]
+        if not slot_id:
+            print("error: 'slot' mode requires a slot ID argument", file=sys.stderr)
+            sys.exit(1)
+        slot_port = _resolve_slot_port(cfg, slot_id)
+        slot_model = _resolve_slot_model(cfg, slot_id)
+        return [(slot_id, slot_model, cfg.host, slot_port)]
 
     print(f"error: unknown smoke mode '{mode}'. Valid modes: both, slot", file=sys.stderr)
     sys.exit(1)
+
+
+def _resolve_slot_port(cfg: Config, slot_id: str) -> int:
+    """Resolve port for a given slot_id.
+
+    Args:
+        cfg: Config instance.
+        slot_id: Slot identifier (e.g., "summary-balanced", "qwen35-coding").
+
+    Returns:
+        Port number for the slot.
+
+    Raises:
+        SystemExit: If slot_id is unknown.
+    """
+    slot_port_map = {
+        "summary-balanced": cfg.summary_balanced_port,
+        "summary-fast": cfg.summary_fast_port,
+        "qwen35-coding": cfg.qwen35_port,
+    }
+    if slot_id not in slot_port_map:
+        print(
+            f"error: unknown slot '{slot_id}'. Valid slots: {', '.join(slot_port_map.keys())}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return slot_port_map[slot_id]
+
+
+def _resolve_slot_model(cfg: Config, slot_id: str) -> str:
+    """Resolve model path for a given slot_id.
+
+    Args:
+        cfg: Config instance.
+        slot_id: Slot identifier (e.g., "summary-balanced", "qwen35-coding").
+
+    Returns:
+        Model path for the slot.
+
+    Raises:
+        SystemExit: If slot_id is unknown.
+    """
+    slot_model_map = {
+        "summary-balanced": cfg.model_summary_balanced,
+        "summary-fast": cfg.model_summary_fast,
+        "qwen35-coding": cfg.model_qwen35,
+    }
+    if slot_id not in slot_model_map:
+        print(
+            f"error: unknown slot '{slot_id}'. Valid slots: {', '.join(slot_model_map.keys())}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return slot_model_map[slot_id]
 
 
 def _probe_server(
@@ -80,8 +142,9 @@ def _probe_server(
         host=host,
         port=port,
         smoke_cfg=smoke_cfg,
-        model_id=model,
-        expected_model_id=model,
+        model_path=model,
+        model_id=None,
+        expected_model_id=None,
     )
 
 
@@ -117,19 +180,52 @@ def _build_smoke_config(parsed: argparse.Namespace) -> SmokeProbeConfiguration:
 
     Returns:
         Configured SmokeProbeConfiguration.
+
+    Raises:
+        SystemExit: If validation fails.
     """
     cfg = Config()
-    return SmokeProbeConfiguration(
-        inter_slot_delay_s=parsed.delay or cfg.smoke_inter_slot_delay_s,
-        listen_timeout_s=parsed.timeout or cfg.smoke_listen_timeout_s,
-        http_request_timeout_s=cfg.smoke_http_request_timeout_s,
-        max_tokens=parsed.max_tokens or cfg.smoke_max_tokens,
-        prompt=parsed.prompt or cfg.smoke_prompt,
-        skip_models_discovery=cfg.smoke_skip_models_discovery,
+
+    # Handle max_tokens override if provided (8-32 range)
+    max_tokens = parsed.max_tokens
+    if max_tokens != 0 and not (8 <= max_tokens <= 32):
+        print(
+            f"error: --max-tokens must be between 8 and 32, got: {max_tokens}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Handle delay override if provided
+    delay = parsed.delay
+
+    # Handle timeout override if provided
+    timeout = parsed.timeout
+
+    # Build effective config values
+    effective_delay = delay if delay > 0 else cfg.smoke_inter_slot_delay_s
+    effective_timeout = timeout if timeout > 0 else cfg.smoke_listen_timeout_s
+    effective_max_tokens = max_tokens if max_tokens > 0 else cfg.smoke_max_tokens
+    effective_prompt = parsed.prompt if parsed.prompt else cfg.smoke_prompt
+
+    # Use create_smoke_config factory but pass CLI overrides
+    smoke_cfg = create_smoke_config(
+        config=cfg,
         api_key=parsed.api_key or cfg.smoke_api_key,
         model_id_override=parsed.model_id,
-        first_token_timeout_s=cfg.smoke_first_token_timeout_s,
-        total_chat_timeout_s=cfg.smoke_total_chat_timeout_s,
+    )
+
+    # Override the values from CLI
+    return SmokeProbeConfiguration(
+        inter_slot_delay_s=effective_delay,
+        listen_timeout_s=effective_timeout,
+        http_request_timeout_s=smoke_cfg.http_request_timeout_s,
+        max_tokens=effective_max_tokens,
+        prompt=effective_prompt,
+        skip_models_discovery=smoke_cfg.skip_models_discovery,
+        api_key=smoke_cfg.api_key,
+        model_id_override=smoke_cfg.model_id_override,
+        first_token_timeout_s=smoke_cfg.first_token_timeout_s,
+        total_chat_timeout_s=smoke_cfg.total_chat_timeout_s,
     )
 
 
@@ -179,15 +275,8 @@ def run_smoke(args: list[str]) -> int:
     json_output: bool = parsed.json
 
     # Build server targets
-    targets = _build_slot_configs(mode)
-
-    # If slot mode with explicit slot_id, filter to that slot
     slot_id: str | None = parsed.slot_id
-    if mode == "slot" and slot_id:
-        targets = [(sid, model, host, port) for sid, model, host, port in targets if sid == slot_id]
-        if not targets:
-            print(f"error: no server found for slot '{slot_id}'", file=sys.stderr)
-            return 1
+    targets = _build_slot_configs(mode, slot_id)
 
     # Build smoke probe configuration
     smoke_cfg = _build_smoke_config(parsed)

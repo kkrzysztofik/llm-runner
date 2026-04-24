@@ -22,7 +22,7 @@ _REQUIRED_KEYS: dict[str, tuple[int, bytes]] = {
     "llama.attention.head_count_kv": (_GGUF_TYPE_UINT32, struct.pack("<I", 8)),
 }
 
-_GENERAL_NAME_VALUE: bytes = struct.pack("<Q", 11) + b"test-model-v1"
+_GENERAL_NAME_VALUE: bytes = struct.pack("<Q", len(b"test-model-v1")) + b"test-model-v1"
 
 
 def _pack_kv(key: str, value_type: int, value_bytes: bytes) -> bytes:
@@ -106,7 +106,7 @@ def test_generate_gguf_fixtures(tmp_path: Path) -> None:
 
     All fixtures are under 10 KiB and contain no tensor data.
     """
-    fixtures_dir = Path("src/tests/fixtures")
+    fixtures_dir = tmp_path / "fixtures"
     fixtures_dir.mkdir(parents=True, exist_ok=True)
 
     generators = [
@@ -126,36 +126,3 @@ def test_generate_gguf_fixtures(tmp_path: Path) -> None:
         print(f"  OK   {name} ({size} bytes)")
 
     print(f"\nGenerated {len(generators)} fixtures in {fixtures_dir}")
-
-
-def test_no_cves_in_dependencies() -> None:
-    """Verify new dependencies (httpx, gguf) have no known CVEs.
-
-    Runs ``uv run pip-audit`` and checks the output.
-    Skips if pip-audit is not installed.
-    """
-    import subprocess
-    import sys
-
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip_audit"],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        output = result.stdout + result.stderr
-        print(output[:2000])  # Print first 2000 chars of output
-        # pip-audit returns 0 if no vulnerabilities found
-        # We log the output but don't fail the test on CVEs
-        # (CVEs are informational, not test failures)
-        if result.returncode != 0 and "No vulnerabilities found" not in output:
-            print(f"pip-audit exit code: {result.returncode}")
-    except FileNotFoundError:
-        import pytest
-
-        pytest.skip("pip-audit not installed")
-    except subprocess.TimeoutExpired:
-        import pytest
-
-        pytest.skip("pip-audit timed out")

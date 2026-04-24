@@ -15,7 +15,7 @@ The lockfile implementation for M4 is **already implemented** in `src/llama_mana
 
 ## Decision 1: Lock Creation — `O_CREAT | O_EXCL` (Atomic File Creation)
 
-### Decision
+### Approach
 Use `os.open(path, O_CREAT | O_EXCL | O_WRONLY, mode)` for lock creation. This atomically creates the file and fails if it already exists, with **zero race window**.
 
 ```python
@@ -76,7 +76,7 @@ The `O_EXCL` approach is preferred because:
 
 ## Decision 2: Stale Lock Detection — Dual-Threshold (PID + Age)
 
-### Decision
+### Approach
 Use a **two-phase stale detection** strategy:
 1. **PID check**: `psutil.pid_exists(metadata.pid)` — immediate stale detection for dead processes.
 2. **Age threshold**: `time.time() - metadata.started_at > 300` — catches stale locks when PID has been reused.
@@ -134,7 +134,7 @@ PID reuse is the most subtle edge case. When a process with PID `12345` crashes 
 
 ## Decision 3: Lockfile Format — JSON with Version Field
 
-### Decision
+### Approach
 Lockfiles use JSON with a `version` field for future schema evolution:
 
 ```json
@@ -176,7 +176,7 @@ Some systems use empty lockfiles (e.g., `/var/run/sshd.pid`). This works for PID
 
 ## Decision 4: Lockfile Permissions — `0o600` (Owner-Only)
 
-### Decision
+### Approach
 Lockfiles are created with mode `0o600` (owner read/write only):
 
 ```python
@@ -268,7 +268,7 @@ def release_lock(runtime_dir: Path, slot_id: str) -> None:
 
 The lockfile implementation respects the project's architecture:
 
-```
+```text
 llama_manager/ (pure library)
 ├── process_manager.py
 │   ├── create_lock()      # Atomic lock creation

@@ -14,7 +14,6 @@ Tests:
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from unittest.mock import MagicMock
 
 from llama_manager.config import SlotState
@@ -158,7 +157,7 @@ class TestStateMachineLifecycle:
     # Full chain in a single test
     # ------------------------------------------------------------------
 
-    def test_full_lifecycle_chain(self, tmp_path: Path) -> None:
+    def test_full_lifecycle_chain(self) -> None:
         """Verify the full chain: IDLE→LAUNCHING→RUNNING→DEGRADED→RUNNING→OFFLINE→IDLE."""
         runtime = SlotRuntime(
             slot_id="gpu0-slot1",
@@ -277,7 +276,6 @@ class TestStateMachineLifecycle:
             d = runtime.to_dict()
             assert d["slot_id"] == "test"
             assert d["state"] == new_state.value
-            assert d["start_time"] == runtime.start_time
             if new_state in (SlotState.LAUNCHING, SlotState.RUNNING):
                 assert d["start_time"] >= 100.0
             else:

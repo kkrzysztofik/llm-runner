@@ -320,11 +320,11 @@ class TestComputeMachineFingerprint:
         )
 
         def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
-            if "lspci" in cmd:
+            if cmd == ["lspci", "-v"]:
                 return mock_result
-            if "cpuinfo" in cmd or "cat" in cmd:
+            if cmd == ["cat", "/proc/cpuinfo"]:
                 return mock_result2
-            if "os-release" in cmd:
+            if cmd == ["cat", "/etc/os-release"]:
                 return mock_result3
             return self._make_mock_subprocess_result()
 
@@ -354,11 +354,11 @@ class TestComputeMachineFingerprint:
         )
 
         def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
-            if "lspci" in cmd:
+            if cmd == ["lspci", "-v"]:
                 return mock_result
-            if "cpuinfo" in cmd or "cat" in cmd:
+            if cmd == ["cat", "/proc/cpuinfo"]:
                 return mock_result2
-            if "os-release" in cmd:
+            if cmd == ["cat", "/etc/os-release"]:
                 return mock_result3
             return self._make_mock_subprocess_result()
 
@@ -401,11 +401,11 @@ class TestComputeMachineFingerprint:
         )
 
         def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
-            if "lspci" in cmd:
+            if cmd == ["lspci", "-v"]:
                 return mock_result
-            if "cpuinfo" in cmd or "cat" in cmd:
+            if cmd == ["cat", "/proc/cpuinfo"]:
                 return mock_result2
-            if "os-release" in cmd:
+            if cmd == ["cat", "/etc/os-release"]:
                 return mock_result3
             return self._make_mock_subprocess_result()
 

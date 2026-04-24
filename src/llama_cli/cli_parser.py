@@ -16,8 +16,9 @@ VALID_MODES = (
     "build",
     "setup",
     "doctor",
-    "smoke",
 )
+
+SMOKE_MODE = "smoke"
 
 # NOTE: --strict-profiles is documented as post-MVP deferral (FR-M3-009).
 # In MVP, stale profiles produce a warning only — they never block model
@@ -64,9 +65,9 @@ def _parse_dry_run_args(args: list[str]) -> argparse.Namespace:
         SystemExit: On invalid arguments.
     """
     dry_run_mode = args[1]
-    if dry_run_mode not in VALID_MODES:
+    if dry_run_mode not in VALID_MODES and dry_run_mode != SMOKE_MODE:
         print(
-            f"error: invalid dry-run mode '{dry_run_mode}'. Valid modes: {', '.join(VALID_MODES)}",
+            f"error: invalid dry-run mode '{dry_run_mode}'. Valid modes: {', '.join(VALID_MODES)}, {SMOKE_MODE}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -490,6 +491,9 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
             i += 1
             if i < len(remaining):
                 api_key = remaining[i]
+            else:
+                print("error: --api-key requires a value", file=sys.stderr)
+                sys.exit(1)
         elif arg.startswith("--api-key="):
             api_key = arg.split("=", 1)[1]
         elif arg == "--json":
@@ -498,6 +502,9 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
             i += 1
             if i < len(remaining):
                 model_id = remaining[i]
+            else:
+                print("error: --model-id requires a value", file=sys.stderr)
+                sys.exit(1)
         elif arg.startswith("--model-id="):
             model_id = arg.split("=", 1)[1]
         elif arg == "--max-tokens":
@@ -506,16 +513,30 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
                 try:
                     max_tokens = int(remaining[i])
                 except ValueError:
-                    max_tokens = 16
+                    print(
+                        f"error: invalid --max-tokens value '{remaining[i]}': must be an integer",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+            else:
+                print("error: --max-tokens requires a value", file=sys.stderr)
+                sys.exit(1)
         elif arg.startswith("--max-tokens="):
             try:
                 max_tokens = int(arg.split("=", 1)[1])
             except ValueError:
-                max_tokens = 16
+                print(
+                    f"error: invalid --max-tokens value '{arg.split('=', 1)[1]}': must be an integer",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
         elif arg == "--prompt":
             i += 1
             if i < len(remaining):
                 prompt = remaining[i]
+            else:
+                print("error: --prompt requires a value", file=sys.stderr)
+                sys.exit(1)
         elif arg.startswith("--prompt="):
             prompt = arg.split("=", 1)[1]
         elif arg == "--delay":
@@ -524,24 +545,49 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
                 try:
                     delay = int(remaining[i])
                 except ValueError:
-                    delay = 2
+                    print(
+                        f"error: invalid --delay value '{remaining[i]}': must be an integer",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+            else:
+                print("error: --delay requires a value", file=sys.stderr)
+                sys.exit(1)
         elif arg.startswith("--delay="):
             try:
                 delay = int(arg.split("=", 1)[1])
             except ValueError:
-                delay = 2
+                print(
+                    f"error: invalid --delay value '{arg.split('=', 1)[1]}': must be an integer",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
         elif arg == "--timeout":
             i += 1
             if i < len(remaining):
                 try:
                     timeout = int(remaining[i])
                 except ValueError:
-                    timeout = 120
+                    print(
+                        f"error: invalid --timeout value '{remaining[i]}': must be an integer",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+            else:
+                print("error: --timeout requires a value", file=sys.stderr)
+                sys.exit(1)
         elif arg.startswith("--timeout="):
             try:
                 timeout = int(arg.split("=", 1)[1])
             except ValueError:
-                timeout = 120
+                print(
+                    f"error: invalid --timeout value '{arg.split('=', 1)[1]}': must be an integer",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+        elif arg.startswith("--"):
+            print(f"error: unknown option '{arg}'", file=sys.stderr)
+            sys.exit(1)
         i += 1
 
     # Validate max_tokens range
@@ -644,8 +690,8 @@ GPU Mapping:
 
     parser.add_argument(
         "mode",
-        choices=VALID_MODES,
-        help=f"Mode to run: {' | '.join(VALID_MODES)}",
+        choices=[*VALID_MODES, SMOKE_MODE],
+        help=f"Mode to run: {' | '.join(VALID_MODES)} | {SMOKE_MODE}",
     )
     parser.add_argument(
         "--port",

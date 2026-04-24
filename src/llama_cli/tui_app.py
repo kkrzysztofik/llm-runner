@@ -98,8 +98,10 @@ class TUIApp:
         self.height = 24
         self.launch_result: LaunchResult | None = None
         self.status_panel: Panel | None = None
+        self.telemetry_panel: Panel | None = None
         self.risk_panel: Panel | None = None
         self.risks_acknowledged: bool = False
+        self.active_risk_kind: str | None = None
 
         # Keypress input polling infrastructure
         self._keypress_queue: queue.Queue[str] = queue.Queue()
@@ -206,6 +208,15 @@ class TUIApp:
         if self.status_panel is not None:
             alerts.append(self.status_panel)
 
+        # Add GPU telemetry panel
+        if self.telemetry_panel is not None:
+            alerts.append(self.telemetry_panel)
+
+        # Add slot status panel
+        slot_status_panel = self._build_slot_status_panel()
+        if slot_status_panel is not None:
+            alerts.append(slot_status_panel)
+
         # Add profile status panel
         profile_panel = self._build_profile_status_panel()
         if profile_panel is not None:
@@ -291,21 +302,23 @@ class TUIApp:
             border_style="yellow",
         )
 
-    def _build_risk_panel_required(self) -> None:
+    def _build_risk_panel_required(self, kind: str = "hardware") -> None:
         text = Text()
         text.append("RISK STATUS: ", style="bold")
         text.append(" ACKNOWLEDGEMENT REQUIRED ", style="bold red reverse")
         text.append("\nLaunch is blocked until you acknowledge risky operations.")
         self.risk_panel = Panel(text, title="Risk Management", border_style="red")
         self.risks_acknowledged = False
+        self.active_risk_kind = kind
 
-    def _build_risk_panel_acknowledged(self) -> None:
+    def _build_risk_panel_acknowledged(self, kind: str = "hardware") -> None:
         text = Text()
         text.append("RISK STATUS: ", style="bold")
         text.append(" ACKNOWLEDGED ", style="bold green reverse")
         text.append("\nRisky operations (privileged ports, non-loopback bind) were acknowledged.")
         self.risk_panel = Panel(text, title="Risk Management", border_style="green")
         self.risks_acknowledged = True
+        self.active_risk_kind = kind
 
     def _build_column_panel(
         self, cfg: ServerConfig, buffer: LogBuffer, gpu: GPUStats | None
@@ -434,15 +447,19 @@ class TUIApp:
 
             # Handle hardware warning keys (y/n/q) and VRAM risk keys (y/n)
             if self.risk_panel is not None:
-                # VRAM risk keys take priority for 'y'/'n'
                 if key in ("y", "n"):
-                    result = self.handle_vram_risk(key)
+                    if self.active_risk_kind == "vram":
+                        result = self.handle_vram_risk(key)
+                    else:
+                        result = self.handle_hardware_warning(key)
                     if result in ("proceed", "abort"):
+                        self.active_risk_kind = None
                         continue
-
-                result = self.handle_hardware_warning(key)
-                if result in ("acknowledge", "abort", "quit"):
-                    continue
+                elif key == "q" and self.active_risk_kind != "vram":
+                    result = self.handle_hardware_warning(key)
+                    if result in ("acknowledge", "abort", "quit"):
+                        self.active_risk_kind = None
+                        continue
 
         # Handle queued profile flavor request non-blockingly
         if self._profile_request is not None:
@@ -669,8 +686,10 @@ class TUIApp:
         if self.server_manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
             return
 
+        risk_kind = "vram" if "vram" in risk.lower() else "hardware"
+
         if not acknowledged:
-            self._build_risk_panel_required()
+            self._build_risk_panel_required(risk_kind)
             print(f"warning: risky operation detected in {cfg.alias}: {risk}")
             try:
                 response = input(RISK_CONFIRM_PROMPT).strip().lower()
@@ -713,10 +732,8 @@ class TUIApp:
             # Determine process status
             status = state
             if state == SlotState.RUNNING.value:
-                for proc in self.server_manager.servers:
-                    if proc.pid and psutil.pid_exists(proc.pid):
-                        break
-                else:
+                proc = self.server_manager.servers[self.configs.index(cfg)]
+                if not proc or not (proc.pid and psutil.pid_exists(proc.pid)):
                     status = SlotState.CRASHED.value
 
             # Determine backend label
@@ -762,6 +779,7 @@ class TUIApp:
     def _update_gpu_telemetry(self) -> None:
         """Update GPU telemetry panel with latest stats."""
         if not self.gpu_stats:
+            self.telemetry_panel = None
             return
 
         lines: list[str] = []
@@ -770,7 +788,7 @@ class TUIApp:
             lines.append(gpu.format_stats_text())
 
         telemetry_text = Text("\n".join(lines))
-        self.status_panel = Panel(
+        self.telemetry_panel = Panel(
             telemetry_text,
             title="GPU Telemetry",
             border_style="yellow",
@@ -884,14 +902,17 @@ class TUIApp:
         if key == "y":
             # User acknowledged the hardware warning
             self.risk_panel = None
+            self.active_risk_kind = None
             return "acknowledge"
         if key == "n":
             # User rejected — abort
             self.running = False
+            self.active_risk_kind = None
             return "abort"
         if key == "q":
             # User wants to quit
             self._graceful_shutdown()
+            self.active_risk_kind = None
             return "quit"
         return "ignore"
 
@@ -909,10 +930,12 @@ class TUIApp:
         if key == "y":
             # User confirmed the VRAM risk
             self.risk_panel = None
+            self.active_risk_kind = None
             return "proceed"
         if key == "n":
             # User rejected — abort
             self.running = False
+            self.active_risk_kind = None
             return "abort"
         return "ignore"
 

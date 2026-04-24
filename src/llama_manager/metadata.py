@@ -325,25 +325,34 @@ def _detect_tokenizer_type_from_reader(
 
 def _try_gguf_reader(
     model_path: str,
+    prefix_cap_bytes: int,
 ) -> tuple[dict[str, ReaderField], int] | None:
     """Try to read GGUF file using the gguf library's GGUFReader.
+
+    Creates a temporary file containing only the first ``prefix_cap_bytes``
+    bytes of the model to avoid memory-mapping the entire file.
 
     Returns fields dict and version, or None if GGUFReader fails.
 
     Args:
         model_path: Path to the GGUF file.
+        prefix_cap_bytes: Maximum bytes to read from the file.
 
     Returns:
         A tuple of (fields_dict, version) or None on failure.
 
     """
-    try:
-        import gguf
+    import gguf
 
-        reader = gguf.GGUFReader(model_path, mode="r")
+    capped_path: str | None = None
+    try:
+        capped_path = model_path + ".tmp"
+        with open(model_path, "rb") as src, open(capped_path, "wb") as dst:
+            dst.write(src.read(prefix_cap_bytes))
+
+        reader = gguf.GGUFReader(capped_path, mode="r")
         fields = dict(reader.fields)
 
-        # Get version
         version_field = fields.get("GGUF.version")
         version = 3
         if version_field is not None:
@@ -353,6 +362,10 @@ def _try_gguf_reader(
         return fields, version
     except Exception:
         return None
+    finally:
+        if capped_path and Path(capped_path).exists():
+            with suppress(OSError):
+                Path(capped_path).unlink()
 
 
 def _extract_from_gguf_reader(
@@ -503,7 +516,7 @@ def extract_gguf_metadata(
     def _parse() -> None:
         try:
             # Attempt GGUFReader first
-            reader_result = _try_gguf_reader(model_path)
+            reader_result = _try_gguf_reader(model_path, prefix_cap_bytes)
 
             if reader_result is not None:
                 fields, version = reader_result
