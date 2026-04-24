@@ -742,7 +742,7 @@ class TUIApp:
                 "cuda": "CUDA",
                 "llama_cpp": "CPU",
             }
-            backend_label = backend_map.get(cfg.backend, "llama_cpp")
+            backend_label = backend_map.get(cfg.backend, backend_map["llama_cpp"])
 
             # Color for status
             status_colors: dict[str, str] = {

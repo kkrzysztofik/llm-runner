@@ -21,6 +21,7 @@ import sys
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import cast
 
 from llama_manager import (
     BenchmarkResult,
@@ -457,8 +458,8 @@ def cmd_profile(
     if exit_code := _handle_benchmark_result(benchmark_result, slot_id, cancel_event, _emit):
         return exit_code
 
-    if benchmark_result is None:
-        return 1
+    # _handle_benchmark_result returned 0, so benchmark_result is non-None
+    benchmark_result = cast(BenchmarkResult, benchmark_result)
 
     # Create profile record, write, and emit results
     return _create_and_save_profile(

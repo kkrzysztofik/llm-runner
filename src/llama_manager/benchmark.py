@@ -5,6 +5,7 @@ import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import cast
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +51,36 @@ def _extract_first_float(text: str) -> float | None:
         return float(match.group(1))
     except ValueError:
         return None
+
+
+def _extract_number_from_patterns(
+    patterns: list[str],
+    output: str,
+) -> float | None:
+    """Search *patterns* in *output* and return the first match as a float.
+
+    Iterates through *patterns* in order, applying ``re.search`` with
+    ``re.IGNORECASE``.  On the first pattern that matches, tries to convert
+    the captured group (``group(1)``) to ``float``.  If conversion fails a
+    ``ValueError`` is swallowed and the next pattern is tried.
+
+    Args:
+        patterns: Ordered list of regex patterns, each containing one capture
+            group that holds the numeric value.
+        output: Raw stdout string from a benchmark subprocess.
+
+    Returns:
+        Parsed float value or ``None`` if no pattern matched or all matches
+        failed to parse.
+    """
+    for pattern in patterns:
+        match = re.search(pattern, output, re.IGNORECASE)
+        if match:
+            try:
+                return float(match.group(1))
+            except ValueError:
+                pass
+    return None
 
 
 # ── Markdown table parsing helpers ──────────────────────────────────────
@@ -126,16 +157,30 @@ def _parse_markdown_table_metrics(
     if len(table_lines) < 3:
         return None, None, None
 
-    header_cells = [cell.strip().lower() for cell in table_lines[0].strip().strip("|").split("|")]
-    if not header_cells:
+    # Scan candidate header lines to find the first one with required columns.
+    header_row_idx: int | None = None
+    tokens_idx: int | None = None
+    latency_idx: int | None = None
+    vram_idx: int | None = None
+
+    for idx, line in enumerate(table_lines):
+        cells = [cell.strip().lower() for cell in line.strip().strip("|").split("|")]
+        if not cells:
+            continue
+        t_idx, l_idx, v_idx = _find_column_indices(cells)
+        if t_idx is not None and l_idx is not None:
+            header_row_idx = idx
+            tokens_idx, latency_idx, vram_idx = t_idx, l_idx, v_idx
+            break
+
+    if header_row_idx is None:
         return None, None, None
 
-    tokens_idx, latency_idx, vram_idx = _find_column_indices(header_cells)
+    # At this point tokens_idx and latency_idx are guaranteed to be int
+    tokens_idx = cast(int, tokens_idx)
+    latency_idx = cast(int, latency_idx)
 
-    if tokens_idx is None or latency_idx is None:
-        return None, None, None
-
-    for line in table_lines[2:]:
+    for line in table_lines[header_row_idx + 1 :]:
         if not line.strip() or set(line.replace("|", "").strip()) <= {"-", ":", " "}:
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
@@ -182,14 +227,7 @@ def _extract_tokens_per_second(output: str) -> float | None:
     Returns:
         Parsed tokens/s value or ``None`` if not found.
     """
-    for pattern in _TOKENS_PATTERNS:
-        match = re.search(pattern, output, re.IGNORECASE)
-        if match:
-            try:
-                return float(match.group(1))
-            except ValueError:
-                pass
-    return None
+    return _extract_number_from_patterns(_TOKENS_PATTERNS, output)
 
 
 def _extract_latency(output: str) -> float | None:
@@ -201,14 +239,7 @@ def _extract_latency(output: str) -> float | None:
     Returns:
         Parsed latency value or ``None`` if not found.
     """
-    for pattern in _LATENCY_PATTERNS:
-        match = re.search(pattern, output, re.IGNORECASE)
-        if match:
-            try:
-                return float(match.group(1))
-            except ValueError:
-                pass
-    return None
+    return _extract_number_from_patterns(_LATENCY_PATTERNS, output)
 
 
 def _extract_vram(output: str) -> float | None:
@@ -220,14 +251,7 @@ def _extract_vram(output: str) -> float | None:
     Returns:
         Parsed VRAM value or ``None`` if not found.
     """
-    for pattern in _VRAM_PATTERNS:
-        match = re.search(pattern, output, re.IGNORECASE)
-        if match:
-            try:
-                return float(match.group(1))
-            except ValueError:
-                pass
-    return None
+    return _extract_number_from_patterns(_VRAM_PATTERNS, output)
 
 
 def parse_benchmark_output(output: str) -> BenchmarkResult | None:
