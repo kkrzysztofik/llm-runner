@@ -485,7 +485,7 @@ class TestAssessVramRisk:
         from llama_manager.config import VRamRecommendation
         from llama_manager.server import assess_vram_risk
 
-        result = assess_vram_risk(vram_total_gb=24, vram_free_gb=20, model_size_gb=10)
+        result = assess_vram_risk(vram_free_gb=20, model_size_gb=10)
 
         assert result == VRamRecommendation.PROCEED
 
@@ -495,7 +495,7 @@ class TestAssessVramRisk:
         from llama_manager.server import assess_vram_risk
 
         # 15 / 10 = 1.5x exactly
-        result = assess_vram_risk(vram_total_gb=24, vram_free_gb=15, model_size_gb=10)
+        result = assess_vram_risk(vram_free_gb=15, model_size_gb=10)
 
         assert result == VRamRecommendation.PROCEED
 
@@ -505,7 +505,7 @@ class TestAssessVramRisk:
         from llama_manager.server import assess_vram_risk
 
         # 14.5 / 10 = 1.45x (between 1.411 warn threshold and 1.5 proceed threshold)
-        result = assess_vram_risk(vram_total_gb=24, vram_free_gb=14.5, model_size_gb=10)
+        result = assess_vram_risk(vram_free_gb=14.5, model_size_gb=10)
 
         assert result == VRamRecommendation.WARN
 
@@ -515,7 +515,7 @@ class TestAssessVramRisk:
         from llama_manager.server import assess_vram_risk
 
         # 14.12 / 10 = 1.412x (just above 1.2/0.85 ≈ 1.41176)
-        result = assess_vram_risk(vram_total_gb=24, vram_free_gb=14.12, model_size_gb=10)
+        result = assess_vram_risk(vram_free_gb=14.12, model_size_gb=10)
 
         assert result == VRamRecommendation.WARN
 
@@ -525,7 +525,7 @@ class TestAssessVramRisk:
         from llama_manager.server import assess_vram_risk
 
         # 10 / 10 = 1.0x
-        result = assess_vram_risk(vram_total_gb=24, vram_free_gb=10, model_size_gb=10)
+        result = assess_vram_risk(vram_free_gb=10, model_size_gb=10)
 
         assert result == VRamRecommendation.CONFIRM_REQUIRED
 
@@ -534,7 +534,7 @@ class TestAssessVramRisk:
         from llama_manager.config import VRamRecommendation
         from llama_manager.server import assess_vram_risk
 
-        result = assess_vram_risk(vram_total_gb=24, vram_free_gb=0, model_size_gb=10)
+        result = assess_vram_risk(vram_free_gb=0, model_size_gb=10)
 
         assert result == VRamRecommendation.CONFIRM_REQUIRED
 
@@ -544,6 +544,6 @@ class TestAssessVramRisk:
         from llama_manager.server import assess_vram_risk
 
         # 20 / 10 = 2.0x
-        result = assess_vram_risk(vram_total_gb=24, vram_free_gb=20, model_size_gb=10)
+        result = assess_vram_risk(vram_free_gb=20, model_size_gb=10)
 
         assert result == VRamRecommendation.PROCEED

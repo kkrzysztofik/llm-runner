@@ -273,10 +273,6 @@ def _extract_field_from_reader(
         return str(field.contents())
     except (ValueError, AttributeError):
         return None
-    try:
-        return str(field.contents())
-    except (ValueError, AttributeError):
-        return None
 
 
 def _extract_int_field_from_reader(
@@ -295,11 +291,6 @@ def _extract_int_field_from_reader(
     """
     field = reader_fields.get(key)
     if field is None:
-        return None
-    try:
-        val = field.contents()
-        return int(val)
-    except (ValueError, TypeError, AttributeError):
         return None
     try:
         val = field.contents()
@@ -364,6 +355,115 @@ def _try_gguf_reader(
         return None
 
 
+def _extract_from_gguf_reader(
+    model_path: str,
+    fields: dict[str, ReaderField],
+    parse_timeout_s: float,
+    prefix_cap_bytes: int,
+) -> GGUFMetadataRecord:
+    """Extract metadata using GGUFReader fields dict.
+
+    Args:
+        model_path: Path to the GGUF file.
+        fields: The fields dict from GGUFReader.
+        parse_timeout_s: Timeout for parsing.
+        prefix_cap_bytes: Bytes cap used for parsing.
+
+    Returns:
+        A ``GGUFMetadataRecord`` with extracted metadata.
+
+    """
+    general_name = _extract_field_from_reader(fields, Keys.General.NAME)
+    architecture = _extract_architecture_from_reader(fields)
+    tokenizer_type = _detect_tokenizer_type_from_reader(fields)
+
+    if architecture:
+        ctx_key = Keys.LLM.CONTEXT_LENGTH.format(arch=architecture)
+        emb_key = Keys.LLM.EMBEDDING_LENGTH.format(arch=architecture)
+        blk_key = Keys.LLM.BLOCK_COUNT.format(arch=architecture)
+        atc_key = Keys.Attention.HEAD_COUNT.format(arch=architecture)
+        atc_kv_key = Keys.Attention.HEAD_COUNT_KV.format(arch=architecture)
+
+        context_length = _extract_int_field_from_reader(fields, ctx_key)
+        embedding_length = _extract_int_field_from_reader(fields, emb_key)
+        block_count = _extract_int_field_from_reader(fields, blk_key)
+        attention_head_count = _extract_int_field_from_reader(fields, atc_key)
+        attention_head_count_kv = _extract_int_field_from_reader(fields, atc_kv_key)
+    else:
+        context_length = None
+        embedding_length = None
+        block_count = None
+        attention_head_count = None
+        attention_head_count_kv = None
+
+    stem = Path(model_path).stem
+    normalized_stem = normalize_filename(stem)
+
+    return GGUFMetadataRecord(
+        raw_path=model_path,
+        normalized_stem=normalized_stem,
+        general_name=general_name,
+        architecture=architecture,
+        tokenizer_type=tokenizer_type,
+        embedding_length=embedding_length,
+        block_count=block_count,
+        context_length=context_length,
+        attention_head_count=attention_head_count,
+        attention_head_count_kv=attention_head_count_kv,
+        parse_timeout_s=parse_timeout_s,
+        prefix_cap_bytes=prefix_cap_bytes,
+    )
+
+
+def _extract_from_raw_bytes(
+    model_path: str,
+    prefix_cap_bytes: int,
+    parse_timeout_s: float,
+) -> GGUFMetadataRecord:
+    """Extract metadata by parsing raw header bytes.
+
+    Args:
+        model_path: Path to the GGUF file.
+        prefix_cap_bytes: Maximum bytes to read from the file.
+        parse_timeout_s: Timeout for parsing.
+
+    Returns:
+        A ``GGUFMetadataRecord`` with extracted metadata.
+
+    """
+    data = _read_gguf_header(model_path, prefix_cap_bytes)
+    version = _detect_gguf_version(data[:8])
+    if version == 4:
+        raise ValueError("GGUF v4 format not yet supported")
+
+    general_name = _parse_general_name(data)
+    architecture = _parse_architecture(data)
+    tokenizer_type = _parse_tokenizer_type(data)
+    embedding_length = _parse_numeric_field(data, b"embedding_length")
+    block_count = _parse_numeric_field(data, b"block_count")
+    context_length = _parse_numeric_field(data, b"context_length")
+    attention_head_count = _parse_numeric_field(data, b"attention_head_count")
+    attention_head_count_kv = _parse_numeric_field(data, b"attention_head_count_kv")
+
+    stem = Path(model_path).stem
+    normalized_stem = normalize_filename(stem)
+
+    return GGUFMetadataRecord(
+        raw_path=model_path,
+        normalized_stem=normalized_stem,
+        general_name=general_name,
+        architecture=architecture,
+        tokenizer_type=tokenizer_type,
+        embedding_length=embedding_length,
+        block_count=block_count,
+        context_length=context_length,
+        attention_head_count=attention_head_count,
+        attention_head_count_kv=attention_head_count_kv,
+        parse_timeout_s=parse_timeout_s,
+        prefix_cap_bytes=prefix_cap_bytes,
+    )
+
+
 def extract_gguf_metadata(
     model_path: str,
     prefix_cap_bytes: int = 32 * 1024 * 1024,
@@ -395,14 +495,12 @@ def extract_gguf_metadata(
         TimeoutError: If the parse exceeds ``parse_timeout_s``.
 
     """
+    from queue import Empty, Queue
     from threading import Thread
 
-    result: GGUFMetadataRecord | None = None
-    exception: BaseException | None = None
-    done = False
+    result_queue: Queue[GGUFMetadataRecord | BaseException] = Queue(maxsize=1)
 
     def _parse() -> None:
-        nonlocal result, exception, done
         try:
             # Attempt GGUFReader first
             reader_result = _try_gguf_reader(model_path)
@@ -414,82 +512,40 @@ def extract_gguf_metadata(
                 if version == 4:
                     raise ValueError("GGUF v4 format not yet supported")
 
-                # Extract using GGUFReader
-                general_name = _extract_field_from_reader(fields, Keys.General.NAME)
-                architecture = _extract_architecture_from_reader(fields)
-                tokenizer_type = _detect_tokenizer_type_from_reader(fields)
-
-                if architecture:
-                    ctx_key = Keys.LLM.CONTEXT_LENGTH.format(arch=architecture)
-                    emb_key = Keys.LLM.EMBEDDING_LENGTH.format(arch=architecture)
-                    blk_key = Keys.LLM.BLOCK_COUNT.format(arch=architecture)
-                    atc_key = Keys.Attention.HEAD_COUNT.format(arch=architecture)
-                    atc_kv_key = Keys.Attention.HEAD_COUNT_KV.format(arch=architecture)
-
-                    context_length = _extract_int_field_from_reader(fields, ctx_key)
-                    embedding_length = _extract_int_field_from_reader(fields, emb_key)
-                    block_count = _extract_int_field_from_reader(fields, blk_key)
-                    attention_head_count = _extract_int_field_from_reader(fields, atc_key)
-                    attention_head_count_kv = _extract_int_field_from_reader(fields, atc_kv_key)
-                else:
-                    context_length = None
-                    embedding_length = None
-                    block_count = None
-                    attention_head_count = None
-                    attention_head_count_kv = None
+                record = _extract_from_gguf_reader(
+                    model_path,
+                    fields,
+                    parse_timeout_s,
+                    prefix_cap_bytes,
+                )
             else:
                 # Fall back to raw bytes parsing
-                data = _read_gguf_header(model_path, prefix_cap_bytes)
-                version = _detect_gguf_version(data[:8])
+                record = _extract_from_raw_bytes(
+                    model_path,
+                    prefix_cap_bytes,
+                    parse_timeout_s,
+                )
 
-                if version == 4:
-                    raise ValueError("GGUF v4 format not yet supported")
-
-                general_name = _parse_general_name(data)
-                architecture = _parse_architecture(data)
-                tokenizer_type = _parse_tokenizer_type(data)
-                embedding_length = _parse_numeric_field(data, b"embedding_length")
-                block_count = _parse_numeric_field(data, b"block_count")
-                context_length = _parse_numeric_field(data, b"context_length")
-                attention_head_count = _parse_numeric_field(data, b"attention_head_count")
-                attention_head_count_kv = _parse_numeric_field(data, b"attention_head_count_kv")
-
-            # Derive normalized stem from path
-            stem = Path(model_path).stem
-            normalized_stem = normalize_filename(stem)
-
-            result = GGUFMetadataRecord(
-                raw_path=model_path,
-                normalized_stem=normalized_stem,
-                general_name=general_name,
-                architecture=architecture,
-                tokenizer_type=tokenizer_type,
-                embedding_length=embedding_length,
-                block_count=block_count,
-                context_length=context_length,
-                attention_head_count=attention_head_count,
-                attention_head_count_kv=attention_head_count_kv,
-                parse_timeout_s=parse_timeout_s,
-                prefix_cap_bytes=prefix_cap_bytes,
-            )
-        except BaseException as exc:
-            exception = exc
-        finally:
-            done = True
+            result_queue.put(record, block=False)
+        except (ValueError, OSError, FileNotFoundError) as exc:
+            result_queue.put(exc, block=False)
 
     # Run parse in a thread with timeout
     thread = Thread(target=_parse, daemon=True)
     thread.start()
     thread.join(timeout=parse_timeout_s)
 
-    if not done:
+    if thread.is_alive():
         raise TimeoutError(
-            f"GGUF metadata parse timed out after {parse_timeout_s}s for {model_path}"
+            f"GGUF metadata parse timed out after {parse_timeout_s}s for {model_path}",
         )
 
-    if exception is not None:
-        raise exception
+    try:
+        item = result_queue.get(block=False)
+    except Empty:
+        raise RuntimeError("parse completed without producing a result") from None
 
-    if result is None:
-        raise RuntimeError("parse completed without setting result")
-    return result
+    if isinstance(item, BaseException):
+        raise item
+
+    return item

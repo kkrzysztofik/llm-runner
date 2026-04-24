@@ -761,21 +761,15 @@ def _parse_device_details(device: str) -> tuple[str | None, str]:
     return (None, device)
 
 
-def compute_machine_fingerprint() -> str | None:
-    """Compute a deterministic machine fingerprint from hardware identifiers.
-
-    Gathers information from system tools (lspci, /proc/cpuinfo, /etc/os-release)
-    and combines them into a SHA-256 hash. Returns None if no tools succeed.
+def _get_lspci_output() -> str | None:
+    """Run lspci and return stdout, or None on failure.
 
     Returns:
-        A hex-encoded SHA-256 hash string, or None if all tools fail.
+        lspci stdout string, or None if the command fails.
 
     """
     import subprocess
 
-    parts: list[str] = []
-
-    # GPU info from lspci
     try:
         result = subprocess.run(
             ["lspci"],
@@ -784,11 +778,21 @@ def compute_machine_fingerprint() -> str | None:
             timeout=10,
         )
         if result.returncode == 0 and result.stdout.strip():
-            parts.append("gpu:" + result.stdout.strip())
+            return result.stdout.strip()
     except (OSError, subprocess.TimeoutExpired):
         pass
+    return None
 
-    # CPU info from /proc/cpuinfo
+
+def _get_cpu_model() -> str | None:
+    """Extract CPU model name from /proc/cpuinfo.
+
+    Returns:
+        The CPU model name, or None if unavailable.
+
+    """
+    import subprocess
+
     try:
         result = subprocess.run(
             ["cat", "/proc/cpuinfo"],
@@ -797,15 +801,23 @@ def compute_machine_fingerprint() -> str | None:
             timeout=10,
         )
         if result.returncode == 0 and result.stdout.strip():
-            # Extract model name for compact representation
             for line in result.stdout.splitlines():
                 if line.startswith("model name"):
-                    parts.append("cpu:" + line.split(":", 1)[1].strip())
-                    break
+                    return "cpu:" + line.split(":", 1)[1].strip()
     except (OSError, subprocess.TimeoutExpired):
         pass
+    return None
 
-    # OS info from /etc/os-release
+
+def _get_os_name() -> str | None:
+    """Extract OS name from /etc/os-release.
+
+    Returns:
+        The OS name, or None if unavailable.
+
+    """
+    import subprocess
+
     try:
         result = subprocess.run(
             ["cat", "/etc/os-release"],
@@ -816,15 +828,40 @@ def compute_machine_fingerprint() -> str | None:
         if result.returncode == 0 and result.stdout.strip():
             for line in result.stdout.splitlines():
                 if line.startswith("NAME="):
-                    parts.append("os:" + line.split("=", 1)[1].strip().strip('"'))
-                    break
+                    return "os:" + line.split("=", 1)[1].strip().strip('"')
     except (OSError, subprocess.TimeoutExpired):
         pass
+    return None
+
+
+def compute_machine_fingerprint() -> str | None:
+    """Compute a deterministic machine fingerprint from hardware identifiers.
+
+    Gathers information from system tools (lspci, /proc/cpuinfo, /etc/os-release)
+    and combines them into a SHA-256 hash. Returns None if no tools succeed.
+
+    Returns:
+        A hex-encoded SHA-256 hash string, or None if all tools fail.
+
+    """
+    import hashlib
+
+    parts: list[str] = []
+
+    gpu_output = _get_lspci_output()
+    if gpu_output is not None:
+        parts.append("gpu:" + gpu_output)
+
+    cpu_model = _get_cpu_model()
+    if cpu_model is not None:
+        parts.append(cpu_model)
+
+    os_name = _get_os_name()
+    if os_name is not None:
+        parts.append(os_name)
 
     if not parts:
         return None
-
-    import hashlib
 
     raw = "|".join(parts)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -863,7 +900,6 @@ def check_hardware_allowlist(
 
 
 def assess_vram_risk(
-    vram_total_gb: float,
     vram_free_gb: float,
     model_size_gb: float,
 ) -> str:
@@ -879,7 +915,6 @@ def assess_vram_risk(
     - CONFIRM_REQUIRED: free VRAM < 1.411x model size
 
     Args:
-        vram_total_gb: Total GPU VRAM in gigabytes.
         vram_free_gb: Available (free) GPU VRAM in gigabytes.
         model_size_gb: Estimated model size in gigabytes.
 

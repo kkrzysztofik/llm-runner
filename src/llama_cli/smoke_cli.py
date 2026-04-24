@@ -60,7 +60,6 @@ def _build_slot_configs(
 
 
 def _probe_server(
-    slot_id: str,
     model: str,
     host: str,
     port: int,
@@ -69,7 +68,6 @@ def _probe_server(
     """Probe a single server instance.
 
     Args:
-        slot_id: Slot identifier.
         model: Model path.
         host: Server hostname.
         port: Server port.
@@ -87,6 +85,77 @@ def _probe_server(
     )
 
 
+def _validate_smoke_args(parsed: argparse.Namespace) -> int | None:
+    """Validate smoke CLI arguments.
+
+    Args:
+        parsed: Parsed argparse namespace.
+
+    Returns:
+        Exit code on validation failure, or None if valid.
+    """
+    mode: str = parsed.mode
+    if mode not in ("both", "slot"):
+        print(
+            f"error: invalid smoke mode '{mode}'. Valid modes: both, slot",
+            file=sys.stderr,
+        )
+        return 1
+
+    slot_id: str | None = parsed.slot_id
+    if mode == "slot" and not slot_id:
+        print("error: 'slot' mode requires a slot ID argument", file=sys.stderr)
+        return 1
+    return None
+
+
+def _build_smoke_config(parsed: argparse.Namespace) -> SmokeProbeConfiguration:
+    """Build SmokeProbeConfiguration from parsed CLI arguments.
+
+    Args:
+        parsed: Parsed argparse namespace.
+
+    Returns:
+        Configured SmokeProbeConfiguration.
+    """
+    cfg = Config()
+    return SmokeProbeConfiguration(
+        inter_slot_delay_s=parsed.delay or cfg.smoke_inter_slot_delay_s,
+        listen_timeout_s=parsed.timeout or cfg.smoke_listen_timeout_s,
+        http_request_timeout_s=cfg.smoke_http_request_timeout_s,
+        max_tokens=parsed.max_tokens or cfg.smoke_max_tokens,
+        prompt=parsed.prompt or cfg.smoke_prompt,
+        skip_models_discovery=cfg.smoke_skip_models_discovery,
+        api_key=parsed.api_key or cfg.smoke_api_key,
+        model_id_override=parsed.model_id,
+        first_token_timeout_s=cfg.smoke_first_token_timeout_s,
+        total_chat_timeout_s=cfg.smoke_total_chat_timeout_s,
+    )
+
+
+def _run_probes(
+    targets: list[tuple[str, str, str, int]],
+    smoke_cfg: SmokeProbeConfiguration,
+) -> list[SmokeProbeResult]:
+    """Run smoke probes sequentially against server targets.
+
+    Args:
+        targets: List of (slot_id, model, host, port) tuples.
+        smoke_cfg: Smoke probe configuration.
+
+    Returns:
+        List of SmokeProbeResult objects.
+    """
+    results: list[SmokeProbeResult] = []
+    for idx, (_sid, model, host, port) in enumerate(targets):
+        if idx > 0 and smoke_cfg.inter_slot_delay_s > 0:
+            time.sleep(smoke_cfg.inter_slot_delay_s)
+
+        result = _probe_server(model, host, port, smoke_cfg)
+        results.append(result)
+    return results
+
+
 def run_smoke(args: list[str]) -> int:
     """Run smoke tests against server instances.
 
@@ -101,64 +170,30 @@ def run_smoke(args: list[str]) -> int:
     parser = _build_smoke_parser()
     parsed = parser.parse_args(args)
 
+    # Validate arguments
+    validation_result = _validate_smoke_args(parsed)
+    if validation_result is not None:
+        return validation_result
+
     mode: str = parsed.mode
     json_output: bool = parsed.json
-    api_key: str = parsed.api_key or ""
-    model_id: str | None = parsed.model_id
-    max_tokens: int = parsed.max_tokens
-    prompt: str = parsed.prompt
-    delay: int = parsed.delay
-    timeout: int = parsed.timeout
-
-    # Validate mode
-    if mode not in ("both", "slot"):
-        print(
-            f"error: invalid smoke mode '{mode}'. Valid modes: both, slot",
-            file=sys.stderr,
-        )
-        return 1
-
-    # Resolve slot_id for "slot" mode
-    slot_id: str | None = parsed.slot_id
-    if mode == "slot" and not slot_id:
-        print("error: 'slot' mode requires a slot ID argument", file=sys.stderr)
-        return 1
 
     # Build server targets
     targets = _build_slot_configs(mode)
 
     # If slot mode with explicit slot_id, filter to that slot
+    slot_id: str | None = parsed.slot_id
     if mode == "slot" and slot_id:
-        targets = [
-            (slot_id, model, host, port) for sid, model, host, port in targets if sid == slot_id
-        ]
+        targets = [(sid, model, host, port) for sid, model, host, port in targets if sid == slot_id]
         if not targets:
             print(f"error: no server found for slot '{slot_id}'", file=sys.stderr)
             return 1
 
     # Build smoke probe configuration
-    cfg = Config()
-    smoke_cfg = SmokeProbeConfiguration(
-        inter_slot_delay_s=delay or cfg.smoke_inter_slot_delay_s,
-        listen_timeout_s=timeout or cfg.smoke_listen_timeout_s,
-        http_request_timeout_s=cfg.smoke_http_request_timeout_s,
-        max_tokens=max_tokens or cfg.smoke_max_tokens,
-        prompt=prompt or cfg.smoke_prompt,
-        skip_models_discovery=cfg.smoke_skip_models_discovery,
-        api_key=api_key or cfg.smoke_api_key,
-        model_id_override=model_id,
-        first_token_timeout_s=cfg.smoke_first_token_timeout_s,
-        total_chat_timeout_s=cfg.smoke_total_chat_timeout_s,
-    )
+    smoke_cfg = _build_smoke_config(parsed)
 
-    # Run probes sequentially with delay between slots
-    results: list[SmokeProbeResult] = []
-    for idx, (sid, model, host, port) in enumerate(targets):
-        if idx > 0 and smoke_cfg.inter_slot_delay_s > 0:
-            time.sleep(smoke_cfg.inter_slot_delay_s)
-
-        result = _probe_server(sid, model, host, port, smoke_cfg)
-        results.append(result)
+    # Run probes
+    results = _run_probes(targets, smoke_cfg)
 
     # Build composite report
     report = SmokeCompositeReport(results=results)

@@ -43,7 +43,7 @@ def resolve_model_id_from_gguf(model_path: str) -> str | None:
     """
     try:
         record = extract_gguf_metadata(model_path)
-    except (ValueError, OSError, TimeoutError):
+    except OSError:
         return None
 
     # Prefer general.name from GGUF metadata
@@ -269,7 +269,7 @@ def probe_slot(
     phase = SmokePhase.LISTEN
     try:
         _tcp_connect(host, port, smoke_cfg.listen_timeout_s)
-    except (TimeoutError, OSError):
+    except OSError:
         return SmokeProbeResult(
             slot_id=f"{host}:{port}",
             status=SmokeProbeStatus.FAIL,
