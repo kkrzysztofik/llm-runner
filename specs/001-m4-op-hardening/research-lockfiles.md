@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-The lockfile implementation for M4 is **already implemented** in `src/llama_manager/process_manager.py` (lines 49–553). It uses `O_CREAT | O_EXCL` for atomic lock creation (eliminating TOCTOU races), JSON metadata with PID/port/timestamp, `psutil.pid_exists()` for stale detection, and a 300-second staleness threshold. This research evaluates the existing design against Linux lockfile best practices and identifies any gaps.
+The lockfile implementation for M4 is **already implemented** in `src/llama_manager/process_manager.py` (lines 49–553). It uses `O_CREAT | O_EXCL` for atomic lock creation (eliminating TOCTOU races), JSON metadata with PID/port/timestamp, `psutil.pid_exists()` for stale detection, and a configurable staleness threshold (`Config.lock_stale_threshold_s`, default 300 s). This research evaluates the existing design against Linux lockfile best practices and identifies any gaps.
 
 ---
 
@@ -91,7 +91,7 @@ def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | N
         return None
     metadata: LockMetadata = metadata_result
 
-    # Phase 1: Staleness by age (5-minute threshold)
+    # Phase 1: Staleness by age (threshold from Config.lock_stale_threshold_s, default 300s)
     if time.time() - metadata.started_at > 300:
         _clear_lockfile(runtime_dir, slot_id)
         return None

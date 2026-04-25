@@ -591,3 +591,56 @@ class TestParseNumericField:
         data = b"llama.context_length 8192"
         result = _parse_numeric_field(data, b"llama.context_length")
         assert result == 8192
+
+
+# ---------------------------------------------------------------------------
+# prefix_cap_bytes / parse_timeout_s validation
+# ---------------------------------------------------------------------------
+
+
+class TestExtractGgufMetadataValidation:
+    """Validation of prefix_cap_bytes and parse_timeout_s parameters."""
+
+    def test_prefix_cap_bytes_zero_raises(self) -> None:
+        """extract_gguf_metadata should raise ValueError for prefix_cap_bytes=0."""
+        with pytest.raises(ValueError) as exc_info:
+            extract_gguf_metadata("/fake/model.gguf", prefix_cap_bytes=0)
+        assert "prefix_cap_bytes" in str(exc_info.value).lower()
+        assert "positive" in str(exc_info.value).lower()
+
+    def test_prefix_cap_bytes_negative_raises(self) -> None:
+        """extract_gguf_metadata should raise ValueError for negative prefix_cap_bytes."""
+        with pytest.raises(ValueError) as exc_info:
+            extract_gguf_metadata("/fake/model.gguf", prefix_cap_bytes=-100)
+        assert "prefix_cap_bytes" in str(exc_info.value).lower()
+
+    def test_parse_timeout_zero_raises(self) -> None:
+        """extract_gguf_metadata should raise ValueError for parse_timeout_s=0."""
+        with pytest.raises(ValueError) as exc_info:
+            extract_gguf_metadata("/fake/model.gguf", parse_timeout_s=0.0)
+        assert "parse_timeout_s" in str(exc_info.value).lower()
+        assert "positive" in str(exc_info.value).lower()
+
+    def test_parse_timeout_negative_raises(self) -> None:
+        """extract_gguf_metadata should raise ValueError for negative parse_timeout_s."""
+        with pytest.raises(ValueError) as exc_info:
+            extract_gguf_metadata("/fake/model.gguf", parse_timeout_s=-1.0)
+        assert "parse_timeout_s" in str(exc_info.value).lower()
+
+    def test_validation_before_any_io(self) -> None:
+        """Validation errors should occur before any file reads or thread creation."""
+        # Should raise ValueError without touching the filesystem
+        with pytest.raises(ValueError) as exc_info:
+            extract_gguf_metadata("/nonexistent/model.gguf", prefix_cap_bytes=0)
+        # If we get here, ValueError was raised before any IO attempt
+        assert exc_info.value is not None
+
+    def test_valid_parameters_accepted(self) -> None:
+        """Valid positive parameters should not raise."""
+        # Use a fixture that exists
+        path = str(_FIXTURES_DIR / "gguf_v3_valid.gguf")
+        # Should succeed without raising
+        record = extract_gguf_metadata(path, prefix_cap_bytes=1024, parse_timeout_s=1.0)
+        assert record is not None
+        assert record.prefix_cap_bytes == 1024
+        assert record.parse_timeout_s == 1.0

@@ -8,8 +8,8 @@
 
 ## 1. httpx for Smoke Probes
 
-### Decision: Per-Request `httpx.Timeout` Object with Per-Probe Client Lifecycle
-Use a fine-grained `httpx.Timeout(connect=120s, read=10s)` per smoke probe, with a fresh `httpx.Client` created per slot via `with httpx.Client() as client:`. No shared client across slots — probes are sequential, so connection pooling provides no benefit.
+### Decision: Explicit `httpx.Timeout` Object with Per-Probe Client Lifecycle
+Use an explicit `httpx.Timeout(connect=120s, read=10s, write=10s, pool=10s)` per smoke probe, with a fresh `httpx.Client` created per slot via `with httpx.Client() as client:`. No shared client across slots — probes are sequential, so connection pooling provides no benefit.
 
 **Rationale**:
 - The M4 spec requires two distinct timeout values: `smoke_listen_timeout_s` (120s, for TCP ready-check) and `smoke_http_request_timeout_s` (10s, for HTTP requests). A single scalar timeout cannot express this distinction.
@@ -120,7 +120,7 @@ Reuse the existing `_cbreak_stdin()` context manager + `_input_poller()` pattern
 
 | # | Topic | Decision | Key Rationale |
 |---|-------|----------|---------------|
-| 1 | httpx timeout | Per-request `httpx.Timeout(connect, read)` | Two distinct timeout values per spec |
+| 1 | httpx timeout | Per-request `httpx.Timeout(connect, read, write, pool)` | Four distinct timeout values per operation type |
 | 2 | httpx client | Per-probe `httpx.Client` with context manager | Different ports, different API keys |
 | 3 | httpx error classification | Exception hierarchy → exit codes | Clean mapping to Appendix B |
 | 4 | gguf parsing | `GGUFReader` + temp file + threading timeout | Memory-efficient, official library |

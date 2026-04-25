@@ -229,7 +229,7 @@ Top-level output from `smoke both`.
 | Field | Type | Validation |
 | --- | --- | --- |
 | `results` | `list[SmokeSlotResult]` | Per-slot results in declaration order |
-| `overall_exit_code` | `int` | Highest-severity (lowest-numbered) failure code; 0 if all pass |
+| `overall_exit_code` | `int` | Maximum (worst) numeric exit code among all slots; 0 if all pass |
 
 Each entry in `results` maps to a `SmokeProbeResult` plus the per-slot exit code.
 
@@ -703,7 +703,7 @@ class SmokeCompositeReport:
 
     Attributes:
         results: Per-slot results in declaration order.
-        overall_exit_code: Highest-severity (lowest-numbered) failure code.
+        overall_exit_code: Maximum (worst) numeric exit code across all results.
     """
 
     results: list[SmokeProbeResult]
@@ -943,7 +943,7 @@ Smoke exit codes (10–19) map to probe outcomes:
 | 15 | `AUTH_FAILURE` | `MODELS` or `CHAT` |
 | 19 | `CRASHED` | Any (process exited) |
 
-Composite report `overall_exit_code` is the minimum (highest-severity) among all slot results.
+Composite report `overall_exit_code` is the maximum (worst) numeric exit code among all slot results.
 
 ---
 

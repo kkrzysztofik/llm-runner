@@ -16,6 +16,8 @@ from __future__ import annotations
 import time
 from unittest.mock import MagicMock
 
+import pytest
+
 from llama_manager.config import SlotState
 from llama_manager.log_buffer import LogBuffer
 from llama_manager.process_manager import SlotRuntime  # noqa: T079
@@ -157,8 +159,21 @@ class TestStateMachineLifecycle:
     # Full chain in a single test
     # ------------------------------------------------------------------
 
-    def test_full_lifecycle_chain(self) -> None:
+    def test_full_lifecycle_chain(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify the full chain: IDLE→LAUNCHING→RUNNING→DEGRADED→RUNNING→OFFLINE→IDLE."""
+        from llama_manager import process_manager
+
+        time_values = [1000.0, 1000.1, 1000.2, 1000.3, 1000.4, 1000.5]
+        call_count = 0
+
+        def fake_time() -> float:
+            nonlocal call_count
+            val = time_values[call_count] if call_count < len(time_values) else time_values[-1]
+            call_count += 1
+            return val
+
+        monkeypatch.setattr(process_manager.time, "time", fake_time)
+
         runtime = SlotRuntime(
             slot_id="gpu0-slot1",
             state=SlotState.IDLE,
@@ -174,7 +189,6 @@ class TestStateMachineLifecycle:
         launching_st = runtime.start_time
 
         # LAUNCHING → RUNNING
-        time.sleep(0.001)
         runtime.transition_to(SlotState.RUNNING)
         assert runtime.state == SlotState.RUNNING
         running_st = runtime.start_time
@@ -188,7 +202,6 @@ class TestStateMachineLifecycle:
         # DEGRADED → RUNNING
         runtime.pid = 12345  # pid assigned on recovery
         runtime.gpu_stats = MagicMock()
-        time.sleep(0.001)
         runtime.transition_to(SlotState.RUNNING)
         assert runtime.state == SlotState.RUNNING
         running_st2 = runtime.start_time
@@ -323,7 +336,7 @@ class TestStateMachineLifecycle:
             gpu_stats=None,
         )
         old_st = runtime.start_time
-        time.sleep(0.001)
+        time.sleep(0.01)
         runtime.transition_to(SlotState.RUNNING)
         assert runtime.start_time > old_st  # RUNNING always updates
 

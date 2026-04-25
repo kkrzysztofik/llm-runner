@@ -504,10 +504,21 @@ def extract_gguf_metadata(
 
     Raises:
         FileNotFoundError: If the model file does not exist.
-        ValueError: If the file is not a valid GGUF file.
+        ValueError: If the file is not a valid GGUF file or parameters
+            are invalid.
         TimeoutError: If the parse exceeds ``parse_timeout_s``.
 
     """
+    # Validate parameters before any reads or thread creation
+    if not isinstance(prefix_cap_bytes, int) or prefix_cap_bytes <= 0:
+        raise ValueError(
+            f"prefix_cap_bytes must be a positive integer, got: {prefix_cap_bytes}",
+        )
+    if not isinstance(parse_timeout_s, (int, float)) or parse_timeout_s <= 0:
+        raise ValueError(
+            f"parse_timeout_s must be a positive number, got: {parse_timeout_s}",
+        )
+
     from queue import Empty, Queue
     from threading import Thread
 

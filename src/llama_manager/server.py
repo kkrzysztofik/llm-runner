@@ -883,7 +883,7 @@ def check_hardware_allowlist(
     """
     if allowlist is None:
         raw = os.environ.get("LLM_RUNNER_HARDWARE_ALLOWLIST", "")
-        allowlist = [f for f in raw.split(",") if f.strip()] if raw else []
+        allowlist = [f.strip() for f in raw.split(",") if f.strip()] if raw else []
 
     if not allowlist:
         return "invalidated"

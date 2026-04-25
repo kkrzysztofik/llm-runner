@@ -198,13 +198,12 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 
 | Exception | Exit Code | SmokeProbeStatus | Failure Phase |
 | --- | --- | --- | --- |
-| `httpx.ConnectTimeout` | 10 | `TIMEOUT` | `LISTEN` or `MODELS` or `CHAT` |
-| `httpx.ReadTimeout` | 14 | `TIMEOUT` | `CHAT` |
-| `httpx.ConnectError` | 10 | `TIMEOUT` | `LISTEN` |
-| `httpx.NetworkError` | 11 | `FAIL` | `MODELS` or `CHAT` |
-| `httpx.RemoteProtocolError` | 11 | `FAIL` | `MODELS` or `CHAT` |
-| `httpx.PoolTimeout` | 14 | `TIMEOUT` | `CHAT` |
-| `httpx.ReadError` | 11 | `FAIL` | `MODELS` or `CHAT` |
+| `httpx.TimeoutException` (all types) | 13 | `TIMEOUT` | `MODELS` or `CHAT` |
+| `httpx.ConnectError` | 10 | `FAIL` | `MODELS` or `CHAT` |
+| `httpx.NetworkError` | 10 | `FAIL` | `MODELS` or `CHAT` |
+| `httpx.UnsupportedProtocol` | 10 | `FAIL` | `MODELS` or `CHAT` |
+
+> **Implementation note**: The code catches `httpx.TimeoutException` (the base class for all httpx timeout exceptions including `ConnectTimeout`, `ReadTimeout`, `PoolTimeout`, `WriteTimeout`) and maps it uniformly to `TIMEOUT` with exit code 13. This is distinct from the TCP listen phase, which uses raw `socket.timeout` (exit code 10, `TIMEOUT` status).
 
 ### HTTP Status Code Mapping
 
@@ -223,9 +222,9 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 | Error | Exit Code | SmokeProbeStatus |
 | --- | --- | --- |
 | `socket.timeout` | 10 | `TIMEOUT` |
-| `ConnectionRefusedError` | 11 | `FAIL` |
-| `ConnectionResetError` | 11 | `FAIL` |
-| `OSError` (other network) | 10 | `TIMEOUT` |
+| `ConnectionRefusedError` | 10 | `FAIL` |
+| `ConnectionResetError` | 10 | `FAIL` |
+| `OSError` (other network) | 10 | `FAIL` |
 
 ---
 
@@ -284,7 +283,7 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 
 **Field descriptions**:
 - `results`: Per-slot results in declaration order from config.
-- `overall_exit_code`: Highest-severity (lowest-numbered) failure code among all slots. 0 if all pass.
+- `overall_exit_code`: Maximum (worst) numeric exit code among all slots. 0 if all pass.
 
 ### 4.3 JSON Schema (Draft 2020-12)
 
@@ -408,7 +407,9 @@ if args[0] == "smoke":
 
 Smoke exit codes (10–19) are distinct from doctor exit codes (1–9). Full definitions: `spec.md` Appendix B.
 
-**Composite exit code rule**: When multiple slots are probed (`smoke both`), the exit code reflects the **highest-severity (lowest-numbered) failure** among all slots. If all slots pass, exit 0.
+**Composite exit code rule**: When multiple slots are probed (`smoke both`), the exit code reflects the **maximum (worst) numeric exit code** among all slots. If all slots pass, exit 0.
+
+> **Implementation**: `compute_overall_exit_code()` in `llama_manager/smoke.py` iterates over all results and returns the highest numeric exit code (0 if all pass). Exit codes: PASS=0, FAIL=10, TIMEOUT=13, CRASHED=19, MODEL_NOT_FOUND=14, AUTH_FAILURE=15.
 
 **SIGKILL escalation** (exit 130): Defined in `spec.md` Appendix B; applies to all commands, outside doctor/smoke families.
 
@@ -574,13 +575,16 @@ def resolve_provenance() -> ProvenanceRecord:
     """
 
 def compute_overall_exit_code(results: list[SmokeProbeResult]) -> int:
-    """Compute the highest-severity (lowest-numbered) exit code.
+    """Compute the maximum (worst) exit code across all results.
+
+    Returns the highest numeric exit code among all results (i.e., the worst
+    failure). If all results pass, returns 0.
 
     Args:
         results: List of SmokeProbeResult objects.
 
     Returns:
-        Overall exit code (0 if all pass).
+        Overall exit code (0 if all pass, otherwise worst failure).
     """
 ```
 

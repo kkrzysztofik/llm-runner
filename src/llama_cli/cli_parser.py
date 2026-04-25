@@ -462,9 +462,9 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
         sys.exit(1)
 
     # Parse remaining args for slot_id (when mode is "slot") and flags.
-    # Strategy: parse ALL flags first, then extract slot_id from the
-    # remaining non-flag tokens. This correctly handles flags appearing
-    # before or after the slot_id (e.g. "smoke slot --json summary-balanced").
+    # Strategy: slot_id is extracted ONLY from the first token if it exists
+    # and does NOT start with "--". Otherwise leave all args for parser/error
+    # handling. This prevents skipping leading flags to find slot_id.
     slot_id: str | None = None
     api_key: str = ""
     model_id: str | None = None
@@ -475,6 +475,13 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
     json_output: bool = False
 
     remaining = args[2:]
+
+    # Check if slot_id can be extracted from remaining[0] BEFORE parsing flags
+    if mode == "slot" and remaining and not remaining[0].startswith("--"):
+        slot_id = remaining[0]
+        # Remove slot_id from remaining for flag parsing
+        remaining = remaining[1:]
+
     i = 0
 
     # Flags that take a value (consume the next token)
@@ -533,6 +540,7 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
                     # Unknown flag=value — hard error
                     print(f"error: unknown flag '{key}'", file=sys.stderr)
                     sys.exit(1)
+                i += 1
             elif arg in _FLAGS_WITH_VALUE:
                 i += 1
                 if i < len(remaining):
@@ -582,9 +590,7 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
                 print(f"error: unknown flag '{arg}'", file=sys.stderr)
                 sys.exit(1)
         else:
-            # First non-flag token — this is the slot_id in "slot" mode
-            if mode == "slot":
-                slot_id = arg
+            # Non-flag token encountered — skip it (slot_id already handled above)
             i += 1
 
     # Phase 2 — validate max_tokens range

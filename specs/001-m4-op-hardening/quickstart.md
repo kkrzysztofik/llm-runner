@@ -221,7 +221,7 @@ After shutdown, the tool scans for orphan `llama-server` processes owned by the 
 | **19** | `smoke` | Slot crashed during probe |
 | **130** | `Any` | Process manager SIGKILL escalation failure (process stuck in D state) — implementation-level process-manager code, outside doctor/smoke families |
 
-When multiple slots are probed, the exit code reflects the highest-severity (lowest-numbered) failure.
+When multiple slots are probed, the exit code reflects the maximum (worst) numeric exit code among all slots.
 
 ---
 

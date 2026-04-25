@@ -124,6 +124,7 @@ class TUIApp:
 
         # Slot state tracking for TUI dashboard
         self._slot_states: dict[str, str] = {}  # alias -> SlotState value
+        self._server_processes: dict[str, Any] = {}  # alias -> subprocess.Popen
 
         for cfg in configs:
             self.log_buffers[cfg.alias] = LogBuffer(redact_sensitive=True)
@@ -725,14 +726,13 @@ class TUIApp:
         """Build a panel showing per-slot status (health, logs, GPU stats, backend label)."""
         sections: list[Text] = []
 
-        for idx, cfg in enumerate(self.configs):
+        for cfg in self.configs:
             alias = cfg.alias
             state = self._slot_states.get(alias, SlotState.OFFLINE.value)
 
-            # Determine process status — match by index, not by value lookup
             status = state
             if state == SlotState.RUNNING.value:
-                proc = self.server_manager.servers[idx]
+                proc = self._server_processes.get(alias)
                 if not proc or not (proc.pid and psutil.pid_exists(proc.pid)):
                     status = SlotState.CRASHED.value
 
@@ -1074,11 +1074,23 @@ class TUIApp:
         self.launch_result = launch_result
         self._build_status_panel(launch_result)
 
-        log_handlers = {
-            cfg.alias: lambda line, buf=buf: buf.add_line(line)
-            for cfg, buf in zip(self.configs, self.log_buffers.values(), strict=True)
+        launched_slots = launch_result.launched or []
+        launched_set = set(launched_slots)
+
+        launched_configs = [cfg for cfg in self.configs if cfg.alias in launched_set]
+        launched_log_buffers = {
+            alias: buf for alias, buf in self.log_buffers.items() if alias in launched_set
         }
-        self.server_manager.start_servers(self.configs, log_handlers)
+
+        log_handlers = {
+            cfg.alias: lambda line, buf=launched_log_buffers[cfg.alias]: buf.add_line(line)
+            for cfg in launched_configs
+        }
+        processes = self.server_manager.start_servers(launched_configs, log_handlers)
+
+        self._server_processes = {
+            cfg.alias: proc for cfg, proc in zip(launched_configs, processes, strict=True)
+        }
 
         # Start input polling for keypresses
         self._start_input_polling()

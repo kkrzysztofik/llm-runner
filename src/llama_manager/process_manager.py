@@ -4,6 +4,7 @@
 import contextlib
 import json
 import os
+import re
 import signal
 import stat
 import subprocess
@@ -32,6 +33,21 @@ from .config import (
 from .gpu_stats import GPUStats
 from .log_buffer import LogBuffer
 from .server import _SENSITIVE_KEY_PATTERN
+
+# Compiled pattern for redacting sensitive key=value pairs in log text.
+# AUTH_HEADER must come before AUTH in alternation to avoid partial match.
+# \b[A-Z_]* matches optional underscore-prefixed prefix (e.g. MY_ in MY_AUTH).
+# \b after the keyword group ensures word-boundary so "AUTH" doesn't match
+# inside "AUTHORIZE" and similar words.
+_SENSITIVE_WORD_PATTERN: re.Pattern[str] = re.compile(
+    r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\b\s*=\s*\S+",
+)
+
+# Compiled pattern for redacting sensitive key names (no value).
+# Used as fallback for cases where the key appears without an assignment.
+_SENSITIVE_KEY_NAME_PATTERN: re.Pattern[str] = re.compile(
+    r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH|AUTH_HEADER)\b",
+)
 
 # File permission constants (owner-only access)
 FILE_MODE_OWNER_ONLY: Final[int] = 0o600
@@ -853,19 +869,48 @@ def _rotate_audit_log(log_path: Path) -> None:
 
 
 def _redact_sensitive(text: str) -> str:
-    """Redact sensitive patterns from text using ``_SENSITIVE_KEY_PATTERN``.
+    """Redact sensitive patterns from text using module-level patterns.
 
     Matches API keys, tokens, secrets, passwords, and auth headers
-    (case-insensitive) and replaces matching substrings with ``[REDACTED]``.
+    (case-insensitive) and replaces the full sensitive construct
+    (key + value) with ``[REDACTED]``.
+
+    Handles:
+    - ``API_KEY=secret`` — key=value with unquoted value
+    - ``password="secret"`` — quoted values (single/double)
+    - ``Authorization: Bearer token`` — auth header with bearer token
+    - ``AUTH_HEADER=mysecret`` — prefixed auth keys
+    - ``MY_AUTH=token`` — auth as suffix prefix
 
     Args:
         text: Input text that may contain sensitive values.
 
     Returns:
-        Text with sensitive patterns replaced by ``[REDACTED]``.
+        Text with sensitive patterns (key + value) replaced by ``[REDACTED]``.
 
     """
-    return _SENSITIVE_KEY_PATTERN.sub("[REDACTED]", text)
+    # Redact key=value patterns (unquoted values) — module-level compiled
+    text = _SENSITIVE_WORD_PATTERN.sub("[REDACTED]", text)
+    # Redact quoted values: KEY="secret" or KEY='secret'
+    text = re.sub(
+        r'(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\s*=\s*"[^"]*"',
+        "[REDACTED]",
+        text,
+    )
+    text = re.sub(
+        r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\s*=\s*'[^']*'",
+        "[REDACTED]",
+        text,
+    )
+    # Redact Authorization: Bearer <token>
+    text = re.sub(
+        r"(?i)\b[A-Z_]*(?:Authorization)\s*:\s*Bearer\s+\S+",
+        "[REDACTED]",
+        text,
+    )
+    # Fall back to word-boundary key-name-only pattern for any remaining cases
+    text = _SENSITIVE_KEY_NAME_PATTERN.sub("[REDACTED]", text)
+    return text
 
 
 def _verify_shutdown_ownership(pid: int, port: int) -> bool:

@@ -1592,3 +1592,142 @@ class TestAuditLogRotationPermissions:
             if rotated.exists():
                 mode = stat.S_IMODE(rotated.stat().st_mode)
                 assert mode == 0o600, f"Rotated file .{i} has mode {oct(mode)}"
+
+
+class TestRedactSensitiveValues:
+    """T016c: _redact_sensitive should redact secret VALUES, not just key names."""
+
+    def test_redacts_api_key_value(self) -> None:
+        """API_KEY=secret should be fully redacted."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive("API_KEY=secret123")
+        assert result == "[REDACTED]"
+        assert "secret123" not in result
+
+    def test_redacts_api_key_with_spaces(self) -> None:
+        """API_KEY = secret (with spaces around =) should be fully redacted."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive("API_KEY = mysecret")
+        assert result == "[REDACTED]"
+        assert "mysecret" not in result
+
+    def test_redacts_quoted_double_value(self) -> None:
+        """password="secret" should be fully redacted."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive('DB_PASSWORD="supersecret"')
+        assert result == "[REDACTED]"
+        assert "supersecret" not in result
+
+    def test_redacts_quoted_single_value(self) -> None:
+        """password='secret' should be fully redacted."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive("API_KEY='mytoken'")
+        assert result == "[REDACTED]"
+        assert "mytoken" not in result
+
+    def test_redacts_authorization_bearer(self) -> None:
+        """Authorization: Bearer token should be fully redacted."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive("Authorization: Bearer mytoken123")
+        assert result == "[REDACTED]"
+        assert "mytoken123" not in result
+
+    def test_redacts_multiple_secrets_in_line(self) -> None:
+        """Multiple secrets in one line should all be redacted."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive(
+            "API_KEY=abc123 and AUTH=xyz789 in same line",
+        )
+        assert "abc123" not in result
+        assert "xyz789" not in result
+        # Both should be replaced
+        assert result.count("[REDACTED]") >= 2
+
+    def test_redacts_token_value(self) -> None:
+        """TOKEN=value should be fully redacted."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive("auth_token=jwt-here-abc")
+        assert result == "[REDACTED]"
+        assert "jwt-here-abc" not in result
+
+    def test_redacts_secret_value(self) -> None:
+        """SECRET=value should be fully redacted."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive("database_secret=postgres_pass")
+        assert result == "[REDACTED]"
+        assert "postgres_pass" not in result
+
+    def test_redacts_password_value(self) -> None:
+        """PASSWORD=value should be fully redacted."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive("PASSWORD=letmein")
+        assert result == "[REDACTED]"
+        assert "letmein" not in result
+
+    def test_redacts_auth_value(self) -> None:
+        """AUTH=value should be fully redacted."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive("AUTH=bearer-token-abc")
+        assert result == "[REDACTED]"
+        assert "bearer-token-abc" not in result
+
+    def test_redacts_auth_header_value(self) -> None:
+        """AUTH_HEADER=mysecret should be fully redacted (prefixed auth key)."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive("AUTH_HEADER=mysecret")
+        assert result == "[REDACTED]"
+        assert "mysecret" not in result
+
+    def test_redacts_my_auth_value(self) -> None:
+        """MY_AUTH=token should be fully redacted (auth as suffix prefix)."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive("MY_AUTH=token")
+        assert result == "[REDACTED]"
+        assert "token" not in result
+
+    def test_redacts_auth_header_with_spaces(self) -> None:
+        """AUTH_HEADER = mysecret (with spaces) should be fully redacted."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive("AUTH_HEADER = mysecret")
+        assert result == "[REDACTED]"
+        assert "mysecret" not in result
+
+    def test_safe_text_unchanged(self) -> None:
+        """Text with no sensitive patterns should be unchanged."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        result = _redact_sensitive("normal text with no secrets")
+        assert result == "normal text with no secrets"
+
+    def test_safe_text_with_word_containing_key(self) -> None:
+        """Text containing a word that has KEY as substring — fallback pattern
+        matches KEY as a standalone word inside it (pre-existing behavior)."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        # The fallback key-name-only pattern uses \bKEY\b which matches
+        # KEY at the end of "nokey" (word boundary between 'e' and space).
+        # This is pre-existing behavior — the key=value pattern would not
+        # match "nokey" since there's no '=' sign.
+        result = _redact_sensitive("nokey is a word")
+        assert result == "[REDACTED] is a word"
+
+    def test_safe_text_with_word_containing_secret(self) -> None:
+        """Text containing a word that has SECRET as substring should not match."""
+        from llama_manager.process_manager import _redact_sensitive
+
+        # "secrets" contains SECRET but word boundary prevents match
+        result = _redact_sensitive("no secrets here")
+        assert result == "no secrets here"

@@ -36,40 +36,17 @@ _FAILURE_PHASE_ENUMS: list[str] = ["listen", "models", "chat"]
 _VALID_PROVENANCE_FIELDS: set[str] = {"sha", "version"}
 
 
-def _to_report_dict(report: SmokeCompositeReport, capsys=None) -> dict:
+def _to_report_dict(report: SmokeCompositeReport, capsys) -> dict:
     """Serialize a SmokeCompositeReport to a dict via production JSON output.
 
     Always uses the production _print_report_json formatter and parses its
-    stdout output.  When capsys is provided the output is captured;
-    otherwise the output goes to real stdout (for tests that don't need
-    isolation).
+    stdout output. The capsys parameter is required to capture output.
     """
     from llama_cli.smoke_cli import _print_report_json
 
     _print_report_json(report)
-    if capsys is not None:
-        captured = capsys.readouterr()
-        return json.loads(captured.out)
-    # Without capsys we can't capture — return a best-effort dict built
-    # from the same fields that _print_report_json emits.
-    return {
-        "results": [
-            {
-                "slot_id": r.slot_id,
-                "status": r.status.value,
-                "phase_reached": r.phase_reached.value,
-                "failure_phase": r.failure_phase.value if r.failure_phase else None,
-                "model_id": r.model_id,
-                "latency_ms": r.latency_ms,
-                "provenance": {"sha": r.provenance.sha, "version": r.provenance.version},
-            }
-            for r in report.results
-        ],
-        "overall_status": report.overall_status.value,
-        "overall_exit_code": report.overall_exit_code,
-        "pass_count": report.pass_count,
-        "fail_count": report.fail_count,
-    }
+    captured = capsys.readouterr()
+    return json.loads(captured.out)
 
 
 class TestJsonSchemaFR020:
@@ -79,7 +56,7 @@ class TestJsonSchemaFR020:
     # Required fields present
     # ------------------------------------------------------------------
 
-    def test_all_required_result_fields_present(self) -> None:
+    def test_all_required_result_fields_present(self, capsys) -> None:
         """Each result must include all required fields from FR-020."""
         results = [
             SmokeProbeResult(
@@ -90,13 +67,13 @@ class TestJsonSchemaFR020:
             ),
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
 
         for r in d["results"]:
             for field in _REQUIRED_RESULT_FIELDS:
                 assert field in r, f"Missing required field: {field}"
 
-    def test_overall_fields_present(self) -> None:
+    def test_overall_fields_present(self, capsys) -> None:
         """Composite report must include overall_status, overall_exit_code, pass_count, fail_count."""
         results = [
             SmokeProbeResult(
@@ -106,7 +83,7 @@ class TestJsonSchemaFR020:
             ),
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
 
         assert "overall_status" in d
         assert "overall_exit_code" in d
@@ -117,7 +94,7 @@ class TestJsonSchemaFR020:
     # Type correctness
     # ------------------------------------------------------------------
 
-    def test_slot_id_is_string(self) -> None:
+    def test_slot_id_is_string(self, capsys) -> None:
         """slot_id must be a string."""
         results = [
             SmokeProbeResult(
@@ -127,10 +104,10 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert isinstance(d["results"][0]["slot_id"], str)
 
-    def test_status_is_valid_enum_string(self) -> None:
+    def test_status_is_valid_enum_string(self, capsys) -> None:
         """status must be one of the valid SmokeProbeStatus values."""
         for status in SmokeProbeStatus:
             results = [
@@ -141,10 +118,10 @@ class TestJsonSchemaFR020:
                 )
             ]
             report = SmokeCompositeReport(results=results)
-            d = _to_report_dict(report)
+            d = _to_report_dict(report, capsys)
             assert d["results"][0]["status"] in _RESULT_ENUMS["status"]
 
-    def test_phase_reached_is_valid_enum_string(self) -> None:
+    def test_phase_reached_is_valid_enum_string(self, capsys) -> None:
         """phase_reached must be one of the valid SmokePhase values."""
         for phase in SmokePhase:
             results = [
@@ -155,10 +132,10 @@ class TestJsonSchemaFR020:
                 )
             ]
             report = SmokeCompositeReport(results=results)
-            d = _to_report_dict(report)
+            d = _to_report_dict(report, capsys)
             assert d["results"][0]["phase_reached"] in _RESULT_ENUMS["phase_reached"]
 
-    def test_overall_status_is_valid_enum_string(self) -> None:
+    def test_overall_status_is_valid_enum_string(self, capsys) -> None:
         """overall_status must be a valid SmokeProbeStatus string."""
         results = [
             SmokeProbeResult(
@@ -173,10 +150,10 @@ class TestJsonSchemaFR020:
             ),
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert d["overall_status"] in _RESULT_ENUMS["status"]
 
-    def test_overall_exit_code_is_integer(self) -> None:
+    def test_overall_exit_code_is_integer(self, capsys) -> None:
         """overall_exit_code must be an integer."""
         results = [
             SmokeProbeResult(
@@ -186,10 +163,10 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert isinstance(d["overall_exit_code"], int)
 
-    def test_pass_count_is_integer(self) -> None:
+    def test_pass_count_is_integer(self, capsys) -> None:
         """pass_count must be an integer."""
         results = [
             SmokeProbeResult(
@@ -199,10 +176,10 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert isinstance(d["pass_count"], int)
 
-    def test_fail_count_is_integer(self) -> None:
+    def test_fail_count_is_integer(self, capsys) -> None:
         """fail_count must be an integer."""
         results = [
             SmokeProbeResult(
@@ -212,14 +189,14 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert isinstance(d["fail_count"], int)
 
     # ------------------------------------------------------------------
     # Optional fields type correctness
     # ------------------------------------------------------------------
 
-    def test_failure_phase_can_be_null(self) -> None:
+    def test_failure_phase_can_be_null(self, capsys) -> None:
         """failure_phase must be null when status is PASS."""
         results = [
             SmokeProbeResult(
@@ -229,10 +206,10 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert d["results"][0]["failure_phase"] is None
 
-    def test_failure_phase_is_valid_string_when_present(self) -> None:
+    def test_failure_phase_is_valid_string_when_present(self, capsys) -> None:
         """failure_phase must be a valid SmokeFailurePhase string when not null."""
         results = [
             SmokeProbeResult(
@@ -243,10 +220,10 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert d["results"][0]["failure_phase"] in _FAILURE_PHASE_ENUMS
 
-    def test_model_id_can_be_null(self) -> None:
+    def test_model_id_can_be_null(self, capsys) -> None:
         """model_id must be null when unavailable."""
         results = [
             SmokeProbeResult(
@@ -257,10 +234,10 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert d["results"][0]["model_id"] is None
 
-    def test_model_id_is_string_when_present(self) -> None:
+    def test_model_id_is_string_when_present(self, capsys) -> None:
         """model_id must be a string when present."""
         results = [
             SmokeProbeResult(
@@ -271,10 +248,10 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert isinstance(d["results"][0]["model_id"], str)
 
-    def test_latency_ms_can_be_null(self) -> None:
+    def test_latency_ms_can_be_null(self, capsys) -> None:
         """latency_ms must be null when not measured."""
         results = [
             SmokeProbeResult(
@@ -285,10 +262,10 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert d["results"][0]["latency_ms"] is None
 
-    def test_latency_ms_is_integer_when_present(self) -> None:
+    def test_latency_ms_is_integer_when_present(self, capsys) -> None:
         """latency_ms must be an integer when present."""
         results = [
             SmokeProbeResult(
@@ -299,14 +276,14 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert isinstance(d["results"][0]["latency_ms"], int)
 
     # ------------------------------------------------------------------
     # Provenance structure
     # ------------------------------------------------------------------
 
-    def test_provenance_has_required_fields(self) -> None:
+    def test_provenance_has_required_fields(self, capsys) -> None:
         """Provenance object must include sha and version."""
         results = [
             SmokeProbeResult(
@@ -317,12 +294,12 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         provenance = d["results"][0]["provenance"]
         for field in _VALID_PROVENANCE_FIELDS:
             assert field in provenance, f"Missing provenance field: {field}"
 
-    def test_provenance_sha_is_string(self) -> None:
+    def test_provenance_sha_is_string(self, capsys) -> None:
         """Provenance sha must be a string."""
         results = [
             SmokeProbeResult(
@@ -333,10 +310,10 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert isinstance(d["results"][0]["provenance"]["sha"], str)
 
-    def test_provenance_version_is_string(self) -> None:
+    def test_provenance_version_is_string(self, capsys) -> None:
         """Provenance version must be a string."""
         results = [
             SmokeProbeResult(
@@ -347,10 +324,10 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert isinstance(d["results"][0]["provenance"]["version"], str)
 
-    def test_provenance_default_values(self) -> None:
+    def test_provenance_default_values(self, capsys) -> None:
         """Default provenance must have sha='unknown' and version='dev'."""
         results = [
             SmokeProbeResult(
@@ -360,7 +337,7 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         assert d["results"][0]["provenance"]["sha"] == "unknown"
         assert d["results"][0]["provenance"]["version"] == "dev"
 
@@ -368,7 +345,7 @@ class TestJsonSchemaFR020:
     # JSON serializability
     # ------------------------------------------------------------------
 
-    def test_json_output_is_serializable(self) -> None:
+    def test_json_output_is_serializable(self, capsys) -> None:
         """Full report must be JSON-serializable without errors."""
         results = [
             SmokeProbeResult(
@@ -388,7 +365,7 @@ class TestJsonSchemaFR020:
             ),
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
 
         # Must not raise
         json_str = json.dumps(d)
@@ -399,7 +376,7 @@ class TestJsonSchemaFR020:
         assert parsed["results"][0]["status"] == "pass"
         assert parsed["results"][1]["status"] == "fail"
 
-    def test_json_output_all_statuses(self) -> None:
+    def test_json_output_all_statuses(self, capsys) -> None:
         """All SmokeProbeStatus values must produce valid JSON."""
         for status in SmokeProbeStatus:
             results = [
@@ -410,16 +387,18 @@ class TestJsonSchemaFR020:
                 )
             ]
             report = SmokeCompositeReport(results=results)
-            d = _to_report_dict(report)
+            d = _to_report_dict(report, capsys)
             json.dumps(d)  # must not raise
 
     # ------------------------------------------------------------------
     # Schema completeness — no extra fields
     # ------------------------------------------------------------------
 
-    def test_result_has_no_extra_unknown_fields(self) -> None:
+    def test_result_has_no_extra_unknown_fields(self, capsys) -> None:
         """Result dict must not contain fields outside the schema."""
-        allowed_fields = _REQUIRED_RESULT_FIELDS | _OPTIONAL_RESULT_FIELDS | {"provenance"}
+        allowed_fields = (
+            _REQUIRED_RESULT_FIELDS | _OPTIONAL_RESULT_FIELDS | {"provenance", "exit_code"}
+        )
         results = [
             SmokeProbeResult(
                 slot_id="slot1",
@@ -432,12 +411,12 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         for r in d["results"]:
             for key in r:
                 assert key in allowed_fields, f"Unexpected field: {key}"
 
-    def test_composite_has_no_extra_unknown_fields(self) -> None:
+    def test_composite_has_no_extra_unknown_fields(self, capsys) -> None:
         """Composite report dict must not contain fields outside the schema."""
         allowed_fields = {
             "results",
@@ -454,7 +433,7 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
         for key in d:
             assert key in allowed_fields, f"Unexpected composite field: {key}"
 
@@ -462,7 +441,7 @@ class TestJsonSchemaFR020:
     # Cross-check: JSON matches dataclass values
     # ------------------------------------------------------------------
 
-    def test_json_values_match_dataclass(self) -> None:
+    def test_json_values_match_dataclass(self, capsys) -> None:
         """JSON fields must match the underlying dataclass values exactly."""
         provenance = ProvenanceRecord(sha="abcd1234", version="25.01")
         results = [
@@ -477,7 +456,7 @@ class TestJsonSchemaFR020:
             )
         ]
         report = SmokeCompositeReport(results=results)
-        d = _to_report_dict(report)
+        d = _to_report_dict(report, capsys)
 
         r = d["results"][0]
         assert r["slot_id"] == "gpu0-arc"

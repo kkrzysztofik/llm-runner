@@ -622,8 +622,9 @@ class TestHandleVramRisk:
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
-        # Set up a risk panel
+        # Set up a risk panel and VRAM risk kind for routing
         app.risk_panel = MagicMock()
+        app.active_risk_kind = "vram"
 
         # Queue 'y' key
         app._keypress_queue.put("y")
@@ -650,8 +651,9 @@ class TestHandleVramRisk:
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
-        # Set up a risk panel
+        # Set up a risk panel and VRAM risk kind for routing
         app.risk_panel = MagicMock()
+        app.active_risk_kind = "vram"
 
         # Queue an unknown key
         app._keypress_queue.put("x")

@@ -13,7 +13,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import json
 import sys
 import time
@@ -177,8 +176,8 @@ def _build_smoke_config(parsed: argparse.Namespace) -> SmokeProbeConfiguration:
     """Build SmokeProbeConfiguration from parsed CLI arguments.
 
     Uses create_smoke_config() as the base factory, then applies CLI overrides
-    via dataclasses.replace(). Validation failures in __post_init__ are caught
-    and reported as clean error messages (no traceback).
+    directly on the returned object. Validation failures in __post_init__ are
+    caught and reported as clean error messages (no traceback).
 
     Args:
         parsed: Parsed argparse namespace.
@@ -191,30 +190,20 @@ def _build_smoke_config(parsed: argparse.Namespace) -> SmokeProbeConfiguration:
     """
     cfg = Config()
 
-    # Build base config via factory
     smoke_cfg = create_smoke_config(
         config=cfg,
         api_key=parsed.api_key or cfg.smoke_api_key,
         model_id_override=parsed.model_id,
     )
 
-    # Apply CLI overrides where provided (0 means "use default")
-    overrides: dict[str, int | str] = {}
     if parsed.delay > 0:
-        overrides["inter_slot_delay_s"] = parsed.delay
+        smoke_cfg.inter_slot_delay_s = parsed.delay
     if parsed.timeout > 0:
-        overrides["listen_timeout_s"] = parsed.timeout
+        smoke_cfg.listen_timeout_s = parsed.timeout
     if parsed.max_tokens > 0:
-        overrides["max_tokens"] = parsed.max_tokens
+        smoke_cfg.max_tokens = parsed.max_tokens
     if parsed.prompt:
-        overrides["prompt"] = parsed.prompt
-
-    if overrides:
-        try:
-            smoke_cfg = dataclasses.replace(smoke_cfg, **overrides)  # type: ignore[arg-type]
-        except ValueError as exc:
-            print(f"error: invalid smoke configuration: {exc}", file=sys.stderr)
-            sys.exit(1)
+        smoke_cfg.prompt = parsed.prompt
 
     return smoke_cfg
 

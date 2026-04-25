@@ -177,7 +177,7 @@ if args[0] == "smoke":
 | `--prompt <text>` | string | `"Respond with exactly one word."` (`smoke.prompt`) | Single-turn user message for chat probe |
 | `--timeout <seconds>` | int | 120 (`smoke.listen_timeout_s`) | TCP ready-check timeout |
 
-**Exit codes:** Follow the smoke exit code family (10–19) defined in Appendix B. `smoke both` exits with the highest-severity (lowest-numbered) failure among all slots.
+**Exit codes:** Follow the smoke exit code family (10–19) defined in Appendix B. `smoke both` exits with the maximum (worst) numeric exit code among all slots.
 
 ### Non-Functional Requirements
 
@@ -300,7 +300,7 @@ if args[0] == "smoke":
 | 20+ | — | Reserved for future commands |
 | 130 | `Any` | Process manager SIGKILL escalation failure (process stuck in D state) — outside doctor/smoke families |
 
-When multiple slots are probed and one or more fail, the exit code reflects the highest-severity (lowest-numbered) failure among the slots.
+When multiple slots are probed and one or more fail, the exit code reflects the maximum (worst) numeric exit code among all slot results.
 
 ## Appendix D — Default Parameters
 

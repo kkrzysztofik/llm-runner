@@ -28,7 +28,7 @@ timeout = httpx.Timeout(
 
 ### Rationale
 - The M4 spec requires two distinct timeout values: `smoke_listen_timeout_s` (120s, for TCP ready-check) and `smoke_http_request_timeout_s` (10s, for HTTP requests). A single scalar timeout cannot express this distinction.
-- `httpx.Timeout` with a default + `connect` override cleanly maps to the spec's two-phase timeout model.
+- `httpx.Timeout(connect=..., read=..., write=..., pool=...)` with four distinct per-operation values cleanly maps to the spec's timeout model.
 - Per-request timeout (passed to `client.get()`, `client.post()`, etc.) is preferred over client-level in this case because each smoke probe targets a different port and may have different timeout requirements.
 - The spec explicitly states: "Each phase attempted exactly once — no retries." Per-request timeouts align with this no-retry semantics.
 

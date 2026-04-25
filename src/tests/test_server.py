@@ -320,7 +320,7 @@ class TestComputeMachineFingerprint:
         )
 
         def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
-            if cmd == ["lspci", "-v"]:
+            if cmd == ["lspci"]:
                 return mock_result
             if cmd == ["cat", "/proc/cpuinfo"]:
                 return mock_result2
@@ -354,7 +354,7 @@ class TestComputeMachineFingerprint:
         )
 
         def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
-            if cmd == ["lspci", "-v"]:
+            if cmd == ["lspci"]:
                 return mock_result
             if cmd == ["cat", "/proc/cpuinfo"]:
                 return mock_result2
@@ -401,7 +401,7 @@ class TestComputeMachineFingerprint:
         )
 
         def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
-            if cmd == ["lspci", "-v"]:
+            if cmd == ["lspci"]:
                 return mock_result
             if cmd == ["cat", "/proc/cpuinfo"]:
                 return mock_result2
@@ -475,6 +475,35 @@ class TestCheckHardwareAllowlist:
         result = check_hardware_allowlist(fingerprint, allowlist)
 
         assert result == "mismatch"
+
+    def test_allowlist_env_whitespace_stripped(self) -> None:
+        """check_hardware_allowlist should strip whitespace from env-var allowlist entries."""
+        import os
+
+        from llama_manager.server import check_hardware_allowlist
+
+        fingerprint = "fp2"
+        os.environ["LLM_RUNNER_HARDWARE_ALLOWLIST"] = "fp1, fp2, fp3"
+        try:
+            result = check_hardware_allowlist(fingerprint, None)
+        finally:
+            del os.environ["LLM_RUNNER_HARDWARE_ALLOWLIST"]
+
+        assert result == "match"
+
+    def test_allowlist_env_empty_entries_ignored(self) -> None:
+        """check_hardware_allowlist should ignore empty entries from env-var allowlist."""
+        import os
+
+        from llama_manager.server import check_hardware_allowlist
+
+        os.environ["LLM_RUNNER_HARDWARE_ALLOWLIST"] = "fp1,,fp2"
+        try:
+            result = check_hardware_allowlist("fp2", None)
+        finally:
+            del os.environ["LLM_RUNNER_HARDWARE_ALLOWLIST"]
+
+        assert result == "match"
 
 
 class TestAssessVramRisk:
