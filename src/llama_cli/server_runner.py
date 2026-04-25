@@ -53,6 +53,7 @@ def usage() -> None:
   src/run_opencode_models.py qwen35 [port]
   src/run_opencode_models.py both [summary_balanced_port qwen35_port]
   src/run_opencode_models.py dry-run <mode> [ports...]
+  src/run_opencode_models.py smoke <mode> [slot_id] [--json]
   src/run_opencode_models.py profile <slot_id> <flavor> [--json]
   src/run_opencode_models.py setup <subcommand>
 
@@ -62,8 +63,22 @@ Modes:
   qwen35           Run qwen35-coding model (NVIDIA CUDA)
   both             Run summary-balanced and qwen35 side-by-side
   dry-run          Preview commands without executing
+  smoke            Run smoke health probes (both|slot)
   setup            Toolchain diagnostics and venv management
   profile          Run benchmark profile
+
+Smoke Subcommands:
+  both             Probe all servers
+  slot <id>        Probe a specific slot
+
+Smoke Options:
+  --api-key        API key for authentication
+  --model-id       Model ID override
+  --max-tokens     Max tokens for chat probe (8-32)
+  --prompt         Custom prompt for chat probe
+  --delay          Inter-slot delay in seconds
+  --timeout        Overall timeout in seconds
+  --json           Output in JSON format
 
 Setup Subcommands:
   check           Check toolchain availability (FR-005.1)
@@ -77,6 +92,8 @@ Examples:
   src/run_opencode_models.py both 8080 8081
   src/run_opencode_models.py dry-run summary-balanced
   src/run_opencode_models.py dry-run both 8080 8081
+  src/run_opencode_models.py smoke both
+  src/run_opencode_models.py smoke slot summary-balanced --json
   src/run_opencode_models.py profile slot0 balanced --json
   src/run_opencode_models.py setup --check
   src/run_opencode_models.py setup venv
@@ -320,6 +337,7 @@ def _normalize_main_args(args: list[str] | None) -> list[str]:
         "build",
         "setup",
         "profile",
+        "smoke",
     }
     if args[0] in modes or args[0].startswith("-"):
         return args
@@ -371,6 +389,32 @@ def main(args: list[str] | None = None) -> int:
         from llama_cli.profile_cli import main as profile_main
 
         return profile_main(argv[1:])
+
+    # Handle smoke subcommand
+    if parsed.mode == "smoke":
+        from llama_cli.smoke_cli import run_smoke
+
+        smoke_args = [
+            parsed.smoke_mode,
+        ]
+        if parsed.slot_id:
+            smoke_args.append(parsed.slot_id)
+        if parsed.api_key:
+            smoke_args.extend(["--api-key", parsed.api_key])
+        if parsed.model_id:
+            smoke_args.extend(["--model-id", parsed.model_id])
+        if parsed.max_tokens:
+            smoke_args.extend(["--max-tokens", str(parsed.max_tokens)])
+        if parsed.prompt:
+            smoke_args.extend(["--prompt", parsed.prompt])
+        if parsed.delay:
+            smoke_args.extend(["--delay", str(parsed.delay)])
+        if parsed.timeout:
+            smoke_args.extend(["--timeout", str(parsed.timeout)])
+        if parsed.json:
+            smoke_args.append("--json")
+
+        return run_smoke(smoke_args)
 
     manager = ServerManager()
     signal.signal(signal.SIGINT, manager.on_interrupt)

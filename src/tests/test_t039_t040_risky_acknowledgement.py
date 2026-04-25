@@ -1,6 +1,6 @@
 import sys
 from argparse import Namespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -167,12 +167,17 @@ def test_tui_run_keeps_acknowledged_risk_panel_visible() -> None:
 
     with (
         patch("llama_cli.tui_app.Live", _FakeLive),
+        patch("llama_cli.tui_app.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,
             "launch_all_slots",
             return_value=LaunchResult(status="success", launched=["summary-balanced"]),
         ),
-        patch.object(app.server_manager, "start_servers"),
+        patch.object(
+            app.server_manager,
+            "start_servers",
+            side_effect=lambda configs, log_handlers=None: [MagicMock() for _ in configs],
+        ),
         patch.object(app.server_manager, "cleanup_servers"),
     ):
         app.run(acknowledged=True)
@@ -256,6 +261,7 @@ def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) ->
 
     with (
         patch("llama_cli.tui_app.Live", _FakeLive),
+        patch("llama_cli.tui_app.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,
             "launch_all_slots",
@@ -265,7 +271,11 @@ def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) ->
                 warnings=["slot blocked"],
             ),
         ),
-        patch.object(app.server_manager, "start_servers"),
+        patch.object(
+            app.server_manager,
+            "start_servers",
+            side_effect=lambda configs, log_handlers=None: [MagicMock() for _ in configs],
+        ),
         patch.object(app.server_manager, "cleanup_servers"),
     ):
         app.run(acknowledged=True)

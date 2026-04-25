@@ -19,6 +19,7 @@ from pathlib import Path
 from types import FrameType
 from typing import Any
 
+import psutil
 from rich.console import ConsoleDimensions, Group
 from rich.layout import Layout
 from rich.live import Live
@@ -36,6 +37,7 @@ from llama_manager import (
     ProfileFlavor,
     ServerConfig,
     ServerManager,
+    SlotState,
     get_gpu_identifier,
     load_profile_with_staleness,
 )
@@ -96,8 +98,10 @@ class TUIApp:
         self.height = 24
         self.launch_result: LaunchResult | None = None
         self.status_panel: Panel | None = None
+        self.telemetry_panel: Panel | None = None
         self.risk_panel: Panel | None = None
         self.risks_acknowledged: bool = False
+        self.active_risk_kind: str | None = None
 
         # Keypress input polling infrastructure
         self._keypress_queue: queue.Queue[str] = queue.Queue()
@@ -117,6 +121,10 @@ class TUIApp:
         self._profile_request: str | None = None
 
         self.server_manager = ServerManager()
+
+        # Slot state tracking for TUI dashboard
+        self._slot_states: dict[str, str] = {}  # alias -> SlotState value
+        self._server_processes: dict[str, Any] = {}  # alias -> subprocess.Popen
 
         for cfg in configs:
             self.log_buffers[cfg.alias] = LogBuffer(redact_sensitive=True)
@@ -192,6 +200,7 @@ class TUIApp:
         return layout
 
     def render(self) -> Layout:
+        self._update_gpu_telemetry()
         layout = self.build_layout()
 
         alerts: list[Panel] = []
@@ -199,6 +208,15 @@ class TUIApp:
             alerts.append(self.risk_panel)
         if self.status_panel is not None:
             alerts.append(self.status_panel)
+
+        # Add GPU telemetry panel
+        if self.telemetry_panel is not None:
+            alerts.append(self.telemetry_panel)
+
+        # Add slot status panel
+        slot_status_panel = self._build_slot_status_panel()
+        if slot_status_panel is not None:
+            alerts.append(slot_status_panel)
 
         # Add profile status panel
         profile_panel = self._build_profile_status_panel()
@@ -285,21 +303,23 @@ class TUIApp:
             border_style="yellow",
         )
 
-    def _build_risk_panel_required(self) -> None:
+    def _build_risk_panel_required(self, kind: str = "hardware") -> None:
         text = Text()
         text.append("RISK STATUS: ", style="bold")
         text.append(" ACKNOWLEDGEMENT REQUIRED ", style="bold red reverse")
         text.append("\nLaunch is blocked until you acknowledge risky operations.")
         self.risk_panel = Panel(text, title="Risk Management", border_style="red")
         self.risks_acknowledged = False
+        self.active_risk_kind = kind
 
-    def _build_risk_panel_acknowledged(self) -> None:
+    def _build_risk_panel_acknowledged(self, kind: str = "hardware") -> None:
         text = Text()
         text.append("RISK STATUS: ", style="bold")
         text.append(" ACKNOWLEDGED ", style="bold green reverse")
         text.append("\nRisky operations (privileged ports, non-loopback bind) were acknowledged.")
         self.risk_panel = Panel(text, title="Risk Management", border_style="green")
         self.risks_acknowledged = True
+        self.active_risk_kind = kind
 
     def _build_column_panel(
         self, cfg: ServerConfig, buffer: LogBuffer, gpu: GPUStats | None
@@ -370,33 +390,34 @@ class TUIApp:
             self._input_thread.join(timeout=1.0)
             self._input_thread = None
 
+    def _poll_windows_keypress(self) -> None:
+        """Poll for a single keypress on Windows via msvcrt."""
+        import msvcrt  # type: ignore[import-not-found]
+
+        if msvcrt.kbhit():  # type: ignore[attr-defined]
+            ch = msvcrt.getch()  # type: ignore[attr-defined]
+            # Handle Ctrl+C (0x03)
+            if ch == b"\x03":
+                self._keypress_queue.put("^C")
+            elif ch and len(ch) == 1:
+                self._keypress_queue.put(ch.decode("utf-8", errors="replace"))
+
+    def _poll_posix_keypress(self) -> None:
+        """Poll for a single keypress on POSIX systems via select."""
+        ready, _, _ = select.select([sys.stdin], [], [], 0.05)
+        if ready:
+            ch = sys.stdin.read(1)
+            if ch:
+                self._keypress_queue.put(ch)
+
     def _input_poller(self) -> None:
         """Daemon thread: poll stdin for single-character keypresses."""
         is_windows = os.name == "nt"
+        poll_fn = self._poll_windows_keypress if is_windows else self._poll_posix_keypress
         with _cbreak_stdin():
             while self.running:
                 try:
-                    if is_windows:
-                        import msvcrt  # type: ignore[import-not-found]
-
-                        if msvcrt.kbhit():  # type: ignore[attr-defined]
-                            ch = msvcrt.getch()  # type: ignore[attr-defined]
-                            # Handle Ctrl+C (0x03)
-                            if ch == b"\x03":
-                                self._keypress_queue.put("^C")
-                            elif ch and len(ch) == 1:
-                                self._keypress_queue.put(ch.decode("utf-8", errors="replace"))
-                    else:
-                        # select on Linux/macOS
-                        try:
-                            ready, _, _ = select.select([sys.stdin], [], [], 0.05)
-                            if ready:
-                                ch = sys.stdin.read(1)
-                                if ch:
-                                    self._keypress_queue.put(ch)
-                        except (OSError, ValueError):
-                            # stdin may be closed or in a bad state
-                            time.sleep(0.1)
+                    poll_fn()
                 except Exception:
                     # Don't crash the TUI if stdin polling fails
                     time.sleep(0.1)
@@ -418,14 +439,28 @@ class TUIApp:
             # Handle Ctrl+C during profiling — abort the current profile
             if key == "^C":
                 self._abort_profile()
-                continue
-
             # Handle 'P' key — trigger profiling on the focused slot
             if key.upper() == "P" and self.configs:
                 # Use the first config (left column = focused slot)
                 cfg = self.configs[0]
                 self._prompt_profile_flavor(cfg.alias)
                 continue
+
+            # Handle hardware warning keys (y/n/q) and VRAM risk keys (y/n)
+            if self.risk_panel is not None:
+                if key in ("y", "n"):
+                    if self.active_risk_kind == "vram":
+                        result = self.handle_vram_risk(key)
+                    else:
+                        result = self.handle_hardware_warning(key)
+                    if result in ("proceed", "abort"):
+                        self.active_risk_kind = None
+                        continue
+                elif key == "q" and self.active_risk_kind != "vram":
+                    result = self.handle_hardware_warning(key)
+                    if result in ("acknowledge", "abort", "quit"):
+                        self.active_risk_kind = None
+                        continue
 
         # Handle queued profile flavor request non-blockingly
         if self._profile_request is not None:
@@ -652,16 +687,14 @@ class TUIApp:
         if self.server_manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
             return
 
+        risk_kind = "vram" if "vram" in risk.lower() else "hardware"
+
         if not acknowledged:
-            self._build_risk_panel_required()
-            print(f"warning: risky operation detected in {cfg.alias}: {risk}")
-            try:
-                response = input(RISK_CONFIRM_PROMPT).strip().lower()
-            except EOFError:
-                self._print_acknowledgement_required_and_exit()
-            else:
-                if response != "y":
-                    self._print_acknowledgement_required_and_exit()
+            self._build_risk_panel_required(risk_kind)
+            self._push_status_message(
+                f"warning: risky operation in {cfg.alias}: {risk} — "
+                f"press 'y' to acknowledge, 'n' to abort"
+            )
 
         self.server_manager.acknowledge_risk(
             cfg.alias,
@@ -684,6 +717,223 @@ class TUIApp:
             title="Status",
             border_style="dim",
         )
+
+    def _build_slot_status_panel(self) -> Panel:
+        """Build a panel showing per-slot status (health, logs, GPU stats, backend label)."""
+        sections: list[Text] = []
+
+        for cfg in self.configs:
+            alias = cfg.alias
+            state = self._slot_states.get(alias, SlotState.OFFLINE.value)
+
+            status = state
+            if state == SlotState.RUNNING.value:
+                proc = self._server_processes.get(alias)
+                if not proc or not (proc.pid and psutil.pid_exists(proc.pid)):
+                    status = SlotState.CRASHED.value
+
+            # Determine backend label
+            backend_map: dict[str, str] = {
+                "sycl": "SYCL",
+                "cuda": "CUDA",
+                "llama_cpp": "CPU",
+            }
+            backend_label = backend_map.get(cfg.backend, backend_map["llama_cpp"])
+
+            # Color for status
+            status_colors: dict[str, str] = {
+                SlotState.RUNNING.value: "green",
+                SlotState.LAUNCHING.value: "yellow",
+                SlotState.DEGRADED.value: "yellow",
+                SlotState.CRASHED.value: "red",
+                SlotState.OFFLINE.value: "dim",
+                SlotState.IDLE.value: "dim",
+            }
+            color = status_colors.get(status, "white")
+
+            # Build section for this slot
+            header = Text()
+            header.append(f"[{alias}] ", style="bold")
+            header.append(f"{status.upper()} ", style=color)
+            header.append(f"| {backend_label} ", style="cyan")
+            header.append(f"| http://{self.config.host}:{cfg.port}", style="dim")
+            header.append("\n")
+
+            # Log buffer preview (last 3 lines)
+            buffer = self.log_buffers.get(alias)
+            if buffer is not None:
+                log_lines = buffer.get_lines()[-3:] if buffer.get_lines() else []
+                log_text = "\n".join(log_lines) if log_lines else "  (no logs yet)"
+                if log_text:
+                    header.append(Text(log_text + "\n", style="dim"))
+
+            sections.append(header)
+
+        group = Group(*sections)
+        return Panel(group, title="Slot Status", border_style="blue")
+
+    def _update_gpu_telemetry(self) -> None:
+        """Update GPU telemetry panel with latest stats."""
+        if not self.gpu_stats:
+            self.telemetry_panel = None
+            return
+
+        lines: list[str] = []
+        for gpu in self.gpu_stats:
+            gpu.update()  # Refresh stats from collector
+            lines.append(gpu.format_stats_text())
+
+        telemetry_text = Text("\n".join(lines))
+        self.telemetry_panel = Panel(
+            telemetry_text,
+            title="GPU Telemetry",
+            border_style="yellow",
+        )
+
+    def handle_slot_transition(self, slot_id: str, new_state: SlotState) -> None:
+        """Handle a slot state transition and update the UI.
+
+        Args:
+            slot_id: The slot identifier.
+            new_state: The new state for the slot.
+        """
+        old_state = self._slot_states.get(slot_id)
+        self._slot_states[slot_id] = new_state.value
+
+        # Handle specific transitions
+        if old_state is None and new_state == SlotState.RUNNING:
+            # First launch - clear any previous status panels
+            self.status_panel = None
+            self._push_status_message(f"Slot '{slot_id}' launched successfully.")
+            return
+
+        transition_messages: dict[tuple[str, str], tuple[str, str]] = {
+            (SlotState.LAUNCHING.value, SlotState.RUNNING.value): (
+                "Launched",
+                "green",
+            ),
+            (SlotState.RUNNING.value, SlotState.DEGRADED.value): (
+                "Degraded",
+                "yellow",
+            ),
+            (SlotState.RUNNING.value, SlotState.CRASHED.value): (
+                "Crashed",
+                "red",
+            ),
+            (SlotState.DEGRADED.value, SlotState.OFFLINE.value): (
+                "Offline",
+                "yellow",
+            ),
+            (SlotState.CRASHED.value, SlotState.OFFLINE.value): (
+                "Offline",
+                "red",
+            ),
+            (SlotState.OFFLINE.value, SlotState.IDLE.value): (
+                "Idle",
+                "dim",
+            ),
+        }
+
+        if old_state is not None:
+            key = (old_state, new_state.value)
+            if key in transition_messages:
+                label, color = transition_messages[key]
+                msg = f"Slot '{slot_id}': {label} ({color})"
+                self._push_status_message(msg)
+
+    def _graceful_shutdown(self) -> None:
+        """Initiate graceful shutdown of all server processes."""
+        if not self.running:
+            return
+
+        self._push_status_message("Shutting down...")
+        self.server_manager.cleanup_servers()
+        self.running = False
+
+    def _on_key(self, key: str) -> None:
+        """Handle key presses from the keypress queue."""
+        # Handle Ctrl+C — abort profile or graceful shutdown
+        if key == "^C":
+            # Check if a profile is running
+            with self._profile_lock:
+                for cfg in self.configs:
+                    if self._profile_status.get(cfg.alias) == "running":
+                        cancel_event = self._profile_cancel_events.get(cfg.alias)
+                        if cancel_event is not None:
+                            cancel_event.set()
+                        self._profile_status[cfg.alias] = "failed"
+                        self._push_status_message(f"Profile '{cfg.alias}' aborted.")
+                        return
+
+            # No profile running — graceful shutdown
+            self._graceful_shutdown()
+            return
+
+        # Handle 'q' key — quit
+        if key == "q":
+            self._graceful_shutdown()
+            return
+
+        # Handle 'r' key — refresh display
+        if key == "r":
+            self._push_status_message("Display refreshed.")
+            return
+
+        # Handle 'P' key — trigger profiling on the focused slot
+        if key.upper() == "P" and self.configs:
+            cfg = self.configs[0]
+            self._prompt_profile_flavor(cfg.alias)
+
+    def handle_hardware_warning(self, key: str) -> str:
+        """Handle hardware mismatch warning key press.
+
+        Args:
+            key: The key pressed by the user.
+
+        Returns:
+            'acknowledge' if user acknowledged, 'abort' if rejected,
+            'quit' if user pressed q, or 'ignore' for unknown keys.
+
+        """
+        if key == "y":
+            # User acknowledged the hardware warning
+            self.risk_panel = None
+            self.active_risk_kind = None
+            return "acknowledge"
+        if key == "n":
+            # User rejected — abort
+            self.running = False
+            self.active_risk_kind = None
+            return "abort"
+        if key == "q":
+            # User wants to quit
+            self._graceful_shutdown()
+            self.active_risk_kind = None
+            return "quit"
+        return "ignore"
+
+    def handle_vram_risk(self, key: str) -> str:
+        """Handle VRAM risk confirmation key press.
+
+        Args:
+            key: The key pressed by the user.
+
+        Returns:
+            'proceed' if user confirmed, 'abort' if rejected,
+            or 'ignore' for unknown keys.
+
+        """
+        if key == "y":
+            # User confirmed the VRAM risk
+            self.risk_panel = None
+            self.active_risk_kind = None
+            return "proceed"
+        if key == "n":
+            # User rejected — abort
+            self.running = False
+            self.active_risk_kind = None
+            return "abort"
+        return "ignore"
 
     def _handle_build_progress(self, progress: BuildProgress) -> None:
         """Handle build progress updates from pipeline.
@@ -820,11 +1070,27 @@ class TUIApp:
         self.launch_result = launch_result
         self._build_status_panel(launch_result)
 
-        log_handlers = {
-            cfg.alias: lambda line, buf=buf: buf.add_line(line)
-            for cfg, buf in zip(self.configs, self.log_buffers.values(), strict=True)
+        launched_slots = launch_result.launched or []
+        launched_set = set(launched_slots)
+
+        launched_configs = [cfg for cfg in self.configs if cfg.alias in launched_set]
+        launched_log_buffers = {
+            alias: buf for alias, buf in self.log_buffers.items() if alias in launched_set
         }
-        self.server_manager.start_servers(self.configs, log_handlers)
+
+        log_handlers = {
+            cfg.alias: lambda line, buf=launched_log_buffers[cfg.alias]: buf.add_line(line)
+            for cfg in launched_configs
+        }
+        processes = self.server_manager.start_servers(launched_configs, log_handlers)
+
+        self._server_processes = {
+            cfg.alias: proc for cfg, proc in zip(launched_configs, processes, strict=True)
+        }
+
+        # Initialize slot states for launched servers
+        for cfg in launched_configs:
+            self.handle_slot_transition(cfg.alias, SlotState.RUNNING)
 
         # Start input polling for keypresses
         self._start_input_polling()

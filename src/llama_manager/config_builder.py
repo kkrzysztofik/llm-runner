@@ -5,7 +5,7 @@ import os
 from copy import deepcopy
 from typing import Any
 
-from .config import Config, ServerConfig
+from .config import Config, ServerConfig, SmokeProbeConfiguration
 from .profile_cache import PROFILE_OVERRIDE_FIELDS, StalenessResult
 
 
@@ -335,4 +335,35 @@ def merge_config_overrides(
         server_bin=merged["server_bin"],
         backend=merged["backend"],
         risky_acknowledged=merged["risky_acknowledged"],
+    )
+
+
+def create_smoke_config(
+    config: Config,
+    api_key: str = "",
+    model_id_override: str | None = None,
+) -> SmokeProbeConfiguration:
+    """Create SmokeProbeConfiguration from a Config instance.
+
+    Args:
+        config: Base Config with smoke defaults.
+        api_key: Override API key (from CLI flag).
+        model_id_override: Override model ID.
+
+    Returns:
+        SmokeProbeConfiguration with resolved values.
+
+    """
+    api_key_resolved = api_key or config.smoke_api_key
+    return SmokeProbeConfiguration(
+        inter_slot_delay_s=config.smoke_inter_slot_delay_s,
+        listen_timeout_s=config.smoke_listen_timeout_s,
+        http_request_timeout_s=config.smoke_http_request_timeout_s,
+        max_tokens=config.smoke_max_tokens,
+        prompt=config.smoke_prompt,
+        skip_models_discovery=config.smoke_skip_models_discovery,
+        api_key=api_key_resolved,
+        model_id_override=model_id_override,
+        first_token_timeout_s=config.smoke_first_token_timeout_s,
+        total_chat_timeout_s=config.smoke_total_chat_timeout_s,
     )

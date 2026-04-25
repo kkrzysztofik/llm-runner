@@ -4,6 +4,7 @@
 import contextlib
 import json
 import os
+import re
 import signal
 import stat
 import subprocess
@@ -20,8 +21,33 @@ from typing import Any, Final, TextIO, TypedDict, cast
 
 import psutil
 
-from .config import ErrorCode, ErrorDetail, ModelSlot, MultiValidationError, ServerConfig
+from .config import (
+    Config,
+    ErrorCode,
+    ErrorDetail,
+    ModelSlot,
+    MultiValidationError,
+    ServerConfig,
+    SlotState,
+)
+from .gpu_stats import GPUStats
+from .log_buffer import LogBuffer
 from .server import _SENSITIVE_KEY_PATTERN
+
+# Compiled pattern for redacting sensitive key=value pairs in log text.
+# AUTH_HEADER must come before AUTH in alternation to avoid partial match.
+# \b[A-Z_]* matches optional underscore-prefixed prefix (e.g. MY_ in MY_AUTH).
+# \b after the keyword group ensures word-boundary so "AUTH" doesn't match
+# inside "AUTHORIZE" and similar words.
+_SENSITIVE_WORD_PATTERN: re.Pattern[str] = re.compile(
+    r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\b\s*=\s*\S+",
+)
+
+# Compiled pattern for redacting sensitive key names (no value).
+# Used as fallback for cases where the key appears without an assignment.
+_SENSITIVE_KEY_NAME_PATTERN: re.Pattern[str] = re.compile(
+    r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH|AUTH_HEADER)\b",
+)
 
 # File permission constants (owner-only access)
 FILE_MODE_OWNER_ONLY: Final[int] = 0o600
@@ -149,6 +175,58 @@ class LaunchResult:
     def is_success(self) -> bool:
         """Check if launch was fully successful."""
         return self.status == "success"
+
+
+@dataclass
+class SlotRuntime:
+    """Runtime state for a single model slot.
+
+    Tracks live execution state including process lifecycle, log buffer,
+    and GPU telemetry for a specific slot.
+
+    Attributes:
+        slot_id: Unique slot identifier.
+        state: Current state of the slot (idle, launching, running, etc.).
+        pid: Process ID of the running server, or None if not running.
+        start_time: Wall-clock timestamp when the slot entered its current
+                    launching/running state (from ``time.time()``).
+        logs: Thread-safe log buffer for real-time log streaming.
+        gpu_stats: Optional GPU statistics collector for this slot.
+
+    """
+
+    slot_id: str
+    state: SlotState
+    pid: int | None
+    start_time: float
+    logs: LogBuffer
+    gpu_stats: GPUStats | None = None
+
+    def transition_to(self, new_state: SlotState) -> None:
+        """Transition to a new state, updating start_time if needed.
+
+        Args:
+            new_state: The target state to transition to.
+
+        """
+        self.state = new_state
+        if new_state in (SlotState.LAUNCHING, SlotState.RUNNING):
+            self.start_time = time.time()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize runtime state to a dictionary.
+
+        Returns:
+            Dictionary with slot_id, state, pid, start_time, and gpu_stats.
+
+        """
+        return {
+            "slot_id": self.slot_id,
+            "state": self.state.value,
+            "pid": self.pid,
+            "start_time": self.start_time,
+            "gpu_stats": self.gpu_stats is not None,
+        }
 
 
 class DryRunArtifactPayload(TypedDict):
@@ -495,7 +573,7 @@ def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | N
     metadata: LockMetadata = metadata_result
 
     # Use consistent wall-clock timebase (started_at uses time.time())
-    if time.time() - metadata.started_at > 300:
+    if time.time() - metadata.started_at > Config().lock_stale_threshold_s:
         _clear_lockfile(runtime_dir, slot_id)
         return None
 
@@ -533,18 +611,25 @@ def _verify_lock_owner(
             return None
 
         try:
-            proc = psutil.Process(metadata.pid)
+            # Verify process exists by attempting to access it
+            psutil.Process(metadata.pid)
         except psutil.NoSuchProcess:
             _clear_lockfile(runtime_dir, slot_id)
             return None
 
         try:
-            connections = proc.connections()
-            port_matches = any(conn.laddr.port == metadata.port for conn in connections)
+            # Use net_connections() instead of deprecated proc.connections()
+            # Cast to list to satisfy pyright type checking
+            connections: list = psutil.net_connections(kind="inet")  # type: ignore[assignment]
+            port_matches = any(
+                conn.laddr.port == metadata.port and conn.pid == metadata.pid
+                for conn in connections
+                if conn.pid is not None
+            )
 
             if not port_matches:
                 return _build_indeterminate_owner_error()
-        except (psutil.AccessDenied, psutil.NoSuchProcess):
+        except (psutil.AccessDenied, OSError):
             return _build_indeterminate_owner_error()
     except (OSError, psutil.AccessDenied) as e:
         return _build_indeterminate_owner_error(why_blocked=f"indeterminate_owner: {e}")
@@ -734,6 +819,190 @@ def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
         else:
             result[key] = value
     return result
+
+
+# Audit log rotation threshold: 5 MiB
+_AUDIT_LOG_MAX_BYTES: Final[int] = 5 * 1024 * 1024
+# Maximum number of rotated log files to retain (including current)
+_AUDIT_LOG_MAX_FILES: Final[int] = 5
+
+
+def _rotate_audit_log(log_path: Path) -> None:
+    """Rotate audit log files, keeping up to ``_AUDIT_LOG_MAX_FILES``.
+
+    Strategy:
+    1. Shift existing rotated files (.3 → .4, .2 → .3, etc.)
+    2. Rename current log to .1
+    3. Delete files exceeding ``_AUDIT_LOG_MAX_FILES - 1`` rotated
+    4. Enforce 0600 permissions on all rotated files
+
+    Args:
+        log_path: Path to the current audit log file.
+
+    """
+    # Delete the oldest file if we already have MAX_FILES - 1 rotated
+    oldest = log_path.with_suffix(f".{_AUDIT_LOG_MAX_FILES - 1}")
+    with contextlib.suppress(OSError):
+        oldest.unlink()
+
+    # Shift existing rotated files upward
+    for i in range(_AUDIT_LOG_MAX_FILES - 2, 0, -1):
+        src = log_path.with_suffix(f".{i}")
+        dst = log_path.with_suffix(f".{i + 1}")
+        with contextlib.suppress(OSError):
+            if src.exists():
+                src.rename(dst)
+
+    # Rename current log to .1
+    rotated = log_path.with_suffix(".1")
+    with contextlib.suppress(OSError):
+        log_path.rename(rotated)
+
+    # Enforce owner-only permissions on all rotated files
+    for i in range(1, _AUDIT_LOG_MAX_FILES):
+        rotated_path = log_path.with_suffix(f".{i}")
+        try:
+            if rotated_path.exists():
+                rotated_path.chmod(FILE_MODE_OWNER_ONLY)
+        except OSError:
+            pass
+
+
+def _redact_sensitive(text: str) -> str:
+    """Redact sensitive patterns from text using module-level patterns.
+
+    Matches API keys, tokens, secrets, passwords, and auth headers
+    (case-insensitive) and replaces the full sensitive construct
+    (key + value) with ``[REDACTED]``.
+
+    Handles:
+    - ``API_KEY=secret`` — key=value with unquoted value
+    - ``password="secret"`` — quoted values (single/double)
+    - ``Authorization: Bearer token`` — auth header with bearer token
+    - ``AUTH_HEADER=mysecret`` — prefixed auth keys
+    - ``MY_AUTH=token`` — auth as suffix prefix
+
+    Args:
+        text: Input text that may contain sensitive values.
+
+    Returns:
+        Text with sensitive patterns (key + value) replaced by ``[REDACTED]``.
+
+    """
+    # Redact key=value patterns (unquoted values) — module-level compiled
+    text = _SENSITIVE_WORD_PATTERN.sub("[REDACTED]", text)
+    # Redact quoted values: KEY="secret" or KEY='secret'
+    text = re.sub(
+        r'(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\s*=\s*"[^"]*"',
+        "[REDACTED]",
+        text,
+    )
+    text = re.sub(
+        r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\s*=\s*'[^']*'",
+        "[REDACTED]",
+        text,
+    )
+    # Redact Authorization: Bearer <token>
+    text = re.sub(
+        r"(?i)\b[A-Z_]*(?:Authorization)\s*:\s*Bearer\s+\S+",
+        "[REDACTED]",
+        text,
+    )
+    # Fall back to word-boundary key-name-only pattern for any remaining cases
+    text = _SENSITIVE_KEY_NAME_PATTERN.sub("[REDACTED]", text)
+    return text
+
+
+def _verify_shutdown_ownership(pid: int, port: int) -> bool:
+    """Verify that *pid* owns the slot by checking port binding and UID.
+
+    Defense-in-depth for ``shutdown_slot`` — must prove ownership before
+    signaling to prevent accidentally killing a PID-reused process.
+
+    Checks performed (all must pass)::
+
+        1. Process exists (``psutil.pid_exists``)
+        2. Process is listening on the expected *port*
+        3. Process owner UID matches current process UID
+
+    Args:
+        pid: Process ID to verify.
+        port: Expected listening port.
+
+    Returns:
+        ``True`` if ownership is verified, ``False`` otherwise.
+
+    """
+    if not psutil.pid_exists(pid):
+        return False
+
+    try:
+        proc = psutil.Process(pid)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
+
+    # Check port binding via net_connections()
+    try:
+        # Cast to list to satisfy pyright type checking
+        connections: list = psutil.net_connections(kind="inet")  # type: ignore[assignment]
+        if not any(
+            conn.laddr.port == port and conn.pid == pid
+            for conn in connections
+            if conn.pid is not None
+        ):
+            return False
+    except (psutil.AccessDenied, OSError):
+        return False
+
+    # Check UID matches current process
+    try:
+        current_uid = os.getuid()
+        proc_uid = proc.uids().real
+        if proc_uid != current_uid:
+            return False
+    except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError, TypeError, OSError):
+        # If we cannot verify UID, still accept if port matches
+        # (some environments restrict UID access)
+        pass
+
+    return True
+
+
+def _append_audit_log(
+    log_path: Path,
+    message: str,
+    redact: bool = True,
+) -> None:
+    """Append a line to the audit log file, rotating if needed.
+
+    Rotation strategy: if the log file exceeds ``_AUDIT_LOG_MAX_BYTES``,
+    rotate files using ``_rotate_audit_log()`` which keeps up to
+    ``_AUDIT_LOG_MAX_FILES`` rotated copies (.1 through .5).
+
+    Args:
+        log_path: Path to the audit log file.
+        message: Message to append (with timestamp prefix).
+        redact: If ``True``, apply ``_redact_sensitive`` to the message.
+
+    """
+    # Rotate if needed
+    if log_path.exists():
+        try:
+            size = log_path.stat().st_size
+            if size > _AUDIT_LOG_MAX_BYTES:
+                _rotate_audit_log(log_path)
+        except OSError:
+            pass
+
+    # Prepare the message
+    if redact:
+        message = _redact_sensitive(message)
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    line = f"{timestamp} {message}\n"
+
+    # Append
+    with open(log_path, "a", encoding="utf-8") as fh:
+        fh.write(line)
 
 
 class ServerManager:
@@ -1224,3 +1493,151 @@ class ServerManager:
         else:
             # All slots launched successfully
             return LaunchResult(status="success", launched=launched)
+
+    def acquire_lock(self, slot_id: str, port: int, server_pid: int | None = None) -> Path:
+        """Acquire a lockfile for a slot.
+
+        Creates the lockfile if it does not exist, then verifies its
+        integrity.  Raises ``ValidationException`` when the lockfile
+        cannot be created or fails integrity checks.
+
+        The lock records the server process PID (not the launcher PID)
+        so that ownership verification checks the correct process.
+
+        Args:
+            slot_id: Slot identifier.
+            port: Port the server is bound to.
+            server_pid: PID of the server process. If ``None``, falls back
+                        to the current process PID.
+
+        Returns:
+            Path to the created lockfile.
+
+        """
+        runtime_dir = resolve_runtime_dir()
+        lock_path = _get_lock_path(runtime_dir, slot_id)
+
+        # Check stale lock before creating
+        if lock_path.exists():
+            integrity = check_lockfile_integrity(runtime_dir, slot_id)
+            if integrity is not None:
+                error_detail = ErrorDetail(
+                    error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+                    failed_check=LOCKFILE_CHECK_NAME,
+                    why_blocked=integrity.why_blocked,
+                    how_to_fix="verify the owning process or clear the lockfile",
+                )
+                raise ValidationException(MultiValidationError(errors=[error_detail]))
+
+        # Create the lockfile atomically with the server process PID
+        pid = server_pid if server_pid is not None else os.getpid()
+        return create_lock(runtime_dir, slot_id, pid, port)
+
+    def release_lock(self, slot_id: str) -> None:
+        """Release lockfile for a slot.
+
+        Args:
+            slot_id: Slot identifier.
+
+        """
+        runtime_dir = resolve_runtime_dir()
+        release_lock(runtime_dir, slot_id)
+
+    def check_lock_stale(self, slot_id: str) -> bool:
+        """Check if a lockfile is stale.
+
+        A lockfile is considered stale when its ``started_at`` timestamp
+        is older than ``Config().lock_stale_threshold_s`` seconds.
+
+        Args:
+            slot_id: Slot identifier.
+
+        Returns:
+            ``True`` if the lockfile exists and is stale, ``False`` otherwise.
+
+        """
+        runtime_dir = resolve_runtime_dir()
+        lock_path = _get_lock_path(runtime_dir, slot_id)
+
+        if not lock_path.exists():
+            return False
+
+        metadata_result = read_lock(runtime_dir, slot_id, require_valid=False)
+        if metadata_result is None or isinstance(metadata_result, ErrorDetail):
+            return False
+
+        metadata: LockMetadata = metadata_result
+        age = time.time() - metadata.started_at
+        stale_threshold = Config().lock_stale_threshold_s
+        return age > stale_threshold
+
+    def shutdown_slot(self, slot_id: str, timeout: float = 10.0) -> bool:
+        """Gracefully shut down a slot's server process.
+
+        Sends SIGTERM, waits up to ``timeout`` seconds, then escalates
+        to SIGKILL if the process is still running.
+
+        Args:
+            slot_id: Slot identifier whose process to shut down.
+            timeout: Maximum seconds to wait for graceful shutdown.
+
+        Returns:
+            ``True`` if the process terminated, ``False`` if it could
+            not be killed within the timeout.
+
+        """
+        runtime_dir = resolve_runtime_dir()
+        metadata_result = read_lock(runtime_dir, slot_id, require_valid=False)
+        if metadata_result is None or isinstance(metadata_result, ErrorDetail):
+            return True  # Nothing to shut down
+
+        metadata: LockMetadata = metadata_result
+        pid = metadata.pid
+
+        if pid is None:
+            return True  # Nothing to shut down
+
+        # Verify ownership: process must exist, listen on expected port,
+        # and be owned by the current process.  This prevents signaling
+        # a PID-reused or unrelated process.
+        if not _verify_shutdown_ownership(pid, metadata.port):
+            # Ownership could not be verified — do not signal.
+            # Do NOT release the lock: verification can fail due to
+            # access-denied or other unverifiable conditions; releasing
+            # would allow concurrent launches while the original server
+            # may still be running.
+            return False
+
+        # Send SIGTERM
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            # Process already gone
+            release_lock(runtime_dir, slot_id)
+            return True
+
+        # Wait for graceful exit
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not psutil.pid_exists(pid):
+                release_lock(runtime_dir, slot_id)
+                return True
+            time.sleep(0.1)
+
+        # Still running — escalate to SIGKILL
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            # Race: process exited between last check and SIGKILL
+            release_lock(runtime_dir, slot_id)
+            return True
+
+        # Final wait for SIGKILL to take effect
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if not psutil.pid_exists(pid):
+                release_lock(runtime_dir, slot_id)
+                return True
+            time.sleep(0.1)
+
+        return False

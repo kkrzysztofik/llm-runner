@@ -158,7 +158,7 @@ class TestLiveLock:
         the lock is valid and should not trigger an integrity error.
 
         Targets: check_lockfile_integrity() with psutil.pid_exists(pid) == True
-                 and port matching in psutil.Process.connections()
+                 and port matching in psutil.net_connections()
         """
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
@@ -167,16 +167,18 @@ class TestLiveLock:
         create_lock(runtime_dir, "slot1", pid=fake_pid, port=8080)
 
         # Mock psutil to simulate a running process with matching port
-        with patch("psutil.pid_exists") as mock_exists, patch("psutil.Process") as mock_process:
-            # Process exists
-            mock_exists.return_value = True
+        mock_conn = Mock()
+        mock_conn.laddr.port = 8080  # Same port as lock
+        mock_conn.pid = fake_pid
 
-            # Mock process with matching port
-            mock_proc = Mock()
-            mock_conn = Mock()
-            mock_conn.laddr.port = 8080  # Same port as lock
-            mock_proc.connections.return_value = [mock_conn]
-            mock_process.return_value = mock_proc
+        with (
+            patch("psutil.pid_exists") as mock_exists,
+            patch(
+                "psutil.Process",
+            ),
+            patch("psutil.net_connections", return_value=[mock_conn]),
+        ):
+            mock_exists.return_value = True
 
             # Check integrity - should return None (valid lock)
             result = check_lockfile_integrity(runtime_dir, "slot1")

@@ -117,7 +117,10 @@ jobs:
         run: uv sync --extra dev
 
       - name: pip-audit
-        run: uv run pip-audit
+        # Ignore CVE-2026-3219 in pip: pip is a transitive dev dependency of
+        # pip-audit (via pip-api) and not a runtime dependency of the application.
+        # No fixed version is available yet.
+        run: uv run pip-audit --ignore-vuln CVE-2026-3219
 
   snyk:
     name: Snyk Security Scan

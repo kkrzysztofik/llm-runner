@@ -124,6 +124,31 @@ class Config:
         default_factory=lambda: os.environ.get("SERVER_BINARY_VERSION", "")
     )
 
+    # Smoke probe configuration
+    smoke_listen_timeout_s: int = 120
+    smoke_http_request_timeout_s: int = 10
+    smoke_inter_slot_delay_s: int = 2
+    smoke_max_tokens: int = 16
+    smoke_prompt: str = "Respond with exactly one word."
+    smoke_skip_models_discovery: bool = False
+    smoke_api_key: str = ""
+    smoke_first_token_timeout_s: int = 1200
+    smoke_total_chat_timeout_s: int = 1500
+
+    # GGUF metadata extraction
+    gguf_metadata_prefix_cap_bytes: int = 32 * 1024 * 1024  # 32 MiB
+    gguf_metadata_parse_timeout_s: float = 5.0
+
+    # TUI
+    tui_launch_timeout_s: int = 120
+    tui_refresh_interval_ms: int = 1000
+
+    # Probe
+    probe_latency_threshold_s: int = 10
+
+    # Lockfile
+    lock_stale_threshold_s: int = 300
+
     # M2 XDG path utilities
     @property
     def venv_path(self) -> Path:
@@ -200,6 +225,39 @@ class ServerConfig:
     server_bin: str = ""
     backend: str = "llama_cpp"
     risky_acknowledged: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SmokeProbeConfiguration:
+    """Configuration for smoke probe phases.
+
+    Translates Config defaults into probe-specific parameters used by
+    probe_slot() and the smoke CLI entry point.
+    """
+
+    inter_slot_delay_s: int = 2
+    listen_timeout_s: int = 120
+    http_request_timeout_s: int = 10
+    max_tokens: int = 16
+    prompt: str = "Respond with exactly one word."
+    skip_models_discovery: bool = False
+    api_key: str = ""
+    model_id_override: str | None = None
+    first_token_timeout_s: int = 1200
+    total_chat_timeout_s: int = 1500
+
+    def __post_init__(self) -> None:
+        """Validate smoke probe configuration parameters."""
+        if not (8 <= self.max_tokens <= 32):
+            raise ValueError("max_tokens must be between 8 and 32")
+        if self.listen_timeout_s < 1:
+            raise ValueError("listen_timeout_s must be at least 1")
+        if self.http_request_timeout_s < 1:
+            raise ValueError("http_request_timeout_s must be at least 1")
+        if self.first_token_timeout_s < 1:
+            raise ValueError("first_token_timeout_s must be at least 1")
+        if self.total_chat_timeout_s < 1:
+            raise ValueError("total_chat_timeout_s must be at least 1")
 
 
 # M1 scaffolding
@@ -336,6 +394,70 @@ class ErrorCode(StrEnum):
     GIT_CHECKOUT_FAILED = "GIT_CHECKOUT_FAILED"
     REPORT_WRITE_FAILURE = "REPORT_WRITE_FAILURE"
     TOOL_VERSION_MISMATCH = "TOOL_VERSION_MISMATCH"
+
+
+class SlotState(StrEnum):
+    """State of a model slot in the TUI dashboard."""
+
+    IDLE = "idle"
+    LAUNCHING = "launching"
+    RUNNING = "running"
+    DEGRADED = "degraded"
+    CRASHED = "crashed"
+    OFFLINE = "offline"
+
+
+class SmokePhase(StrEnum):
+    """Phase of a smoke probe for a single slot."""
+
+    LISTEN = "listen"
+    MODELS = "models"
+    CHAT = "chat"
+    COMPLETE = "complete"
+
+
+class SmokeFailurePhase(StrEnum):
+    """Phase at which a smoke probe failed."""
+
+    LISTEN = "listen"
+    MODELS = "models"
+    CHAT = "chat"
+
+
+class SmokeProbeStatus(StrEnum):
+    """Outcome of a smoke probe for a single slot."""
+
+    PASS = "pass"  # noqa: S105
+    FAIL = "fail"  # noqa: S105
+    TIMEOUT = "timeout"
+    CRASHED = "crashed"
+    MODEL_NOT_FOUND = "model_not_found"
+    AUTH_FAILURE = "auth_failure"
+
+
+class VRamRecommendation(StrEnum):
+    """VRAM heuristic recommendation for model loading."""
+
+    PROCEED = "proceed"
+    WARN = "warn"
+    CONFIRM_REQUIRED = "confirm_required"
+
+
+class DoctorCheckStatus(StrEnum):
+    """Status of a doctor check result."""
+
+    PASS = "pass"  # noqa: S105
+    WARN = "warn"
+    FAIL = "fail"  # noqa: S105
+
+
+class GgufParseError(StrEnum):
+    """Error types for GGUF metadata extraction."""
+
+    CORRUPT_FILE = "CORRUPT_FILE"
+    PARSE_TIMEOUT = "PARSE_TIMEOUT"
+    UNSUPPORTED_VERSION = "UNSUPPORTED_VERSION"
+    READ_ERROR = "READ_ERROR"
 
 
 @dataclass

@@ -115,6 +115,25 @@ def _print_common_payload_sections(payload: Any) -> None:
     print()
 
 
+def _print_smoke_probe_info(cfg: Config) -> None:
+    """Print smoke probe configuration for dry-run output.
+
+    Shows smoke-relevant flags: model ID, prompt, /v1/models probe, API key source.
+
+    Args:
+        cfg: Config instance with smoke defaults.
+    """
+    print("  Smoke Probe:")
+    print(f"    /v1/models: {'skip' if cfg.smoke_skip_models_discovery else 'enabled'}")
+    print(f"    Prompt: {cfg.smoke_prompt}")
+    print(f"    Max tokens: {cfg.smoke_max_tokens}")
+    if cfg.smoke_api_key:
+        print("    API key: [configured]")
+    else:
+        print("    API key: [not set]")
+    print()
+
+
 def _build_payload(
     server_cfg: ServerConfig,
     slot_id: str,
@@ -418,6 +437,10 @@ def dry_run(
             sys.exit(1)
 
         has_error = handler()
+
+        # CA-003: Print smoke probe configuration (FR-007)
+        if not has_error:
+            _print_smoke_probe_info(cfg)
 
         # FR-007: Write artifact for dry-run attempt
         if not has_error and slot_payloads:

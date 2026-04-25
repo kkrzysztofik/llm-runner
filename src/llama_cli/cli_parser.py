@@ -8,7 +8,17 @@ a second argument specifying the mode to preview.
 import argparse
 import sys
 
-VALID_MODES = ("summary-balanced", "summary-fast", "qwen35", "both", "build", "setup", "doctor")
+VALID_MODES = (
+    "summary-balanced",
+    "summary-fast",
+    "qwen35",
+    "both",
+    "build",
+    "setup",
+    "doctor",
+)
+
+SMOKE_MODE = "smoke"
 
 # NOTE: --strict-profiles is documented as post-MVP deferral (FR-M3-009).
 # In MVP, stale profiles produce a warning only — they never block model
@@ -55,9 +65,9 @@ def _parse_dry_run_args(args: list[str]) -> argparse.Namespace:
         SystemExit: On invalid arguments.
     """
     dry_run_mode = args[1]
-    if dry_run_mode not in VALID_MODES:
+    if dry_run_mode not in VALID_MODES and dry_run_mode != SMOKE_MODE:
         print(
-            f"error: invalid dry-run mode '{dry_run_mode}'. Valid modes: {', '.join(VALID_MODES)}",
+            f"error: invalid dry-run mode '{dry_run_mode}'. Valid modes: {', '.join(VALID_MODES)}, {SMOKE_MODE}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -105,6 +115,12 @@ def _parse_normal_mode_args(args: list[str]) -> argparse.Namespace:
       doctor           Run doctor diagnostics (use subcommands: check, repair)
       build            Run build pipeline
       setup            Run setup commands (use subcommands: check, venv, clean-venv)
+
+    Exit codes:
+      0    Success
+      1-9  Doctor check failures
+      10-19 Smoke test failures
+      130  Interrupted (Ctrl+C)
 
     Examples:
       %(prog)s summary-balanced
@@ -415,6 +431,195 @@ def _handle_dry_run_case(args: list[str]) -> argparse.Namespace | None:
     return None
 
 
+def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
+    """Handle smoke subcommand special case.
+
+    Args:
+        args: List of command-line arguments.
+
+    Returns:
+        Parsed namespace if smoke subcommand, None otherwise.
+
+    Raises:
+        SystemExit: On missing or invalid smoke arguments.
+    """
+    if not (len(args) >= 1 and args[0] == "smoke"):
+        return None
+
+    if len(args) < 2:
+        print(
+            "error: smoke requires a mode argument (both|slot)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    mode = args[1]
+    if mode not in ("both", "slot"):
+        print(
+            f"error: invalid smoke mode '{mode}'. Valid modes: both, slot",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Parse remaining args for slot_id (when mode is "slot") and flags.
+    # Strategy: slot_id is extracted ONLY from the first token if it exists
+    # and does NOT start with "--". Otherwise leave all args for parser/error
+    # handling. This prevents skipping leading flags to find slot_id.
+    slot_id: str | None = None
+    api_key: str = ""
+    model_id: str | None = None
+    max_tokens: int = 0
+    prompt: str = ""
+    delay: int = 0
+    timeout: int = 0
+    json_output: bool = False
+
+    remaining = args[2:]
+
+    # Check if slot_id can be extracted from remaining[0] BEFORE parsing flags
+    if mode == "slot" and remaining and not remaining[0].startswith("--"):
+        slot_id = remaining[0]
+        # Remove slot_id from remaining for flag parsing
+        remaining = remaining[1:]
+
+    i = 0
+
+    # Flags that take a value (consume the next token)
+    _FLAGS_WITH_VALUE: set[str] = {
+        "--api-key",
+        "--model-id",
+        "--max-tokens",
+        "--prompt",
+        "--delay",
+        "--timeout",
+    }
+
+    # Phase 1 — parse all flags, collecting known values and skipping
+    # unknown ones (with their values).  slot_id is extracted from the
+    # first non-flag token.
+    while i < len(remaining):
+        arg = remaining[i]
+        if arg.startswith("--"):
+            if "=" in arg:
+                # Handle --flag=value syntax
+                key, _, value = arg.partition("=")
+                if key == "--api-key":
+                    api_key = value
+                elif key == "--model-id":
+                    model_id = value
+                elif key == "--max-tokens":
+                    try:
+                        max_tokens = int(value)
+                    except ValueError:
+                        print(
+                            f"error: invalid --max-tokens value '{value}': must be an integer",
+                            file=sys.stderr,
+                        )
+                        sys.exit(1)
+                elif key == "--prompt":
+                    prompt = value
+                elif key == "--delay":
+                    try:
+                        delay = int(value)
+                    except ValueError:
+                        print(
+                            f"error: invalid --delay value '{value}': must be an integer",
+                            file=sys.stderr,
+                        )
+                        sys.exit(1)
+                elif key == "--timeout":
+                    try:
+                        timeout = int(value)
+                    except ValueError:
+                        print(
+                            f"error: invalid --timeout value '{value}': must be an integer",
+                            file=sys.stderr,
+                        )
+                        sys.exit(1)
+                else:
+                    # Unknown flag=value — hard error
+                    print(f"error: unknown flag '{key}'", file=sys.stderr)
+                    sys.exit(1)
+                i += 1
+            elif arg in _FLAGS_WITH_VALUE:
+                i += 1
+                if i < len(remaining):
+                    val = remaining[i]
+                    if arg == "--api-key":
+                        api_key = val
+                    elif arg == "--model-id":
+                        model_id = val
+                    elif arg == "--max-tokens":
+                        try:
+                            max_tokens = int(val)
+                        except ValueError:
+                            print(
+                                f"error: invalid --max-tokens value '{val}': must be an integer",
+                                file=sys.stderr,
+                            )
+                            sys.exit(1)
+                    elif arg == "--prompt":
+                        prompt = val
+                    elif arg == "--delay":
+                        try:
+                            delay = int(val)
+                        except ValueError:
+                            print(
+                                f"error: invalid --delay value '{val}': must be an integer",
+                                file=sys.stderr,
+                            )
+                            sys.exit(1)
+                    elif arg == "--timeout":
+                        try:
+                            timeout = int(val)
+                        except ValueError:
+                            print(
+                                f"error: invalid --timeout value '{val}': must be an integer",
+                                file=sys.stderr,
+                            )
+                            sys.exit(1)
+                    i += 1  # skip past the value
+                else:
+                    print(f"error: {arg} requires a value", file=sys.stderr)
+                    sys.exit(1)
+            elif arg == "--json":
+                json_output = True
+                i += 1
+            else:
+                # Unknown flag — hard error
+                print(f"error: unknown flag '{arg}'", file=sys.stderr)
+                sys.exit(1)
+        else:
+            # Unexpected positional argument after flags — reject it
+            print(
+                f"error: unexpected positional argument '{arg}' "
+                f"(expected only flags after slot ID)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    # Phase 2 — validate max_tokens range
+    if max_tokens != 0 and not (8 <= max_tokens <= 32):
+        print(
+            f"error: --max-tokens must be between 8 and 32, got: {max_tokens}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    return argparse.Namespace(
+        mode="smoke",
+        smoke_mode=mode,
+        slot_id=slot_id,
+        api_key=api_key,
+        model_id=model_id,
+        max_tokens=max_tokens,
+        prompt=prompt,
+        delay=delay,
+        timeout=timeout,
+        json=json_output,
+    )
+
+
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments.
 
@@ -455,6 +660,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     if dry_run_result is not None:
         return dry_run_result
 
+    # Handle smoke subcommand (special case)
+    smoke_result = _handle_smoke_case(args)
+    if smoke_result is not None:
+        return smoke_result
+
     # Normal mode parsing
     return _parse_normal_mode_args(args)
 
@@ -488,8 +698,8 @@ GPU Mapping:
 
     parser.add_argument(
         "mode",
-        choices=VALID_MODES,
-        help=f"Mode to run: {' | '.join(VALID_MODES)}",
+        choices=[*VALID_MODES, SMOKE_MODE],
+        help=f"Mode to run: {' | '.join(VALID_MODES)} | {SMOKE_MODE}",
     )
     parser.add_argument(
         "--port",

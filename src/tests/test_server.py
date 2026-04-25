@@ -1,5 +1,10 @@
 """Tests for llama_manager.server — validation and command building."""
 
+import os
+from unittest.mock import MagicMock
+
+import pytest
+
 from llama_manager.config import ErrorCode, ServerConfig, ValidationResult
 from llama_manager.server import (
     build_server_cmd,
@@ -279,3 +284,295 @@ class TestSortValidationErrors:
             assert r1.slot_id == r2.slot_id
             assert r1.failed_check == r2.failed_check
             assert r1.passed == r2.passed
+
+
+class TestComputeMachineFingerprint:
+    """T058: Tests for machine fingerprint computation."""
+
+    def _make_mock_subprocess_result(
+        self,
+        stdout: str = "",
+        stderr: str = "",
+        returncode: int = 0,
+    ) -> MagicMock:
+        result = MagicMock()
+        result.stdout = stdout
+        result.stderr = stderr
+        result.returncode = returncode
+        return result
+
+    def test_fingerprint_with_all_hardware_info(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """compute_machine_fingerprint should include GPU, CPU, and OS info."""
+        from llama_manager.server import compute_machine_fingerprint
+
+        mock_result = self._make_mock_subprocess_result(
+            stdout="00:01.0 VGA compatible controller: Intel Corporation Arc B580\n"
+            "00:02.0 VGA compatible controller: NVIDIA Corporation RTX 3090\n",
+        )
+        monkeypatch.setitem(os.environ, "LSPCI_OUTPUT", mock_result.stdout)
+
+        mock_result2 = self._make_mock_subprocess_result(
+            stdout="model name\t: Intel(R) Core(TM) i9-13900K\n",
+        )
+
+        mock_result3 = self._make_mock_subprocess_result(
+            stdout="NAME=Ubuntu\nVERSION_ID=24.04\n",
+        )
+
+        def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+            if cmd == ["lspci"]:
+                return mock_result
+            if cmd == ["cat", "/proc/cpuinfo"]:
+                return mock_result2
+            if cmd == ["cat", "/etc/os-release"]:
+                return mock_result3
+            return self._make_mock_subprocess_result()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        fp = compute_machine_fingerprint()
+
+        assert fp is not None
+        assert len(fp) > 0
+        # Should be a hex string (SHA-256 based)
+        int(fp, 16)  # Should not raise
+
+    def test_fingerprint_with_no_lspci(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """compute_machine_fingerprint should return partial fingerprint when lspci fails."""
+        from llama_manager.server import compute_machine_fingerprint
+
+        mock_result = self._make_mock_subprocess_result(
+            stdout="",
+            stderr="lspci: command not found",
+            returncode=127,
+        )
+        mock_result2 = self._make_mock_subprocess_result(
+            stdout="model name\t: Intel(R) Core(TM) i9-13900K\n",
+        )
+        mock_result3 = self._make_mock_subprocess_result(
+            stdout="NAME=Ubuntu\nVERSION_ID=24.04\n",
+        )
+
+        def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+            if cmd == ["lspci"]:
+                return mock_result
+            if cmd == ["cat", "/proc/cpuinfo"]:
+                return mock_result2
+            if cmd == ["cat", "/etc/os-release"]:
+                return mock_result3
+            return self._make_mock_subprocess_result()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        fp = compute_machine_fingerprint()
+
+        assert fp is not None
+        assert len(fp) > 0
+
+    def test_fingerprint_all_tools_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """compute_machine_fingerprint should return None when all tools fail."""
+        from llama_manager.server import compute_machine_fingerprint
+
+        def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+            return self._make_mock_subprocess_result(
+                stdout="",
+                stderr="command not found",
+                returncode=127,
+            )
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        fp = compute_machine_fingerprint()
+
+        assert fp is None
+
+    def test_fingerprint_deterministic(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """compute_machine_fingerprint should produce the same output for the same hardware."""
+        from llama_manager.server import compute_machine_fingerprint
+
+        mock_result = self._make_mock_subprocess_result(
+            stdout="00:01.0 VGA compatible controller: Intel Corporation Arc B580\n",
+        )
+        mock_result2 = self._make_mock_subprocess_result(
+            stdout="model name\t: Intel(R) Core(TM) i9-13900K\n",
+        )
+        mock_result3 = self._make_mock_subprocess_result(
+            stdout="NAME=Ubuntu\nVERSION_ID=24.04\n",
+        )
+
+        def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+            if cmd == ["lspci"]:
+                return mock_result
+            if cmd == ["cat", "/proc/cpuinfo"]:
+                return mock_result2
+            if cmd == ["cat", "/etc/os-release"]:
+                return mock_result3
+            return self._make_mock_subprocess_result()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+
+        fp1 = compute_machine_fingerprint()
+        fp2 = compute_machine_fingerprint()
+
+        assert fp1 == fp2
+        assert fp1 is not None
+
+
+class TestCheckHardwareAllowlist:
+    """T059: Tests for hardware allowlist check."""
+
+    def test_allowlist_match(self) -> None:
+        """check_hardware_allowlist should return 'match' when fingerprint is in allowlist."""
+        from llama_manager.server import check_hardware_allowlist
+
+        fingerprint = "abc123def456"
+        allowlist = ["abc123def456", "other_hash"]
+
+        result = check_hardware_allowlist(fingerprint, allowlist)
+
+        assert result == "match"
+
+    def test_allowlist_mismatch(self) -> None:
+        """check_hardware_allowlist should return 'mismatch' when fingerprint is not in allowlist."""
+        from llama_manager.server import check_hardware_allowlist
+
+        fingerprint = "unknown_hash"
+        allowlist = ["abc123def456", "other_hash"]
+
+        result = check_hardware_allowlist(fingerprint, allowlist)
+
+        assert result == "mismatch"
+
+    def test_allowlist_invalidated(self) -> None:
+        """check_hardware_allowlist should return 'invalidated' when allowlist is empty."""
+        from llama_manager.server import check_hardware_allowlist
+
+        fingerprint = "abc123def456"
+        allowlist: list[str] = []
+
+        result = check_hardware_allowlist(fingerprint, allowlist)
+
+        assert result == "invalidated"
+
+    def test_allowlist_single_entry_match(self) -> None:
+        """check_hardware_allowlist should handle single-entry allowlist."""
+        from llama_manager.server import check_hardware_allowlist
+
+        fingerprint = "only_hash"
+        allowlist = ["only_hash"]
+
+        result = check_hardware_allowlist(fingerprint, allowlist)
+
+        assert result == "match"
+
+    def test_allowlist_single_entry_mismatch(self) -> None:
+        """check_hardware_allowlist should handle single-entry allowlist mismatch."""
+        from llama_manager.server import check_hardware_allowlist
+
+        fingerprint = "different_hash"
+        allowlist = ["only_hash"]
+
+        result = check_hardware_allowlist(fingerprint, allowlist)
+
+        assert result == "mismatch"
+
+    def test_allowlist_env_whitespace_stripped(self) -> None:
+        """check_hardware_allowlist should strip whitespace from env-var allowlist entries."""
+        import os
+
+        from llama_manager.server import check_hardware_allowlist
+
+        fingerprint = "fp2"
+        os.environ["LLM_RUNNER_HARDWARE_ALLOWLIST"] = "fp1, fp2, fp3"
+        try:
+            result = check_hardware_allowlist(fingerprint, None)
+        finally:
+            del os.environ["LLM_RUNNER_HARDWARE_ALLOWLIST"]
+
+        assert result == "match"
+
+    def test_allowlist_env_empty_entries_ignored(self) -> None:
+        """check_hardware_allowlist should ignore empty entries from env-var allowlist."""
+        import os
+
+        from llama_manager.server import check_hardware_allowlist
+
+        os.environ["LLM_RUNNER_HARDWARE_ALLOWLIST"] = "fp1,,fp2"
+        try:
+            result = check_hardware_allowlist("fp2", None)
+        finally:
+            del os.environ["LLM_RUNNER_HARDWARE_ALLOWLIST"]
+
+        assert result == "match"
+
+
+class TestAssessVramRisk:
+    """T060: Tests for VRAM risk heuristic (AC-016)."""
+
+    def test_vram_sufficient_proceed(self) -> None:
+        """assess_vram_risk should return PROCEED when free VRAM >= 1.5x model size."""
+        from llama_manager.config import VRamRecommendation
+        from llama_manager.server import assess_vram_risk
+
+        result = assess_vram_risk(vram_free_gb=20, model_size_gb=10)
+
+        assert result == VRamRecommendation.PROCEED
+
+    def test_vram_boundary_1_5x(self) -> None:
+        """assess_vram_risk should return PROCEED at exactly 1.5x ratio."""
+        from llama_manager.config import VRamRecommendation
+        from llama_manager.server import assess_vram_risk
+
+        # 15 / 10 = 1.5x exactly
+        result = assess_vram_risk(vram_free_gb=15, model_size_gb=10)
+
+        assert result == VRamRecommendation.PROCEED
+
+    def test_vram_warn_1_45x(self) -> None:
+        """assess_vram_risk should return WARN when free VRAM >= 1.411x model size (spec FR-013)."""
+        from llama_manager.config import VRamRecommendation
+        from llama_manager.server import assess_vram_risk
+
+        # 14.5 / 10 = 1.45x (between 1.411 warn threshold and 1.5 proceed threshold)
+        result = assess_vram_risk(vram_free_gb=14.5, model_size_gb=10)
+
+        assert result == VRamRecommendation.WARN
+
+    def test_vram_boundary_warn_threshold(self) -> None:
+        """assess_vram_risk should return WARN at exactly 1.2/0.85 ≈ 1.411x ratio (spec FR-013)."""
+        from llama_manager.config import VRamRecommendation
+        from llama_manager.server import assess_vram_risk
+
+        # 14.12 / 10 = 1.412x (just above 1.2/0.85 ≈ 1.41176)
+        result = assess_vram_risk(vram_free_gb=14.12, model_size_gb=10)
+
+        assert result == VRamRecommendation.WARN
+
+    def test_vram_insufficient_confirm_required(self) -> None:
+        """assess_vram_risk should return CONFIRM_REQUIRED when free VRAM < 1.1x model size."""
+        from llama_manager.config import VRamRecommendation
+        from llama_manager.server import assess_vram_risk
+
+        # 10 / 10 = 1.0x
+        result = assess_vram_risk(vram_free_gb=10, model_size_gb=10)
+
+        assert result == VRamRecommendation.CONFIRM_REQUIRED
+
+    def test_vram_zero_free(self) -> None:
+        """assess_vram_risk should return CONFIRM_REQUIRED when no free VRAM."""
+        from llama_manager.config import VRamRecommendation
+        from llama_manager.server import assess_vram_risk
+
+        result = assess_vram_risk(vram_free_gb=0, model_size_gb=10)
+
+        assert result == VRamRecommendation.CONFIRM_REQUIRED
+
+    def test_vram_large_buffer(self) -> None:
+        """assess_vram_risk should return PROCEED with large VRAM buffer."""
+        from llama_manager.config import VRamRecommendation
+        from llama_manager.server import assess_vram_risk
+
+        # 20 / 10 = 2.0x
+        result = assess_vram_risk(vram_free_gb=20, model_size_gb=10)
+
+        assert result == VRamRecommendation.PROCEED

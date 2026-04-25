@@ -1,10 +1,12 @@
 # Server command building and validation functions
 
 
+import hashlib
+import json
 import os
 import re
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Final, Literal
 
 from .config import (
     Config,
@@ -14,10 +16,79 @@ from .config import (
     MultiValidationError,
     ServerConfig,
     ValidationResult,
+    VRamRecommendation,
 )
 
 # Precompiled regex pattern for sensitive key detection (Finding 172)
 _SENSITIVE_KEY_PATTERN = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|AUTH)", re.IGNORECASE)
+
+# ---------------------------------------------------------------------------
+# Doctor diagnostics (T069)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DoctorCheckResult:
+    """Result of a single doctor diagnostic check.
+
+    Attributes:
+        name: Check identifier (e.g. 'sycl_device', 'cuda_memory').
+        status: One of 'pass', 'warn', 'fail'.
+        message: Human-readable description of the result.
+    """
+
+    name: str
+    status: Literal["pass", "warn", "fail"]
+    message: str = ""
+
+
+@dataclass
+class DoctorReport:
+    """Aggregated doctor diagnostic report.
+
+    Attributes:
+        checks: List of individual check results.
+        config: Resolved server configuration snapshot.
+        hardware: Hardware/environment information.
+    """
+
+    checks: list[DoctorCheckResult]
+    config: dict[str, Any] = field(default_factory=dict)
+    hardware: dict[str, Any] = field(default_factory=dict)
+
+    def to_json(self) -> str:
+        """Return JSON string representation.
+
+        Returns:
+            JSON string with checks, config, and hardware fields.
+        """
+        return json.dumps(
+            {
+                "checks": [
+                    {
+                        "name": c.name,
+                        "status": c.status,
+                        "message": c.message,
+                    }
+                    for c in self.checks
+                ],
+                "config": self.config,
+                "hardware": self.hardware,
+            },
+            indent=2,
+        )
+
+    def to_text(self) -> str:
+        """Return human-readable text representation.
+
+        Returns:
+            Formatted text with pass/warn/fail indicators.
+        """
+        lines: list[str] = ["=== DOCTOR DIAGNOSTIC REPORT ==="]
+        for check in self.checks:
+            icon = {"pass": "✓", "warn": "⚠", "fail": "✗"}.get(check.status, "?")
+            lines.append(f"  [{icon}] {check.name}: {check.message}")
+        return "\n".join(lines)
 
 
 # FR-003: Canonical dry-run payload types
@@ -639,11 +710,8 @@ def _build_openai_flag_bundle(cfg: ServerConfig) -> dict[str, str | int | bool |
         Keys are deterministically ordered (sorted ascending).
 
     """
-    # Determine if chat completion is supported based on reasoning mode
     chat_completion_supported = cfg.reasoning_mode in ("auto", "enabled")
 
-    # Build bundle with explicit keys for Qwen-class configs
-    # Keys sorted alphabetically for deterministic serialization (FR-003)
     bundle: dict[str, str | int | bool | None] = {
         "--chat-format": "chatml" if chat_completion_supported else None,
         "--host": "127.0.0.1",
@@ -651,7 +719,7 @@ def _build_openai_flag_bundle(cfg: ServerConfig) -> dict[str, str | int | bool |
         "--port": cfg.port,
     }
 
-    return bundle
+    return dict(sorted(bundle.items()))
 
 
 def _build_hardware_notes(cfg: ServerConfig) -> dict[str, str | None]:
@@ -696,3 +764,179 @@ def _parse_device_details(device: str) -> tuple[str | None, str]:
             return (":".join(parts[1:]), device)
 
     return (None, device)
+
+
+def _get_lspci_output() -> str | None:
+    """Run lspci and return stdout, or None on failure.
+
+    Returns:
+        lspci stdout string, or None if the command fails.
+
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["lspci"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def _get_cpu_model() -> str | None:
+    """Extract CPU model name from /proc/cpuinfo.
+
+    Returns:
+        The CPU model name, or None if unavailable.
+
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["cat", "/proc/cpuinfo"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            for line in result.stdout.splitlines():
+                if line.startswith("model name"):
+                    return "cpu:" + line.split(":", 1)[1].strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def _get_os_name() -> str | None:
+    """Extract OS name from /etc/os-release.
+
+    Returns:
+        The OS name, or None if unavailable.
+
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["cat", "/etc/os-release"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            for line in result.stdout.splitlines():
+                if line.startswith("NAME="):
+                    return "os:" + line.split("=", 1)[1].strip().strip('"')
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def compute_machine_fingerprint() -> str | None:
+    """Compute a deterministic machine fingerprint from hardware identifiers.
+
+    Gathers information from system tools (lspci, /proc/cpuinfo, /etc/os-release)
+    and combines them into a SHA-256 hash. Returns None if no tools succeed.
+
+    Returns:
+        A hex-encoded SHA-256 hash string, or None if all tools fail.
+
+    """
+    parts: list[str] = []
+
+    gpu_output = _get_lspci_output()
+    if gpu_output is not None:
+        parts.append("gpu:" + gpu_output)
+
+    cpu_model = _get_cpu_model()
+    if cpu_model is not None:
+        parts.append(cpu_model)
+
+    os_name = _get_os_name()
+    if os_name is not None:
+        parts.append(os_name)
+
+    if not parts:
+        return None
+
+    raw = "|".join(parts)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def check_hardware_allowlist(
+    fingerprint: str,
+    allowlist: list[str] | None = None,
+) -> str:
+    """Check a machine fingerprint against a hardware allowlist.
+
+    Args:
+        fingerprint: The machine fingerprint to check.
+        allowlist: List of allowed fingerprints. If None, reads from
+                   LLM_RUNNER_HARDWARE_ALLOWLIST env var.
+
+    Returns:
+        'match' if fingerprint is in allowlist,
+        'mismatch' if allowlist has entries but fingerprint is not included,
+        'invalidated' if allowlist is empty (no trusted fingerprints).
+
+    """
+    if allowlist is None:
+        raw = os.environ.get("LLM_RUNNER_HARDWARE_ALLOWLIST", "")
+        allowlist = [f.strip() for f in raw.split(",") if f.strip()] if raw else []
+
+    if not allowlist:
+        return "invalidated"
+
+    if fingerprint in allowlist:
+        return "match"
+
+    return "mismatch"
+
+
+def assess_vram_risk(
+    vram_free_gb: float,
+    model_size_gb: float,
+) -> VRamRecommendation:
+    """Assess VRAM risk for loading a model.
+
+    Heuristic per spec FR-013 / AC-016:
+    warn if ``free_vram * 0.85 < model_size * 1.2``
+    which simplifies to ``free_vram < model_size * (1.2 / 0.85)`` ≈ model_size * 1.411.
+
+    Thresholds:
+    - PROCEED: free VRAM >= 1.5x model size
+    - WARN: free VRAM >= 1.411x model size (1.2/0.85 per spec)
+    - CONFIRM_REQUIRED: free VRAM < 1.411x model size
+
+    Args:
+        vram_free_gb: Available (free) GPU VRAM in gigabytes.
+        model_size_gb: Estimated model size in gigabytes.
+
+    Returns:
+        VRamRecommendation enum value.
+
+    """
+    from .config import VRamRecommendation
+
+    if model_size_gb <= 0:
+        return VRamRecommendation.PROCEED
+
+    # Spec formula: free_vram * 0.85 < model_size * 1.2
+    # => warn when free_vram < model_size * (1.2 / 0.85)
+    _WARN_THRESHOLD: Final[float] = 1.2 / 0.85  # ≈ 1.4117647
+    _PROCEED_THRESHOLD: Final[float] = 1.5
+
+    ratio = vram_free_gb / model_size_gb
+
+    if ratio >= _PROCEED_THRESHOLD:
+        return VRamRecommendation.PROCEED
+    if ratio >= _WARN_THRESHOLD:
+        return VRamRecommendation.WARN
+    return VRamRecommendation.CONFIRM_REQUIRED

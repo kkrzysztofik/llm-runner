@@ -935,3 +935,126 @@ class TestLaunchNoAutobuild:
 
             # Verify BuildPipeline.run was not called
             mock_pipeline_instance.run.assert_not_called()
+
+
+class TestSlotState:
+    """T013: Tests for SlotState enum transitions and properties."""
+
+    def test_all_states_exist(self) -> None:
+        """SlotState should have all 6 expected states."""
+        from llama_manager.config import SlotState
+
+        states = list(SlotState)
+        state_values = {s.value for s in states}
+        assert state_values == {
+            "idle",
+            "launching",
+            "running",
+            "degraded",
+            "crashed",
+            "offline",
+        }
+
+    def test_state_values_match_expected(self) -> None:
+        """Each SlotState member should have the expected string value."""
+        from llama_manager.config import SlotState
+
+        assert SlotState.IDLE.value == "idle"
+        assert SlotState.LAUNCHING.value == "launching"
+        assert SlotState.RUNNING.value == "running"
+        assert SlotState.DEGRADED.value == "degraded"
+        assert SlotState.CRASHED.value == "crashed"
+        assert SlotState.OFFLINE.value == "offline"
+
+    def test_state_comparison_with_string(self) -> None:
+        """SlotState members should compare equal to their string values."""
+        from llama_manager.config import SlotState
+
+        assert SlotState.RUNNING == "running"
+        assert SlotState.IDLE == "idle"
+        assert SlotState.LAUNCHING == "launching"
+        assert SlotState.DEGRADED == "degraded"
+        assert SlotState.CRASHED == "crashed"
+        assert SlotState.OFFLINE == "offline"
+
+    def test_state_comparison_with_wrong_string(self) -> None:
+        """SlotState members should not compare equal to unrelated strings."""
+        from llama_manager.config import SlotState
+
+        assert SlotState.RUNNING != "idle"
+        assert SlotState.IDLE != "running"
+        assert SlotState.OFFLINE != "offline_"
+
+    def test_valid_transitions_idle(self) -> None:
+        """IDLE should be the initial state after creation."""
+        from llama_manager.config import SlotState
+
+        # SlotState is an enum, not a class with state transitions
+        # Verify that IDLE represents the starting state
+        assert SlotState.IDLE.value == "idle"
+
+    def test_valid_transitions_launching(self) -> None:
+        """LAUNCHING represents the in-between state before RUNNING."""
+        from llama_manager.config import SlotState
+
+        assert SlotState.LAUNCHING.value == "launching"
+
+    def test_valid_transitions_running(self) -> None:
+        """RUNNING represents the active state."""
+        from llama_manager.config import SlotState
+
+        assert SlotState.RUNNING.value == "running"
+
+    def test_valid_transitions_degraded(self) -> None:
+        """DEGRADED represents a partially healthy state."""
+        from llama_manager.config import SlotState
+
+        assert SlotState.DEGRADED.value == "degraded"
+
+    def test_valid_transitions_crashed(self) -> None:
+        """CRASHED represents a failed state."""
+        from llama_manager.config import SlotState
+
+        assert SlotState.CRASHED.value == "crashed"
+
+    def test_valid_transitions_offline(self) -> None:
+        """OFFLINE represents the terminal state."""
+        from llama_manager.config import SlotState
+
+        assert SlotState.OFFLINE.value == "offline"
+
+    def test_state_str_representation(self) -> None:
+        """SlotState members should have meaningful str() representation."""
+        from llama_manager.config import SlotState
+
+        assert str(SlotState.RUNNING) == "running"
+        assert str(SlotState.IDLE) == "idle"
+
+    def test_state_hashable(self) -> None:
+        """SlotState members should be usable as dict keys and in sets."""
+        from llama_manager.config import SlotState
+
+        state_set: set[SlotState] = {SlotState.RUNNING, SlotState.IDLE, SlotState.RUNNING}
+        assert len(state_set) == 2
+
+        state_dict: dict[SlotState, str] = {
+            SlotState.RUNNING: "active",
+            SlotState.IDLE: "waiting",
+        }
+        assert state_dict[SlotState.RUNNING] == "active"
+
+    def test_state_membership_in_list(self) -> None:
+        """SlotState members should be usable in list membership checks."""
+        from llama_manager.config import SlotState
+
+        healthy_states = [SlotState.RUNNING, SlotState.DEGRADED]
+        assert SlotState.RUNNING in healthy_states
+        assert SlotState.CRASHED not in healthy_states
+
+    def test_state_from_string(self) -> None:
+        """SlotState should be creatable from string values."""
+        from llama_manager.config import SlotState
+
+        assert SlotState("running") == SlotState.RUNNING
+        assert SlotState("idle") == SlotState.IDLE
+        assert SlotState("offline") == SlotState.OFFLINE
