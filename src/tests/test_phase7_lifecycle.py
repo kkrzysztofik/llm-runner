@@ -325,8 +325,22 @@ class TestStateMachineLifecycle:
     # Edge cases
     # ------------------------------------------------------------------
 
-    def test_transition_to_same_state_is_noop(self) -> None:
+    def test_transition_to_same_state_is_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Transitioning to the same state should still update start_time for LAUNCHING/RUNNING."""
+        from llama_manager import process_manager
+
+        # Use fake clock pattern for deterministic timing
+        time_values = [101.0, 102.0]
+        call_count = 0
+
+        def fake_time() -> float:
+            nonlocal call_count
+            val = time_values[call_count] if call_count < len(time_values) else time_values[-1]
+            call_count += 1
+            return val
+
+        monkeypatch.setattr(process_manager.time, "time", fake_time)
+
         runtime = SlotRuntime(
             slot_id="test",
             state=SlotState.RUNNING,
@@ -336,7 +350,6 @@ class TestStateMachineLifecycle:
             gpu_stats=None,
         )
         old_st = runtime.start_time
-        time.sleep(0.01)
         runtime.transition_to(SlotState.RUNNING)
         assert runtime.start_time > old_st  # RUNNING always updates
 

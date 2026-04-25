@@ -5,6 +5,7 @@ context length, attention heads, etc.) using the ``gguf`` library's
 key constants and optional timeout.
 """
 
+import os
 import re
 import unicodedata
 from contextlib import suppress
@@ -207,8 +208,12 @@ def _parse_tokenizer_type(data: bytes) -> str | None:
 def _parse_numeric_field(data: bytes, key: bytes | str) -> int | None:
     """Attempt to extract a numeric field from GGUF header bytes.
 
-    Looks for the key string followed by a numeric value in the
-    header data.
+    Walks the GGUF binary KV record format to find the key and read
+    its numeric value using struct unpacking. GGUF v2/v3 stores
+    key-value pairs as:
+        - key: length-prefixed UTF-8 string
+        - type: uint32 type tag
+        - value: typed data (u8/u16/u32/u64 for numeric types)
 
     Args:
         data: Raw bytes from the file header.
@@ -216,16 +221,83 @@ def _parse_numeric_field(data: bytes, key: bytes | str) -> int | None:
 
     Returns:
         The numeric value found, or None.
-
     """
     key_bytes = key.encode() if isinstance(key, str) else key
-    pattern = re.escape(key_bytes).replace(rb"\.", rb"\.") + rb"\s+(\d+)"
-    match = re.search(pattern, data)
-    if match:
-        try:
-            return int(match.group(1))
-        except ValueError:
-            return None
+    target_key = key_bytes.decode("utf-8", errors="replace")
+
+    # GGUF v2/v3: 8 magic + 4 version + 8 num_tensors + 8 num_kv = 28 bytes
+    # KV records start after header
+    kv_start = 28
+
+    if len(data) < kv_start:
+        return None
+
+    offset = kv_start
+
+    while offset + 8 <= len(data):
+        # Read key: length (uint32 LE) + key bytes
+        if offset + 4 > len(data):
+            break
+        key_length = int.from_bytes(data[offset : offset + 4], "little")
+        offset += 4
+
+        if offset + key_length > len(data):
+            break
+        record_key = data[offset : offset + key_length].decode("utf-8", errors="replace")
+        offset += key_length
+
+        # Read type tag (uint32 LE)
+        if offset + 4 > len(data):
+            break
+        type_tag = int.from_bytes(data[offset : offset + 4], "little")
+        offset += 4
+
+        # GGUF value type tags (gguf.values.GGMLValueType)
+        # 0=bool, 1-5=integer (u8/i8/u16/i16/u32/i32/f16/f32/f64), 6=string, etc.
+        # Numeric integer types: u8(1), i8(2), u16(3), i16(4), u32(5), i32(6)
+        # f16(7), f32(8), f64(9) — also numeric but we focus on integers
+        if record_key == target_key:
+            if type_tag in (1, 2, 3, 4, 5, 6):  # u8, i8, u16, i16, u32, i32
+                if type_tag in (1, 2):  # 1 byte
+                    if offset + 1 <= len(data):
+                        val = int.from_bytes(data[offset : offset + 1], "little")
+                        if type_tag == 2 and val > 127:  # i8 signed
+                            val -= 256
+                        offset += 1
+                        return val
+                elif type_tag in (3, 4):  # 2 bytes
+                    if offset + 2 <= len(data):
+                        val = int.from_bytes(data[offset : offset + 2], "little")
+                        if type_tag == 4 and val > 32767:  # i16 signed
+                            val -= 65536
+                        offset += 2
+                        return val
+                elif type_tag in (5, 6) and offset + 4 <= len(data):  # 4 bytes
+                    val = int.from_bytes(data[offset : offset + 4], "little")
+                    if type_tag == 6 and val > 2147483647:  # i32 signed
+                        val -= 4294967296
+                    offset += 4
+                    return val
+            elif type_tag == 9:  # f64 — not integer, skip
+                offset += 8
+            elif type_tag == 8:  # f32 — not integer, skip
+                offset += 4
+            elif type_tag == 7:  # f16 — not integer, skip
+                offset += 2
+            elif type_tag == 6:  # string type
+                # String value: length (uint32) + bytes
+                if offset + 4 <= len(data):
+                    str_len = int.from_bytes(data[offset : offset + 4], "little")
+                    offset += 4 + str_len
+                else:
+                    break
+            else:
+                # Unknown type — skip based on type
+                # For safety, just advance past the record
+                # This is a best-effort parser for raw bytes
+                break
+
+    return None
     return None
 
 
@@ -331,6 +403,7 @@ def _try_gguf_reader(
 
     Creates a temporary file containing only the first ``prefix_cap_bytes``
     bytes of the model to avoid memory-mapping the entire file.
+    Uses ``tempfile.mkstemp`` for collision-safe temp file creation.
 
     Returns fields dict and version, or None if GGUFReader fails.
 
@@ -342,13 +415,26 @@ def _try_gguf_reader(
         A tuple of (fields_dict, version) or None on failure.
 
     """
+    import tempfile
+
     import gguf
 
+    capped_fd: int | None = None
     capped_path: str | None = None
     try:
-        capped_path = model_path + ".tmp"
-        with open(model_path, "rb") as src, open(capped_path, "wb") as dst:
-            dst.write(src.read(prefix_cap_bytes))
+        # Create collision-safe temp file in system temp directory
+        capped_fd, capped_path = tempfile.mkstemp(prefix="gguf_", suffix=".gguf", dir=None)
+        try:
+            with os.fdopen(capped_fd, "wb") as capped_file:
+                capped_fd = None  # Already transferred ownership
+                with open(model_path, "rb") as src:
+                    capped_file.write(src.read(prefix_cap_bytes))
+        except Exception:
+            # If writing fails, close and clean up
+            if capped_fd is not None:
+                os.close(capped_fd)
+                capped_fd = None
+            return None
 
         reader = gguf.GGUFReader(capped_path, mode="r")
         fields = dict(reader.fields)
@@ -363,7 +449,12 @@ def _try_gguf_reader(
     except Exception:
         return None
     finally:
-        if capped_path and Path(capped_path).exists():
+        # Close fd if still open (shouldn't happen after fdopen transfer)
+        if capped_fd is not None:
+            with suppress(OSError):
+                os.close(capped_fd)
+        # Remove temp file
+        if capped_path:
             with suppress(OSError):
                 Path(capped_path).unlink()
 

@@ -2166,11 +2166,9 @@ class TestResolveApiKeyWhitespace:
 
         from llama_manager.smoke import resolve_api_key
 
-        # "  " is truthy in Python, but after strip it becomes ""
-        # The function checks `if explicit_key:` which is True for "  "
-        # So it returns the stripped value ""
+        # "  " after strip becomes "", so it falls back to env
         result = resolve_api_key("  ")
-        assert result == ""
+        assert result == "sk-env-key"
 
 
 # ---------------------------------------------------------------------------

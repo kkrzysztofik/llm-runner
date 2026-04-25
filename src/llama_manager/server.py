@@ -5,7 +5,7 @@ import hashlib
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
 from .config import (
@@ -48,15 +48,19 @@ class DoctorReport:
 
     Attributes:
         checks: List of individual check results.
+        config: Resolved server configuration snapshot.
+        hardware: Hardware/environment information.
     """
 
     checks: list[DoctorCheckResult]
+    config: dict[str, Any] = field(default_factory=dict)
+    hardware: dict[str, Any] = field(default_factory=dict)
 
     def to_json(self) -> str:
         """Return JSON string representation.
 
         Returns:
-            JSON string with check results.
+            JSON string with checks, config, and hardware fields.
         """
         return json.dumps(
             {
@@ -67,7 +71,9 @@ class DoctorReport:
                         "message": c.message,
                     }
                     for c in self.checks
-                ]
+                ],
+                "config": self.config,
+                "hardware": self.hardware,
             },
             indent=2,
         )

@@ -407,21 +407,20 @@ class TestPrintBackendErrorAndExit:
 
     def test_print_backend_error_exits_code_1(self) -> None:
         """_print_backend_error_and_exit should raise SystemExit(1)."""
-        with patch("llama_cli.server_runner.print"), pytest.raises(SystemExit) as exc_info:
+        with patch("llama_cli.server_runner.print"):
             from llama_cli.server_runner import _print_backend_error_and_exit
 
-            _print_backend_error_and_exit()
-        assert exc_info.value.code == 1
+            with pytest.raises(SystemExit) as exc_info:
+                _print_backend_error_and_exit()
+            assert exc_info.value.code == 1
 
     def test_print_backend_error_writes_stderr(self) -> None:
         """_print_backend_error_and_exit should write error details to stderr."""
-        with (
-            patch("llama_cli.server_runner.print") as mock_print,
-            pytest.raises(SystemExit),
-        ):
+        with patch("llama_cli.server_runner.print") as mock_print:
             from llama_cli.server_runner import _print_backend_error_and_exit
 
-            _print_backend_error_and_exit()
+            with pytest.raises(SystemExit):
+                _print_backend_error_and_exit()
 
             # Should print 4 lines to stderr (error + 3 indented details)
             assert mock_print.call_count == 4
@@ -431,13 +430,11 @@ class TestPrintBackendErrorAndExit:
 
     def test_print_backend_error_all_details(self) -> None:
         """_print_backend_error_and_exit should print all error detail lines."""
-        with (
-            patch("llama_cli.server_runner.print") as mock_print,
-            pytest.raises(SystemExit),
-        ):
+        with patch("llama_cli.server_runner.print") as mock_print:
             from llama_cli.server_runner import _print_backend_error_and_exit
 
-            _print_backend_error_and_exit()
+            with pytest.raises(SystemExit):
+                _print_backend_error_and_exit()
 
             all_calls = [str(call) for call in mock_print.call_args_list]
             combined = " ".join(all_calls)
@@ -468,7 +465,9 @@ class TestPrintValidationError:
             _print_validation_error(error)
         assert exc_info.value.code == 1
 
-    def test_print_validation_error_writes_stderr(self) -> None:
+    def test_print_validation_error_writes_stderr(
+        self, capsys: "pytest.CaptureFixture[str]"
+    ) -> None:
         """_print_validation_error should write all error fields to stderr."""
         error = ErrorDetail(
             error_code=ErrorCode.FILE_NOT_FOUND,
@@ -476,18 +475,26 @@ class TestPrintValidationError:
             why_blocked="model file missing",
             how_to_fix="download model to specified path",
         )
-        with patch("llama_cli.server_runner.print") as mock_print:
-            with pytest.raises(SystemExit):
-                from llama_cli.server_runner import _print_validation_error
+        with pytest.raises(SystemExit):
+            from llama_cli.server_runner import _print_validation_error
 
-                _print_validation_error(error)
+            _print_validation_error(error)
 
-            # Should print 4 lines: error_code, failed_check, why_blocked, how_to_fix
-            assert mock_print.call_count == 4
-            for call in mock_print.call_args_list:
-                assert call[1]["file"] == sys.stderr
+        captured = capsys.readouterr()
+        # Should print 4 lines: error_code, failed_check, why_blocked, how_to_fix
+        lines = captured.err.strip().split("\n")
+        assert len(lines) == 4
+        for line in lines:
+            assert (
+                "error:" in line
+                or "failed_check:" in line
+                or "why_blocked:" in line
+                or "how_to_fix:" in line
+            )
 
-    def test_print_validation_error_error_code_in_output(self) -> None:
+    def test_print_validation_error_error_code_in_output(
+        self, capsys: "pytest.CaptureFixture[str]"
+    ) -> None:
         """_print_validation_error should include error_code in first line."""
         error = ErrorDetail(
             error_code=ErrorCode.PORT_INVALID,
@@ -495,16 +502,17 @@ class TestPrintValidationError:
             why_blocked="port out of range",
             how_to_fix="use port between 1 and 65535",
         )
-        with patch("llama_cli.server_runner.print") as mock_print:
-            with pytest.raises(SystemExit):
-                from llama_cli.server_runner import _print_validation_error
+        with pytest.raises(SystemExit):
+            from llama_cli.server_runner import _print_validation_error
 
-                _print_validation_error(error)
+            _print_validation_error(error)
 
-            first_call = mock_print.call_args_list[0]
-            assert "error: PORT_INVALID" in str(first_call)
+        captured = capsys.readouterr()
+        assert "error: PORT_INVALID" in captured.err
 
-    def test_print_validation_error_failed_check_line(self) -> None:
+    def test_print_validation_error_failed_check_line(
+        self, capsys: "pytest.CaptureFixture[str]"
+    ) -> None:
         """_print_validation_error should include failed_check in output."""
         error = ErrorDetail(
             error_code=ErrorCode.FILE_NOT_FOUND,
@@ -512,16 +520,17 @@ class TestPrintValidationError:
             why_blocked="model file missing",
             how_to_fix="download model",
         )
-        with patch("llama_cli.server_runner.print") as mock_print:
-            with pytest.raises(SystemExit):
-                from llama_cli.server_runner import _print_validation_error
+        with pytest.raises(SystemExit):
+            from llama_cli.server_runner import _print_validation_error
 
-                _print_validation_error(error)
+            _print_validation_error(error)
 
-            second_call = mock_print.call_args_list[1]
-            assert "failed_check: model_exists" in str(second_call)
+        captured = capsys.readouterr()
+        assert "failed_check: model_exists" in captured.err
 
-    def test_print_validation_error_why_blocked_line(self) -> None:
+    def test_print_validation_error_why_blocked_line(
+        self, capsys: "pytest.CaptureFixture[str]"
+    ) -> None:
         """_print_validation_error should include why_blocked in output."""
         error = ErrorDetail(
             error_code=ErrorCode.PORT_INVALID,
@@ -529,16 +538,17 @@ class TestPrintValidationError:
             why_blocked="port out of range",
             how_to_fix="use valid port",
         )
-        with patch("llama_cli.server_runner.print") as mock_print:
-            with pytest.raises(SystemExit):
-                from llama_cli.server_runner import _print_validation_error
+        with pytest.raises(SystemExit):
+            from llama_cli.server_runner import _print_validation_error
 
-                _print_validation_error(error)
+            _print_validation_error(error)
 
-            third_call = mock_print.call_args_list[2]
-            assert "why_blocked: port out of range" in str(third_call)
+        captured = capsys.readouterr()
+        assert "why_blocked: port out of range" in captured.err
 
-    def test_print_validation_error_how_to_fix_line(self) -> None:
+    def test_print_validation_error_how_to_fix_line(
+        self, capsys: "pytest.CaptureFixture[str]"
+    ) -> None:
         """_print_validation_error should include how_to_fix in output."""
         error = ErrorDetail(
             error_code=ErrorCode.PORT_INVALID,
@@ -546,14 +556,13 @@ class TestPrintValidationError:
             why_blocked="port out of range",
             how_to_fix="use port between 1 and 65535",
         )
-        with patch("llama_cli.server_runner.print") as mock_print:
-            with pytest.raises(SystemExit):
-                from llama_cli.server_runner import _print_validation_error
+        with pytest.raises(SystemExit):
+            from llama_cli.server_runner import _print_validation_error
 
-                _print_validation_error(error)
+            _print_validation_error(error)
 
-            fourth_call = mock_print.call_args_list[3]
-            assert "how_to_fix: use port between 1 and 65535" in str(fourth_call)
+        captured = capsys.readouterr()
+        assert "how_to_fix: use port between 1 and 65535" in captured.err
 
 
 # =============================================================================
@@ -1799,11 +1808,12 @@ class TestMain:
                 patch("llama_cli.server_runner.signal"),
                 patch("llama_cli.server_runner.os") as mock_os,
             ):
+                mock_os.environ = {}
                 from llama_cli.server_runner import main
 
                 main()
 
-                mock_os.environ["ZES_ENABLE_SYSMAN"] = "1"
+                assert mock_os.environ["ZES_ENABLE_SYSMAN"] == "1"
 
 
 # =============================================================================

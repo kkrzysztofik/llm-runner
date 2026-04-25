@@ -385,7 +385,7 @@ The existing tests mock `psutil` and use `tmp_path`, so they don't test actual c
 
 ### 4. Document `lock_stale_threshold_s` in Config
 
-The 300-second threshold is currently hardcoded in `check_lockfile_integrity()`. Making it configurable via `Config.lock_stale_threshold_s` would allow operators to adjust it for their environment (e.g., longer thresholds on slower systems).
+**Already implemented**: `Config.lock_stale_threshold_s` exists in `src/llama_manager/config.py` (line 150, default 300). The `check_lockfile_integrity()` function in `process_manager.py` reads this value from the `Config` instance. No further action needed — the config field is the single source of truth for the staleness threshold.
 
 ---
 

@@ -51,14 +51,14 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 2. Set `socket.settimeout(smoke_cfg.listen_timeout_s)`
 3. Attempt `sock.connect((host, port))`
 4. On success: proceed to Phase 2
-5. On timeout: record `status="timeout"`, `phase_reached="listen"`, `failure_phase="listen"`, exit code 10
-6. On connection refused / network error: record `status="fail"`, `phase_reached="listen"`, `failure_phase="listen"`, exit code 10
+5. On timeout (`socket.timeout`): record `status="timeout"`, `phase_reached="listen"`, `failure_phase="listen"`, exit code 10
+6. On connection refused / network error (`OSError`): record `status="fail"`, `phase_reached="listen"`, `failure_phase="listen"`, exit code 10
 
 **Exit codes**:
 | Code | Condition |
 | --- | --- |
 | 0 | Connection accepted — proceed to Phase 2 |
-| 10 | Timeout or network error — probe fails |
+| 10 | `socket.timeout` or `OSError` (connection refused) — probe fails |
 
 **Request/Response**: N/A (TCP-level only, no HTTP).
 
@@ -107,7 +107,7 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 | Code | Condition |
 | --- | --- |
 | 0 | Model found and ID matches — proceed to Phase 3 |
-| 11 | HTTP error or network error |
+| 11 | HTTP error (4xx other, 5xx) or network error (DNS, SSL, connection reset) |
 | 13 | No models returned or model ID mismatch |
 | 15 | Auth failure (401/403) |
 
@@ -155,7 +155,7 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 | HTTP 401 / 403 | Exit 15 (`auth_failure`) |
 | HTTP 4xx (other) | Exit 11 (`fail`) |
 | HTTP 5xx | Exit 11 (`fail`) |
-| Timeout | Exit 14 (`timeout`) |
+| Timeout (`httpx.TimeoutException`) | Exit 13 (`timeout`) |
 | Network error | Exit 11 (`fail`) |
 
 **Timeout strategy** (all timeouts apply to Phase 3 chat probe only):
@@ -168,9 +168,9 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 | Code | Condition |
 | --- | --- |
 | 0 | Chat completion succeeded — probe passes |
-| 11 | HTTP error or network error |
-| 14 | Timeout (first-token or total) |
-| 15 | Auth failure |
+| 11 | HTTP error (4xx other, 5xx) or network error |
+| 13 | Timeout (`httpx.TimeoutException`) |
+| 15 | Auth failure (401/403) |
 
 ---
 
@@ -199,11 +199,11 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 | Exception | Exit Code | SmokeProbeStatus | Failure Phase |
 | --- | --- | --- | --- |
 | `httpx.TimeoutException` (all types) | 13 | `TIMEOUT` | `MODELS` or `CHAT` |
-| `httpx.ConnectError` | 10 | `FAIL` | `MODELS` or `CHAT` |
-| `httpx.NetworkError` | 10 | `FAIL` | `MODELS` or `CHAT` |
-| `httpx.UnsupportedProtocol` | 10 | `FAIL` | `MODELS` or `CHAT` |
+| `httpx.ConnectError` | 11 | `FAIL` | `MODELS` or `CHAT` |
+| `httpx.NetworkError` | 11 | `FAIL` | `MODELS` or `CHAT` |
+| `httpx.UnsupportedProtocol` | 11 | `FAIL` | `MODELS` or `CHAT` |
 
-> **Implementation note**: The code catches `httpx.TimeoutException` (the base class for all httpx timeout exceptions including `ConnectTimeout`, `ReadTimeout`, `PoolTimeout`, `WriteTimeout`) and maps it uniformly to `TIMEOUT` with exit code 13. This is distinct from the TCP listen phase, which uses raw `socket.timeout` (exit code 10, `TIMEOUT` status).
+> **Implementation note**: The code catches `httpx.TimeoutException` (the base class for all httpx timeout exceptions including `ConnectTimeout`, `ReadTimeout`, `PoolTimeout`, `WriteTimeout`) and maps it uniformly to `TIMEOUT` with exit code 13. The TCP listen phase uses raw `socket.timeout` (exit code 10, `TIMEOUT` status) — distinct from the httpx timeout handling.
 
 ### HTTP Status Code Mapping
 
@@ -263,6 +263,10 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
 
 ```json
 {
+  "overall_status": "pass" | "fail" | "timeout" | "crashed" | "model_not_found" | "auth_failure",
+  "overall_exit_code": "integer",
+  "pass_count": "integer",
+  "fail_count": "integer",
   "results": [
     {
       "slot_id": "string",
@@ -271,19 +275,22 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
       "failure_phase": "listen" | "models" | "chat" | null,
       "model_id": "string" | null,
       "latency_ms": "integer" | null,
+      "exit_code": "integer",
       "provenance": {
         "sha": "string",
         "version": "string"
       }
     }
-  ],
-  "overall_exit_code": "integer"
+  ]
 }
 ```
 
 **Field descriptions**:
-- `results`: Per-slot results in declaration order from config.
+- `overall_status`: Aggregate probe status (worst status across all slots). One of `pass`, `fail`, `timeout`, `crashed`, `model_not_found`, `auth_failure`.
 - `overall_exit_code`: Maximum (worst) numeric exit code among all slots. 0 if all pass.
+- `pass_count`: Number of slots that passed.
+- `fail_count`: Number of slots that failed (non-pass).
+- `results`: Per-slot results in declaration order from config. Each result includes `exit_code` (per-slot exit code from `_EXIT_CODE_MAP`) and `provenance` (binary SHA + tool version).
 
 ### 4.3 JSON Schema (Draft 2020-12)
 
@@ -292,13 +299,31 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "SmokeCompositeReport",
   "type": "object",
-  "required": ["results", "overall_exit_code"],
+  "required": ["results", "overall_exit_code", "overall_status", "pass_count", "fail_count"],
   "properties": {
+    "overall_status": {
+      "type": "string",
+      "enum": ["pass", "fail", "timeout", "crashed", "model_not_found", "auth_failure"]
+    },
+    "overall_exit_code": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 19 },
+        { "type": "integer", "enum": [130] }
+      ]
+    },
+    "pass_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "fail_count": {
+      "type": "integer",
+      "minimum": 0
+    },
     "results": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["slot_id", "status", "phase_reached", "provenance"],
+        "required": ["slot_id", "status", "phase_reached", "exit_code", "provenance"],
         "properties": {
           "slot_id": { "type": "string" },
           "status": {
@@ -327,6 +352,10 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
               { "type": "null" }
             ]
           },
+          "exit_code": {
+            "type": "integer",
+            "enum": [0, 10, 13, 14, 15, 19]
+          },
           "provenance": {
             "type": "object",
             "required": ["sha", "version"],
@@ -337,12 +366,6 @@ Each smoke probe for a single slot progresses through three phases. Each phase i
           }
         }
       }
-    },
-    "overall_exit_code": {
-      "oneOf": [
-        { "type": "integer", "minimum": 0, "maximum": 19 },
-        { "type": "integer", "enum": [130] }
-      ]
     }
   }
 }
@@ -409,7 +432,7 @@ Smoke exit codes (10–19) are distinct from doctor exit codes (1–9). Full def
 
 **Composite exit code rule**: When multiple slots are probed (`smoke both`), the exit code reflects the **maximum (worst) numeric exit code** among all slots. If all slots pass, exit 0.
 
-> **Implementation**: `compute_overall_exit_code()` in `llama_manager/smoke.py` iterates over all results and returns the highest numeric exit code (0 if all pass). Exit codes: PASS=0, FAIL=10, TIMEOUT=13, CRASHED=19, MODEL_NOT_FOUND=14, AUTH_FAILURE=15.
+> **Implementation**: `compute_overall_exit_code()` in `llama_manager/smoke.py` iterates over all results and returns the highest numeric exit code (0 if all pass). Exit codes: PASS=0, FAIL=10, TIMEOUT=13, CRASHED=19, MODEL_NOT_FOUND=14, AUTH_FAILURE=15. The `_EXIT_CODE_MAP` in `llama_manager/smoke.py` maps each `SmokeProbeStatus` to its exit code.
 
 **SIGKILL escalation** (exit 130): Defined in `spec.md` Appendix B; applies to all commands, outside doctor/smoke families.
 
@@ -476,9 +499,9 @@ class SmokeProbeConfiguration:
 Highest to lowest:
 1. `--api-key` CLI flag
 2. `smoke.api_key` config field
-3. `LLM_RUNNER_SMOKE_API_KEY` environment variable
+3. `LLM_RUNNER_API_KEY` environment variable
 
-**Implementation**: The CLI layer (`llama_cli/smoke_cli.py`) resolves the API key using this precedence chain and passes the resolved value to `llama_manager/smoke.py`. The library never reads environment variables directly — it receives the resolved key as a parameter.
+**Implementation**: `resolve_api_key()` in `llama_manager/smoke.py` implements the precedence: returns the explicit key if non-empty, otherwise falls back to `LLM_RUNNER_API_KEY` env var. The CLI layer passes the resolved key to the library.
 
 ### 6.3 Config Field Mapping
 

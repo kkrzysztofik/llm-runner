@@ -190,7 +190,7 @@ def _check_build_lock(result: DoctorCheckResult, config: Config) -> None:
         else:
             result.build_lock_free = False
             result.warnings.append(f"Build lock held by PID {lock.pid} (backend: {lock.backend})")
-    except (KeyError, json.JSONDecodeError, ValueError):
+    except (KeyError, ValueError):
         result.is_healthy = False
         result.errors.append("Build lock file corrupted")
 
@@ -262,9 +262,9 @@ def _check_profiles(
             raw = profile_path.read_text(encoding="utf-8")
             data = json.loads(raw)
             record = ProfileRecord.from_dict(data)
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        except (KeyError, TypeError, ValueError) as e:
             # Corrupt or unrecognised file — warn and skip
-            result.warnings.append(f"Corrupt profile file skipped: {profile_path.name}")
+            result.warnings.append(f"Corrupt profile file skipped: {profile_path.name} ({e!r})")
             continue
 
         total += 1
@@ -539,11 +539,11 @@ def _collect_lock_repair_actions(result: DoctorRepairResult, config: Config) -> 
                     requires_confirmation=True,
                 )
             )
-    except (KeyError, json.JSONDecodeError, ValueError):
+    except (KeyError, TypeError, ValueError) as e:
         result.actions.append(
             RepairAction(
                 action_type="remove_corrupt_lock",
-                description="Remove corrupted build lock file",
+                description=f"Remove corrupted build lock file ({e})",
                 command="rm",
                 args=[str(lock_path)],
                 dry_run_command=f"# rm '{lock_path}'",
@@ -583,9 +583,9 @@ def _collect_profile_repair_actions(
             raw = profile_path.read_text(encoding="utf-8")
             data = json.loads(raw)
             record = ProfileRecord.from_dict(data)
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        except (KeyError, TypeError, ValueError) as e:
             # Corrupt or unrecognised file — warn and skip
-            result.warnings.append(f"Corrupt profile file skipped: {profile_path.name}")
+            result.warnings.append(f"Corrupt profile file skipped: {profile_path.name} ({e!r})")
             continue
 
         staleness = check_staleness(

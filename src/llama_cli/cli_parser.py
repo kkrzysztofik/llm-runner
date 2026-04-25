@@ -590,8 +590,13 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
                 print(f"error: unknown flag '{arg}'", file=sys.stderr)
                 sys.exit(1)
         else:
-            # Non-flag token encountered — skip it (slot_id already handled above)
-            i += 1
+            # Unexpected positional argument after flags — reject it
+            print(
+                f"error: unexpected positional argument '{arg}' "
+                f"(expected only flags after slot ID)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     # Phase 2 — validate max_tokens range
     if max_tokens != 0 and not (8 <= max_tokens <= 32):

@@ -691,14 +691,10 @@ class TUIApp:
 
         if not acknowledged:
             self._build_risk_panel_required(risk_kind)
-            print(f"warning: risky operation detected in {cfg.alias}: {risk}")
-            try:
-                response = input(RISK_CONFIRM_PROMPT).strip().lower()
-            except EOFError:
-                self._print_acknowledgement_required_and_exit()
-            else:
-                if response != "y":
-                    self._print_acknowledgement_required_and_exit()
+            self._push_status_message(
+                f"warning: risky operation in {cfg.alias}: {risk} — "
+                f"press 'y' to acknowledge, 'n' to abort"
+            )
 
         self.server_manager.acknowledge_risk(
             cfg.alias,
@@ -1091,6 +1087,10 @@ class TUIApp:
         self._server_processes = {
             cfg.alias: proc for cfg, proc in zip(launched_configs, processes, strict=True)
         }
+
+        # Initialize slot states for launched servers
+        for cfg in launched_configs:
+            self.handle_slot_transition(cfg.alias, SlotState.RUNNING)
 
         # Start input polling for keypresses
         self._start_input_polling()

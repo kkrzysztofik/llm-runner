@@ -1,7 +1,7 @@
 # Implementation Plan: M4 — Operational Hardening and Smoke Verification
 
-**Branch**: `003-m4-op-hardening` | **Date**: 2026-04-23 | **Spec**: [spec.md](specs/001-m4-op-hardening/spec.md)
-**Input**: Feature specification from `/specs/001-m4-op-hardening/spec.md`
+**Branch**: `003-m4-op-hardening` | **Date**: 2026-04-23 | **Spec**: [spec.md](./spec.md)
+**Input**: Feature specification from `specs/001-m4-op-hardening/spec.md`
 
 ## Summary
 

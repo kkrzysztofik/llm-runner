@@ -205,6 +205,10 @@ def _build_smoke_config(parsed: argparse.Namespace) -> SmokeProbeConfiguration:
     if parsed.prompt:
         smoke_cfg.prompt = parsed.prompt
 
+    # Re-run __post_init__ validation after CLI overrides
+    # (direct field assignment bypasses dataclass validation)
+    smoke_cfg.__post_init__()
+
     return smoke_cfg
 
 

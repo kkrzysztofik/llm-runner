@@ -167,6 +167,7 @@ def test_tui_run_keeps_acknowledged_risk_panel_visible() -> None:
 
     with (
         patch("llama_cli.tui_app.Live", _FakeLive),
+        patch("llama_cli.tui_app.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,
             "launch_all_slots",
@@ -260,6 +261,7 @@ def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) ->
 
     with (
         patch("llama_cli.tui_app.Live", _FakeLive),
+        patch("llama_cli.tui_app.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,
             "launch_all_slots",

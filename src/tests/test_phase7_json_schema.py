@@ -26,7 +26,13 @@ from llama_manager.smoke import (
 # Schema constants (from contracts/smoke-api.md Section 4)
 # ---------------------------------------------------------------------------
 
-_REQUIRED_RESULT_FIELDS: set[str] = {"slot_id", "status", "phase_reached", "provenance"}
+_REQUIRED_RESULT_FIELDS: set[str] = {
+    "slot_id",
+    "status",
+    "phase_reached",
+    "provenance",
+    "exit_code",
+}
 _OPTIONAL_RESULT_FIELDS: set[str] = {"failure_phase", "model_id", "latency_ms"}
 _RESULT_ENUMS: dict[str, list[str]] = {
     "status": ["pass", "fail", "timeout", "crashed", "model_not_found", "auth_failure"],

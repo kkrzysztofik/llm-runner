@@ -139,22 +139,51 @@ def _parse_data_row(
     return tokens_per_second, avg_latency_ms, peak_vram_mb
 
 
-def _parse_markdown_table_metrics(
-    output: str,
-) -> tuple[float | None, float | None, float | None]:
-    """Extract metrics from a markdown table in benchmark output.
+def _split_contiguous_blocks(lines: list[str]) -> list[list[str]]:
+    """Split pipe-prefixed lines into contiguous table blocks.
 
-    Looks for a table with headers containing tokens/s, latency, and optionally
-    VRAM/memory columns. Returns the first valid data row found.
+    A new block starts when a pipe-prefixed line follows a non-pipe-prefixed
+    line (i.e. the lines are not adjacent in the original output).
 
     Args:
-        output: Raw stdout string from a benchmark subprocess.
+        lines: Pipe-prefixed lines already filtered from output.
+
+    Returns:
+        List of contiguous blocks, each a list of lines.
+    """
+    blocks: list[list[str]] = []
+    current_block: list[str] = []
+
+    for line in lines:
+        if not line.strip():
+            continue
+        if current_block:
+            # Check adjacency: a new block starts if the previous line
+            # was NOT pipe-prefixed (gap in original output).
+            prev_line = current_block[-1]
+            if not prev_line.strip().startswith("|"):
+                blocks.append(current_block)
+                current_block = []
+        current_block.append(line)
+
+    if current_block:
+        blocks.append(current_block)
+
+    return blocks
+
+
+def _parse_table_block(
+    block: list[str],
+) -> tuple[float | None, float | None, float | None]:
+    """Parse metrics from a single contiguous table block.
+
+    Args:
+        block: List of pipe-prefixed lines belonging to one table.
 
     Returns:
         Tuple of (tokens_per_second, avg_latency_ms, peak_vram_mb).
     """
-    table_lines = [line for line in output.splitlines() if line.strip().startswith("|")]
-    if len(table_lines) < 3:
+    if len(block) < 3:
         return None, None, None
 
     # Scan candidate header lines to find the first one with required columns.
@@ -163,7 +192,7 @@ def _parse_markdown_table_metrics(
     latency_idx: int | None = None
     vram_idx: int | None = None
 
-    for idx, line in enumerate(table_lines):
+    for idx, line in enumerate(block):
         cells = [cell.strip().lower() for cell in line.strip().strip("|").split("|")]
         if not cells:
             continue
@@ -180,7 +209,7 @@ def _parse_markdown_table_metrics(
     tokens_idx = cast(int, tokens_idx)
     latency_idx = cast(int, latency_idx)
 
-    for line in table_lines[header_row_idx + 1 :]:
+    for line in block[header_row_idx + 1 :]:
         if not line.strip() or set(line.replace("|", "").strip()) <= {"-", ":", " "}:
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
@@ -188,6 +217,36 @@ def _parse_markdown_table_metrics(
             continue
 
         return _parse_data_row(cells, tokens_idx, latency_idx, vram_idx)
+
+    return None, None, None
+
+
+def _parse_markdown_table_metrics(
+    output: str,
+) -> tuple[float | None, float | None, float | None]:
+    """Extract metrics from a markdown table in benchmark output.
+
+    Looks for tables with headers containing tokens/s, latency, and optionally
+    VRAM/memory columns. Returns the first valid data row found from the first
+    table that has a parseable header.
+
+    Args:
+        output: Raw stdout string from a benchmark subprocess.
+
+    Returns:
+        Tuple of (tokens_per_second, avg_latency_ms, peak_vram_mb).
+    """
+    all_lines = [line for line in output.splitlines() if line.strip().startswith("|")]
+    if len(all_lines) < 3:
+        return None, None, None
+
+    # Split into contiguous table blocks to avoid mixing separate tables.
+    blocks = _split_contiguous_blocks(all_lines)
+
+    for block in blocks:
+        result = _parse_table_block(block)
+        if result[0] is not None or result[1] is not None:
+            return result
 
     return None, None, None
 

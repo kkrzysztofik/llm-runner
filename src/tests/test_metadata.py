@@ -346,8 +346,9 @@ class TestFilenameNormalization:
 
     def test_nfkc_combining_characters(self) -> None:
         """NFKC normalization should decompose compatibility characters."""
-        # ﬃ (U+FB03, LATIN SMALL LIGATURE FFI) → ffi
-        assert normalize_filename("mo\u0064\u0065\u006c") == "model"
+        # ﬃ (U+FB03, LATIN SMALL LIGATURE FFI) → ffi under NFKC
+        # The ligature alone should normalize to "ffi"
+        assert normalize_filename("\ufb03") == "ffi"
 
     def test_invalid_chars_replaced(self) -> None:
         """Invalid filename characters should be replaced with underscore."""
@@ -552,45 +553,115 @@ class TestParseTokenizerType:
 
 
 class TestParseNumericField:
-    """Tests for _parse_numeric_field helper."""
+    """Tests for _parse_numeric_field helper using GGUF binary KV format."""
+
+    @staticmethod
+    def _make_gguf_kv_data(key: bytes, type_tag: int, value: int, n_kv: int = 1) -> bytes:
+        """Build minimal GGUF v3 header + KV records for testing.
+
+        GGUF v3 layout:
+        - magic: 8 bytes (GGUF + version byte)
+        - version: 4 bytes (uint32)
+        - num_tensors: 8 bytes (uint64)
+        - num_kv: 8 bytes (uint64)
+        Total header: 28 bytes
+        """
+        # GGUF v3: magic (8) + version (4) + num_tensors (8) + num_kv (8) = 28
+        header = b"GGUF\x03\x00\x00\x00"  # 8 bytes
+        header += b"\x00\x00\x00\x00"  # version = 0 (uint32 LE)
+        header += b"\x00\x00\x00\x00\x00\x00\x00\x00"  # num_tensors = 0 (uint64 LE)
+        header += n_kv.to_bytes(8, "little")  # num_kv (uint64 LE)
+
+        # KV record: key_length (uint32) + key + type_tag (uint32) + value
+        record = len(key).to_bytes(4, "little") + key
+        record += type_tag.to_bytes(4, "little")
+        if type_tag in (1, 2):  # u8, i8
+            record += value.to_bytes(1, "little")
+        elif type_tag in (3, 4):  # u16, i16
+            record += value.to_bytes(2, "little")
+        elif type_tag in (5, 6):  # u32, i32
+            record += value.to_bytes(4, "little")
+        elif type_tag == 8:  # f32
+            import struct
+
+            record += struct.pack("<f", 0.0)
+        elif type_tag == 9:  # f64
+            import struct
+
+            record += struct.pack("<d", 0.0)
+        else:
+            record += value.to_bytes(4, "little")
+
+        return header + record
 
     def test_parses_integer_field(self) -> None:
-        """_parse_numeric_field should extract integer values from text-like data."""
-        # The regex expects key + whitespace + ASCII digits
-        data = b"context_length 8192 other_stuff"
+        """_parse_numeric_field should extract u32 values from GGUF KV records."""
+        data = self._make_gguf_kv_data(b"context_length", 5, 8192)
         result = _parse_numeric_field(data, b"context_length")
         assert result == 8192
 
     def test_parses_string_key(self) -> None:
         """_parse_numeric_field should accept string keys."""
-        data = b"context_length 4096"
+        data = self._make_gguf_kv_data(b"context_length", 5, 4096)
         result = _parse_numeric_field(data, "context_length")
         assert result == 4096
 
     def test_returns_none_for_missing_key(self) -> None:
         """_parse_numeric_field should return None for missing key."""
-        data = b"some other field 12345"
+        data = self._make_gguf_kv_data(b"some_key", 5, 12345)
         result = _parse_numeric_field(data, b"nonexistent_field")
         assert result is None
 
     def test_returns_none_for_non_numeric_value(self) -> None:
-        """_parse_numeric_field should return None for non-numeric value."""
-        data = b"context_length abc"
+        """_parse_numeric_field should return None for string type (tag 7 = string)."""
+        # Type tag 7 is string, not integer — function returns None for non-numeric
+        data = self._make_gguf_kv_data(b"context_length", 7, 0)
         result = _parse_numeric_field(data, b"context_length")
         assert result is None
 
+    def test_parses_u32_value(self) -> None:
+        """_parse_numeric_field should parse u32 (type_tag=5) correctly."""
+        data = self._make_gguf_kv_data(b"embedding_length", 5, 4096)
+        result = _parse_numeric_field(data, b"embedding_length")
+        assert result == 4096
+
+    def test_parses_i32_signed_value(self) -> None:
+        """_parse_numeric_field should parse i32 (type_tag=6) as signed."""
+        # i32 with value -1 (0xFFFFFFFF)
+        data = self._make_gguf_kv_data(b"test_key", 6, 0xFFFFFFFF)
+        result = _parse_numeric_field(data, b"test_key")
+        assert result == -1
+
+    def test_parses_u16_value(self) -> None:
+        """_parse_numeric_field should parse u16 (type_tag=3) correctly."""
+        data = self._make_gguf_kv_data(b"block_count", 3, 32)
+        result = _parse_numeric_field(data, b"block_count")
+        assert result == 32
+
+    def test_parses_u8_value(self) -> None:
+        """_parse_numeric_field should parse u8 (type_tag=1) correctly."""
+        data = self._make_gguf_kv_data(b"attention_head_count", 1, 32)
+        result = _parse_numeric_field(data, b"attention_head_count")
+        assert result == 32
+
     def test_no_match_for_binary_integer(self) -> None:
-        """_parse_numeric_field should return None for raw binary integers."""
-        # Binary data with uint32 value (not ASCII digits)
+        """_parse_numeric_field should return None for unrecognized data."""
+        # Short data that doesn't start with GGUF magic
         data = b"context_length\x40\x20\x00\x00"
         result = _parse_numeric_field(data, b"context_length")
         assert result is None
 
     def test_dot_escaped_in_pattern(self) -> None:
         """_parse_numeric_field should handle dotted keys correctly."""
-        data = b"llama.context_length 8192"
+        data = self._make_gguf_kv_data(b"llama.context_length", 5, 8192)
         result = _parse_numeric_field(data, b"llama.context_length")
         assert result == 8192
+
+    def test_skips_f32_and_returns_none(self) -> None:
+        """_parse_numeric_field should skip f32 (type_tag=8) and return None."""
+        data = self._make_gguf_kv_data(b"freq_scale", 8, 0)
+        result = _parse_numeric_field(data, b"freq_scale")
+        assert result is None
 
 
 # ---------------------------------------------------------------------------

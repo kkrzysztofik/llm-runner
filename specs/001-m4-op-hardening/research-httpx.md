@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-23
 **Feature**: M4 — Operational Hardening and Smoke Verification
-**Status**: Complete
+**Status**: Implemented
 
 ---
 
@@ -33,7 +33,7 @@ timeout = httpx.Timeout(
 - The spec explicitly states: "Each phase attempted exactly once — no retries." Per-request timeouts align with this no-retry semantics.
 
 ### Note on Implementation Status
-This is a research finding — the per-request `httpx.Timeout` pattern is proposed but not yet implemented in source code. The actual implementation will follow this design.
+**Implemented**: The per-request `httpx.Timeout` pattern is implemented in `llama_manager/smoke.py`. Both `_probe_models()` (lines 423-428) and `_probe_chat()` (lines 593-598) create `httpx.Timeout` objects with separate `connect`, `read`, `write`, and `pool` parameters passed to `httpx.Client(timeout=timeout)`.
 
 ### Alternatives Considered
 - **Client-level timeout**: Would require creating a new `httpx.Client` per probe to apply different timeouts. This adds unnecessary object lifecycle management. Per-request timeout is simpler and equally correct.
@@ -200,7 +200,7 @@ def resolve_smoke_api_key(
 - **Security**: The API key should NOT be logged. The `llama_manager` library's `sys.stderr` logging should redact the key (e.g., replace with `***`).
 
 ### Note on Implementation Status
-The full CLI > config > env API key resolution chain is a research proposal. The current codebase does not yet implement this precedence chain — it is documented here as the intended design for the smoke probe module.
+**Implemented**: `resolve_api_key()` in `llama_manager/smoke.py` implements the precedence: returns the explicit key if non-empty, otherwise falls back to `LLM_RUNNER_API_KEY` env var. The CLI layer (`llama_cli/smoke_cli.py`) resolves the API key using this precedence chain and passes the resolved value to the library.
 
 ### Alternatives Considered
 - **`httpx.BasicAuth`**: Designed for username/password pairs, not bearer tokens. Would produce `Authorization: Basic <base64>` header, which llama.cpp does not expect.

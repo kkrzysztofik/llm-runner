@@ -128,6 +128,3 @@ def test_generate_gguf_fixtures(tmp_path: Path) -> None:
         size = path.stat().st_size
         assert size > 0, f"Fixture {name} is empty"
         assert size < 10240, f"Fixture {name} exceeds 10 KiB ({size} bytes)"
-        print(f"  OK   {name} ({size} bytes)")
-
-    print(f"\nGenerated {len(generators)} fixtures in {fixtures_dir}")

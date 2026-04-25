@@ -171,11 +171,18 @@ class TestSmokeCliParsing:
 
     def test_parse_args_with_none_uses_sys_args(self) -> None:
         """parse_args(None) should use sys.argv[1:] (not tested directly, but structure verified)."""
-        # We can't easily test sys.argv manipulation, but we verify the function
-        # accepts None as an argument
-        result = parse_args([])
-        # Empty args → mode is None (not specified)
-        assert result.mode is None
+        import sys
+
+        # Temporarily set sys.argv to a known value, call parse_args(None),
+        # and verify the result reflects sys.argv[1:]
+        original_argv = sys.argv
+        try:
+            sys.argv = ["test-script", "summary-balanced", "8080"]
+            result = parse_args(None)
+            assert result.mode == "summary-balanced"
+            assert result.ports == [8080]
+        finally:
+            sys.argv = original_argv
 
 
 class TestSmokeFlagValueSyntax:

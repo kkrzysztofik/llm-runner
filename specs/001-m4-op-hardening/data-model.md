@@ -224,14 +224,17 @@ Persisted in `slot-{slot_id}.lock` files.
 
 ### 1.8 Smoke Composite Report
 
-Top-level output from `smoke both`.
+Top-level output from `smoke both`. The JSON is emitted by `_print_report_json()` in `llama_cli/smoke_cli.py`.
 
 | Field | Type | Validation |
 | --- | --- | --- |
-| `results` | `list[SmokeSlotResult]` | Per-slot results in declaration order |
+| `overall_status` | `SmokeProbeStatus` | Worst status across all slots (pass > fail > timeout > model_not_found > auth_failure > crashed) |
 | `overall_exit_code` | `int` | Maximum (worst) numeric exit code among all slots; 0 if all pass |
+| `pass_count` | `int` | Number of slots that passed |
+| `fail_count` | `int` | Number of slots that failed (non-pass) |
+| `results` | `list[SmokeProbeResult]` | Per-slot results in declaration order |
 
-Each entry in `results` maps to a `SmokeProbeResult` plus the per-slot exit code.
+Each entry in `results` is a `SmokeProbeResult` with an additional `exit_code` field (per-slot exit code from `_EXIT_CODE_MAP`).
 
 ---
 
@@ -378,6 +381,10 @@ Transitions from any active state:
 
 ```json
 {
+  "overall_status": "pass" | "fail" | "timeout" | "crashed" | "model_not_found" | "auth_failure",
+  "overall_exit_code": "integer",
+  "pass_count": "integer",
+  "fail_count": "integer",
   "results": [
     {
       "slot_id": "string",
@@ -386,13 +393,13 @@ Transitions from any active state:
       "failure_phase": "listen" | "models" | "chat" | null,
       "model_id": "string" | null,
       "latency_ms": "integer" | null,
+      "exit_code": "integer",
       "provenance": {
         "sha": "string",
         "version": "string"
       }
     }
-  ],
-  "overall_exit_code": "integer"
+  ]
 }
 ```
 
@@ -704,10 +711,33 @@ class SmokeCompositeReport:
     Attributes:
         results: Per-slot results in declaration order.
         overall_exit_code: Maximum (worst) numeric exit code across all results.
+        overall_status: Worst status across all slots (computed property).
+        pass_count: Number of slots that passed (computed property).
+        fail_count: Number of slots that failed (computed property).
     """
 
     results: list[SmokeProbeResult]
-    overall_exit_code: int
+
+    @property
+    def overall_status(self) -> SmokeProbeStatus:
+        """Return the worst status across all results.
+
+        Returns:
+            SmokeProbeStatus.PASS if all pass, otherwise the worst status.
+            Priority: CRASHED > AUTH_FAILURE > MODEL_NOT_FOUND > TIMEOUT > FAIL > PASS
+        """
+
+    @property
+    def overall_exit_code(self) -> int:
+        """Return the highest/worst exit code across all results."""
+
+    @property
+    def pass_count(self) -> int:
+        """Number of slots that passed."""
+
+    @property
+    def fail_count(self) -> int:
+        """Number of slots that failed (non-pass)."""
 
 
 @dataclass
@@ -931,17 +961,15 @@ class SlotRuntime:
 
 ## 6. Exit Code Mapping
 
-Smoke exit codes (10–19) map to probe outcomes:
+Smoke exit codes (10–19) map to probe outcomes via `_EXIT_CODE_MAP` in `llama_manager/smoke.py`:
 
-| Exit Code | SmokeProbeStatus | SmokePhase |
+| Exit Code | SmokeProbeStatus | Description |
 | --- | --- | --- |
-| 10 | `TIMEOUT` | `LISTEN` |
-| 11 | `FAIL` | `MODELS` or `CHAT` (network/API) |
-| 12 | `FAIL` | N/A (config validation) |
-| 13 | `MODEL_NOT_FOUND` | `MODELS` or `CHAT` |
-| 14 | `TIMEOUT` | `CHAT` |
-| 15 | `AUTH_FAILURE` | `MODELS` or `CHAT` |
-| 19 | `CRASHED` | Any (process exited) |
+| 10 | `FAIL` | TCP connection refused, HTTP 4xx/5xx, JSON parse errors, empty choices |
+| 13 | `TIMEOUT` | TCP timeout (`socket.timeout`) or HTTP timeout (`httpx.TimeoutException`) |
+| 14 | `MODEL_NOT_FOUND` | Empty models array or model ID mismatch |
+| 15 | `AUTH_FAILURE` | HTTP 401/403 |
+| 19 | `CRASHED` | Process exited during probe |
 
 Composite report `overall_exit_code` is the maximum (worst) numeric exit code among all slot results.
 

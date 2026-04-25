@@ -1494,16 +1494,21 @@ class ServerManager:
             # All slots launched successfully
             return LaunchResult(status="success", launched=launched)
 
-    def acquire_lock(self, slot_id: str, port: int) -> Path:
+    def acquire_lock(self, slot_id: str, port: int, server_pid: int | None = None) -> Path:
         """Acquire a lockfile for a slot.
 
         Creates the lockfile if it does not exist, then verifies its
         integrity.  Raises ``ValidationException`` when the lockfile
         cannot be created or fails integrity checks.
 
+        The lock records the server process PID (not the launcher PID)
+        so that ownership verification checks the correct process.
+
         Args:
             slot_id: Slot identifier.
             port: Port the server is bound to.
+            server_pid: PID of the server process. If ``None``, falls back
+                        to the current process PID.
 
         Returns:
             Path to the created lockfile.
@@ -1524,8 +1529,9 @@ class ServerManager:
                 )
                 raise ValidationException(MultiValidationError(errors=[error_detail]))
 
-        # Create the lockfile atomically
-        return create_lock(runtime_dir, slot_id, os.getpid(), port)
+        # Create the lockfile atomically with the server process PID
+        pid = server_pid if server_pid is not None else os.getpid()
+        return create_lock(runtime_dir, slot_id, pid, port)
 
     def release_lock(self, slot_id: str) -> None:
         """Release lockfile for a slot.
@@ -1596,9 +1602,11 @@ class ServerManager:
         # a PID-reused or unrelated process.
         if not _verify_shutdown_ownership(pid, metadata.port):
             # Ownership could not be verified — do not signal.
-            # Clean up stale lock so a fresh start can proceed.
-            release_lock(runtime_dir, slot_id)
-            return True
+            # Do NOT release the lock: verification can fail due to
+            # access-denied or other unverifiable conditions; releasing
+            # would allow concurrent launches while the original server
+            # may still be running.
+            return False
 
         # Send SIGTERM
         try:

@@ -34,7 +34,7 @@ _API_KEY_ENV_VAR: str = "LLM_RUNNER_API_KEY"
 def resolve_api_key(explicit_key: str = "") -> str:
     """Resolve API key with env-fallback.
 
-    Returns the ``explicit_key`` (stripped) when non-empty; otherwise
+    Strips ``explicit_key`` first; if the stripped result is empty,
     falls back to the ``LLM_RUNNER_API_KEY`` environment variable
     (stripped).  This provides a consistent resolution order (explicit
     → env) without importing CLI modules.
@@ -44,10 +44,10 @@ def resolve_api_key(explicit_key: str = "") -> str:
 
     Returns:
         The resolved API key (stripped, may be empty string).
-
     """
-    if explicit_key:
-        return explicit_key.strip()
+    stripped = explicit_key.strip()
+    if stripped:
+        return stripped
     env_key = os.environ.get(_API_KEY_ENV_VAR, "")
     if env_key:
         return env_key.strip()
@@ -333,7 +333,7 @@ def probe_slot(
             port,
             smoke_cfg.http_request_timeout_s,
             resolved_api_key,
-            expected_model_id or resolved_model_id,
+            smoke_cfg.model_id_override or expected_model_id or resolved_model_id,
             smoke_cfg.listen_timeout_s,
         )
         if result is not None:
@@ -388,6 +388,23 @@ def _tcp_connect(host: str, port: int, timeout_s: int) -> None:
         sock.close()
 
 
+def _models_failure_result(
+    host: str,
+    port: int,
+    status: SmokeProbeStatus,
+    model_id: str | None = None,
+) -> SmokeProbeResult:
+    """Construct a failure SmokeProbeResult for the models phase."""
+    return SmokeProbeResult(
+        slot_id=f"{host}:{port}",
+        status=status,
+        phase_reached=SmokePhase.MODELS,
+        failure_phase=SmokeFailurePhase.MODELS,
+        model_id=model_id,
+        provenance=resolve_provenance(),
+    )
+
+
 def _probe_models(
     host: str,
     port: int,
@@ -426,105 +443,35 @@ def _probe_models(
         write=timeout_s,
         pool=timeout_s,
     )
+
+    # Attempt HTTP request
     try:
         with httpx.Client(timeout=timeout) as client:
             response = client.get(url, headers=headers)
     except httpx.TimeoutException:
-        return (
-            SmokeProbeResult(
-                slot_id=f"{host}:{port}",
-                status=SmokeProbeStatus.TIMEOUT,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
-                model_id=None,
-                provenance=resolve_provenance(),
-            ),
-            None,
-        )
+        return (_models_failure_result(host, port, SmokeProbeStatus.TIMEOUT), None)
     except (httpx.ConnectError, httpx.NetworkError, httpx.UnsupportedProtocol):
-        return (
-            SmokeProbeResult(
-                slot_id=f"{host}:{port}",
-                status=SmokeProbeStatus.FAIL,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
-                model_id=None,
-                provenance=resolve_provenance(),
-            ),
-            None,
-        )
+        return (_models_failure_result(host, port, SmokeProbeStatus.FAIL), None)
 
     # Handle HTTP status codes
-    if response.status_code in (401, 403):
-        return (
-            SmokeProbeResult(
-                slot_id=f"{host}:{port}",
-                status=SmokeProbeStatus.AUTH_FAILURE,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
-                model_id=None,
-                provenance=resolve_provenance(),
-            ),
-            None,
-        )
-
     if response.status_code == 404:
         # Endpoint not supported — proceed to Phase 3
         return (None, None)
 
-    if response.status_code >= 500:
-        return (
-            SmokeProbeResult(
-                slot_id=f"{host}:{port}",
-                status=SmokeProbeStatus.FAIL,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
-                model_id=None,
-                provenance=resolve_provenance(),
-            ),
-            None,
-        )
-
-    if response.status_code != 200:
-        return (
-            SmokeProbeResult(
-                slot_id=f"{host}:{port}",
-                status=SmokeProbeStatus.FAIL,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
-                model_id=None,
-                provenance=resolve_provenance(),
-            ),
-            None,
-        )
+    result = _handle_models_status(host, port, response, expected_model_id)
+    if result is not None:
+        return result
 
     # Parse response
     try:
         data = response.json()
     except (json.JSONDecodeError, ValueError):
-        return (
-            SmokeProbeResult(
-                slot_id=f"{host}:{port}",
-                status=SmokeProbeStatus.FAIL,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
-                model_id=None,
-                provenance=resolve_provenance(),
-            ),
-            None,
-        )
+        return (_models_failure_result(host, port, SmokeProbeStatus.FAIL), None)
 
     models = data.get("data", [])
     if not models:
         return (
-            SmokeProbeResult(
-                slot_id=f"{host}:{port}",
-                status=SmokeProbeStatus.MODEL_NOT_FOUND,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
-                model_id=None,
-                provenance=resolve_provenance(),
-            ),
+            _models_failure_result(host, port, SmokeProbeStatus.MODEL_NOT_FOUND),
             None,
         )
 
@@ -540,18 +487,48 @@ def _probe_models(
 
     if expected_model_id and discovered_model_id != expected_model_id:
         return (
-            SmokeProbeResult(
-                slot_id=f"{host}:{port}",
-                status=SmokeProbeStatus.MODEL_NOT_FOUND,
-                phase_reached=SmokePhase.MODELS,
-                failure_phase=SmokeFailurePhase.MODELS,
+            _models_failure_result(
+                host,
+                port,
+                SmokeProbeStatus.MODEL_NOT_FOUND,
                 model_id=discovered_model_id,
-                provenance=resolve_provenance(),
             ),
             None,
         )
 
     return (None, discovered_model_id)  # Phase 2 passed
+
+
+def _handle_models_status(
+    host: str,
+    port: int,
+    response: httpx.Response,
+    expected_model_id: str,
+) -> tuple[SmokeProbeResult, str | None] | None:
+    """Handle HTTP status codes for the models endpoint.
+
+    Returns (SmokeProbeResult, None) for terminal statuses, or None
+    to indicate the response should continue to JSON parsing.
+
+    Args:
+        host: Server hostname.
+        port: Server port.
+        response: The HTTP response.
+        expected_model_id: Expected model ID for validation.
+
+    Returns:
+        Tuple of (failure result, None) for terminal cases, or None.
+    """
+    if response.status_code in (401, 403):
+        return (_models_failure_result(host, port, SmokeProbeStatus.AUTH_FAILURE), None)
+
+    if response.status_code >= 500:
+        return (_models_failure_result(host, port, SmokeProbeStatus.FAIL), None)
+
+    if response.status_code != 200:
+        return (_models_failure_result(host, port, SmokeProbeStatus.FAIL), None)
+
+    return None
 
 
 def _probe_chat(
@@ -592,9 +569,9 @@ def _probe_chat(
     # Use explicit httpx.Timeout with distinct connect/read/write/pool values
     timeout = httpx.Timeout(
         connect=smoke_cfg.listen_timeout_s,
-        read=smoke_cfg.http_request_timeout_s,
+        read=smoke_cfg.first_token_timeout_s,
         write=smoke_cfg.http_request_timeout_s,
-        pool=smoke_cfg.http_request_timeout_s,
+        pool=smoke_cfg.total_chat_timeout_s,
     )
     try:
         with httpx.Client(timeout=timeout) as client:
@@ -654,6 +631,29 @@ def _probe_chat(
 
     choices = data.get("choices", [])
     if not choices:
+        return SmokeProbeResult(
+            slot_id=f"{host}:{port}",
+            status=SmokeProbeStatus.FAIL,
+            phase_reached=SmokePhase.CHAT,
+            failure_phase=SmokeFailurePhase.CHAT,
+            model_id=model_id,
+            provenance=resolve_provenance(),
+        )
+
+    # Validate choices[0] contains a non-empty message with non-empty content
+    first_choice = choices[0]
+    message = first_choice.get("message") if isinstance(first_choice, dict) else None
+    if not isinstance(message, dict):
+        return SmokeProbeResult(
+            slot_id=f"{host}:{port}",
+            status=SmokeProbeStatus.FAIL,
+            phase_reached=SmokePhase.CHAT,
+            failure_phase=SmokeFailurePhase.CHAT,
+            model_id=model_id,
+            provenance=resolve_provenance(),
+        )
+    content = message.get("content")
+    if not content or (isinstance(content, str) and not content.strip()):
         return SmokeProbeResult(
             slot_id=f"{host}:{port}",
             status=SmokeProbeStatus.FAIL,
