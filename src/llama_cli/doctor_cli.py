@@ -780,9 +780,10 @@ def create_parser() -> argparse.ArgumentParser:
 Examples:
   %(prog)s check              Check system health
   %(prog)s check --json       Output in JSON format
-  %(prog)s --repair           Attempt automatic repairs
-  %(prog)s --repair --dry-run Show what would be fixed
-  %(prog)s --repair --json    Output repair actions in JSON
+  %(prog)s repair             Attempt automatic repairs
+  %(prog)s fix                Alias for repair
+  %(prog)s repair --dry-run   Show what would be fixed
+  %(prog)s repair --json      Output repair actions in JSON
 
 FR-004.7: doctor --repair command for failed staging cleanup
         """,
@@ -815,9 +816,10 @@ FR-004.7: doctor --repair command for failed staging cleanup
     )
     check_parser.set_defaults(func=cmd_doctor_check)
 
-    # doctor --repair
+    # doctor --repair (alias: fix)
     repair_parser = subparsers.add_parser(
         "repair",
+        aliases=["fix"],
         help="Attempt automatic repairs",
         description="Fix detected issues automatically",
     )

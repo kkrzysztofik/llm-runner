@@ -467,6 +467,50 @@ class TestCmdDoctorRepair:
                 assert result.success is True
                 assert len(result.actions) == 0
 
+    def test_doctor_fix_alias_runs_repair(self, tmp_path, capsys) -> None:
+        """doctor fix should be an alias for doctor repair."""
+        with (
+            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
+            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
+            patch("llama_cli.doctor_cli.Config") as mock_config,
+        ):
+            mock_detect.return_value = ToolchainStatus(
+                gcc="11.4.0",
+                make="4.3",
+                git="2.34.1",
+                cmake="3.25.0",
+                sycl_compiler="2023.1.0",
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
+            )
+
+            venv_path = tmp_path / "venv"
+            mock_venv_path.return_value = venv_path
+            venv_path.mkdir()
+
+            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+                mock_integrity.return_value = (True, None)
+
+                mock_config_instance = MagicMock()
+                mock_config_instance.build_lock_path = tmp_path / "lock"
+                mock_config_instance.reports_dir = tmp_path / "reports"
+                mock_config_instance.profiles_dir = tmp_path / "profiles"
+                mock_config_instance.builds_dir = tmp_path / "builds"
+                mock_config_instance.toolchain_timeout_seconds = 3600
+                mock_config_instance.llama_cpp_root = str(tmp_path)
+                mock_config.return_value = mock_config_instance
+
+                (tmp_path / "reports").mkdir()
+                (tmp_path / "profiles").mkdir()
+                (tmp_path / "builds").mkdir()
+
+                # Use the main entry point with "fix" instead of "repair"
+                exit_code = doctor_main(["fix", "--dry-run"])
+
+                assert exit_code == 0
+                captured = capsys.readouterr()
+                assert "No repairs needed" in captured.out
+
     def test_doctor_repair_clears_failed_staging(self, tmp_path, capsys) -> None:
         """doctor --repair should identify failed staging directories for cleanup (T081)."""
         # Create build directory with failed marker
