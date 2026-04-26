@@ -8,6 +8,7 @@ Covers:
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -38,7 +39,7 @@ class TestParseBuildArgs:
         assert args.backend == "sycl"
         assert args.dry_run is False
         assert args.json is False
-        assert args.jobs is None
+        assert args.jobs == (os.cpu_count() or 1)
         assert args.retry_attempts == 2
         assert args.retry_delay == 5
 

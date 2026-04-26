@@ -194,7 +194,7 @@ Examples:
         "--jobs",
         "-j",
         type=int,
-        default=None,
+        default=os.cpu_count() or 1,
         help="Number of parallel build jobs (default: auto-detect)",
     )
 
