@@ -552,6 +552,36 @@ def _collect_lock_repair_actions(result: DoctorRepairResult, config: Config) -> 
         )
 
 
+def _collect_directories_repair_actions(result: DoctorRepairResult, config: Config) -> None:
+    """Collect repair actions for missing standard directories.
+
+    Creates the reports, profiles, and builds directories if they do not
+    exist, ensuring they are created with restrictive owner-only
+    permissions (0o700).
+
+    Args:
+        result: DoctorRepairResult to append actions to.
+        config: Application config (provides directory paths).
+    """
+    directories: list[tuple[str, Path]] = [
+        ("reports", config.reports_dir),
+        ("profiles", config.profiles_dir),
+        ("builds", config.builds_dir),
+    ]
+
+    for name, dir_path in directories:
+        if not dir_path.exists():
+            result.actions.append(
+                RepairAction(
+                    action_type="create_directory",
+                    description=f"Create missing {name} directory: {dir_path}",
+                    command=["mkdir", "-m", "700", "-p", str(dir_path)],
+                    dry_run_command=f"# mkdir -m 700 -p '{dir_path}'",
+                    requires_confirmation=False,
+                )
+            )
+
+
 def _collect_profile_repair_actions(
     result: DoctorRepairResult,
     config: Config,
@@ -691,6 +721,7 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
     _collect_venv_repair_actions(result)
     _collect_staging_repair_actions(result, config)
     _collect_lock_repair_actions(result, config)
+    _collect_directories_repair_actions(result, config)
     # Pass None for current versions to preserve age-only staleness
     # detection.  See cmd_doctor_check for rationale.
     _collect_profile_repair_actions(

@@ -439,9 +439,16 @@ class TestCmdDoctorRepair:
                 mock_config_instance = MagicMock()
                 mock_config_instance.build_lock_path = tmp_path / "lock"
                 mock_config_instance.reports_dir = tmp_path / "reports"
+                mock_config_instance.profiles_dir = tmp_path / "profiles"
+                mock_config_instance.builds_dir = tmp_path / "builds"
                 mock_config_instance.toolchain_timeout_seconds = 3600
                 mock_config_instance.llama_cpp_root = str(tmp_path)
                 mock_config.return_value = mock_config_instance
+
+                # Create directories so no repair actions are needed
+                (tmp_path / "reports").mkdir()
+                (tmp_path / "profiles").mkdir()
+                (tmp_path / "builds").mkdir()
 
                 result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False))
 
@@ -721,9 +728,16 @@ class TestDoctorSuccessPath:
             mock_config_instance = MagicMock()
             mock_config_instance.build_lock_path = tmp_path / "lock"
             mock_config_instance.reports_dir = tmp_path / "reports"
+            mock_config_instance.profiles_dir = tmp_path / "profiles"
+            mock_config_instance.builds_dir = tmp_path / "builds"
             mock_config_instance.toolchain_timeout_seconds = 3600
             mock_config_instance.llama_cpp_root = str(tmp_path)
             mock_config.return_value = mock_config_instance
+
+            # Create directories so no repair actions are needed
+            (tmp_path / "reports").mkdir()
+            (tmp_path / "profiles").mkdir()
+            (tmp_path / "builds").mkdir()
 
             result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False))
 
@@ -1176,3 +1190,136 @@ class TestBuildProfileGuidance:
         staleness, record = self._make_staleness(["age_exceeded"], age_days=60.0)
         guidance = _build_profile_guidance(staleness, record, max_age_days=30)
         assert "threshold: 30 days" in guidance
+
+
+class TestDirectoryRepairActions:
+    """Tests for directory creation repair actions."""
+
+    def test_repair_creates_missing_directories(self, tmp_path: Path) -> None:
+        """doctor --repair should create missing standard directories."""
+        reports_dir = tmp_path / "reports"
+        profiles_dir = tmp_path / "profiles"
+        builds_dir = tmp_path / "builds"
+        # Don't create them
+
+        with (
+            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
+            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
+            patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity,
+            patch("llama_cli.doctor_cli.Config") as mock_config,
+        ):
+            mock_detect.return_value = ToolchainStatus(
+                gcc="11.4.0",
+                make="4.3",
+                git="2.34.1",
+                cmake="3.25.0",
+                sycl_compiler="2023.1.0",
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
+            )
+            mock_venv_path.return_value = tmp_path / "venv"
+            (tmp_path / "venv").mkdir()
+            mock_integrity.return_value = (True, None)
+
+            mock_config_instance = MagicMock()
+            mock_config_instance.build_lock_path = tmp_path / "lock"
+            mock_config_instance.reports_dir = reports_dir
+            mock_config_instance.profiles_dir = profiles_dir
+            mock_config_instance.builds_dir = builds_dir
+            mock_config_instance.toolchain_timeout_seconds = 3600
+            mock_config_instance.llama_cpp_root = str(tmp_path)
+            mock_config.return_value = mock_config_instance
+
+            result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False))
+
+            action_types = [a.action_type for a in result.actions]
+            assert "create_directory" in action_types
+            # Should have 3 directory creation actions
+            assert len([a for a in result.actions if a.action_type == "create_directory"]) == 3
+
+    def test_repair_skips_existing_directories(self, tmp_path: Path) -> None:
+        """doctor --repair should skip directories that already exist."""
+        reports_dir = tmp_path / "reports"
+        profiles_dir = tmp_path / "profiles"
+        builds_dir = tmp_path / "builds"
+        reports_dir.mkdir()
+        profiles_dir.mkdir()
+        builds_dir.mkdir()
+
+        with (
+            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
+            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
+            patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity,
+            patch("llama_cli.doctor_cli.Config") as mock_config,
+        ):
+            mock_detect.return_value = ToolchainStatus(
+                gcc="11.4.0",
+                make="4.3",
+                git="2.34.1",
+                cmake="3.25.0",
+                sycl_compiler="2023.1.0",
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
+            )
+            mock_venv_path.return_value = tmp_path / "venv"
+            (tmp_path / "venv").mkdir()
+            mock_integrity.return_value = (True, None)
+
+            mock_config_instance = MagicMock()
+            mock_config_instance.build_lock_path = tmp_path / "lock"
+            mock_config_instance.reports_dir = reports_dir
+            mock_config_instance.profiles_dir = profiles_dir
+            mock_config_instance.builds_dir = builds_dir
+            mock_config_instance.toolchain_timeout_seconds = 3600
+            mock_config_instance.llama_cpp_root = str(tmp_path)
+            mock_config.return_value = mock_config_instance
+
+            result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False))
+
+            action_types = [a.action_type for a in result.actions]
+            assert "create_directory" not in action_types
+
+    def test_directory_repair_action_details(self, tmp_path: Path) -> None:
+        """Directory repair actions should have correct command and permissions."""
+        reports_dir = tmp_path / "reports"
+
+        with (
+            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
+            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
+            patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity,
+            patch("llama_cli.doctor_cli.Config") as mock_config,
+        ):
+            mock_detect.return_value = ToolchainStatus(
+                gcc="11.4.0",
+                make="4.3",
+                git="2.34.1",
+                cmake="3.25.0",
+                sycl_compiler="2023.1.0",
+                cuda_toolkit="12.2.0",
+                nvtop="3.1.0",
+            )
+            mock_venv_path.return_value = tmp_path / "venv"
+            (tmp_path / "venv").mkdir()
+            mock_integrity.return_value = (True, None)
+
+            mock_config_instance = MagicMock()
+            mock_config_instance.build_lock_path = tmp_path / "lock"
+            mock_config_instance.reports_dir = reports_dir
+            mock_config_instance.profiles_dir = tmp_path / "profiles"
+            mock_config_instance.builds_dir = tmp_path / "builds"
+            mock_config_instance.toolchain_timeout_seconds = 3600
+            mock_config_instance.llama_cpp_root = str(tmp_path)
+            mock_config.return_value = mock_config_instance
+
+            result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False))
+
+            dir_actions = [a for a in result.actions if a.action_type == "create_directory"]
+            assert len(dir_actions) == 3
+
+            # Check that one of them is for reports
+            reports_action = next(
+                (a for a in dir_actions if "reports" in a.description), None
+            )
+            assert reports_action is not None
+            assert reports_action.command == ["mkdir", "-m", "700", "-p", str(reports_dir)]
+            assert reports_action.requires_confirmation is False
