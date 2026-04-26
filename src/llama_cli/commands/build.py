@@ -20,6 +20,40 @@ from llama_manager.build_pipeline import (
 from llama_manager.config import Config
 
 
+def _format_bytes(size_bytes: int | None) -> str:
+    """Format an optional byte count for CLI output."""
+    if size_bytes is None:
+        return "unknown size"
+    size = float(size_bytes)
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if size < 1024 or unit == "GiB":
+            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
+        size /= 1024
+    return f"{size:.1f} GiB"
+
+
+def _format_duration(seconds: float) -> str:
+    """Format build duration for CLI output."""
+    if seconds < 1:
+        return f"{seconds * 1000:.0f}ms"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, remaining_seconds = divmod(seconds, 60)
+    return f"{int(minutes)}m {remaining_seconds:.0f}s"
+
+
+def _progress_summary(result: BuildResult) -> dict[str, object] | None:
+    """Return JSON-safe progress metadata for a build result."""
+    if result.progress is None:
+        return None
+    return {
+        "stage": result.progress.stage,
+        "status": result.progress.status,
+        "message": result.progress.message,
+        "progress_percent": result.progress.progress_percent,
+    }
+
+
 def parse_build_args(args: list[str] | None = None) -> argparse.Namespace:
     """Parse build command arguments.
 
@@ -85,6 +119,14 @@ Examples:
         "--no-shallow-clone",
         action="store_true",
         help="Perform full clone instead of shallow clone",
+    )
+
+    parser.add_argument(
+        "--update-sources",
+        action="store_true",
+        help=(
+            "Fetch and fast-forward existing llama.cpp sources instead of skipping the clone stage"
+        ),
     )
 
     parser.add_argument(
@@ -178,6 +220,7 @@ def _create_build_config(
         jobs=args.jobs,
         retry_attempts=args.retry_attempts,
         retry_delay=args.retry_delay,
+        update_sources=getattr(args, "update_sources", False),
     )
 
 
@@ -204,9 +247,12 @@ def _build_single_backend(
     pipeline = BuildPipeline(build_config)
     pipeline.dry_run = args.dry_run
 
-    print(f"Building for {backend.value} backend...", file=sys.stderr)
+    print(f"▶ Building llama.cpp [{backend.value}]", file=sys.stderr)
+    print(f"  source: {source_dir}", file=sys.stderr)
+    print(f"  build:  {build_dir}", file=sys.stderr)
+    print(f"  output: {output_dir}", file=sys.stderr)
     if args.dry_run:
-        print("DRY RUN MODE - commands will not be executed", file=sys.stderr)
+        print("  mode:   dry-run (commands will not be executed)", file=sys.stderr)
 
     result = pipeline.run()
     return (backend, result)
@@ -239,10 +285,19 @@ def _format_success_text(results: list[tuple[BuildBackend, BuildResult]]) -> Non
     Args:
         results: List of (backend, result) tuples
     """
-    print("Build completed successfully!", file=sys.stderr)
+    print("✓ Build completed successfully", file=sys.stderr)
     for backend, result in results:
         if result.artifact:
-            print(f"  {backend.value}: {result.artifact.binary_path}", file=sys.stderr)
+            artifact = result.artifact
+            duration = _format_duration(artifact.build_duration_seconds)
+            size = _format_bytes(artifact.binary_size_bytes)
+            print(f"\n  [{backend.value}]", file=sys.stderr)
+            print(f"    binary:   {artifact.binary_path or 'not found'}", file=sys.stderr)
+            print(f"    size:     {size}", file=sys.stderr)
+            print(f"    duration: {duration}", file=sys.stderr)
+            print(f"    commit:   {artifact.git_commit_sha}", file=sys.stderr)
+            if artifact.build_log_path:
+                print(f"    log:      {artifact.build_log_path}", file=sys.stderr)
 
 
 def _format_error_json(results: list[tuple[BuildBackend, BuildResult]]) -> str:
@@ -257,9 +312,18 @@ def _format_error_json(results: list[tuple[BuildBackend, BuildResult]]) -> str:
     errors = []
     for backend, result in results:
         if not result.success:
-            errors.append(
-                {"backend": backend.value, "error": result.error_message or "Unknown error"}
-            )
+            error: dict[str, object] = {
+                "backend": backend.value,
+                "error": result.error_message or "Unknown error",
+            }
+            progress = _progress_summary(result)
+            if progress is not None:
+                error["progress"] = progress
+            if result.artifact and result.artifact.build_log_path:
+                error["build_log_path"] = str(result.artifact.build_log_path)
+            if result.artifact and result.artifact.failure_report_path:
+                error["failure_report_path"] = str(result.artifact.failure_report_path)
+            errors.append(error)
     return json.dumps({"success": False, "errors": errors}, indent=2)
 
 
@@ -269,10 +333,20 @@ def _format_error_text(results: list[tuple[BuildBackend, BuildResult]]) -> None:
     Args:
         results: List of (backend, result) tuples
     """
-    print("Build failed:", file=sys.stderr)
+    print("✗ Build failed", file=sys.stderr)
     for backend, result in results:
         if not result.success:
-            print(f"  {backend.value}: {result.error_message}", file=sys.stderr)
+            print(f"\n  [{backend.value}]", file=sys.stderr)
+            if result.progress:
+                print(f"    stage:  {result.progress.stage}", file=sys.stderr)
+                print(f"    status: {result.progress.status}", file=sys.stderr)
+            message = result.error_message or "Unknown error"
+            indented_message = message.replace("\n", "\n      ")
+            print(f"    error:  {indented_message}", file=sys.stderr)
+            if result.artifact and result.artifact.build_log_path:
+                print(f"    log:    {result.artifact.build_log_path}", file=sys.stderr)
+            if result.artifact and result.artifact.failure_report_path:
+                print(f"    report: {result.artifact.failure_report_path}", file=sys.stderr)
 
 
 def run_build_command(args: argparse.Namespace) -> int:

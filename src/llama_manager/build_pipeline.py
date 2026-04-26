@@ -4,6 +4,8 @@ import contextlib
 import json
 import logging
 import os
+import re
+import shlex
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -17,6 +19,68 @@ MSG_SOURCES_ALREADY_EXIST = "Sources already exist"
 
 # Intel oneAPI environment setup script (default install location)
 _INTEL_SETVARS_SH = Path("/opt/intel/oneapi/setvars.sh")
+_MAX_OUTPUT_SUMMARY_LINES = 12
+
+
+def _format_command(command: list[str]) -> str:
+    """Return a shell-readable command string without executing it."""
+    return _redact_build_text(shlex.join(command))
+
+
+def _redact_build_text(text: str) -> str:
+    """Redact secrets from command lines and captured build output."""
+    from .reports import redact_sensitive
+
+    redacted = redact_sensitive(text)
+    return re.sub(r"(https?://)[^\s/@:]+:[^\s/@]+@", r"\1[REDACTED]@", redacted)
+
+
+def _format_duration(seconds: float) -> str:
+    """Format a duration for human-readable build logs."""
+    if seconds < 1:
+        return f"{seconds * 1000:.0f}ms"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, remaining_seconds = divmod(seconds, 60)
+    return f"{int(minutes)}m {remaining_seconds:.0f}s"
+
+
+def _tail_lines(text: str, max_lines: int = _MAX_OUTPUT_SUMMARY_LINES) -> str:
+    """Return a concise tail excerpt from command output."""
+    lines = [line for line in _redact_build_text(text).strip().splitlines() if line.strip()]
+    if not lines:
+        return ""
+    return "\n".join(lines[-max_lines:])
+
+
+def _summarize_command_output(stdout: str, stderr: str) -> str:
+    """Build a compact stdout/stderr excerpt for user-facing error messages."""
+    excerpts: list[str] = []
+    stdout_excerpt = _tail_lines(stdout)
+    stderr_excerpt = _tail_lines(stderr)
+    if stderr_excerpt:
+        excerpts.append(f"stderr tail:\n{stderr_excerpt}")
+    if stdout_excerpt:
+        excerpts.append(f"stdout tail:\n{stdout_excerpt}")
+    if not excerpts:
+        return "No output captured."
+    return "\n\n".join(excerpts)
+
+
+def _format_command_failure(
+    *,
+    stage: str,
+    command: list[str],
+    returncode: int,
+    stdout: str,
+    stderr: str,
+) -> str:
+    """Format an actionable command failure summary."""
+    output_summary = _summarize_command_output(stdout, stderr)
+    return (
+        f"{stage} command failed with exit code {returncode}: {_format_command(command)}\n"
+        f"{output_summary}"
+    )
 
 
 class BuildBackend(StrEnum):
@@ -57,6 +121,7 @@ class BuildConfig:
     retry_delay: float = 5.0
     shallow_clone: bool = True
     jobs: int | None = None
+    update_sources: bool = False
 
     def __post_init__(self) -> None:
         """Ensure Path objects are Path instances and validate constraints."""
@@ -254,6 +319,99 @@ class BuildPipeline:
         """
         self._dry_run = value
 
+    def _append_command_output(
+        self,
+        *,
+        stage: str,
+        command: list[str],
+        returncode: int,
+        stdout: str,
+        stderr: str,
+    ) -> None:
+        """Append structured command output to the build report payload."""
+        entry = (
+            f"## {stage}\n"
+            f"COMMAND: {_format_command(command)}\n"
+            f"EXIT_CODE: {returncode}\n\n"
+            f"STDOUT:\n{_redact_build_text(stdout)}\n\n"
+            f"STDERR:\n{_redact_build_text(stderr)}\n"
+        )
+        self._build_output = f"{self._build_output}\n\n{entry}" if self._build_output else entry
+
+    def _build_reports_dir(self) -> Path:
+        """Return the directory used for build logs and failure reports."""
+        return Path(self.config.output_dir).parent / "reports"
+
+    def _write_build_log(self) -> Path | None:
+        """Persist captured command output, returning the path only when written."""
+        if not self._build_output:
+            return None
+
+        backend_name = (
+            self.config.backend.value
+            if isinstance(self.config.backend, BuildBackend)
+            else str(self.config.backend)
+        )
+        reports_dir = self._build_reports_dir()
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        build_log_path = reports_dir / f"{int(time.time())}-{backend_name}.log"
+        build_log_path.write_text(_redact_build_text(self._build_output))
+        return build_log_path
+
+    def _create_artifact(
+        self,
+        *,
+        exit_code: int,
+        build_log_path: Path | None,
+        failure_report_path: Path | None,
+        binary_path: Path | None = None,
+        binary_size_bytes: int | None = None,
+        git_commit_sha: str = "unknown",
+    ) -> BuildArtifact:
+        """Create build provenance for success or failed command stages."""
+        return BuildArtifact(
+            artifact_type="llama-server",
+            backend=self.config.backend.value,
+            created_at=time.time(),
+            git_remote_url=_redact_build_text(self.config.git_remote_url),
+            git_commit_sha=git_commit_sha,
+            git_branch=self.config.git_branch,
+            build_command=["cmake", "--build", str(self.config.build_dir)],
+            build_duration_seconds=time.time() - self._build_start_time,
+            exit_code=exit_code,
+            binary_path=binary_path,
+            binary_size_bytes=binary_size_bytes,
+            build_log_path=build_log_path,
+            failure_report_path=failure_report_path,
+        )
+
+    def _write_failure_artifact(self, progress: BuildProgress) -> BuildArtifact:
+        """Write failure diagnostics and return an artifact that points to them."""
+        from .reports import write_failure_report
+
+        build_log_path = self._write_build_log()
+        artifact = self._create_artifact(
+            exit_code=1,
+            build_log_path=build_log_path,
+            failure_report_path=None,
+        )
+        report = write_failure_report(
+            report_dir=self._build_reports_dir(),
+            build_artifact_json=json.dumps(artifact.to_dict(), indent=2),
+            build_output=self._build_output,
+            error_details=[
+                {
+                    "stage": progress.stage,
+                    "status": progress.status,
+                    "message": _redact_build_text(progress.message),
+                }
+            ],
+            metadata={"backend": self.config.backend.value},
+        )
+        artifact.failure_report_path = report.report_dir
+        report.save_to_file()
+        return artifact
+
     def _run_with_retry(
         self, stage_func: Callable[[], BuildProgress], stage_name: str
     ) -> BuildProgress:
@@ -347,18 +505,22 @@ class BuildPipeline:
             # Stage 3: Configure
             progress = self._run_with_retry(self._run_configure, "configure")
             if progress.status == "failed":
+                artifact = self._write_failure_artifact(progress)
                 return BuildResult(
                     success=False,
-                    error_message=f"Configure failed: {progress.message}",
+                    artifact=artifact,
+                    error_message=f"Configure failed: {_redact_build_text(progress.message)}",
                     progress=progress,
                 )
 
             # Stage 4: Build
             progress = self._run_with_retry(self._run_build, "build")
             if progress.status == "failed":
+                artifact = self._write_failure_artifact(progress)
                 return BuildResult(
                     success=False,
-                    error_message=f"Build failed: {progress.message}",
+                    artifact=artifact,
+                    error_message=f"Build failed: {_redact_build_text(progress.message)}",
                     progress=progress,
                 )
 
@@ -380,7 +542,7 @@ class BuildPipeline:
         except Exception as e:
             return BuildResult(
                 success=False,
-                error_message=str(e),
+                error_message=_redact_build_text(str(e)),
             )
 
         finally:
@@ -483,6 +645,10 @@ class BuildPipeline:
         sources. This allows builds to continue when network is unavailable
         but local clone exists.
 
+        When ``update_sources`` is enabled and the source directory is a valid
+        git repository, the pipeline fetches the latest changes and fast-forwards
+        to ``origin/<branch>`` instead of skipping.
+
         Returns:
             BuildProgress with stage status
         """
@@ -498,6 +664,8 @@ class BuildPipeline:
         # Check if source already exists and is non-empty
         # This enables offline-continue: use existing sources when network unavailable
         if self._source_exists():
+            if self.config.update_sources and self._is_git_repo():
+                return self._update_sources(progress)
             progress.status = "skipped"
             progress.message = MSG_SOURCES_ALREADY_EXIST
             progress.progress_percent = 30
@@ -551,6 +719,97 @@ class BuildPipeline:
 
         return progress
 
+    def _is_git_repo(self) -> bool:
+        """Check if source directory contains a valid git repository.
+
+        Returns:
+            True if ``source_dir/.git`` exists and is a directory, else False.
+        """
+        git_dir = self.config.source_dir / ".git"
+        return git_dir.exists() and git_dir.is_dir()
+
+    def _update_sources(self, progress: BuildProgress) -> BuildProgress:
+        """Fetch and fast-forward an existing clone to the configured branch.
+
+        On network failure the stage falls back to ``skipped`` so the build can
+        continue with the local copy.
+
+        Args:
+            progress: Mutable progress object for this stage.
+
+        Returns:
+            Updated :class:`BuildProgress`.
+        """
+        import subprocess
+
+        if self._dry_run:
+            progress.message = (
+                f"Would run: git fetch origin && git checkout -B "
+                f"{self.config.git_branch} origin/{self.config.git_branch}"
+            )
+            progress.status = "success"
+            progress.progress_percent = 30
+            return progress
+
+        try:
+            # 1. Fetch latest refs from the configured remote
+            subprocess.run(
+                ["git", "fetch", "origin"],
+                cwd=self.config.source_dir,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            # 2. Fast-forward to the latest commit on the configured branch
+            result = subprocess.run(
+                [
+                    "git",
+                    "checkout",
+                    "-B",
+                    self.config.git_branch,
+                    f"origin/{self.config.git_branch}",
+                ],
+                cwd=self.config.source_dir,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self._append_command_output(
+                stage="clone (update)",
+                command=[
+                    "git",
+                    "checkout",
+                    "-B",
+                    self.config.git_branch,
+                    f"origin/{self.config.git_branch}",
+                ],
+                returncode=result.returncode,
+                stdout=result.stdout,
+                stderr=result.stderr,
+            )
+
+            if result.returncode != 0:
+                progress.status = "skipped"
+                progress.message = (
+                    f"Source update failed; continuing with existing sources: "
+                    f"{_tail_lines(result.stderr)}"
+                )
+                progress.progress_percent = 30
+                return progress
+
+            progress.message = f"Updated sources to origin/{self.config.git_branch}"
+            progress.status = "success"
+            progress.progress_percent = 30
+
+        except subprocess.SubprocessError:
+            progress.status = "skipped"
+            progress.message = "Network unavailable; continuing with existing sources"
+            progress.progress_percent = 30
+
+        return progress
+
     def _source_exists(self) -> bool:
         """Check if source directory exists and is non-empty.
 
@@ -578,9 +837,11 @@ class BuildPipeline:
             progress_percent=30,
         )
 
-        # Check if build directory exists and CMakeCache.txt exists
+        # Check if build directory exists and CMakeCache.txt exists.
+        # When update_sources is enabled we always re-configure because the
+        # source tree may have changed (new files, different CMake flags, etc.).
         cmake_cache = self.config.build_dir / "CMakeCache.txt"
-        if cmake_cache.exists():
+        if cmake_cache.exists() and not self.config.update_sources:
             progress.status = "skipped"
             progress.message = "Already configured"
             progress.progress_percent = 50
@@ -593,7 +854,7 @@ class BuildPipeline:
             cmd = ["cmake", "-S", str(self.config.source_dir), "-B", str(self.config.build_dir)]
             cmd.extend(cmake_args)
             cmd = self._get_build_env_cmd(cmd)
-            progress.message = f"Would run: {' '.join(cmd)}"
+            progress.message = f"Would run: {_format_command(cmd)}"
             progress.status = "success"
             progress.progress_percent = 50
             return progress
@@ -606,16 +867,34 @@ class BuildPipeline:
             cmd.extend(cmake_args)
             cmd = self._get_build_env_cmd(cmd)
 
-            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            started_at = time.monotonic()
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            duration = _format_duration(time.monotonic() - started_at)
+            self._append_command_output(
+                stage="configure",
+                command=cmd,
+                returncode=result.returncode,
+                stdout=result.stdout,
+                stderr=result.stderr,
+            )
 
-            progress.message = "CMake configuration successful"
+            if result.returncode != 0:
+                progress.status = "failed"
+                progress.message = _format_command_failure(
+                    stage="CMake configure",
+                    command=cmd,
+                    returncode=result.returncode,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                )
+                return progress
+
+            progress.message = (
+                f"CMake configuration completed for {self.config.backend.value} in {duration}"
+            )
             progress.status = "success"
             progress.progress_percent = 50
 
-        except subprocess.CalledProcessError as e:
-            progress.status = "failed"
-            progress.message = f"CMake configure failed: {e.stderr}"
-            return progress
         except Exception as e:
             progress.status = "failed"
             progress.message = f"Configure failed: {str(e)}"
@@ -643,7 +922,7 @@ class BuildPipeline:
             if self.config.jobs:
                 cmd.extend(["--parallel", str(self.config.jobs)])
             cmd = self._get_build_env_cmd(cmd)
-            progress.message = f"Would run: {' '.join(cmd)}"
+            progress.message = f"Would run: {_format_command(cmd)}"
             progress.status = "success"
             progress.progress_percent = 75
             return progress
@@ -654,23 +933,36 @@ class BuildPipeline:
                 cmd.extend(["--parallel", str(self.config.jobs)])
             cmd = self._get_build_env_cmd(cmd)
 
+            started_at = time.monotonic()
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 check=False,  # Don't raise on non-zero exit
             )
+            duration = _format_duration(time.monotonic() - started_at)
 
-            # Store build output for log file
-            self._build_output = f"STDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}"
+            self._append_command_output(
+                stage="build",
+                command=cmd,
+                returncode=result.returncode,
+                stdout=result.stdout,
+                stderr=result.stderr,
+            )
 
             if result.returncode == 0:
-                progress.message = "Build successful"
+                progress.message = f"Build completed for {self.config.backend.value} in {duration}"
                 progress.status = "success"
                 progress.progress_percent = 75
             else:
                 progress.status = "failed"
-                progress.message = f"Build failed: {result.stderr}"
+                progress.message = _format_command_failure(
+                    stage="Build",
+                    command=cmd,
+                    returncode=result.returncode,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                )
 
         except Exception as e:
             progress.status = "failed"
@@ -717,36 +1009,15 @@ class BuildPipeline:
                 binary_path = server_binary
                 binary_size_bytes = server_binary.stat().st_size
 
-        # Create build log path in reports directory
-        reports_dir = Path(self.config.output_dir).parent / "reports"
-        timestamp = str(int(time.time()))
-        backend_name = (
-            self.config.backend.value
-            if isinstance(self.config.backend, BuildBackend)
-            else str(self.config.backend)
-        )
-        build_log_path = reports_dir / f"{timestamp}-{backend_name}.log"
+        build_log_path = self._write_build_log()
 
-        # Ensure reports directory exists and write build log
-        if self._build_output:
-            reports_dir.mkdir(parents=True, exist_ok=True)
-            build_log_path.write_text(self._build_output)
-
-        # Create artifact with computed build duration
-        artifact = BuildArtifact(
-            artifact_type="llama-server",
-            backend=self.config.backend.value,
-            created_at=time.time(),
-            git_remote_url=self.config.git_remote_url,
-            git_commit_sha=git_commit_sha,
-            git_branch=self.config.git_branch,
-            build_command=["cmake", "--build", str(self.config.build_dir)],
-            build_duration_seconds=time.time() - self._build_start_time,
+        artifact = self._create_artifact(
             exit_code=0,
             binary_path=binary_path,
             binary_size_bytes=binary_size_bytes,
             build_log_path=build_log_path,
             failure_report_path=None,
+            git_commit_sha=git_commit_sha,
         )
 
         # Write provenance
@@ -769,11 +1040,13 @@ class BuildPipeline:
         ]
 
         if backend == BuildBackend.SYCL:
-            flags.extend([
-                f"-D{BuildConfig.GGML_SYCL}=ON",
-                "-DCMAKE_C_COMPILER=icx",
-                "-DCMAKE_CXX_COMPILER=icpx",
-            ])
+            flags.extend(
+                [
+                    f"-D{BuildConfig.GGML_SYCL}=ON",
+                    "-DCMAKE_C_COMPILER=icx",
+                    "-DCMAKE_CXX_COMPILER=icpx",
+                ]
+            )
         elif backend == BuildBackend.CUDA:
             flags.append(f"-D{BuildConfig.GGML_CUDA}=ON")
 
@@ -796,7 +1069,7 @@ class BuildPipeline:
         if not _INTEL_SETVARS_SH.exists():
             return cmd
         # Use bash -c to source setvars.sh then run the command
-        cmd_str = " ".join(cmd)
+        cmd_str = shlex.join(cmd)
         return [
             "bash",
             "-c",

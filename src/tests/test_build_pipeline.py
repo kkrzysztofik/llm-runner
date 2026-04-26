@@ -519,6 +519,36 @@ class TestConfigureStageCmakeFlags:
         cmake_args_cuda = pipeline_cuda._get_cmake_flags(backend=BuildBackend.CUDA)
         assert "-DGGML_CUDA=ON" in cmake_args_cuda
 
+    def test_configure_stage_failure_includes_cmake_diagnostics(self, tmp_path: Path) -> None:
+        """Configure failures should include command, exit code, and stderr/stdout tails."""
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+        )
+        pipeline = BuildPipeline(config)
+
+        mock_result = Mock()
+        mock_result.returncode = 1
+        mock_result.stdout = "-- Detecting CXX compiler ABI info"
+        mock_result.stderr = "CMake Error: icpx compiler not found"
+
+        with (
+            patch("subprocess.run", return_value=mock_result),
+            patch.object(pipeline, "_get_build_env_cmd", side_effect=lambda cmd: cmd),
+        ):
+            result = pipeline._run_configure()
+
+        assert result.status == "failed"
+        assert "CMake configure command failed with exit code 1" in result.message
+        assert "cmake -S" in result.message
+        assert "CMake Error: icpx compiler not found" in result.message
+        assert "stdout tail:" in result.message
+        assert "COMMAND: cmake -S" in pipeline._build_output
+
 
 class TestBuildStageExecution:
     """T036: Test build stage execution."""
@@ -568,14 +598,130 @@ class TestBuildStageExecution:
 
             # Verify success
             assert result.status == "success"
+            assert "Build completed for sycl" in result.message
+            assert "COMMAND: cmake --build" in pipeline._build_output
+            assert "EXIT_CODE: 0" in pipeline._build_output
+
+    def test_build_stage_failure_includes_command_and_output_tail(self, tmp_path: Path) -> None:
+        """Build failure messages should explain command, exit code, and output tail."""
+        config = BuildConfig(
+            backend=BuildBackend.CUDA,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+            jobs=2,
+        )
+        pipeline = BuildPipeline(config)
+
+        mock_result = Mock()
+        mock_result.returncode = 2
+        mock_result.stdout = "[ 10%] Building target\n[ 20%] Compiling object"
+        mock_result.stderr = "fatal error: cuda headers missing"
+
+        with (
+            patch("subprocess.run", return_value=mock_result),
+            patch.object(pipeline, "_get_build_env_cmd", side_effect=lambda cmd: cmd),
+        ):
+            result = pipeline._run_build()
+
+        assert result.status == "failed"
+        assert "Build command failed with exit code 2" in result.message
+        assert "cmake --build" in result.message
+        assert "fatal error: cuda headers missing" in result.message
+        assert "stdout tail:" in result.message
+        assert "EXIT_CODE: 2" in pipeline._build_output
+
+    def test_command_output_redacts_secrets(self, tmp_path: Path) -> None:
+        """Captured command output should redact credentials and secret-looking values."""
+        config = BuildConfig(
+            backend=BuildBackend.CUDA,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+        )
+        pipeline = BuildPipeline(config)
+
+        pipeline._append_command_output(
+            stage="build",
+            command=["git", "clone", "https://user:pass@example.com/repo.git"],
+            returncode=1,
+            stdout="API_KEY=super-secret-key",
+            stderr="PASSWORD=hunter2 TOKEN=abc123",
+        )
+
+        assert "super-secret-key" not in pipeline._build_output
+        assert "hunter2" not in pipeline._build_output
+        assert "abc123" not in pipeline._build_output
+        assert "user:pass" not in pipeline._build_output
+        assert "[REDACTED]" in pipeline._build_output
+
+    def test_build_failure_run_writes_redacted_log_and_report(self, tmp_path: Path) -> None:
+        """Full run should persist failure diagnostics and surface their paths."""
+        config = BuildConfig(
+            backend=BuildBackend.CUDA,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://user:pass@example.com/llama.cpp.git",
+            git_branch="main",
+            retry_attempts=1,
+        )
+        pipeline = BuildPipeline(config)
+
+        mock_result = Mock()
+        mock_result.returncode = 2
+        mock_result.stdout = "API_KEY=super-secret-key"
+        mock_result.stderr = "PASSWORD=hunter2 from https://user:pass@example.com/repo.git"
+
+        with (
+            patch.object(pipeline, "_acquire_lock", return_value=True),
+            patch.object(pipeline, "_release_lock"),
+            patch.object(
+                pipeline,
+                "_run_preflight",
+                return_value=BuildProgress("preflight", "success", "ok", 20),
+            ),
+            patch.object(
+                pipeline,
+                "_run_clone",
+                return_value=BuildProgress("clone", "skipped", "exists", 30),
+            ),
+            patch.object(
+                pipeline,
+                "_run_configure",
+                return_value=BuildProgress("configure", "success", "configured", 50),
+            ),
+            patch("subprocess.run", return_value=mock_result),
+            patch.object(pipeline, "_get_build_env_cmd", side_effect=lambda cmd: cmd),
+        ):
+            result = pipeline.run()
+
+        assert result.success is False
+        assert result.artifact is not None
+        assert result.artifact.build_log_path is not None
+        assert result.artifact.failure_report_path is not None
+        assert result.artifact.build_log_path.exists()
+        assert (result.artifact.failure_report_path / "build-output.log").exists()
+
+        log_content = result.artifact.build_log_path.read_text()
+        report_content = (result.artifact.failure_report_path / "build-output.log").read_text()
+        artifact_content = (result.artifact.failure_report_path / "build-artifact.json").read_text()
+        combined = "\n".join([result.error_message, log_content, report_content, artifact_content])
+
+        assert "super-secret-key" not in combined
+        assert "hunter2" not in combined
+        assert "user:pass" not in combined
+        assert "[REDACTED]" in combined
 
 
 class TestBuildEnvCmd:
     """Tests for _get_build_env_cmd SYCL wrapping."""
 
-    def test_get_build_env_cmd_wraps_sycl_when_setvars_exists(
-        self, tmp_path: Path
-    ) -> None:
+    def test_get_build_env_cmd_wraps_sycl_when_setvars_exists(self, tmp_path: Path) -> None:
         """_get_build_env_cmd should wrap cmake for SYCL when setvars.sh exists."""
         config = BuildConfig(
             backend=BuildBackend.SYCL,
@@ -591,15 +737,33 @@ class TestBuildEnvCmd:
         fake_setvars = tmp_path / "setvars.sh"
         fake_setvars.write_text("# mock")
 
-        with patch(
-            "llama_manager.build_pipeline._INTEL_SETVARS_SH", fake_setvars
-        ):
+        with patch("llama_manager.build_pipeline._INTEL_SETVARS_SH", fake_setvars):
             cmd = ["cmake", "--build", str(config.build_dir)]
             wrapped = pipeline._get_build_env_cmd(cmd)
             assert wrapped[0] == "bash"
             assert wrapped[1] == "-c"
             assert f'source "{fake_setvars}"' in wrapped[2]
             assert "cmake --build" in wrapped[2]
+
+    def test_get_build_env_cmd_shell_quotes_user_paths(self, tmp_path: Path) -> None:
+        """SYCL environment wrapper should quote command args for bash -c safely."""
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build; touch injected",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+        )
+        pipeline = BuildPipeline(config)
+        fake_setvars = tmp_path / "setvars.sh"
+        fake_setvars.write_text("# mock")
+
+        with patch("llama_manager.build_pipeline._INTEL_SETVARS_SH", fake_setvars):
+            wrapped = pipeline._get_build_env_cmd(["cmake", "--build", str(config.build_dir)])
+
+        assert f"'{config.build_dir}'" in wrapped[2]
+        assert "; touch injected" in wrapped[2]
 
     def test_get_build_env_cmd_no_wrap_for_cuda(self, tmp_path: Path) -> None:
         """_get_build_env_cmd should not wrap commands for CUDA backend."""
@@ -616,16 +780,12 @@ class TestBuildEnvCmd:
         fake_setvars = tmp_path / "setvars.sh"
         fake_setvars.write_text("# mock")
 
-        with patch(
-            "llama_manager.build_pipeline._INTEL_SETVARS_SH", fake_setvars
-        ):
+        with patch("llama_manager.build_pipeline._INTEL_SETVARS_SH", fake_setvars):
             cmd = ["cmake", "--build", str(config.build_dir)]
             wrapped = pipeline._get_build_env_cmd(cmd)
             assert wrapped == cmd
 
-    def test_get_build_env_cmd_no_wrap_when_setvars_missing(
-        self, tmp_path: Path
-    ) -> None:
+    def test_get_build_env_cmd_no_wrap_when_setvars_missing(self, tmp_path: Path) -> None:
         """_get_build_env_cmd should not wrap when setvars.sh is missing."""
         config = BuildConfig(
             backend=BuildBackend.SYCL,
@@ -1030,6 +1190,118 @@ class TestOfflineContinue:
             assert progress.status == "skipped"
             # When sources exist, clone is skipped regardless of timeout
             assert "Sources already exist" in progress.message
+
+
+class TestUpdateSources:
+    """Tests for incremental source update (git fetch + fast-forward)."""
+
+    def test_update_sources_skips_when_not_git_repo(self, tmp_path: Path) -> None:
+        """When update_sources is enabled but source is not a git repo, skip clone."""
+        source_dir = tmp_path / "llama.cpp"
+        source_dir.mkdir()
+        (source_dir / "CMakeLists.txt").write_text("# existing")
+
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=source_dir,
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+            update_sources=True,
+        )
+
+        pipeline = BuildPipeline(config)
+        progress = pipeline._run_clone()
+
+        assert progress.status == "skipped"
+        assert "Sources already exist" in progress.message
+
+    def test_update_sources_fetches_and_fast_forwards(self, tmp_path: Path) -> None:
+        """When update_sources is enabled and source is a git repo, fetch and checkout."""
+        source_dir = tmp_path / "llama.cpp"
+        source_dir.mkdir()
+        (source_dir / ".git").mkdir()
+        (source_dir / "CMakeLists.txt").write_text("# existing")
+
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=source_dir,
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+            update_sources=True,
+        )
+
+        pipeline = BuildPipeline(config)
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+            progress = pipeline._run_clone()
+
+        assert progress.status == "success"
+        assert "Updated sources" in progress.message
+        # Should have called fetch then checkout
+        calls = [c.args[0] for c in mock_run.call_args_list]
+        assert ["git", "fetch", "origin"] in calls
+        assert ["git", "checkout", "-B", "main", "origin/main"] in calls
+
+    def test_update_sources_falls_back_on_network_failure(self, tmp_path: Path) -> None:
+        """When fetch fails, fall back to skipped with existing sources."""
+        source_dir = tmp_path / "llama.cpp"
+        source_dir.mkdir()
+        (source_dir / ".git").mkdir()
+        (source_dir / "CMakeLists.txt").write_text("# existing")
+
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=source_dir,
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+            update_sources=True,
+        )
+
+        pipeline = BuildPipeline(config)
+
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.CalledProcessError(128, ["git", "fetch"]),
+        ):
+            progress = pipeline._run_clone()
+
+        assert progress.status == "skipped"
+        assert "Network unavailable" in progress.message
+
+    def test_update_sources_reconfigures_even_with_cmake_cache(self, tmp_path: Path) -> None:
+        """When update_sources is enabled, configure should not skip on existing CMakeCache."""
+        source_dir = tmp_path / "llama.cpp"
+        source_dir.mkdir()
+        (source_dir / "CMakeLists.txt").write_text("cmake_minimum_required(VERSION 3.20)")
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+        (build_dir / "CMakeCache.txt").write_text("# existing cache")
+
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=source_dir,
+            build_dir=build_dir,
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+            update_sources=True,
+        )
+
+        pipeline = BuildPipeline(config)
+
+        with patch("subprocess.run", return_value=Mock(returncode=0, stdout="", stderr="")):
+            progress = pipeline._run_configure()
+
+        # Should NOT be skipped even though CMakeCache.txt exists
+        assert progress.status != "skipped"
+        assert "Already configured" not in progress.message
 
 
 class TestDryRunToolchainValidation:

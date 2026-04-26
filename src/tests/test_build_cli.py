@@ -20,6 +20,7 @@ from llama_cli.commands.build import (
 from llama_manager.build_pipeline import (
     BuildArtifact,
     BuildPipeline,
+    BuildProgress,
     BuildResult,
 )
 
@@ -95,6 +96,11 @@ class TestParseBuildArgs:
         args = parse_build_args(["sycl", "--no-shallow-clone"])
         assert args.no_shallow_clone is True
 
+    def test_parse_update_sources(self) -> None:
+        """parse_build_args should parse --update-sources flag."""
+        args = parse_build_args(["sycl", "--update-sources"])
+        assert args.update_sources is True
+
     def test_parse_default_git_options(self) -> None:
         """parse_build_args should use default git remote and branch."""
         args = parse_build_args(["sycl"])
@@ -144,7 +150,7 @@ class TestRunBuildCommand:
                 exit_code=0,
                 binary_path=Path("/tmp/llama-server"),
                 binary_size_bytes=104857600,
-                build_log_path=None,
+                build_log_path=Path("/tmp/build.log"),
                 failure_report_path=None,
             )
             if success
@@ -170,6 +176,10 @@ class TestRunBuildCommand:
             assert exit_code == 0
             captured = capsys.readouterr()
             assert "Build completed successfully" in captured.err
+            assert "binary:" in captured.err
+            assert "100.0 MiB" in captured.err
+            assert "duration: 10.0s" in captured.err
+            assert "log:" in captured.err
 
     def test_run_build_cuda_success(self, tmp_path: Path, capsys) -> None:
         """run_build_command should succeed for CUDA backend."""
@@ -213,6 +223,21 @@ class TestRunBuildCommand:
             mock_pipeline = self._make_mock_pipeline(False)
             mock_pipeline.run.return_value = BuildResult(
                 success=False,
+                artifact=BuildArtifact(
+                    artifact_type="llama-server",
+                    backend="sycl",
+                    created_at=0.0,
+                    git_remote_url="https://github.com/ggerganov/llama.cpp",
+                    git_commit_sha="unknown",
+                    git_branch="main",
+                    build_command=["cmake", "--build"],
+                    build_duration_seconds=2.0,
+                    exit_code=1,
+                    binary_path=None,
+                    binary_size_bytes=None,
+                    build_log_path=tmp_path / "reports" / "build.log",
+                    failure_report_path=tmp_path / "reports" / "failure",
+                ),
                 error_message="Compilation failed",
             )
             mock_cls.return_value = mock_pipeline
@@ -222,6 +247,10 @@ class TestRunBuildCommand:
             assert exit_code == 1
             captured = capsys.readouterr()
             assert "Build failed" in captured.err
+            assert "[sycl]" in captured.err
+            assert "Compilation failed" in captured.err
+            assert "log:" in captured.err
+            assert "report:" in captured.err
 
     def test_run_build_both_partial_failure(self, tmp_path: Path, capsys) -> None:
         """run_build_command should continue on failure for 'both' and return 1."""
@@ -274,7 +303,28 @@ class TestRunBuildCommand:
             mock_pipeline = self._make_mock_pipeline(False)
             mock_pipeline.run.return_value = BuildResult(
                 success=False,
+                artifact=BuildArtifact(
+                    artifact_type="llama-server",
+                    backend="sycl",
+                    created_at=0.0,
+                    git_remote_url="https://github.com/ggerganov/llama.cpp",
+                    git_commit_sha="unknown",
+                    git_branch="main",
+                    build_command=["cmake", "--build"],
+                    build_duration_seconds=2.0,
+                    exit_code=1,
+                    binary_path=None,
+                    binary_size_bytes=None,
+                    build_log_path=tmp_path / "reports" / "build.log",
+                    failure_report_path=tmp_path / "reports" / "failure",
+                ),
                 error_message="Compilation failed",
+                progress=BuildProgress(
+                    stage="build",
+                    status="failed",
+                    message="Build command failed",
+                    progress_percent=50,
+                ),
             )
             mock_cls.return_value = mock_pipeline
 
@@ -286,6 +336,9 @@ class TestRunBuildCommand:
             assert parsed["success"] is False
             assert len(parsed["errors"]) == 1
             assert "Compilation failed" in parsed["errors"][0]["error"]
+            assert parsed["errors"][0]["progress"]["stage"] == "build"
+            assert parsed["errors"][0]["build_log_path"].endswith("build.log")
+            assert parsed["errors"][0]["failure_report_path"].endswith("failure")
 
     def test_run_build_dry_run(self, tmp_path: Path, capsys) -> None:
         """run_build_command --dry-run should set dry_run on pipeline."""
