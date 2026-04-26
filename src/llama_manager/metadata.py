@@ -322,7 +322,14 @@ def _read_integer_value(data: bytes, offset: int, type_tag: int) -> int | None:
     """Read integer value if type is integer, else None."""
     if type_tag not in (1, 2, 3, 4, 5, 6):
         return None
-    readers = {1: _read_int8, 2: _read_int8, 3: _read_int16, 4: _read_int16, 5: _read_int32, 6: _read_int32}
+    readers = {
+        1: _read_int8,
+        2: _read_int8,
+        3: _read_int16,
+        4: _read_int16,
+        5: _read_int32,
+        6: _read_int32,
+    }
     reader = readers.get(type_tag)
     return reader(data, offset) if reader else None
 
@@ -631,7 +638,7 @@ def extract_gguf_metadata(
         raise ValueError(
             f"prefix_cap_bytes must be a positive integer, got: {prefix_cap_bytes}",
         )
-    if not isinstance(parse_timeout_s, (int, float)) or parse_timeout_s <= 0:
+    if not isinstance(parse_timeout_s, int | float) or parse_timeout_s <= 0:
         raise ValueError(
             f"parse_timeout_s must be a positive number, got: {parse_timeout_s}",
         )

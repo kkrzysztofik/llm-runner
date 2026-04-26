@@ -601,7 +601,17 @@ def _collect_directories_repair_actions(result: DoctorRepairResult, config: Conf
                 RepairAction(
                     action_type="remove_and_create_directory",
                     description=f"Remove conflicting {name} file and create directory: {dir_path}",
-                    command=["rm", "-rf", str(dir_path), "&&", "mkdir", "-m", "700", "-p", str(dir_path)],
+                    command=[
+                        "rm",
+                        "-rf",
+                        str(dir_path),
+                        "&&",
+                        "mkdir",
+                        "-m",
+                        "700",
+                        "-p",
+                        str(dir_path),
+                    ],
                     dry_run_command=f"# rm -rf '{dir_path}' && mkdir -m 700 -p '{dir_path}'",
                     requires_confirmation=True,
                 )

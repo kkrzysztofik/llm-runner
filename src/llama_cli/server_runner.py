@@ -325,22 +325,28 @@ def _run_tui(parsed: argparse.Namespace) -> int:
                 create_summary_balanced_cfg(
                     parsed.port if parsed.port is not None else cfg.summary_balanced_port
                 ),
-                create_qwen35_cfg(
-                    parsed.port2 if parsed.port2 is not None else cfg.qwen35_port
-                ),
+                create_qwen35_cfg(parsed.port2 if parsed.port2 is not None else cfg.qwen35_port),
             ],
             [1, 0],
         ),
         "summary-balanced": (
             [cfg.llama_server_bin_intel],
             ["Intel llama-server"],
-            [create_summary_balanced_cfg(parsed.port if parsed.port is not None else cfg.summary_balanced_port)],
+            [
+                create_summary_balanced_cfg(
+                    parsed.port if parsed.port is not None else cfg.summary_balanced_port
+                )
+            ],
             [1],
         ),
         "summary-fast": (
             [cfg.llama_server_bin_intel],
             ["Intel llama-server"],
-            [create_summary_fast_cfg(parsed.port if parsed.port is not None else cfg.summary_fast_port)],
+            [
+                create_summary_fast_cfg(
+                    parsed.port if parsed.port is not None else cfg.summary_fast_port
+                )
+            ],
             [1],
         ),
         "qwen35": (

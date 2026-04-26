@@ -379,7 +379,11 @@ class BuildPipeline:
     ) -> BuildArtifact:
         """Create build provenance for success or failed command stages."""
         # Use provided build_command or fall back to stored last command
-        cmd = build_command or self._last_build_command or ["cmake", "--build", str(self.config.build_dir)]
+        cmd = (
+            build_command
+            or self._last_build_command
+            or ["cmake", "--build", str(self.config.build_dir)]
+        )
         return BuildArtifact(
             artifact_type="llama-server",
             backend=self.config.backend.value,
