@@ -452,14 +452,16 @@ class TestVenvPathFallback:
 class TestVenvPathVirtualEnvPrecedence:
     """T064: Tests for VIRTUAL_ENV precedence in venv path resolution."""
 
-    def test_venv_path_uses_virtual_env_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """get_venv_path should prefer VIRTUAL_ENV over XDG_CACHE_HOME."""
+    def test_venv_path_ignores_virtual_env_and_uses_managed_venv(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_venv_path should always return the managed venv, ignoring VIRTUAL_ENV."""
         custom_venv = "/custom/venv"
         monkeypatch.setenv("VIRTUAL_ENV", custom_venv)
         monkeypatch.setenv("XDG_CACHE_HOME", "/custom/cache")
 
         result = get_venv_path()
-        expected = Path(custom_venv)
+        expected = Path("/custom/cache") / "llm-runner" / "venv"
 
         assert result == expected
 

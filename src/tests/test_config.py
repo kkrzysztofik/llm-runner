@@ -100,18 +100,18 @@ class TestConfig:
         assert cfg.venv_path == expected
 
     def test_builds_dir_default(self) -> None:
-        """Config.builds_dir should return Path to ~/.local/share/llm-runner/builds by default."""
+        """Config.builds_dir should return Path to ~/.local/state/llm-runner/builds by default."""
         cfg = Config()
-        expected = Path.home() / ".local" / "share" / "llm-runner" / "builds"
+        expected = Path.home() / ".local" / "state" / "llm-runner" / "builds"
         assert cfg.builds_dir == expected
         assert isinstance(cfg.builds_dir, Path)
 
-    def test_builds_dir_with_xdg_data_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.builds_dir should respect XDG_DATA_HOME environment variable."""
-        custom_data = "/custom/data"
-        monkeypatch.setenv("XDG_DATA_HOME", custom_data)
+    def test_builds_dir_with_xdg_state_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Config.builds_dir should respect XDG_STATE_HOME environment variable."""
+        custom_state = "/custom/state"
+        monkeypatch.setenv("XDG_STATE_HOME", custom_state)
         cfg = Config()
-        expected = Path(custom_data) / "llm-runner" / "builds"
+        expected = Path(custom_state) / "llm-runner" / "builds"
         assert cfg.builds_dir == expected
 
     def test_reports_dir_default(self) -> None:
@@ -149,8 +149,8 @@ class TestConfig:
         cfg = Config()
         # venv_path should be under xdg_cache_base
         assert str(cfg.venv_path).startswith(str(Path(cfg.xdg_cache_base)))
-        # builds_dir should be under xdg_data_base
-        assert str(cfg.builds_dir).startswith(str(Path(cfg.xdg_data_base)))
+        # builds_dir should be under xdg_state_base (per specs/002-build-setup/data-model.md)
+        assert str(cfg.builds_dir).startswith(str(Path(cfg.xdg_state_base)))
         # reports_dir should be under xdg_data_base
         assert str(cfg.reports_dir).startswith(str(Path(cfg.xdg_data_base)))
         # build_lock_path should be under xdg_cache_base (per spec FR-004.4)

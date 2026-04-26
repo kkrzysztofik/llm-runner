@@ -283,10 +283,10 @@ class TestDetectTool:
             assert found is False
             assert version is None
 
-    def test_detect_tool_other_exception(self) -> None:
-        """detect_tool should return (False, None) on other exceptions."""
+    def test_detect_tool_os_error(self) -> None:
+        """detect_tool should return (False, None) on OSError exceptions."""
         with patch("subprocess.run") as mock_run:
-            mock_run.side_effect = Exception("Some unexpected error")
+            mock_run.side_effect = OSError("Some unexpected error")
             found, version = detect_tool("problematic_tool")
             assert found is False
             assert version is None
