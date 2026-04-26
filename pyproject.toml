@@ -12,7 +12,7 @@ dependencies = [
     "rich>=15.0.0",
     "psutil>=7.2.2",
     "httpx>=0.28.1",
-    "gguf>=0.10.0",
+    "gguf>=0.18.0",
 ]
 
 [project.scripts]
