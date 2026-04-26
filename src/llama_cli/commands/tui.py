@@ -562,7 +562,7 @@ class TUIApp:
         Uses ``profile_cli.cmd_profile`` directly (no subprocess).
         Returns 0 on success, 1 on failure.
         """
-        from llama_cli.profile_cli import cmd_profile
+        from llama_cli.commands.profile import cmd_profile
 
         with self._profile_lock:
             cancel_event = self._profile_cancel_events.get(alias)
@@ -599,7 +599,7 @@ class TUIApp:
         Returns a warning string or None if the profile is fresh / nonexistent.
         """
         try:
-            from llama_cli.profile_cli import _get_driver_version
+            from llama_cli.commands.profile import _get_driver_version
 
             record, staleness = load_profile_with_staleness(
                 profiles_dir=self.config.profiles_dir,

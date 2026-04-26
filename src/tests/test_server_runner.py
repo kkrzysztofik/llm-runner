@@ -185,7 +185,7 @@ class TestRunDryRunMode:
         exit_code = _run_dry_run_mode(parsed, acknowledged=False)
         assert exit_code == 1
 
-    @patch("llama_cli.dry_run.dry_run")
+    @patch("llama_cli.commands.dry_run.dry_run")
     def test_dry_run_with_valid_mode(self, mock_dry_run: MagicMock) -> None:
         """_run_dry_run_mode should call dry_run with correct args."""
         parsed = argparse.Namespace(
@@ -198,7 +198,7 @@ class TestRunDryRunMode:
         assert exit_code == 0
         mock_dry_run.assert_called_once_with("both", "8080", "8081", acknowledged=True)
 
-    @patch("llama_cli.dry_run.dry_run")
+    @patch("llama_cli.commands.dry_run.dry_run")
     def test_dry_run_with_single_port(self, mock_dry_run: MagicMock) -> None:
         """_run_dry_run_mode should handle single port."""
         parsed = argparse.Namespace(
@@ -1234,7 +1234,7 @@ class TestMain:
             )
             mock_parse.return_value = parsed
 
-            with patch("llama_cli.build_cli.main", return_value=0) as mock_build:
+            with patch("llama_cli.commands.build.main", return_value=0) as mock_build:
                 from llama_cli.server_runner import main
 
                 result = main()
@@ -1270,7 +1270,7 @@ class TestMain:
             )
             mock_parse.return_value = parsed
 
-            with patch("llama_cli.build_cli.main", return_value=0) as mock_build:
+            with patch("llama_cli.commands.build.main", return_value=0) as mock_build:
                 from llama_cli.server_runner import main
 
                 result = main()
@@ -1303,7 +1303,7 @@ class TestMain:
             )
             mock_parse.return_value = parsed
 
-            with patch("llama_cli.build_cli.main", return_value=0) as mock_build:
+            with patch("llama_cli.commands.build.main", return_value=0) as mock_build:
                 from llama_cli.server_runner import main
 
                 result = main()
@@ -1367,7 +1367,7 @@ class TestMain:
             )
             mock_parse.return_value = parsed
 
-            with patch("llama_cli.doctor_cli.main", return_value=0) as mock_doctor:
+            with patch("llama_cli.commands.doctor.main", return_value=0) as mock_doctor:
                 from llama_cli.server_runner import main
 
                 result = main()
@@ -1402,7 +1402,7 @@ class TestMain:
             )
             mock_parse.return_value = parsed
 
-            with patch("llama_cli.profile_cli.main", return_value=0) as mock_profile:
+            with patch("llama_cli.commands.profile.main", return_value=0) as mock_profile:
                 from llama_cli.server_runner import main
 
                 result = main()
@@ -1454,7 +1454,7 @@ class TestMain:
             )
             mock_parse.return_value = parsed
 
-            with patch("llama_cli.smoke_cli.run_smoke", return_value=0) as mock_smoke:
+            with patch("llama_cli.commands.smoke.run_smoke", return_value=0) as mock_smoke:
                 from llama_cli.server_runner import main
 
                 result = main()
@@ -1505,7 +1505,7 @@ class TestMain:
             )
             mock_parse.return_value = parsed
 
-            with patch("llama_cli.smoke_cli.run_smoke", return_value=0) as mock_smoke:
+            with patch("llama_cli.commands.smoke.run_smoke", return_value=0) as mock_smoke:
                 from llama_cli.server_runner import main
 
                 result = main()

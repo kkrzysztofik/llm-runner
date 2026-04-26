@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from _pytest.capture import CaptureFixture
 
-from llama_cli.doctor_cli import (
+from llama_cli.commands.doctor import (
     DoctorCheckResult,
     DoctorRepairResult,
     RepairAction,
@@ -28,7 +28,7 @@ from llama_cli.doctor_cli import (
     cmd_doctor_check,
     cmd_doctor_repair,
 )
-from llama_cli.doctor_cli import (
+from llama_cli.commands.doctor import (
     main as doctor_main,
 )
 from llama_manager.profile_cache import (
@@ -60,9 +60,9 @@ def doctor_mocks(
         when done to stop all patches.
     """
     stack = ExitStack()
-    mock_detect = stack.enter_context(patch("llama_cli.doctor_cli.detect_toolchain"))
-    mock_venv_path = stack.enter_context(patch("llama_cli.doctor_cli.get_venv_path"))
-    mock_config_cls = stack.enter_context(patch("llama_cli.doctor_cli.Config"))
+    mock_detect = stack.enter_context(patch("llama_cli.commands.doctor.detect_toolchain"))
+    mock_venv_path = stack.enter_context(patch("llama_cli.commands.doctor.get_venv_path"))
+    mock_config_cls = stack.enter_context(patch("llama_cli.commands.doctor.Config"))
 
     mock_detect.return_value = ToolchainStatus(
         gcc="11.4.0",
@@ -76,7 +76,7 @@ def doctor_mocks(
     mock_venv_path.return_value = tmp_path / "venv"
     (tmp_path / "venv").mkdir()
 
-    mock_integrity = stack.enter_context(patch("llama_cli.doctor_cli.check_venv_integrity"))
+    mock_integrity = stack.enter_context(patch("llama_cli.commands.doctor.check_venv_integrity"))
     mock_integrity.return_value = (True, None)
 
     mock_config_instance = MagicMock()
@@ -238,9 +238,9 @@ class TestCmdDoctorCheck:
     def test_doctor_check_succeeds_healthy_system(self, tmp_path, capsys) -> None:
         """doctor check should succeed when system is healthy."""
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             # Mock toolchain as complete
             mock_detect.return_value = ToolchainStatus(
@@ -258,7 +258,7 @@ class TestCmdDoctorCheck:
             (tmp_path / "venv").mkdir()
 
             # Mock venv integrity check
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+            with patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity:
                 mock_integrity.return_value = (True, None)
 
                 # Mock config
@@ -279,9 +279,9 @@ class TestCmdDoctorCheck:
     def test_doctor_check_fails_with_incomplete_toolchain(self, tmp_path, capsys) -> None:
         """doctor check should fail when toolchain is incomplete."""
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             # Mock toolchain as incomplete
             mock_detect.return_value = ToolchainStatus(
@@ -317,9 +317,9 @@ class TestCmdDoctorCheck:
     def test_doctor_check_json_output(self, tmp_path, capsys) -> None:
         """doctor check --json should produce valid JSON output."""
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             # Mock toolchain as complete
             mock_detect.return_value = ToolchainStatus(
@@ -337,7 +337,7 @@ class TestCmdDoctorCheck:
             (tmp_path / "venv").mkdir()
 
             # Mock venv integrity check
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+            with patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity:
                 mock_integrity.return_value = (True, None)
 
                 # Mock config
@@ -377,9 +377,9 @@ class TestCmdDoctorCheck:
         lock_file.write_text(json.dumps(lock_data))
 
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             # Mock toolchain as complete
             mock_detect.return_value = ToolchainStatus(
@@ -397,7 +397,7 @@ class TestCmdDoctorCheck:
             (tmp_path / "venv").mkdir()
 
             # Mock venv integrity check
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+            with patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity:
                 mock_integrity.return_value = (True, None)
 
                 # Mock config - use a very small timeout to ensure lock is stale
@@ -422,9 +422,9 @@ class TestCmdDoctorRepair:
     def test_doctor_repair_no_actions_needed(self, tmp_path, capsys) -> None:
         """doctor --repair should return no actions when system is healthy."""
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             # Mock toolchain as complete
             mock_detect.return_value = ToolchainStatus(
@@ -443,7 +443,7 @@ class TestCmdDoctorRepair:
             venv_path.mkdir()
 
             # Mock venv integrity check
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+            with patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity:
                 mock_integrity.return_value = (True, None)
 
                 # Mock config
@@ -470,9 +470,9 @@ class TestCmdDoctorRepair:
     def test_doctor_fix_alias_runs_repair(self, tmp_path, capsys) -> None:
         """doctor fix should be an alias for doctor repair."""
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             mock_detect.return_value = ToolchainStatus(
                 gcc="11.4.0",
@@ -488,7 +488,7 @@ class TestCmdDoctorRepair:
             mock_venv_path.return_value = venv_path
             venv_path.mkdir()
 
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+            with patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity:
                 mock_integrity.return_value = (True, None)
 
                 mock_config_instance = MagicMock()
@@ -520,9 +520,9 @@ class TestCmdDoctorRepair:
         failed_marker.touch()
 
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             # Mock toolchain as complete
             mock_detect.return_value = ToolchainStatus(
@@ -540,7 +540,7 @@ class TestCmdDoctorRepair:
             (tmp_path / "venv").mkdir()
 
             # Mock venv integrity check
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+            with patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity:
                 mock_integrity.return_value = (True, None)
 
                 # Mock config
@@ -575,9 +575,9 @@ class TestCmdDoctorRepair:
         failed_marker.touch()
 
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             # Mock toolchain as complete
             mock_detect.return_value = ToolchainStatus(
@@ -595,7 +595,7 @@ class TestCmdDoctorRepair:
             (tmp_path / "venv").mkdir()
 
             # Mock venv integrity check
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+            with patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity:
                 mock_integrity.return_value = (True, None)
 
                 # Mock config
@@ -625,9 +625,9 @@ class TestCmdDoctorRepair:
         lock_file.write_text(json.dumps(lock_data))
 
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             # Mock toolchain as complete
             mock_detect.return_value = ToolchainStatus(
@@ -645,7 +645,7 @@ class TestCmdDoctorRepair:
             (tmp_path / "venv").mkdir()
 
             # Mock venv integrity check
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+            with patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity:
                 mock_integrity.return_value = (True, None)
 
                 # Mock config - use a very small timeout to ensure lock is stale
@@ -667,9 +667,9 @@ class TestCmdDoctorRepair:
     def test_doctor_repair_json_output(self, tmp_path, capsys) -> None:
         """doctor --repair --json should produce valid JSON output."""
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             # Mock toolchain as complete
             mock_detect.return_value = ToolchainStatus(
@@ -687,7 +687,7 @@ class TestCmdDoctorRepair:
             (tmp_path / "venv").mkdir()
 
             # Mock venv integrity check
-            with patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity:
+            with patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity:
                 mock_integrity.return_value = (True, None)
 
                 # Mock config
@@ -720,10 +720,10 @@ class TestDoctorSuccessPath:
     def test_doctor_check_success_no_repairs_needed(self, tmp_path, capsys) -> None:
         """doctor check should succeed when no repairs are needed."""
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             # Mock toolchain as complete
             mock_detect.return_value = ToolchainStatus(
@@ -758,10 +758,10 @@ class TestDoctorSuccessPath:
     def test_doctor_repair_success_no_repairs_needed(self, tmp_path, capsys) -> None:
         """doctor --repair should succeed when no repairs are needed."""
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             # Mock toolchain as complete
             mock_detect.return_value = ToolchainStatus(
@@ -807,10 +807,10 @@ class TestDoctorCLIIntegration:
     def test_doctor_main_with_check_command(self, tmp_path, capsys) -> None:
         """doctor check command should work through main()."""
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             # Mock toolchain as complete
             mock_detect.return_value = ToolchainStatus(
@@ -844,10 +844,10 @@ class TestDoctorCLIIntegration:
     def test_doctor_main_with_repair_command(self, tmp_path, capsys) -> None:
         """doctor --repair command should work through main()."""
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             # Mock toolchain as complete
             mock_detect.return_value = ToolchainStatus(
@@ -1258,10 +1258,10 @@ class TestDirectoryRepairActions:
         # Don't create them
 
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             mock_detect.return_value = ToolchainStatus(
                 gcc="11.4.0",
@@ -1302,10 +1302,10 @@ class TestDirectoryRepairActions:
         builds_dir.mkdir()
 
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             mock_detect.return_value = ToolchainStatus(
                 gcc="11.4.0",
@@ -1339,10 +1339,10 @@ class TestDirectoryRepairActions:
         reports_dir = tmp_path / "reports"
 
         with (
-            patch("llama_cli.doctor_cli.detect_toolchain") as mock_detect,
-            patch("llama_cli.doctor_cli.get_venv_path") as mock_venv_path,
-            patch("llama_cli.doctor_cli.check_venv_integrity") as mock_integrity,
-            patch("llama_cli.doctor_cli.Config") as mock_config,
+            patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
+            patch("llama_cli.commands.doctor.get_venv_path") as mock_venv_path,
+            patch("llama_cli.commands.doctor.check_venv_integrity") as mock_integrity,
+            patch("llama_cli.commands.doctor.Config") as mock_config,
         ):
             mock_detect.return_value = ToolchainStatus(
                 gcc="11.4.0",

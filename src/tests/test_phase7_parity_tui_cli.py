@@ -50,7 +50,7 @@ class TestTuiVsCliSmokeParity:
 
     def test_passing_results_identical_status_phase(self, capsys) -> None:
         """TUI and CLI must produce the same slot status and phase for passing results."""
-        from llama_cli.smoke_cli import _print_report_human, _print_report_json
+        from llama_cli.commands.smoke import _print_report_human, _print_report_json
 
         results = [
             _make_result(slot_id="arc_b580", status=SmokeProbeStatus.PASS),
@@ -84,7 +84,7 @@ class TestTuiVsCliSmokeParity:
 
     def test_mixed_results_identical_status_phase(self, capsys) -> None:
         """TUI and CLI must produce the same status/phase for mixed pass/fail results."""
-        from llama_cli.smoke_cli import _print_report_human, _print_report_json
+        from llama_cli.commands.smoke import _print_report_human, _print_report_json
 
         results = [
             _make_result(slot_id="slot1", status=SmokeProbeStatus.PASS),
@@ -127,7 +127,7 @@ class TestTuiVsCliSmokeParity:
 
     def test_failing_results_identical_status_phase(self, capsys) -> None:
         """TUI and CLI must produce the same status/phase for all-failing results."""
-        from llama_cli.smoke_cli import _print_report_human, _print_report_json
+        from llama_cli.commands.smoke import _print_report_human, _print_report_json
 
         results = [
             _make_result(
@@ -202,7 +202,7 @@ class TestTuiVsCliSmokeParity:
 
     def test_phase_data_identical_across_outputs(self, capsys) -> None:
         """phase_reached and failure_phase must be identical in both TUI and CLI output."""
-        from llama_cli.smoke_cli import _print_report_json
+        from llama_cli.commands.smoke import _print_report_json
 
         results = [
             _make_result(
@@ -237,7 +237,7 @@ class TestTuiVsCliSmokeParity:
 
     def test_provenance_included_in_both_outputs(self, capsys) -> None:
         """Provenance data must be present in both TUI and CLI output."""
-        from llama_cli.smoke_cli import _print_report_json
+        from llama_cli.commands.smoke import _print_report_json
 
         results = [
             _make_result(

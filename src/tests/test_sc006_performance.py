@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llama_cli.dry_run import dry_run
+from llama_cli.commands.dry_run import dry_run
 from llama_manager.server import validate_port, validate_ports
 
 
@@ -22,11 +22,11 @@ def get_p95(data: list[float]) -> float:
 
 @pytest.mark.slow
 @patch(
-    "llama_cli.dry_run.write_artifact",
+    "llama_cli.commands.dry_run.write_artifact",
     return_value=os.path.join(tempfile.gettempdir(), "fake_artifact"),
 )
-@patch("llama_cli.dry_run.resolve_runtime_dir", return_value=tempfile.gettempdir())
-@patch("llama_cli.dry_run.validate_server_config", return_value=None)
+@patch("llama_cli.commands.dry_run.resolve_runtime_dir", return_value=tempfile.gettempdir())
+@patch("llama_cli.commands.dry_run.validate_server_config", return_value=None)
 @patch("sys.stdout", new_callable=MagicMock)
 @patch("sys.stderr", new_callable=MagicMock)
 def test_performance_dry_run_resolution(
@@ -84,11 +84,11 @@ def test_performance_validation_paths() -> None:
 
 
 @patch(
-    "llama_cli.dry_run.write_artifact",
+    "llama_cli.commands.dry_run.write_artifact",
     return_value=os.path.join(tempfile.gettempdir(), "fake_artifact"),
 )
-@patch("llama_cli.dry_run.resolve_runtime_dir", return_value=tempfile.gettempdir())
-@patch("llama_cli.dry_run.validate_server_config", return_value=None)
+@patch("llama_cli.commands.dry_run.resolve_runtime_dir", return_value=tempfile.gettempdir())
+@patch("llama_cli.commands.dry_run.validate_server_config", return_value=None)
 @patch("sys.stdout", new_callable=MagicMock)
 @patch("sys.stderr", new_callable=MagicMock)
 def test_performance_dry_run_two_slots(

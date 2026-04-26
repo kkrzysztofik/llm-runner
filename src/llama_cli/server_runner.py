@@ -15,7 +15,7 @@ from typing import NoReturn
 
 from llama_cli.cli_parser import parse_args
 from llama_cli.colors import Colors
-from llama_cli.setup_cli import main as setup_main
+from llama_cli.commands.setup import main as setup_main
 from llama_manager import (
     Config,
     ErrorCode,
@@ -271,7 +271,7 @@ def _acknowledge_risk_if_required(
 
 
 def _run_dry_run_mode(parsed: argparse.Namespace, acknowledged: bool) -> int:
-    from llama_cli.dry_run import dry_run
+    from llama_cli.commands.dry_run import dry_run
 
     # parsed.mode should be "dry-run"
     # parsed.dry_run_mode is the actual mode to preview
@@ -313,7 +313,7 @@ def _run_tui(parsed: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for failure).
     """
-    from llama_cli.tui_app import TUIApp
+    from llama_cli.commands.tui import TUIApp
 
     cfg = Config()
     exec_error = require_executable(cfg.llama_server_bin_intel, "Intel llama-server")
@@ -434,7 +434,7 @@ def main(args: list[str] | None = None) -> int:
 
     # Handle build command
     if parsed.mode == "build":
-        from llama_cli.build_cli import main as build_main
+        from llama_cli.commands.build import main as build_main
 
         return build_main(parsed.build_args)
 
@@ -444,19 +444,19 @@ def main(args: list[str] | None = None) -> int:
 
     # Handle doctor command (FR-004.7)
     if parsed.mode == "doctor":
-        from llama_cli.doctor_cli import main as doctor_main
+        from llama_cli.commands.doctor import main as doctor_main
 
         return doctor_main(argv[1:])
 
     # Handle profile subcommand
     if parsed.mode == "profile":
-        from llama_cli.profile_cli import main as profile_main
+        from llama_cli.commands.profile import main as profile_main
 
         return profile_main(argv[1:])
 
     # Handle smoke subcommand
     if parsed.mode == "smoke":
-        from llama_cli.smoke_cli import run_smoke
+        from llama_cli.commands.smoke import run_smoke
 
         smoke_args = [
             parsed.smoke_mode,

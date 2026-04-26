@@ -29,7 +29,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_shows_v1_models_probe_enabled(self, capsys) -> None:
         """dry-run output must show '/v1/models: enabled' when not skipped."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         # Default is skip_models_discovery=False → should show "enabled"
@@ -40,7 +40,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_shows_v1_models_probe_skipped(self, capsys) -> None:
         """dry-run output must show '/v1/models: skip' when skipped."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         cfg.smoke_skip_models_discovery = True
@@ -55,7 +55,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_shows_prompt_text(self, capsys) -> None:
         """dry-run output must show the prompt text."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         _print_smoke_probe_info(cfg)
@@ -66,7 +66,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_shows_custom_prompt(self, capsys) -> None:
         """dry-run output must show custom prompt when configured."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         cfg.smoke_prompt = "Say hello."
@@ -81,7 +81,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_shows_api_key_configured(self, capsys) -> None:
         """dry-run output must show 'API key: [configured]' when key is set."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         cfg.smoke_api_key = "sk-test-key-123"
@@ -92,7 +92,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_shows_api_key_not_set(self, capsys) -> None:
         """dry-run output must show 'API key: [not set]' when key is empty."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         cfg.smoke_api_key = ""
@@ -107,7 +107,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_shows_max_tokens(self, capsys) -> None:
         """dry-run output must show max tokens value."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         _print_smoke_probe_info(cfg)
@@ -118,7 +118,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_shows_custom_max_tokens(self, capsys) -> None:
         """dry-run output must show custom max tokens value."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         cfg.smoke_max_tokens = 32
@@ -133,7 +133,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_shows_smoke_probe_header(self, capsys) -> None:
         """dry-run output must include 'Smoke Probe:' header."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         _print_smoke_probe_info(cfg)
@@ -147,7 +147,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_smoke_section_has_all_fields(self, capsys) -> None:
         """Smoke Probe section must include all smoke-relevant flags."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         cfg.smoke_api_key = "sk-my-key"
@@ -164,7 +164,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_smoke_section_order(self, capsys) -> None:
         """Smoke Probe section fields must appear in deterministic order."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         _print_smoke_probe_info(cfg)
@@ -203,11 +203,11 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_summary_balanced_includes_smoke_probe(self, capsys) -> None:
         """dry-run summary-balanced mode must include Smoke Probe section."""
-        from llama_cli.dry_run import dry_run
+        from llama_cli.commands.dry_run import dry_run
 
         with (
-            patch("llama_cli.dry_run._run_summary_balanced_mode") as mock_run,
-            patch("llama_cli.dry_run._write_dry_run_artifact"),
+            patch("llama_cli.commands.dry_run._run_summary_balanced_mode") as mock_run,
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
         ):
             mock_run.return_value = False
             mock_run.slot_payloads = []
@@ -221,11 +221,11 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_qwen35_includes_smoke_probe(self, capsys) -> None:
         """dry-run qwen35 mode must include Smoke Probe section."""
-        from llama_cli.dry_run import dry_run
+        from llama_cli.commands.dry_run import dry_run
 
         with (
-            patch("llama_cli.dry_run._run_qwen35_mode") as mock_run,
-            patch("llama_cli.dry_run._write_dry_run_artifact"),
+            patch("llama_cli.commands.dry_run._run_qwen35_mode") as mock_run,
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
         ):
             mock_run.return_value = False
             mock_run.slot_payloads = []
@@ -238,11 +238,11 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_both_includes_smoke_probe(self, capsys) -> None:
         """dry-run both mode must include Smoke Probe section."""
-        from llama_cli.dry_run import dry_run
+        from llama_cli.commands.dry_run import dry_run
 
         with (
-            patch("llama_cli.dry_run._run_both_mode") as mock_run,
-            patch("llama_cli.dry_run._write_dry_run_artifact"),
+            patch("llama_cli.commands.dry_run._run_both_mode") as mock_run,
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
         ):
             mock_run.return_value = False
             mock_run.slot_payloads = []
@@ -259,7 +259,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_empty_api_key_shows_not_set(self, capsys) -> None:
         """Empty smoke_api_key must show 'not set' not '[configured]'."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         cfg.smoke_api_key = ""
@@ -271,7 +271,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_with_non_empty_api_key_shows_configured(self, capsys) -> None:
         """Non-empty smoke_api_key must show '[configured]'."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         cfg.smoke_api_key = "sk-actual-key"
@@ -283,7 +283,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_prompt_is_redacted_for_secrets(self, capsys) -> None:
         """Prompt text should not contain sensitive data (it's user-provided text)."""
-        from llama_cli.dry_run import _print_smoke_probe_info
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
         cfg.smoke_prompt = "Hello, world!"
@@ -294,7 +294,7 @@ class TestDryRunSmokeFlagBundleOutput:
 
     def test_dry_run_all_modes_show_smoke_probe(self, capsys: pytest.CaptureFixture[str]) -> None:
         """All dry-run modes (summary-balanced, summary-fast, qwen35, both) must show Smoke Probe."""
-        from llama_cli.dry_run import dry_run
+        from llama_cli.commands.dry_run import dry_run
 
         test_cases: list[tuple[str, dict[str, typing.Any]]] = [
             ("summary-balanced", {"primary_port": "8080"}),
@@ -309,8 +309,8 @@ class TestDryRunSmokeFlagBundleOutput:
             assert "Smoke Probe:" not in captured.out, f"Residual output from previous mode: {mode}"
 
             with (
-                patch(f"llama_cli.dry_run._run_{mode.replace('-', '_')}_mode") as mock_run,
-                patch("llama_cli.dry_run._write_dry_run_artifact"),
+                patch(f"llama_cli.commands.dry_run._run_{mode.replace('-', '_')}_mode") as mock_run,
+                patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
             ):
                 mock_run.return_value = False
                 mock_run.slot_payloads = []

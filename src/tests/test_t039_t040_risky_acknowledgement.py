@@ -6,7 +6,8 @@ import pytest
 
 from llama_cli import server_runner
 from llama_cli.cli_parser import parse_args, parse_tui_args
-from llama_cli.dry_run import dry_run
+from llama_cli.commands.dry_run import dry_run
+from llama_cli.commands.tui import TUIApp
 from llama_cli.server_runner import (
     run_both,
     run_qwen35,
@@ -14,7 +15,6 @@ from llama_cli.server_runner import (
     run_summary_fast,
     verify_risks,
 )
-from llama_cli.tui_app import TUIApp
 from llama_manager import LaunchResult, ServerConfig, ServerManager
 from llama_manager.config import ErrorCode, ErrorDetail, MultiValidationError
 
@@ -166,8 +166,8 @@ def test_tui_run_keeps_acknowledged_risk_panel_visible() -> None:
     app.running = False
 
     with (
-        patch("llama_cli.tui_app.Live", _FakeLive),
-        patch("llama_cli.tui_app.psutil.pid_exists", return_value=True),
+        patch("llama_cli.commands.tui.Live", _FakeLive),
+        patch("llama_cli.commands.tui.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,
             "launch_all_slots",
@@ -214,7 +214,7 @@ def test_dry_run_exits_when_backend_validation_fails() -> None:
     )
 
     with (
-        patch("llama_cli.dry_run.validate_server_config", return_value=backend_error),
+        patch("llama_cli.commands.dry_run.validate_server_config", return_value=backend_error),
         pytest.raises(SystemExit) as exc,
     ):
         dry_run("summary-fast")
@@ -234,7 +234,7 @@ def test_tui_run_exits_when_launch_is_blocked(capsys: pytest.CaptureFixture[str]
     )
 
     with (
-        patch("llama_cli.tui_app.Live", _FakeLive),
+        patch("llama_cli.commands.tui.Live", _FakeLive),
         patch.object(
             app.server_manager,
             "launch_all_slots",
@@ -260,8 +260,8 @@ def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) ->
     app.running = False
 
     with (
-        patch("llama_cli.tui_app.Live", _FakeLive),
-        patch("llama_cli.tui_app.psutil.pid_exists", return_value=True),
+        patch("llama_cli.commands.tui.Live", _FakeLive),
+        patch("llama_cli.commands.tui.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,
             "launch_all_slots",

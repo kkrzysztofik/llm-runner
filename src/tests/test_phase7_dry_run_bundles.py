@@ -234,12 +234,12 @@ class TestDryRunFlagBundlesParity:
 
     def test_dry_run_output_includes_openai_bundle_section(self, capsys) -> None:
         """dry-run summary-balanced output must include 'OpenAI Bundle' section."""
-        from llama_cli.dry_run import dry_run
+        from llama_cli.commands.dry_run import dry_run
 
         with (
-            patch("llama_cli.dry_run._run_summary_balanced_mode") as mock_run,
-            patch("llama_cli.dry_run._print_smoke_probe_info"),
-            patch("llama_cli.dry_run._write_dry_run_artifact"),
+            patch("llama_cli.commands.dry_run._run_summary_balanced_mode") as mock_run,
+            patch("llama_cli.commands.dry_run._print_smoke_probe_info"),
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
         ):
             mock_run.return_value = False
             mock_run.slot_payloads = []
@@ -251,12 +251,12 @@ class TestDryRunFlagBundlesParity:
 
     def test_dry_run_both_mode_prints_both_bundles(self, capsys) -> None:
         """dry-run both mode must print openai_flag_bundle for both summary and qwen35."""
-        from llama_cli.dry_run import dry_run
+        from llama_cli.commands.dry_run import dry_run
 
         with (
-            patch("llama_cli.dry_run._run_both_mode") as mock_run,
-            patch("llama_cli.dry_run._print_smoke_probe_info"),
-            patch("llama_cli.dry_run._write_dry_run_artifact"),
+            patch("llama_cli.commands.dry_run._run_both_mode") as mock_run,
+            patch("llama_cli.commands.dry_run._print_smoke_probe_info"),
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
         ):
             mock_run.return_value = False
 
@@ -271,11 +271,11 @@ class TestDryRunFlagBundlesParity:
 
     def test_dry_run_summary_balanced_integration_no_mock_handlers(self, capsys) -> None:
         """dry-run summary-balanced: call dry_run() directly, capture stdout, assert OpenAI Bundle."""
-        from llama_cli.dry_run import dry_run
+        from llama_cli.commands.dry_run import dry_run
 
         with (
-            patch("llama_cli.dry_run._print_smoke_probe_info"),
-            patch("llama_cli.dry_run._write_dry_run_artifact"),
+            patch("llama_cli.commands.dry_run._print_smoke_probe_info"),
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
             contextlib.suppress(SystemExit),
         ):
             dry_run(mode="summary-balanced", primary_port="8080")
@@ -285,11 +285,11 @@ class TestDryRunFlagBundlesParity:
 
     def test_dry_run_both_integration_no_mock_handlers(self, capsys) -> None:
         """dry-run both: call dry_run() directly, assert both bundle labels appear."""
-        from llama_cli.dry_run import dry_run
+        from llama_cli.commands.dry_run import dry_run
 
         with (
-            patch("llama_cli.dry_run._print_smoke_probe_info"),
-            patch("llama_cli.dry_run._write_dry_run_artifact"),
+            patch("llama_cli.commands.dry_run._print_smoke_probe_info"),
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
             contextlib.suppress(SystemExit),
         ):
             dry_run(mode="both", primary_port="8080", secondary_port="8081")
@@ -303,7 +303,7 @@ class TestDryRunFlagBundlesParity:
 
     def test_dry_run_summary_balanced_integration(self, capsys) -> None:
         """dry-run summary-balanced integration test without mocking mode handlers."""
-        from llama_cli.dry_run import _print_common_payload_sections
+        from llama_cli.commands.dry_run import _print_common_payload_sections
         from llama_manager.server import build_dry_run_slot_payload
 
         server_cfg = _make_minimal_server_config(
@@ -325,7 +325,7 @@ class TestDryRunFlagBundlesParity:
 
     def test_dry_run_both_integration(self, capsys) -> None:
         """dry-run both mode integration test checking both bundles appear."""
-        from llama_cli.dry_run import _print_common_payload_sections
+        from llama_cli.commands.dry_run import _print_common_payload_sections
         from llama_manager.server import build_dry_run_slot_payload
 
         configs = [

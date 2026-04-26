@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from llama_cli.build_cli import (
+from llama_cli.commands.build import (
     main,
     parse_build_args,
     run_build_command,
@@ -161,7 +161,7 @@ class TestRunBuildCommand:
         args.build_dir = tmp_path / "build"
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_pipeline = self._make_mock_pipeline(True)
             mock_cls.return_value = mock_pipeline
 
@@ -178,7 +178,7 @@ class TestRunBuildCommand:
         args.build_dir = tmp_path / "build"
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_pipeline = self._make_mock_pipeline(True)
             mock_cls.return_value = mock_pipeline
 
@@ -193,7 +193,7 @@ class TestRunBuildCommand:
         args.build_dir = tmp_path / "build"
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_pipeline = self._make_mock_pipeline(True)
             mock_cls.return_value = mock_pipeline
 
@@ -209,7 +209,7 @@ class TestRunBuildCommand:
         args.build_dir = tmp_path / "build"
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_pipeline = self._make_mock_pipeline(False)
             mock_pipeline.run.return_value = BuildResult(
                 success=False,
@@ -230,7 +230,7 @@ class TestRunBuildCommand:
         args.build_dir = tmp_path / "build"
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_success = self._make_mock_pipeline(True)
             mock_failure = self._make_mock_pipeline(False)
             mock_failure.run.return_value = BuildResult(
@@ -250,7 +250,7 @@ class TestRunBuildCommand:
         args.build_dir = tmp_path / "build"
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_pipeline = self._make_mock_pipeline(True)
             mock_cls.return_value = mock_pipeline
 
@@ -270,7 +270,7 @@ class TestRunBuildCommand:
         args.build_dir = tmp_path / "build"
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_pipeline = self._make_mock_pipeline(False)
             mock_pipeline.run.return_value = BuildResult(
                 success=False,
@@ -294,7 +294,7 @@ class TestRunBuildCommand:
         args.build_dir = tmp_path / "build"
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_pipeline = self._make_mock_pipeline(True)
             mock_cls.return_value = mock_pipeline
 
@@ -310,7 +310,7 @@ class TestRunBuildCommand:
         args.build_dir = tmp_path / "build"
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_pipeline = self._make_mock_pipeline(True)
             mock_cls.return_value = mock_pipeline
 
@@ -330,7 +330,7 @@ class TestRunBuildCommand:
         args = parse_build_args(["sycl"])
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_pipeline = self._make_mock_pipeline(True)
             mock_cls.return_value = mock_pipeline
 
@@ -347,7 +347,7 @@ class TestRunBuildCommand:
         args.source_dir = tmp_path / "source"
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_pipeline = self._make_mock_pipeline(True)
             mock_cls.return_value = mock_pipeline
 
@@ -363,7 +363,7 @@ class TestRunBuildCommand:
         args.source_dir = tmp_path / "source"
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_pipeline = self._make_mock_pipeline(True)
             mock_cls.return_value = mock_pipeline
 
@@ -382,7 +382,7 @@ class TestRunBuildCommand:
         args = parse_build_args(["cuda", "--source-dir", str(source_dir)])
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_pipeline = self._make_mock_pipeline(True)
             mock_cls.return_value = mock_pipeline
 
@@ -400,7 +400,7 @@ class TestRunBuildCommand:
         args.source_dir = tmp_path / "source"
         args.output_dir = tmp_path / "output"
 
-        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+        with patch("llama_cli.commands.build.BuildPipeline") as mock_cls:
             mock_pipeline = self._make_mock_pipeline(True)
             mock_cls.return_value = mock_pipeline
 
@@ -421,7 +421,7 @@ class TestMain:
 
     def test_main_keyboard_interrupt(self, tmp_path: Path) -> None:
         """main should return 130 on KeyboardInterrupt."""
-        with patch("llama_cli.build_cli.parse_build_args") as mock_parse:
+        with patch("llama_cli.commands.build.parse_build_args") as mock_parse:
             mock_parse.side_effect = KeyboardInterrupt()
 
             exit_code = main()
@@ -430,7 +430,7 @@ class TestMain:
 
     def test_main_generic_exception(self, tmp_path: Path) -> None:
         """main should return 1 on generic exception."""
-        with patch("llama_cli.build_cli.parse_build_args") as mock_parse:
+        with patch("llama_cli.commands.build.parse_build_args") as mock_parse:
             mock_parse.side_effect = ValueError("something went wrong")
 
             exit_code = main()
@@ -440,9 +440,9 @@ class TestMain:
     def test_main_generic_exception_json_mode(self, tmp_path: Path, capsys) -> None:
         """main should output JSON on exception when --json flag is set."""
         args = argparse.Namespace(json=True)
-        with patch("llama_cli.build_cli.parse_build_args") as mock_parse:
+        with patch("llama_cli.commands.build.parse_build_args") as mock_parse:
             mock_parse.return_value = args
-            with patch("llama_cli.build_cli.run_build_command") as mock_run:
+            with patch("llama_cli.commands.build.run_build_command") as mock_run:
                 mock_run.side_effect = ValueError("build error")
 
                 exit_code = main()
@@ -458,12 +458,12 @@ class TestMain:
         args = parse_build_args(["sycl"])
         with (
             patch.object(
-                sys.modules["llama_cli.build_cli"],
+                sys.modules["llama_cli.commands.build"],
                 "parse_build_args",
                 return_value=args,
             ),
             patch.object(
-                sys.modules["llama_cli.build_cli"],
+                sys.modules["llama_cli.commands.build"],
                 "run_build_command",
                 return_value=0,
             ) as mock_run,
@@ -475,8 +475,8 @@ class TestMain:
     def test_main_passes_args_to_parser(self) -> None:
         """main should forward explicit args to parse_build_args."""
         with (
-            patch("llama_cli.build_cli.parse_build_args") as mock_parse,
-            patch("llama_cli.build_cli.run_build_command", return_value=0),
+            patch("llama_cli.commands.build.parse_build_args") as mock_parse,
+            patch("llama_cli.commands.build.run_build_command", return_value=0),
         ):
             mock_parse.return_value = argparse.Namespace(json=False)
             exit_code = main(["cuda", "--dry-run"])

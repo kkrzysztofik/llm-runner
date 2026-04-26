@@ -914,7 +914,7 @@ class TestTUILifecycle:
 
     def test_tui_uses_servermanager(self) -> None:
         """TUIApp should use ServerManager for lifecycle management."""
-        from llama_cli.tui_app import TUIApp
+        from llama_cli.commands.tui import TUIApp
         from llama_manager import ServerConfig
 
         configs = [

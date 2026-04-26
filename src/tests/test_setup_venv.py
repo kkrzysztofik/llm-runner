@@ -321,7 +321,7 @@ class TestSetupCheckSkipsVenvIntegrity:
         # This test verifies the contract that --check is toolchain-only
 
         # Mock a scenario where venv is corrupted but tools are available
-        with patch("llama_cli.setup_cli.detect_toolchain") as mock_detect:
+        with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
             # Tools are available
             mock_status = MagicMock()
             mock_status.is_sycl_ready = True
@@ -331,7 +331,7 @@ class TestSetupCheckSkipsVenvIntegrity:
             mock_detect.return_value = mock_status
 
             # Call cmd_check to verify detect_toolchain is called
-            from llama_cli.setup_cli import cmd_check
+            from llama_cli.commands.setup import cmd_check
 
             exit_code = cmd_check(MagicMock(backend="all", json=False))
 

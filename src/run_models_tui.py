@@ -7,7 +7,7 @@ run_models_tui.py - TUI for managing multiple llama-server instances
 import sys
 
 from llama_cli import parse_tui_args
-from llama_cli.tui_app import TUIApp
+from llama_cli.commands.tui import TUIApp
 from llama_manager import (
     Config,
     create_qwen35_cfg,

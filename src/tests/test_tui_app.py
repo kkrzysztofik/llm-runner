@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llama_cli.tui_app import TUIApp, _cbreak_stdin
+from llama_cli.commands.tui import TUIApp, _cbreak_stdin
 from llama_manager import ServerConfig
 from llama_manager.build_pipeline import BuildBackend, BuildProgress, BuildResult
 
@@ -391,7 +391,7 @@ class TestBuildLlamaCpp:
 
     def test_build_llama_cpp_success(self, tmp_path: Path) -> None:
         """build_llama_cpp should return True on success."""
-        with patch("llama_cli.tui_app.Config") as mock_config_cls:
+        with patch("llama_cli.commands.tui.Config") as mock_config_cls:
             mock_config = MagicMock()
             mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
             mock_config.builds_dir = tmp_path / "output"
@@ -401,7 +401,7 @@ class TestBuildLlamaCpp:
             mock_config.build_retry_delay = 5
             mock_config_cls.return_value = mock_config
 
-            with patch("llama_cli.tui_app.BuildPipeline") as mock_pipeline_cls:
+            with patch("llama_cli.commands.tui.BuildPipeline") as mock_pipeline_cls:
                 mock_pipeline_cls.return_value.run.return_value = BuildResult(success=True)
                 mock_pipeline_cls.return_value.dry_run = False
 
@@ -413,7 +413,7 @@ class TestBuildLlamaCpp:
 
     def test_build_llama_cpp_failure(self, tmp_path: Path) -> None:
         """build_llama_cpp should return False on failure."""
-        with patch("llama_cli.tui_app.Config") as mock_config_cls:
+        with patch("llama_cli.commands.tui.Config") as mock_config_cls:
             mock_config = MagicMock()
             mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
             mock_config.builds_dir = tmp_path / "output"
@@ -423,7 +423,7 @@ class TestBuildLlamaCpp:
             mock_config.build_retry_delay = 5
             mock_config_cls.return_value = mock_config
 
-            with patch("llama_cli.tui_app.BuildPipeline") as mock_pipeline_cls:
+            with patch("llama_cli.commands.tui.BuildPipeline") as mock_pipeline_cls:
                 mock_pipeline_cls.return_value.run.return_value = BuildResult(
                     success=False, error_message="failed"
                 )
@@ -437,7 +437,7 @@ class TestBuildLlamaCpp:
 
     def test_build_llama_cpp_dry_run(self, tmp_path: Path) -> None:
         """build_llama_cpp should set dry_run on pipeline."""
-        with patch("llama_cli.tui_app.Config") as mock_config_cls:
+        with patch("llama_cli.commands.tui.Config") as mock_config_cls:
             mock_config = MagicMock()
             mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
             mock_config.builds_dir = tmp_path / "output"
@@ -447,7 +447,7 @@ class TestBuildLlamaCpp:
             mock_config.build_retry_delay = 5
             mock_config_cls.return_value = mock_config
 
-            with patch("llama_cli.tui_app.BuildPipeline") as mock_pipeline_cls:
+            with patch("llama_cli.commands.tui.BuildPipeline") as mock_pipeline_cls:
                 mock_pipeline_cls.return_value.run.return_value = BuildResult(success=True)
 
                 app = TUIApp(configs=[_make_config()], gpu_indices=[0])
@@ -457,7 +457,7 @@ class TestBuildLlamaCpp:
 
     def test_build_llama_cpp_cuda_backend(self, tmp_path: Path) -> None:
         """build_llama_cpp should use correct backend for CUDA."""
-        with patch("llama_cli.tui_app.Config") as mock_config_cls:
+        with patch("llama_cli.commands.tui.Config") as mock_config_cls:
             mock_config = MagicMock()
             mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
             mock_config.builds_dir = tmp_path / "output"
@@ -467,7 +467,7 @@ class TestBuildLlamaCpp:
             mock_config.build_retry_delay = 5
             mock_config_cls.return_value = mock_config
 
-            with patch("llama_cli.tui_app.BuildPipeline") as mock_pipeline_cls:
+            with patch("llama_cli.commands.tui.BuildPipeline") as mock_pipeline_cls:
                 mock_pipeline_cls.return_value.run.return_value = BuildResult(success=True)
 
                 app = TUIApp(configs=[_make_config()], gpu_indices=[0])
@@ -542,7 +542,7 @@ class TestProfilingFlow:
         cancel_event = threading.Event()
         app._profile_cancel_events["slot0"] = cancel_event
 
-        with patch("llama_cli.profile_cli.cmd_profile", return_value=0) as mock_cmd_profile:
+        with patch("llama_cli.commands.profile.cmd_profile", return_value=0) as mock_cmd_profile:
             exit_code = app._execute_profile("slot0", "balanced")
 
         assert exit_code == 0
@@ -579,13 +579,13 @@ class TestProfilingFlow:
 
         with (
             patch(
-                "llama_cli.tui_app.get_gpu_identifier", return_value="intel-arc_b580-00"
+                "llama_cli.commands.tui.get_gpu_identifier", return_value="intel-arc_b580-00"
             ) as mock_gpu,
             patch(
-                "llama_cli.profile_cli._get_driver_version", return_value="driver-1"
+                "llama_cli.commands.profile._get_driver_version", return_value="driver-1"
             ) as mock_driver,
             patch(
-                "llama_cli.tui_app.load_profile_with_staleness",
+                "llama_cli.commands.tui.load_profile_with_staleness",
                 return_value=(MagicMock(), stale_result),
             ) as mock_load,
         ):
@@ -607,7 +607,7 @@ class TestCbreakStdin:
         fake_stdin = MagicMock()
         fake_stdin.isatty.return_value = False
 
-        with patch("llama_cli.tui_app.sys.stdin", fake_stdin), _cbreak_stdin():
+        with patch("llama_cli.commands.tui.sys.stdin", fake_stdin), _cbreak_stdin():
             pass
 
         fake_stdin.isatty.assert_called_once()
@@ -619,8 +619,8 @@ class TestCbreakStdin:
         original_attrs = [1, 2, 3, 4]
 
         with (
-            patch("llama_cli.tui_app.os.name", "posix"),
-            patch("llama_cli.tui_app.sys.stdin", fake_stdin),
+            patch("llama_cli.commands.tui.os.name", "posix"),
+            patch("llama_cli.commands.tui.sys.stdin", fake_stdin),
             patch("termios.tcgetattr", return_value=original_attrs) as mock_getattr,
             patch("tty.setcbreak") as mock_setcbreak,
             patch("termios.tcsetattr") as mock_setattr,
