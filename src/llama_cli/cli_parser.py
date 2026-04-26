@@ -115,6 +115,7 @@ def _parse_normal_mode_args(args: list[str]) -> argparse.Namespace:
       doctor           Run doctor diagnostics (use subcommands: check, repair)
       build            Run build pipeline
       setup            Run setup commands (use subcommands: check, venv, clean-venv)
+      tui              Launch interactive TUI
 
     Exit codes:
       0    Success
@@ -133,6 +134,8 @@ def _parse_normal_mode_args(args: list[str]) -> argparse.Namespace:
       %(prog)s doctor repair
       %(prog)s build sycl
       %(prog)s setup check
+      %(prog)s tui both
+      %(prog)s tui summary-balanced --port 8080
             """,
     )
 
@@ -431,6 +434,85 @@ def _handle_dry_run_case(args: list[str]) -> argparse.Namespace | None:
     return None
 
 
+def _handle_tui_case(args: list[str]) -> argparse.Namespace | None:
+    """Handle tui subcommand special case.
+
+    Args:
+        args: List of command-line arguments.
+
+    Returns:
+        Parsed namespace if tui subcommand, None otherwise.
+
+    Raises:
+        SystemExit: On missing or invalid tui arguments.
+    """
+    if not (len(args) >= 1 and args[0] == "tui"):
+        return None
+
+    if len(args) < 2:
+        print(
+            "error: tui requires a mode argument (summary-balanced|summary-fast|qwen35|both)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    mode = args[1]
+    if mode not in VALID_MODES:
+        print(
+            f"error: invalid tui mode '{mode}'. Valid modes: {', '.join(VALID_MODES)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    port: int | None = None
+    port2: int | None = None
+    acknowledge_risky = False
+    i = 2
+    while i < len(args):
+        arg = args[i]
+        if arg in ("--port", "-p"):
+            i += 1
+            if i < len(args):
+                try:
+                    port = int(args[i])
+                except ValueError:
+                    print(f"error: invalid port value '{args[i]}'", file=sys.stderr)
+                    sys.exit(1)
+                i += 1
+            else:
+                print(f"error: {arg} requires a value", file=sys.stderr)
+                sys.exit(1)
+        elif arg in ("--port2", "-P"):
+            i += 1
+            if i < len(args):
+                try:
+                    port2 = int(args[i])
+                except ValueError:
+                    print(f"error: invalid port2 value '{args[i]}'", file=sys.stderr)
+                    sys.exit(1)
+                i += 1
+            else:
+                print(f"error: {arg} requires a value", file=sys.stderr)
+                sys.exit(1)
+        elif arg == "--acknowledge-risky":
+            acknowledge_risky = True
+            i += 1
+        elif arg.startswith("-"):
+            print(f"error: unknown tui flag '{arg}'", file=sys.stderr)
+            sys.exit(1)
+        else:
+            print(f"error: unexpected tui argument '{arg}'", file=sys.stderr)
+            sys.exit(1)
+
+    return argparse.Namespace(
+        mode="tui",
+        tui_mode=mode,
+        port=port,
+        port2=port2,
+        acknowledge_risky=acknowledge_risky,
+    )
+
+
 def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
     """Handle smoke subcommand special case.
 
@@ -664,6 +746,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     smoke_result = _handle_smoke_case(args)
     if smoke_result is not None:
         return smoke_result
+
+    # Handle tui subcommand (special case)
+    tui_result = _handle_tui_case(args)
+    if tui_result is not None:
+        return tui_result
 
     # Normal mode parsing
     return _parse_normal_mode_args(args)

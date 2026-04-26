@@ -55,19 +55,14 @@ def usage() -> None:
   src/run_opencode_models.py dry-run <mode> [ports...]
   src/run_opencode_models.py smoke <mode> [slot_id] [--json]
   src/run_opencode_models.py profile <slot_id> <flavor> [--json]
-  src/run_opencode_models.py setup <subcommand>
-
-Modes:
+  src/run_opencode_models.py setup <subcommand>\n  src/run_opencode_models.py tui <mode> [--port PORT] [--port2 PORT2]\n\nModes:
   summary-balanced  Run summary-balanced model (Intel SYCL)
   summary-fast      Run summary-fast model (Intel SYCL)
   qwen35           Run qwen35-coding model (NVIDIA CUDA)
   both             Run summary-balanced and qwen35 side-by-side
   dry-run          Preview commands without executing
   smoke            Run smoke health probes (both|slot)
-  setup            Toolchain diagnostics and venv management
-  profile          Run benchmark profile
-
-Smoke Subcommands:
+  setup            Toolchain diagnostics and venv management\n  profile          Run benchmark profile\n  tui              Launch interactive TUI\n\nSmoke Subcommands:
   both             Probe all servers
   slot <id>        Probe a specific slot
 
@@ -85,6 +80,11 @@ Setup Subcommands:
   venv            Create or reuse virtual environment (FR-005.2)
   clean-venv      Remove virtual environment (FR-005.3)
 
+TUI Options:
+  --port          Port for primary model
+  --port2         Port for secondary model
+  --acknowledge-risky  Acknowledge risky operations
+
 Examples:
   src/run_opencode_models.py summary-balanced
   src/run_opencode_models.py summary-fast 8082
@@ -97,7 +97,9 @@ Examples:
   src/run_opencode_models.py profile slot0 balanced --json
   src/run_opencode_models.py setup --check
   src/run_opencode_models.py setup venv
-  src/run_opencode_models.py setup clean-venv --yes""")
+  src/run_opencode_models.py setup clean-venv --yes
+  src/run_opencode_models.py tui both
+  src/run_opencode_models.py tui summary-balanced --port 8080""")
 
 
 def _print_backend_error_and_exit() -> NoReturn:
@@ -303,6 +305,66 @@ def _resolve_port(ports: list[int], index: int, default: int) -> int:
     return ports[index] if len(ports) > index else default
 
 
+def _run_tui(parsed: argparse.Namespace) -> int:
+    """Run the TUI application.
+
+    Args:
+        parsed: Parsed arguments with tui_mode, port, port2, acknowledge_risky.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    from llama_cli.tui_app import TUIApp
+
+    cfg = Config()
+    exec_error = require_executable(cfg.llama_server_bin_intel, "Intel llama-server")
+    if exec_error is not None:
+        _print_validation_error(exec_error)
+    if cfg.llama_server_bin_nvidia:
+        exec_error = require_executable(cfg.llama_server_bin_nvidia, "NVIDIA llama-server")
+        if exec_error is not None:
+            _print_validation_error(exec_error)
+
+    configs: list[ServerConfig] = []
+    gpu_indices: list[int] = []
+
+    if parsed.tui_mode == "both":
+        configs = [
+            create_summary_balanced_cfg(parsed.port or cfg.summary_balanced_port),
+            create_qwen35_cfg(parsed.port2 or cfg.qwen35_port),
+        ]
+        gpu_indices = [1, 0]
+    elif parsed.tui_mode == "summary-balanced":
+        configs = [create_summary_balanced_cfg(parsed.port or cfg.summary_balanced_port)]
+        gpu_indices = [1]
+    elif parsed.tui_mode == "summary-fast":
+        configs = [create_summary_fast_cfg(parsed.port or cfg.summary_fast_port)]
+        gpu_indices = [1]
+    elif parsed.tui_mode == "qwen35":
+        configs = [create_qwen35_cfg(parsed.port or cfg.qwen35_port)]
+        gpu_indices = [0]
+
+    for server_cfg in configs:
+        port_error = validate_port(server_cfg.port, server_cfg.alias)
+        if port_error is not None:
+            _print_validation_error(port_error)
+        model_error = require_model(server_cfg.model)
+        if model_error is not None:
+            _print_validation_error(model_error)
+
+    if len(configs) > 1:
+        validate_ports(
+            configs[0].port,
+            configs[1].port,
+            configs[0].alias + " port",
+            configs[1].alias + " port",
+        )
+
+    app = TUIApp(configs, gpu_indices)
+    app.run(acknowledged=parsed.acknowledge_risky)
+    return 0
+
+
 def _run_mode(parsed_mode: str, ports: list[int], manager: ServerManager, cfg: Config) -> int:
     if parsed_mode == "summary-balanced":
         port = _resolve_port(ports, 0, cfg.summary_balanced_port)
@@ -338,6 +400,7 @@ def _normalize_main_args(args: list[str] | None) -> list[str]:
         "setup",
         "profile",
         "smoke",
+        "tui",
     }
     if args[0] in modes or args[0].startswith("-"):
         return args
@@ -415,6 +478,10 @@ def main(args: list[str] | None = None) -> int:
             smoke_args.append("--json")
 
         return run_smoke(smoke_args)
+
+    # Handle tui subcommand
+    if parsed.mode == "tui":
+        return _run_tui(parsed)
 
     manager = ServerManager()
     signal.signal(signal.SIGINT, manager.on_interrupt)
