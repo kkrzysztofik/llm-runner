@@ -129,14 +129,20 @@ uv run llm-runner profile qwen35 quality --json
 
 ## TUI
 
-The legacy Rich TUI launcher is still available:
+The Rich TUI launcher:
 
 ```bash
-uv run python src/run_models_tui.py both
-uv run python src/run_models_tui.py summary-balanced --port 8080
+llm-runner tui both
+llm-runner tui summary-balanced --port 8080
 ```
 
 It shows live logs, configuration, and GPU stats for the configured slots.
+
+Legacy/internal fallback (requires source tree):
+
+```bash
+uv run python src/run_models_tui.py both
+```
 
 ## Safety Notes
 

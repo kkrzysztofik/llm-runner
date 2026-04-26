@@ -146,7 +146,7 @@ from .config import Config, ServerConfig
 ### Config Dataclass
 
 ```python
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 @dataclass
 class Config:

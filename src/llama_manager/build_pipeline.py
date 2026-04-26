@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import shlex
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -657,6 +658,8 @@ class BuildPipeline:
             retry_delay=self.config.retry_delay,
             shallow_clone=self.config.shallow_clone,
             jobs=self.config.jobs,
+            update_sources=self.config.update_sources,
+            git_commit=self.config.git_commit,
         )
         sycl_pipeline = BuildPipeline(sycl_config, self._progress_callback)
         sycl_pipeline.dry_run = self._dry_run
@@ -677,6 +680,8 @@ class BuildPipeline:
             retry_delay=self.config.retry_delay,
             shallow_clone=self.config.shallow_clone,
             jobs=self.config.jobs,
+            update_sources=self.config.update_sources,
+            git_commit=self.config.git_commit,
         )
         cuda_pipeline = BuildPipeline(cuda_config, self._progress_callback)
         cuda_pipeline.dry_run = self._dry_run
@@ -1173,9 +1178,6 @@ class BuildPipeline:
             # Stream output in real-time while capturing for logs
             import sys as _sys
 
-            stdout_lines: list[str] = []
-            stderr_lines: list[str] = []
-
             with subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -1183,18 +1185,37 @@ class BuildPipeline:
                 text=True,
                 bufsize=1,
             ) as proc:
-                # Read stdout line by line
-                if proc.stdout:
-                    for line in proc.stdout:
-                        clean = line.rstrip("\n")
-                        stdout_lines.append(clean)
-                        print(clean, file=_sys.stderr)
-                # Read stderr line by line
-                if proc.stderr:
-                    for line in proc.stderr:
-                        clean = line.rstrip("\n")
-                        stderr_lines.append(clean)
-                        print(clean, file=_sys.stderr)
+                # Read stdout and stderr concurrently to avoid deadlock
+                stdout_lines: list[str] = []
+                stderr_lines: list[str] = []
+                stdout_done = threading.Event()
+                stderr_done = threading.Event()
+
+                def read_stdout() -> None:
+                    if proc.stdout:
+                        for line in proc.stdout:
+                            clean = line.rstrip("\n")
+                            stdout_lines.append(clean)
+                            print(clean, file=_sys.stderr)
+                    stdout_done.set()
+
+                def read_stderr() -> None:
+                    if proc.stderr:
+                        for line in proc.stderr:
+                            clean = line.rstrip("\n")
+                            stderr_lines.append(clean)
+                            print(clean, file=_sys.stderr)
+                    stderr_done.set()
+
+                stdout_thread = threading.Thread(target=read_stdout)
+                stderr_thread = threading.Thread(target=read_stderr)
+                stdout_thread.start()
+                stderr_thread.start()
+
+                # Wait for both streams to be fully read
+                proc.wait()
+                stdout_thread.join()
+                stderr_thread.join()
 
             result_stdout = "\n".join(stdout_lines)
             result_stderr = "\n".join(stderr_lines)

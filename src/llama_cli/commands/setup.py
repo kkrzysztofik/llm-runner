@@ -166,17 +166,38 @@ def _backend_from_string(backend: str) -> BuildBackend | None:
     return None
 
 
-def _handle_missing_tools(status: Any, hints: list[Any]) -> int:
+def _handle_missing_tools(status: Any, hints: list[Any], backend: str | None = None) -> int:
     """Handle and display missing tools information with colors.
 
     Args:
         status: ToolchainStatus object
         hints: List of toolchain hints
+        backend: Backend to check tools for (sycl, cuda, or None for all)
 
     Returns:
         Exit code (1 for failure)
     """
-    missing = status.missing_tools(None)
+    from llama_manager.build_pipeline import BuildBackend
+
+    # Convert backend string to BuildBackend enum
+    backend_enum: BuildBackend | None = None
+    if backend == "sycl":
+        backend_enum = BuildBackend.SYCL
+    elif backend == "cuda":
+        backend_enum = BuildBackend.CUDA
+    # "all" and None map to None (returns all missing tools)
+
+    # Determine if the backend is ready
+    if backend == "sycl":
+        _backend_ready = status.is_sycl_ready
+    elif backend == "cuda":
+        _backend_ready = status.is_cuda_ready
+    elif backend == "all" or backend is None:
+        _backend_ready = status.is_complete
+    else:
+        _backend_ready = status.is_complete
+
+    missing = status.missing_tools(backend_enum)
     if not missing:
         _print_success("")
         print(Colors.bold(Colors.bright_green("All required tools are available!")))
@@ -217,7 +238,7 @@ def cmd_check(args: argparse.Namespace) -> int:
             return 0 if status.is_complete else 1
 
         _print_status(status)
-        return _handle_missing_tools(status, hints)
+        return _handle_missing_tools(status, hints, args.backend)
     except Exception as e:
         _print_error(f"Toolchain detection failed: {e}")
         return 1

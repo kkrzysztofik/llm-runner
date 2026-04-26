@@ -255,9 +255,7 @@ def detect_tool(
                 if name == "nvcc":
                     # nvcc --version output has copyright year first;
                     # the actual CUDA version is on the "release X.Y" line
-                    release_match = re.search(
-                        r"release\s+(\d+(?:\.\d+){0,2})", output
-                    )
+                    release_match = re.search(r"release\s+(\d+(?:\.\d+){0,2})", output)
                     if release_match:
                         return (True, release_match.group(1))
                 # Generic fallback for all other tools
@@ -265,7 +263,7 @@ def detect_tool(
                 if version_match:
                     return (True, version_match.group(0))
                 return (True, output.split("\n")[0])
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
         return (False, None)
 
@@ -278,9 +276,7 @@ def detect_tool(
     if tool_name in ("icpx", "icx", "dpcpp"):
         fallback = _INTEL_ONEAPI_BIN / tool_name
         if fallback.exists():
-            found, version = _try_tool(
-                [str(fallback), "--version"], name=tool_name
-            )
+            found, version = _try_tool([str(fallback), "--version"], name=tool_name)
             if found:
                 return (True, version)
 

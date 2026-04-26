@@ -10,6 +10,7 @@ Test Tasks:
 
 import json
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -29,7 +30,7 @@ from llama_manager.toolchain import ToolchainStatus
 
 
 @pytest.fixture(autouse=True)
-def disable_colors():
+def disable_colors() -> Iterator[None]:
     """Disable ANSI colors for all tests to keep assertions simple."""
     from llama_cli.colors import Colors
 
@@ -192,9 +193,7 @@ class TestSetupCheck:
             captured = capsys.readouterr()
             # Count occurrences of the hint text — should appear once
             hint_count = captured.out.count("Install Intel oneAPI")
-            assert hint_count == 1, (
-                f"Expected 1 Intel install hint, found {hint_count}"
-            )
+            assert hint_count == 1, f"Expected 1 Intel install hint, found {hint_count}"
 
 
 class TestSetupVenv:
@@ -297,7 +296,7 @@ class TestSetupCleanVenv:
         assert venv_path.exists()
 
         with patch("llama_cli.commands.setup.get_venv_path", return_value=venv_path):
-            exit_code = cmd_clean_venv(MagicMock(yes=True))
+            exit_code = cmd_clean_venv(MagicMock(yes=True, json=False))
 
         assert exit_code == 0
         assert not venv_path.exists()
@@ -309,7 +308,7 @@ class TestSetupCleanVenv:
 
         with patch("llama_cli.commands.setup.get_venv_path", return_value=nonexistent_path):
             # Should not raise error even if venv doesn't exist
-            exit_code = cmd_clean_venv(MagicMock(yes=False))
+            exit_code = cmd_clean_venv(MagicMock(yes=False, json=False))
 
         assert exit_code == 0
 
@@ -320,7 +319,7 @@ class TestSetupCleanVenv:
         venv_path.mkdir()
 
         with patch("llama_cli.commands.setup.get_venv_path", return_value=venv_path):
-            exit_code = cmd_clean_venv(MagicMock(yes=False))
+            exit_code = cmd_clean_venv(MagicMock(yes=False, json=False))
 
             # Should prompt for confirmation (exit 1 with message)
             assert exit_code == 1

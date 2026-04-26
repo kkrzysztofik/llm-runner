@@ -713,10 +713,16 @@ class TestBuildStageExecution:
         )
         pipeline = BuildPipeline(config)
 
-        mock_result = Mock()
-        mock_result.returncode = 2
-        mock_result.stdout = "API_KEY=super-secret-key"
-        mock_result.stderr = "PASSWORD=hunter2 from https://user:pass@example.com/repo.git"
+        mock_popen = _MockPopen(
+            cmd=["cmake", "--build", "."],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            returncode=2,
+            stdout_lines=["API_KEY=super-secret-key"],
+            stderr_lines=["PASSWORD=hunter2 from https://user:pass@example.com/repo.git"],
+        )
 
         with (
             patch.object(pipeline, "_acquire_lock", return_value=True),
@@ -736,7 +742,7 @@ class TestBuildStageExecution:
                 "_run_configure",
                 return_value=BuildProgress("configure", "success", "configured", 50),
             ),
-            patch("subprocess.run", return_value=mock_result),
+            patch("subprocess.Popen", return_value=mock_popen),
             patch.object(pipeline, "_get_build_env_cmd", side_effect=lambda cmd: cmd),
         ):
             result = pipeline.run()

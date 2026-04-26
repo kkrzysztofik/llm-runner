@@ -59,13 +59,9 @@ class TestConfig:
         expected = Path.home() / ".cache" / "llm-runner" / "llama.cpp"
         assert cfg.llama_cpp_root == str(expected)
         assert cfg.llama_server_bin_intel == str(expected / "build" / "bin" / "llama-server")
-        assert cfg.llama_server_bin_nvidia == str(
-            expected / "build_cuda" / "bin" / "llama-server"
-        )
+        assert cfg.llama_server_bin_nvidia == str(expected / "build_cuda" / "bin" / "llama-server")
 
-    def test_llama_cpp_root_with_xdg_cache_home(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_llama_cpp_root_with_xdg_cache_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Config.llama_cpp_root should respect XDG_CACHE_HOME by default."""
         monkeypatch.delenv("LLAMA_CPP_ROOT", raising=False)
         custom_cache = "/custom/cache"

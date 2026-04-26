@@ -170,9 +170,9 @@ class Config:
         """Return the builds directory path.
 
         Returns:
-            Path to $XDG_DATA_BASE/llm-runner/builds
+            Path to $XDG_STATE_HOME/llm-runner/builds
         """
-        return Path(self.xdg_data_base) / "llm-runner" / "builds"
+        return Path(self.xdg_state_base) / "llm-runner" / "builds"
 
     @property
     def reports_dir(self) -> Path:

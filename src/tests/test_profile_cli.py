@@ -714,7 +714,9 @@ class TestCmdProfile:
             with (
                 patch("llama_cli.commands.profile._detect_backend", return_value="cuda"),
                 patch("llama_cli.commands.profile.require_executable"),
-                patch("llama_cli.commands.profile.get_gpu_identifier", return_value="nvidia-rtx-3090"),
+                patch(
+                    "llama_cli.commands.profile.get_gpu_identifier", return_value="nvidia-rtx-3090"
+                ),
                 patch("llama_cli.commands.profile._get_driver_version", return_value="535.104.05"),
                 patch(
                     "llama_cli.commands.profile.compute_driver_version_hash",
@@ -765,7 +767,9 @@ class TestCmdProfile:
                         return_value="abc123",
                     ),
                     patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
-                    patch("llama_cli.commands.profile.run_benchmark", return_value=benchmark_result),
+                    patch(
+                        "llama_cli.commands.profile.run_benchmark", return_value=benchmark_result
+                    ),
                     patch("llama_cli.commands.profile.ProfileFlavor"),
                     patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                     patch("llama_cli.commands.profile.write_profile") as mock_write,

@@ -190,9 +190,24 @@ class TestHandleBuildCase:
         """_handle_build_case should pass build-specific options through."""
         from llama_cli.cli_parser import _handle_build_case
 
-        result = _handle_build_case(["build", "both", "--source-dir", "/tmp/llama.cpp", "--jobs", "8"])
+        result = _handle_build_case(
+            [
+                "build",
+                "both",
+                "--source-dir",
+                "/tmp/llama.cpp",
+                "--jobs",
+                "8",
+            ]
+        )
         assert result is not None
-        assert result.build_args == ["both", "--source-dir", "/tmp/llama.cpp", "--jobs", "8"]
+        assert result.build_args == [
+            "both",
+            "--source-dir",
+            "/tmp/llama.cpp",
+            "--jobs",
+            "8",
+        ]
 
     def test_handle_build_missing_backend(self) -> None:
         """_handle_build_case should exit when no backend specified."""

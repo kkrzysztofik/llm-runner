@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from collections.abc import Generator
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -39,7 +40,7 @@ from llama_manager.toolchain import ToolchainStatus
 
 
 @pytest.fixture(autouse=True)
-def disable_colors():
+def disable_colors() -> Generator[None, None, None]:
     """Disable ANSI colors for all tests to keep assertions simple."""
     from llama_cli.colors import Colors
 
@@ -1372,9 +1373,7 @@ class TestDirectoryRepairActions:
             assert len(dir_actions) == 3
 
             # Check that one of them is for reports
-            reports_action = next(
-                (a for a in dir_actions if "reports" in a.description), None
-            )
+            reports_action = next((a for a in dir_actions if "reports" in a.description), None)
             assert reports_action is not None
             assert reports_action.command == ["mkdir", "-m", "700", "-p", str(reports_dir)]
             assert reports_action.requires_confirmation is False

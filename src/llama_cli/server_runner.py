@@ -316,30 +316,42 @@ def _run_tui(parsed: argparse.Namespace) -> int:
     from llama_cli.commands.tui import TUIApp
 
     cfg = Config()
-    exec_error = require_executable(cfg.llama_server_bin_intel, "Intel llama-server")
-    if exec_error is not None:
-        _print_validation_error(exec_error)
-    if cfg.llama_server_bin_nvidia:
-        exec_error = require_executable(cfg.llama_server_bin_nvidia, "NVIDIA llama-server")
-        if exec_error is not None:
-            _print_validation_error(exec_error)
 
     configs: list[ServerConfig] = []
     gpu_indices: list[int] = []
 
     if parsed.tui_mode == "both":
+        # Validate both backends
+        exec_error = require_executable(cfg.llama_server_bin_intel, "Intel llama-server")
+        if exec_error is not None:
+            _print_validation_error(exec_error)
+        exec_error = require_executable(cfg.llama_server_bin_nvidia, "NVIDIA llama-server")
+        if exec_error is not None:
+            _print_validation_error(exec_error)
         configs = [
             create_summary_balanced_cfg(parsed.port or cfg.summary_balanced_port),
             create_qwen35_cfg(parsed.port2 or cfg.qwen35_port),
         ]
         gpu_indices = [1, 0]
     elif parsed.tui_mode == "summary-balanced":
+        # Validate Intel backend only
+        exec_error = require_executable(cfg.llama_server_bin_intel, "Intel llama-server")
+        if exec_error is not None:
+            _print_validation_error(exec_error)
         configs = [create_summary_balanced_cfg(parsed.port or cfg.summary_balanced_port)]
         gpu_indices = [1]
     elif parsed.tui_mode == "summary-fast":
+        # Validate Intel backend only
+        exec_error = require_executable(cfg.llama_server_bin_intel, "Intel llama-server")
+        if exec_error is not None:
+            _print_validation_error(exec_error)
         configs = [create_summary_fast_cfg(parsed.port or cfg.summary_fast_port)]
         gpu_indices = [1]
     elif parsed.tui_mode == "qwen35":
+        # Validate NVIDIA backend only
+        exec_error = require_executable(cfg.llama_server_bin_nvidia, "NVIDIA llama-server")
+        if exec_error is not None:
+            _print_validation_error(exec_error)
         configs = [create_qwen35_cfg(parsed.port or cfg.qwen35_port)]
         gpu_indices = [0]
 

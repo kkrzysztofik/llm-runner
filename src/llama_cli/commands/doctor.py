@@ -352,17 +352,13 @@ def _print_check_results(result: DoctorCheckResult) -> int:
     _print_success(f"  Venv intact: {yes if result.venv_intact else no}")
     _print_success(f"  Build lock free: {yes if result.build_lock_free else no}")
     _print_success(f"  Staging dirs clean: {yes if result.staging_dirs_clean else no}")
-    _print_success(
-        f"  Reports dir exists: {yes if result.reports_dir_exists else warn_no}"
-    )
+    _print_success(f"  Reports dir exists: {yes if result.reports_dir_exists else warn_no}")
     stale_count = (
         Colors.bright_red(str(result.profiles_stale))
         if result.profiles_stale > 0
         else Colors.bright_green(str(result.profiles_stale))
     )
-    _print_success(
-        f"  Profiles: {result.profiles_total} total, {stale_count} stale"
-    )
+    _print_success(f"  Profiles: {result.profiles_total} total, {stale_count} stale")
 
     if result.warnings:
         _print_success("")
@@ -381,11 +377,7 @@ def _print_check_results(result: DoctorCheckResult) -> int:
         print(Colors.bold(Colors.bright_green("System is healthy!")))
         return 0
     else:
-        print(
-            Colors.bold(
-                Colors.bright_red("System has issues. Run 'doctor --repair' to fix.")
-            )
-        )
+        print(Colors.bold(Colors.bright_red("System has issues. Run 'doctor --repair' to fix.")))
         return 1
 
 
@@ -711,9 +703,7 @@ def _print_repair_results(result: DoctorRepairResult) -> None:
 
     for i, action in enumerate(result.actions, 1):
         confirm_marker = (
-            Colors.bright_yellow(" [CONFIRMATION REQUIRED]")
-            if action.requires_confirmation
-            else ""
+            Colors.bright_yellow(" [CONFIRMATION REQUIRED]") if action.requires_confirmation else ""
         )
         print(f"  {Colors.cyan(str(i))}. {action.description}{confirm_marker}")
         if action.dry_run_command:

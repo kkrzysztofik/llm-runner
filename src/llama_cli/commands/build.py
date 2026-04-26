@@ -30,7 +30,7 @@ def _format_bytes(size_bytes: int | None) -> str:
         if size < 1024 or unit == "GiB":
             return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
         size /= 1024
-    return f"{size:.1f} GiB"
+    raise AssertionError("unreachable")
 
 
 def _format_duration(seconds: float) -> str:

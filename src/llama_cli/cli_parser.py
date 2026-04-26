@@ -18,6 +18,14 @@ VALID_MODES = (
     "doctor",
 )
 
+# Modes that can be run via "llm-runner tui"
+RUNNABLE_TUI_MODES = (
+    "summary-balanced",
+    "summary-fast",
+    "qwen35",
+    "both",
+)
+
 BUILD_BACKENDS = ("sycl", "cuda", "both")
 SMOKE_MODE = "smoke"
 
@@ -449,9 +457,9 @@ def _handle_tui_case(args: list[str]) -> argparse.Namespace | None:
         sys.exit(1)
 
     mode = args[1]
-    if mode not in VALID_MODES:
+    if mode not in RUNNABLE_TUI_MODES:
         print(
-            f"error: invalid tui mode '{mode}'. Valid modes: {', '.join(VALID_MODES)}",
+            f"error: invalid tui mode '{mode}'. Valid modes: {', '.join(RUNNABLE_TUI_MODES)}",
             file=sys.stderr,
         )
         sys.exit(1)

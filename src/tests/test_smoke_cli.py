@@ -906,7 +906,9 @@ class TestProbeServer:
             phase_reached=MagicMock(),
         )
 
-        with patch("llama_cli.commands.smoke.probe_slot", return_value=expected_result) as mock_probe:
+        with patch(
+            "llama_cli.commands.smoke.probe_slot", return_value=expected_result
+        ) as mock_probe:
             result = _probe_server(model_path, host, port, smoke_cfg)
 
         mock_probe.assert_called_once_with(
@@ -1075,7 +1077,9 @@ class TestRunProbes:
             phase_reached=MagicMock(),
         )
 
-        with patch("llama_cli.commands.smoke._probe_server", return_value=mock_result) as mock_probe:
+        with patch(
+            "llama_cli.commands.smoke._probe_server", return_value=mock_result
+        ) as mock_probe:
             results = _run_probes(targets, smoke_cfg)
 
         assert len(results) == 2
