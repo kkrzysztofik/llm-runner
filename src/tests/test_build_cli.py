@@ -106,6 +106,17 @@ class TestParseBuildArgs:
         args = parse_build_args(["sycl", "-j", "4"])
         assert args.jobs == 4
 
+    def test_help_mentions_xdg_source_default(self, capsys) -> None:
+        """parse_build_args help should describe the XDG source default."""
+        try:
+            parse_build_args(["--help"])
+        except SystemExit as exc:
+            assert exc.code == 0
+
+        captured = capsys.readouterr()
+        assert "$XDG_CACHE_HOME/llm-runner/llama.cpp" in captured.out
+        assert "src/llama.cpp" not in captured.out
+
 
 # =============================================================================
 # run_build_command
@@ -310,6 +321,95 @@ class TestRunBuildCommand:
             # binary_path should be a string, not a Path object
             assert isinstance(parsed["artifacts"][0]["binary_path"], str)
 
+    def test_run_build_uses_config_source_default(self, tmp_path: Path, monkeypatch) -> None:
+        """run_build_command should use Config().llama_cpp_root when source is omitted."""
+        cache_root = tmp_path / "cache"
+        expected_source = cache_root / "llm-runner" / "llama.cpp"
+        monkeypatch.delenv("LLAMA_CPP_ROOT", raising=False)
+        monkeypatch.setenv("XDG_CACHE_HOME", str(cache_root))
+        args = parse_build_args(["sycl"])
+        args.output_dir = tmp_path / "output"
+
+        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+            mock_pipeline = self._make_mock_pipeline(True)
+            mock_cls.return_value = mock_pipeline
+
+            exit_code = run_build_command(args)
+
+            assert exit_code == 0
+            build_config = mock_cls.call_args.args[0]
+            assert build_config.source_dir == expected_source
+            assert build_config.build_dir == expected_source / "build"
+
+    def test_run_build_default_cuda_build_dir(self, tmp_path: Path) -> None:
+        """run_build_command should use build_cuda for CUDA when build dir is omitted."""
+        args = parse_build_args(["cuda"])
+        args.source_dir = tmp_path / "source"
+        args.output_dir = tmp_path / "output"
+
+        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+            mock_pipeline = self._make_mock_pipeline(True)
+            mock_cls.return_value = mock_pipeline
+
+            exit_code = run_build_command(args)
+
+            assert exit_code == 0
+            build_config = mock_cls.call_args.args[0]
+            assert build_config.build_dir == tmp_path / "source" / "build_cuda"
+
+    def test_run_build_both_uses_backend_specific_default_dirs(self, tmp_path: Path) -> None:
+        """run_build_command should use per-backend defaults when building both."""
+        args = parse_build_args(["both"])
+        args.source_dir = tmp_path / "source"
+        args.output_dir = tmp_path / "output"
+
+        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+            mock_pipeline = self._make_mock_pipeline(True)
+            mock_cls.return_value = mock_pipeline
+
+            exit_code = run_build_command(args)
+
+            assert exit_code == 0
+            build_dirs = [call.args[0].build_dir for call in mock_cls.call_args_list]
+            assert build_dirs == [
+                tmp_path / "source" / "build",
+                tmp_path / "source" / "build_cuda",
+            ]
+
+    def test_run_build_custom_source_applies_to_backend_defaults(self, tmp_path: Path) -> None:
+        """run_build_command should derive backend defaults from a custom source root."""
+        source_dir = tmp_path / "custom-source"
+        args = parse_build_args(["cuda", "--source-dir", str(source_dir)])
+        args.output_dir = tmp_path / "output"
+
+        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+            mock_pipeline = self._make_mock_pipeline(True)
+            mock_cls.return_value = mock_pipeline
+
+            exit_code = run_build_command(args)
+
+            assert exit_code == 0
+            build_config = mock_cls.call_args.args[0]
+            assert build_config.source_dir == source_dir
+            assert build_config.build_dir == source_dir / "build_cuda"
+
+    def test_run_build_explicit_build_dir_overrides_backend_defaults(self, tmp_path: Path) -> None:
+        """run_build_command should use an explicit build dir for every selected backend."""
+        build_dir = tmp_path / "explicit-build"
+        args = parse_build_args(["both", "--build-dir", str(build_dir)])
+        args.source_dir = tmp_path / "source"
+        args.output_dir = tmp_path / "output"
+
+        with patch("llama_cli.build_cli.BuildPipeline") as mock_cls:
+            mock_pipeline = self._make_mock_pipeline(True)
+            mock_cls.return_value = mock_pipeline
+
+            exit_code = run_build_command(args)
+
+            assert exit_code == 0
+            build_dirs = [call.args[0].build_dir for call in mock_cls.call_args_list]
+            assert build_dirs == [build_dir, build_dir]
+
 
 # =============================================================================
 # main
@@ -370,4 +470,16 @@ class TestMain:
         ):
             exit_code = main()
             mock_run.assert_called_once_with(args)
+            assert exit_code == 0
+
+    def test_main_passes_args_to_parser(self) -> None:
+        """main should forward explicit args to parse_build_args."""
+        with (
+            patch("llama_cli.build_cli.parse_build_args") as mock_parse,
+            patch("llama_cli.build_cli.run_build_command", return_value=0),
+        ):
+            mock_parse.return_value = argparse.Namespace(json=False)
+            exit_code = main(["cuda", "--dry-run"])
+
+            mock_parse.assert_called_once_with(["cuda", "--dry-run"])
             assert exit_code == 0

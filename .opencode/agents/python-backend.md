@@ -125,7 +125,7 @@ llm-runner/
 # stdlib → third-party → first-party
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import psutil
 
@@ -151,7 +151,7 @@ from dataclasses import dataclass
 @dataclass
 class Config:
     """Server configuration defaults"""
-    llama_cpp_root: str = "src/llama.cpp"  # Relative to project root
+    llama_cpp_root: str = field(default_factory=_default_llama_cpp_root)
     llama_server_bin_intel: str | None = None  # Computed in __post_init__
     
     def __post_init__(self) -> None:

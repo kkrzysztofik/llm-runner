@@ -888,6 +888,51 @@ class TestCloneModes:
             call_args = mock_run.call_args[0][0]
             assert "--depth" not in call_args
 
+    def test_clone_creates_source_parent_directory(self, tmp_path: Path) -> None:
+        """Clone should create nested source parents before invoking git."""
+        source_dir = tmp_path / "cache" / "llm-runner" / "llama.cpp"
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=source_dir,
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+        )
+        pipeline = BuildPipeline(config)
+
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            progress = pipeline._run_clone()
+
+            assert progress.status == "success"
+            assert source_dir.parent.is_dir()
+            call_args = mock_run.call_args[0][0]
+            assert call_args[-1] == str(source_dir)
+
+    def test_clone_dry_run_does_not_create_source_parent(self, tmp_path: Path) -> None:
+        """Dry-run clone should avoid filesystem side effects."""
+        source_dir = tmp_path / "cache" / "llm-runner" / "llama.cpp"
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=source_dir,
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+        )
+        pipeline = BuildPipeline(config)
+        pipeline.dry_run = True
+
+        progress = pipeline._run_clone()
+
+        assert progress.status == "success"
+        assert not source_dir.parent.exists()
+
 
 class TestOfflineContinue:
     """Tests for offline-continue support (FR-006.4)."""

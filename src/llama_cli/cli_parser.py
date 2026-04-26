@@ -18,6 +18,7 @@ VALID_MODES = (
     "doctor",
 )
 
+BUILD_BACKENDS = ("sycl", "cuda", "both")
 SMOKE_MODE = "smoke"
 
 # NOTE: --strict-profiles is documented as post-MVP deferral (FR-M3-009).
@@ -178,33 +179,24 @@ def _handle_build_case(args: list[str]) -> argparse.Namespace | None:
     if len(args) >= 1 and args[0] == "build":
         if len(args) < 2:
             print(
-                "error: build requires a backend argument (sycl|cuda)",
+                "error: build requires a backend argument (sycl|cuda|both)",
                 file=sys.stderr,
             )
             sys.exit(1)
 
         backend = args[1]
-        if backend not in ("sycl", "cuda"):
+        if backend not in BUILD_BACKENDS:
             print(
-                f"error: invalid backend '{backend}'. Valid backends: sycl, cuda",
+                f"error: invalid backend '{backend}'. Valid backends: {', '.join(BUILD_BACKENDS)}",
                 file=sys.stderr,
             )
             sys.exit(1)
 
-        # Parse additional build arguments
-        dry_run = "--dry-run" in args
-        jobs = None
-        for arg in args[2:]:
-            if arg == "--dry-run":
-                continue
-            elif arg.startswith("-j") or arg.startswith("--jobs"):
-                jobs = parse_jobs_arg(arg)
-
         return argparse.Namespace(
             mode="build",
             backend=backend,
-            dry_run=dry_run,
-            jobs=jobs,
+            build_args=args[1:],
+            dry_run="--dry-run" in args,
         )
     return None
 

@@ -41,7 +41,7 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
     "/abs/path/.local/state/llm-runner/builds/sycl-failed"
   ],
   "successful_artifacts_preserved": [
-    "/abs/path/src/llama.cpp/build/bin/llama-server-cuda"
+    "/abs/path/.cache/llm-runner/llama.cpp/build_cuda/bin/llama-server"
   ],
   "lock_file_remediated": true,
   "warnings": []
@@ -82,7 +82,7 @@ All errors use existing FR-005 `ErrorDetail` shape and retain deterministic keys
   "build_command": ["cmake", "-DGGML_SYCL=ON", ".."],
   "build_duration_seconds": 123.45,
   "exit_code": 0,
-  "binary_path": "/abs/path/src/llama.cpp/build/bin/llama-server",
+  "binary_path": "/abs/path/.cache/llm-runner/llama.cpp/build/bin/llama-server",
   "binary_size_bytes": 123456789,
   "build_log_path": "/abs/path/.local/state/llm-runner/build-logs/sycl.log",
   "failure_report_path": null

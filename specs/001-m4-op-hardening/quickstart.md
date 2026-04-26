@@ -20,7 +20,7 @@ M4 adds operational hardening and smoke verification to llm-runner. It introduce
 - Python 3.12+
 - NVIDIA drivers + `nvidia-smi` (for CUDA GPU)
 - Intel Arc drivers + `sycl-ls` (for SYCL GPU)
-- A built `llama.cpp` server binary at `src/llama.cpp/build/bin/llama-server` (SYCL) or `build_cuda/bin/llama-server` (CUDA)
+- A built `llama.cpp` server binary at `$XDG_CACHE_HOME/llm-runner/llama.cpp/build/bin/llama-server` (SYCL) or `$XDG_CACHE_HOME/llm-runner/llama.cpp/build_cuda/bin/llama-server` (CUDA), unless `LLAMA_CPP_ROOT` points at an explicit checkout
 
 ---
 

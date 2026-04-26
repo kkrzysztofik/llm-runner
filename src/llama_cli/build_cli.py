@@ -51,13 +51,16 @@ Examples:
     parser.add_argument(
         "--source-dir",
         type=Path,
-        help="Source directory for llama.cpp (default: src/llama.cpp)",
+        help=(
+            "Source directory for llama.cpp "
+            "(default: $XDG_CACHE_HOME/llm-runner/llama.cpp, override with LLAMA_CPP_ROOT)"
+        ),
     )
 
     parser.add_argument(
         "--build-dir",
         type=Path,
-        help="Build directory (default: src/llama.cpp/build)",
+        help="Build directory (default: build or build_cuda under selected source directory)",
     )
 
     parser.add_argument(
@@ -136,6 +139,13 @@ def _get_backends(backend_arg: str) -> list[BuildBackend]:
         "both": [BuildBackend.SYCL, BuildBackend.CUDA],
     }
     return backend_map.get(backend_arg, [BuildBackend.SYCL])
+
+
+def _default_build_dir(source_dir: Path, backend: BuildBackend) -> Path:
+    """Return the default build directory for a backend under the source root."""
+    if backend is BuildBackend.CUDA:
+        return source_dir / "build_cuda"
+    return source_dir / "build"
 
 
 def _create_build_config(
@@ -278,12 +288,12 @@ def run_build_command(args: argparse.Namespace) -> int:
     backends = _get_backends(args.backend)
     config = Config()
     source_dir = args.source_dir or Path(config.llama_cpp_root)
-    build_dir = args.build_dir or (source_dir / "build")
     output_dir = args.output_dir or config.builds_dir
 
     # Build each backend sequentially
     results: list[tuple[BuildBackend, BuildResult]] = []
     for backend in backends:
+        build_dir = args.build_dir or _default_build_dir(source_dir, backend)
         result = _build_single_backend(backend, args, source_dir, build_dir, output_dir)
         results.append(result)
 
@@ -305,21 +315,24 @@ def run_build_command(args: argparse.Namespace) -> int:
         return 1
 
 
-def main() -> int:
+def main(args: list[str] | None = None) -> int:
     """Main entry point for build command.
+
+    Args:
+        args: Optional list of command-line arguments. If None, uses sys.argv[1:].
 
     Returns:
         Exit code
     """
-    args = None
+    args_parsed = None
     try:
-        args = parse_build_args()
-        return run_build_command(args)
+        args_parsed = parse_build_args(args)
+        return run_build_command(args_parsed)
     except KeyboardInterrupt:
         print("\nBuild interrupted by user", file=sys.stderr)
         return 130  # Standard exit code for Ctrl+C
     except Exception as e:
-        if args is not None and args.json:
+        if args_parsed is not None and args_parsed.json:
             print(json.dumps({"success": False, "error": str(e)}, indent=2))
         else:
             print(f"error: {e}", file=sys.stderr)

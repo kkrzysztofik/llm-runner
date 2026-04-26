@@ -533,6 +533,8 @@ class BuildPipeline:
                 progress.progress_percent = 30
                 return progress
 
+            self.config.source_dir.parent.mkdir(parents=True, exist_ok=True)
+
             cmd = ["git", "clone", "--branch", self.config.git_branch]
             if self.config.shallow_clone:
                 cmd.extend(["--depth", "1"])

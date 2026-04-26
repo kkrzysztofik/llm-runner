@@ -11,7 +11,6 @@ import os
 import signal
 import sys
 from collections.abc import Callable
-from pathlib import Path
 from typing import NoReturn
 
 from llama_cli.cli_parser import parse_args
@@ -435,7 +434,9 @@ def main(args: list[str] | None = None) -> int:
 
     # Handle build command
     if parsed.mode == "build":
-        return run_build(parsed.backend, parsed.dry_run)
+        from llama_cli.build_cli import main as build_main
+
+        return build_main(parsed.build_args)
 
     # Handle setup command
     if parsed.mode == "setup":
@@ -509,59 +510,6 @@ def main(args: list[str] | None = None) -> int:
         return 1
     except IndexError as e:
         print(f"error: index error: {e}", file=sys.stderr)
-        return 1
-
-
-def run_build(backend: str, dry_run: bool = False) -> int:
-    """Run the build command.
-
-    Args:
-        backend: Build backend ("sycl" or "cuda")
-        dry_run: If True, print commands without executing
-
-    Returns:
-        Exit code (0 for success, 1 for failure)
-    """
-    from llama_manager.build_pipeline import BuildBackend, BuildConfig, BuildPipeline
-
-    config = Config()
-
-    # Determine paths based on backend
-    source_dir = Path(config.llama_cpp_root)
-    build_dir = source_dir / ("build_cuda" if backend == "cuda" else "build")
-    output_dir = config.builds_dir
-
-    # Create build config
-    build_backend = BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA
-    build_config = BuildConfig(
-        backend=build_backend,
-        source_dir=source_dir,
-        build_dir=build_dir,
-        output_dir=output_dir,
-        git_remote_url=config.build_git_remote,
-        git_branch=config.build_git_branch,
-        shallow_clone=True,
-        retry_attempts=config.build_retry_attempts,
-        retry_delay=config.build_retry_delay,
-    )
-
-    # Create and run pipeline directly
-    pipeline = BuildPipeline(build_config)
-    pipeline.dry_run = dry_run
-
-    print(f"Building for {backend} backend...", file=sys.stderr)
-    if dry_run:
-        print("DRY RUN MODE - commands will not be executed", file=sys.stderr)
-
-    result = pipeline.run()
-
-    if result.success:
-        print("Build completed successfully!", file=sys.stderr)
-        if result.artifact:
-            print(f"Artifact: {result.artifact.binary_path}", file=sys.stderr)
-        return 0
-    else:
-        print(f"Build failed: {result.error_message}", file=sys.stderr)
         return 1
 
 

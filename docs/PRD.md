@@ -144,7 +144,7 @@ Missing build tools → **safe failure** with **actionable** OS-level hints. **`
 
 ### FR-006 — Artifacts and provenance
 
-Built artifacts live at **predictable paths**; each build records **remote URL**, **`master` tip SHA**, and **timestamps**. **No “silent auto-build on launch”** in MVP—user initiates builds via TUI (or future explicit CLI parity).
+Built artifacts live at **predictable paths** under the selected `llama.cpp` source root. By default, `llm-runner` clones/reuses source at **`$XDG_CACHE_HOME/llm-runner/llama.cpp`** and writes SYCL/CUDA binaries under that root at **`build/bin/llama-server`** and **`build_cuda/bin/llama-server`**. `LLAMA_CPP_ROOT` or `--source-dir` may point at an explicit checkout. Each build records **remote URL**, **`master` tip SHA**, and **timestamps** in XDG state. **No “silent auto-build on launch”** in MVP—user initiates builds via TUI (or future explicit CLI parity).
 
 ### FR-007 — Manual profiling
 

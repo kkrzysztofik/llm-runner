@@ -51,6 +51,43 @@ class TestConfig:
         assert cfg.default_threads_summary_fast > 0
         assert cfg.default_threads_qwen35 > 0
 
+    def test_llama_cpp_root_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Config.llama_cpp_root should default to ~/.cache/llm-runner/llama.cpp."""
+        monkeypatch.delenv("LLAMA_CPP_ROOT", raising=False)
+        monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+        cfg = Config()
+        expected = Path.home() / ".cache" / "llm-runner" / "llama.cpp"
+        assert cfg.llama_cpp_root == str(expected)
+        assert cfg.llama_server_bin_intel == str(expected / "build" / "bin" / "llama-server")
+        assert cfg.llama_server_bin_nvidia == str(
+            expected / "build_cuda" / "bin" / "llama-server"
+        )
+
+    def test_llama_cpp_root_with_xdg_cache_home(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Config.llama_cpp_root should respect XDG_CACHE_HOME by default."""
+        monkeypatch.delenv("LLAMA_CPP_ROOT", raising=False)
+        custom_cache = "/custom/cache"
+        monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
+        cfg = Config()
+        expected = Path(custom_cache) / "llm-runner" / "llama.cpp"
+        assert cfg.llama_cpp_root == str(expected)
+
+    def test_llama_cpp_root_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """LLAMA_CPP_ROOT should override the XDG cache default."""
+        custom_root = "/custom/llama.cpp"
+        monkeypatch.setenv("LLAMA_CPP_ROOT", custom_root)
+        monkeypatch.setenv("XDG_CACHE_HOME", "/ignored/cache")
+        cfg = Config()
+        assert cfg.llama_cpp_root == custom_root
+        assert cfg.llama_server_bin_intel == str(
+            Path(custom_root) / "build" / "bin" / "llama-server"
+        )
+        assert cfg.llama_server_bin_nvidia == str(
+            Path(custom_root) / "build_cuda" / "bin" / "llama-server"
+        )
+
     def test_venv_path_default(self) -> None:
         """Config.venv_path should return Path to ~/.cache/llm-runner/venv by default."""
         cfg = Config()
@@ -914,10 +951,7 @@ class TestLaunchNoAutobuild:
         source_dir.mkdir()
         (source_dir / "CMakeLists.txt").write_text("# existing")
 
-        cfg = Config()
-
         # Verify sources exist
-        assert cfg.llama_cpp_root == "src/llama.cpp"  # Default
         # In real scenario, check if source_dir exists
         assert source_dir.exists()
 

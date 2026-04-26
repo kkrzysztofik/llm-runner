@@ -5,8 +5,8 @@
 - **Fields**:
   - `backend: Literal["sycl", "cuda"]` — M2 backend literals; maps to PRD artifact labels: `sycl` → `intel-sycl`, `cuda` → `nvidia-cuda`
   - `source_dir: Path` — llama.cpp source root (default: `Config.llama_cpp_root`)
-  - `build_dir: Path` — cmake build directory (e.g., `src/llama.cpp/build` or `src/llama.cpp/build_cuda`)
-  - `output_dir: Path` — binary output directory (e.g., `src/llama.cpp/build/bin`)
+  - `build_dir: Path` — cmake build directory (default: `<source-root>/build` for SYCL or `<source-root>/build_cuda` for CUDA)
+  - `output_dir: Path` — provenance output directory (default: `$XDG_STATE_HOME/llm-runner/builds`)
   - `git_remote_url: str` — upstream repository URL (default: `Config.build_git_remote`)
   - `git_branch: str` — branch to checkout (default: `Config.build_git_branch` = `"master"`)
   - `retry_attempts: int` — max retry count for transient failures (default: `Config.build_retry_attempts` = 3)
@@ -175,6 +175,9 @@
   - `build_output_truncate_bytes: int` — default: 10240 (10 KiB)
   - `toolchain_timeout_seconds: int` — default: 30 (seconds for tool detection subprocess timeout, per FR-005.4)
 - **Computed paths** (in `__post_init__`):
+  - `llama_cpp_root: str` — `$LLAMA_CPP_ROOT` if set, else `$xdg_cache_base/llm-runner/llama.cpp`
+  - `llama_server_bin_intel: str` — `$llama_cpp_root/build/bin/llama-server`
+  - `llama_server_bin_nvidia: str` — `$llama_cpp_root/build_cuda/bin/llama-server`
   - `venv_path: Path` — `$xdg_cache_base/llm-runner/venv`
   - `builds_dir: Path` — `$xdg_state_base/llm-runner/builds`
   - `reports_dir: Path` — `~/.local/share/llm-runner/reports` (fixed M2 path per spec/PRD)
