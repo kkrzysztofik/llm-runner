@@ -7,7 +7,6 @@ CLI output, JSON export, or TUI integration.
 Pure library — no argparse, no Rich, no subprocess at module level.
 """
 
-import json
 import os
 import socket
 import time
@@ -75,7 +74,7 @@ def resolve_model_id_from_gguf(model_path: str) -> str | None:
     """
     try:
         record = extract_gguf_metadata(model_path)
-    except (OSError, ValueError, TimeoutError):
+    except (OSError, ValueError):
         return None
 
     # Prefer general.name from GGUF metadata
@@ -458,14 +457,14 @@ def _probe_models(
         # Endpoint not supported — proceed to Phase 3
         return (None, None)
 
-    result = _handle_models_status(host, port, response, expected_model_id)
+    result = _handle_models_status(host, port, response)
     if result is not None:
         return result
 
     # Parse response
     try:
         data = response.json()
-    except (json.JSONDecodeError, ValueError):
+    except ValueError:
         return (_models_failure_result(host, port, SmokeProbeStatus.FAIL), None)
 
     models = data.get("data", [])
@@ -503,7 +502,6 @@ def _handle_models_status(
     host: str,
     port: int,
     response: httpx.Response,
-    expected_model_id: str,
 ) -> tuple[SmokeProbeResult, str | None] | None:
     """Handle HTTP status codes for the models endpoint.
 
@@ -619,7 +617,7 @@ def _probe_chat(
     # Parse response and check choices
     try:
         data = response.json()
-    except (json.JSONDecodeError, ValueError):
+    except ValueError:
         return SmokeProbeResult(
             slot_id=f"{host}:{port}",
             status=SmokeProbeStatus.FAIL,

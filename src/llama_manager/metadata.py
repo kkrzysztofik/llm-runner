@@ -298,7 +298,6 @@ def _parse_numeric_field(data: bytes, key: bytes | str) -> int | None:
                 break
 
     return None
-    return None
 
 
 def _extract_architecture_from_reader(
