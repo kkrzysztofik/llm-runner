@@ -1111,6 +1111,7 @@ class TestOfflineContinue:
             output_dir=tmp_path / "output",
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
+            update_sources=False,
         )
 
         pipeline = BuildPipeline(config)
@@ -1133,6 +1134,7 @@ class TestOfflineContinue:
             output_dir=tmp_path / "output",
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
+            update_sources=False,
         )
 
         pipeline = BuildPipeline(config)
@@ -1170,6 +1172,7 @@ class TestOfflineContinue:
             output_dir=tmp_path / "output",
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
+            update_sources=False,
         )
 
         pipeline = BuildPipeline(config)

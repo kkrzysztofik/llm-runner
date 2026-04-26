@@ -96,10 +96,15 @@ class TestParseBuildArgs:
         args = parse_build_args(["sycl", "--no-shallow-clone"])
         assert args.no_shallow_clone is True
 
-    def test_parse_update_sources(self) -> None:
-        """parse_build_args should parse --update-sources flag."""
-        args = parse_build_args(["sycl", "--update-sources"])
-        assert args.update_sources is True
+    def test_parse_no_update_sources(self) -> None:
+        """parse_build_args should parse --no-update-sources flag."""
+        args = parse_build_args(["sycl", "--no-update-sources"])
+        assert args.no_update_sources is True
+
+    def test_parse_git_commit(self) -> None:
+        """parse_build_args should parse --git-commit flag."""
+        args = parse_build_args(["sycl", "--git-commit", "abc123def"])
+        assert args.git_commit == "abc123def"
 
     def test_parse_default_git_options(self) -> None:
         """parse_build_args should use default git remote and branch."""

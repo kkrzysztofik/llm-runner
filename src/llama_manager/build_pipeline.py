@@ -121,7 +121,8 @@ class BuildConfig:
     retry_delay: float = 5.0
     shallow_clone: bool = True
     jobs: int | None = None
-    update_sources: bool = False
+    update_sources: bool = True
+    git_commit: str | None = None
 
     def __post_init__(self) -> None:
         """Ensure Path objects are Path instances and validate constraints."""
@@ -814,6 +815,12 @@ class BuildPipeline:
             progress.progress_percent = 30
             logger.info("[clone] cloned successfully into %s", self.config.source_dir)
 
+            # Checkout specific commit if requested
+            if self.config.git_commit:
+                progress = self._checkout_commit(progress)
+                if progress.status != "success":
+                    return progress
+
         except subprocess.SubprocessError as e:
             # Network/subprocess failure - check if sources exist to enable offline continue
             if self._source_exists():
@@ -853,6 +860,66 @@ class BuildPipeline:
         """
         git_dir = self.config.source_dir / ".git"
         return git_dir.exists() and git_dir.is_dir()
+
+    def _checkout_commit(self, progress: BuildProgress) -> BuildProgress:
+        """Checkout a specific commit hash if configured.
+
+        Args:
+            progress: Current progress object to update on failure.
+
+        Returns:
+            The progress object (modified in-place on error).
+        """
+        import subprocess
+
+        if not self.config.git_commit:
+            return progress
+
+        commit = self.config.git_commit
+        logger.info("[clone] checking out commit %s", commit)
+
+        if self._dry_run:
+            logger.info("[clone] dry-run: would checkout commit %s", commit)
+            return progress
+
+        try:
+            checkout_cmd = ["git", "checkout", commit]
+            logger.debug("[clone] running: %s", _format_command(checkout_cmd))
+            result = subprocess.run(
+                checkout_cmd,
+                cwd=self.config.source_dir,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self._append_command_output(
+                stage="clone (checkout)",
+                command=checkout_cmd,
+                returncode=result.returncode,
+                stdout=result.stdout,
+                stderr=result.stderr,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    "[clone] commit checkout failed (rc=%s): %s",
+                    result.returncode,
+                    _tail_lines(result.stderr),
+                )
+                progress.status = "skipped"
+                progress.message = (
+                    f"Commit checkout failed; continuing with existing sources: "
+                    f"{_tail_lines(result.stderr)}"
+                )
+                progress.progress_percent = 30
+            else:
+                logger.info("[clone] checked out commit %s", commit)
+        except subprocess.SubprocessError as e:
+            logger.warning("[clone] commit checkout error: %s", str(e))
+            progress.status = "skipped"
+            progress.message = f"Commit checkout failed: {str(e)}"
+            progress.progress_percent = 30
+
+        return progress
 
     def _update_sources(self, progress: BuildProgress) -> BuildProgress:
         """Fetch and fast-forward an existing clone to the configured branch.
@@ -940,67 +1007,12 @@ class BuildPipeline:
             progress.progress_percent = 30
             logger.info("[update-sources] checked out %s", progress.message)
 
+            # Checkout specific commit if requested
+            if self.config.git_commit:
+                progress = self._checkout_commit(progress)
+
         except subprocess.SubprocessError as e:
             logger.warning("[update-sources] network error during update: %s", str(e))
-            progress.status = "skipped"
-            progress.message = "Network unavailable; continuing with existing sources"
-            progress.progress_percent = 30
-
-        return progress
-
-        try:
-            # 1. Fetch latest refs from the configured remote
-            subprocess.run(
-                ["git", "fetch", "origin"],
-                cwd=self.config.source_dir,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-
-            # 2. Fast-forward to the latest commit on the configured branch
-            result = subprocess.run(
-                [
-                    "git",
-                    "checkout",
-                    "-B",
-                    self.config.git_branch,
-                    f"origin/{self.config.git_branch}",
-                ],
-                cwd=self.config.source_dir,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-            self._append_command_output(
-                stage="clone (update)",
-                command=[
-                    "git",
-                    "checkout",
-                    "-B",
-                    self.config.git_branch,
-                    f"origin/{self.config.git_branch}",
-                ],
-                returncode=result.returncode,
-                stdout=result.stdout,
-                stderr=result.stderr,
-            )
-
-            if result.returncode != 0:
-                progress.status = "skipped"
-                progress.message = (
-                    f"Source update failed; continuing with existing sources: "
-                    f"{_tail_lines(result.stderr)}"
-                )
-                progress.progress_percent = 30
-                return progress
-
-            progress.message = f"Updated sources to origin/{self.config.git_branch}"
-            progress.status = "success"
-            progress.progress_percent = 30
-
-        except subprocess.SubprocessError:
             progress.status = "skipped"
             progress.message = "Network unavailable; continuing with existing sources"
             progress.progress_percent = 30

@@ -6,6 +6,7 @@ using the BuildPipeline.
 
 import argparse
 import json
+import logging
 import os
 import sys
 from dataclasses import asdict
@@ -40,6 +41,60 @@ def _format_duration(seconds: float) -> str:
         return f"{seconds:.1f}s"
     minutes, remaining_seconds = divmod(seconds, 60)
     return f"{int(minutes)}m {remaining_seconds:.0f}s"
+
+
+# ANSI color codes for log formatting
+_COLOR_RESET = "\033[0m"
+_COLOR_TIMESTAMP = "\033[36m"  # cyan
+_COLOR_INFO = "\033[32m"  # green
+_COLOR_WARNING = "\033[33m"  # yellow
+_COLOR_ERROR = "\033[31m"  # red
+_COLOR_DEBUG = "\033[34m"  # blue
+_COLOR_DIM = "\033[2m"  # dim
+
+
+class _ColoredFormatter(logging.Formatter):
+    """Custom formatter that adds timestamps and ANSI colors to log output."""
+
+    _LEVEL_COLORS = {
+        logging.DEBUG: _COLOR_DEBUG,
+        logging.INFO: _COLOR_INFO,
+        logging.WARNING: _COLOR_WARNING,
+        logging.ERROR: _COLOR_ERROR,
+        logging.CRITICAL: _COLOR_ERROR,
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format a log record with timestamp and color-coded level."""
+        timestamp = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
+        level_color = self._LEVEL_COLORS.get(record.levelno, _COLOR_RESET)
+        level_name = record.levelname.lower()
+        # Extract the tag from the message if it starts with [tag]
+        msg = record.getMessage()
+        # Build the formatted line
+        return (
+            f"{_COLOR_DIM}[{timestamp}]{_COLOR_RESET} "
+            f"{level_color}[{level_name}]{_COLOR_RESET} "
+            f"{msg}"
+        )
+
+
+def _setup_colored_logging(level: int = logging.INFO) -> None:
+    """Configure stderr logging with timestamps and ANSI colors.
+
+    Args:
+        level: Minimum log level to display (default: INFO).
+    """
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(_ColoredFormatter())
+    handler.setLevel(level)
+
+    # Target the build pipeline logger specifically
+    pipeline_logger = logging.getLogger("llama_manager.build_pipeline")
+    pipeline_logger.setLevel(level)
+    pipeline_logger.handlers.clear()
+    pipeline_logger.addHandler(handler)
+    pipeline_logger.propagate = False
 
 
 def _progress_summary(result: BuildResult) -> dict[str, object] | None:
@@ -122,11 +177,18 @@ Examples:
     )
 
     parser.add_argument(
-        "--update-sources",
+        "--no-update-sources",
         action="store_true",
         help=(
-            "Fetch and fast-forward existing llama.cpp sources instead of skipping the clone stage"
+            "Skip fetching updates for existing llama.cpp sources "
+            "(default: update sources to latest)"
         ),
+    )
+
+    parser.add_argument(
+        "--git-commit",
+        default=None,
+        help="Specific git commit hash to checkout after clone/update (default: use branch HEAD)",
     )
 
     parser.add_argument(
@@ -220,7 +282,8 @@ def _create_build_config(
         jobs=args.jobs,
         retry_attempts=args.retry_attempts,
         retry_delay=args.retry_delay,
-        update_sources=getattr(args, "update_sources", False),
+        update_sources=not args.no_update_sources,
+        git_commit=args.git_commit,
     )
 
 
@@ -401,6 +464,7 @@ def main(args: list[str] | None = None) -> int:
     args_parsed = None
     try:
         args_parsed = parse_build_args(args)
+        _setup_colored_logging()
         return run_build_command(args_parsed)
     except KeyboardInterrupt:
         print("\nBuild interrupted by user", file=sys.stderr)
