@@ -24,8 +24,6 @@ from .benchmark import (
     run_benchmark,
 )
 from .build_pipeline import (
-    GGML_CUDA,
-    GGML_SYCL,
     BuildArtifact,
     BuildBackend,
     BuildConfig,
@@ -164,8 +162,6 @@ __all__ = [
     "BuildProgress",
     "BuildLock",
     "BuildBackend",
-    "GGML_SYCL",
-    "GGML_CUDA",
     # Config
     "Config",
     "ServerConfig",

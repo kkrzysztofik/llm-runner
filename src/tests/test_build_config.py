@@ -13,8 +13,6 @@ from pathlib import Path
 import pytest
 
 from llama_manager.build_pipeline import (
-    GGML_CUDA,
-    GGML_SYCL,
     BuildArtifact,
     BuildBackend,
     BuildConfig,
@@ -68,9 +66,9 @@ class TestBuildConfig:
         assert config.jobs is None  # Default
 
     def test_build_config_class_constants(self) -> None:
-        """BuildConfig should have GGML_SYCL and GGML_CUDA constants."""
-        assert GGML_SYCL == "sycl"
-        assert GGML_CUDA == "cuda"
+        """BuildConfig should have GGML_SYCL and GGML_CUDA CMake flag constants."""
+        assert BuildConfig.GGML_SYCL == "GGML_SYCL"
+        assert BuildConfig.GGML_CUDA == "GGML_CUDA"
 
     def test_build_config_path_conversion(self, tmp_path: Path) -> None:
         """BuildConfig should convert strings to Path objects in __post_init__."""

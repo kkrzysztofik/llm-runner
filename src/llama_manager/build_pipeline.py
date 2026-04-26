@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import time
-import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -26,24 +25,6 @@ class BuildBackend(StrEnum):
     SYCL = "sycl"
     CUDA = "cuda"
     BOTH = "both"
-
-
-# Build backend constants (deprecated - use BuildConfig class constants instead)
-_DEPRECATED_BACKEND_CONSTANTS: dict[str, str] = {
-    "GGML_SYCL": "sycl",
-    "GGML_CUDA": "cuda",
-}
-
-
-def __getattr__(name: str) -> str:
-    if name in _DEPRECATED_BACKEND_CONSTANTS:
-        warnings.warn(
-            f"{name} is deprecated, use BuildConfig.{name} instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return _DEPRECATED_BACKEND_CONSTANTS[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @dataclass
