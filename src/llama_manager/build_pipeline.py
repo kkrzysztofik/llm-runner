@@ -1113,8 +1113,10 @@ class BuildPipeline:
                 )
                 return progress
 
+            flags_str = " ".join(cmake_args)
             progress.message = (
-                f"CMake configuration completed for {self.config.backend.value} in {duration}"
+                f"CMake configuration completed for {self.config.backend.value} in {duration} "
+                f"(flags: {flags_str})"
             )
             progress.status = "success"
             progress.progress_percent = 50
@@ -1148,7 +1150,7 @@ class BuildPipeline:
         if self._dry_run:
             cmd = ["cmake", "--build", str(self.config.build_dir)]
             if self.config.jobs:
-                cmd.extend(["--parallel", str(self.config.jobs)])
+                cmd.extend(["-j", str(self.config.jobs)])
             cmd = self._get_build_env_cmd(cmd)
             progress.message = f"Would run: {_format_command(cmd)}"
             progress.status = "success"
@@ -1159,7 +1161,7 @@ class BuildPipeline:
         try:
             cmd = ["cmake", "--build", str(self.config.build_dir)]
             if self.config.jobs:
-                cmd.extend(["--parallel", str(self.config.jobs)])
+                cmd.extend(["-j", str(self.config.jobs)])
             cmd = self._get_build_env_cmd(cmd)
 
             logger.info("[build] running cmake --build (this may take several minutes)")
