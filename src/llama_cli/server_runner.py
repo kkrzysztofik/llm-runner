@@ -364,12 +364,14 @@ def _run_tui(parsed: argparse.Namespace) -> int:
             _print_validation_error(model_error)
 
     if len(configs) > 1:
-        validate_ports(
+        ports_error = validate_ports(
             configs[0].port,
             configs[1].port,
             configs[0].alias + " port",
             configs[1].alias + " port",
         )
+        if ports_error is not None:
+            _print_validation_error(ports_error)
 
     app = TUIApp(configs, gpu_indices)
     app.run(acknowledged=parsed.acknowledge_risky)
