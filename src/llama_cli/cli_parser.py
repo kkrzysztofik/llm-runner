@@ -702,6 +702,31 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
     )
 
 
+def _try_special_case_handlers(args: list[str]) -> argparse.Namespace | None:
+    """Try all special case handlers in order.
+
+    Args:
+        args: List of command-line arguments.
+
+    Returns:
+        Parsed namespace if a special case matched, None otherwise.
+    """
+    handlers = [
+        _handle_build_case,
+        _handle_setup_case,
+        _handle_doctor_case,
+        _handle_profile_case,
+        _handle_dry_run_case,
+        _handle_smoke_case,
+        _handle_tui_case,
+    ]
+    for handler in handlers:
+        result = handler(args)
+        if result is not None:
+            return result
+    return None
+
+
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments.
 
@@ -717,42 +742,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     if args is None:
         args = sys.argv[1:]
 
-    # Handle build command first (special case)
-    build_result = _handle_build_case(args)
-    if build_result is not None:
-        return build_result
-
-    # Handle setup command (special case)
-    setup_result = _handle_setup_case(args)
-    if setup_result is not None:
-        return setup_result
-
-    # Handle doctor command (special case) - must be before dry-run
-    doctor_result = _handle_doctor_case(args)
-    if doctor_result is not None:
-        return doctor_result
-
-    # Handle profile subcommand (not in VALID_MODES)
-    profile_result = _handle_profile_case(args)
-    if profile_result is not None:
-        return profile_result
-
-    # Handle dry-run mode (special case)
-    dry_run_result = _handle_dry_run_case(args)
-    if dry_run_result is not None:
-        return dry_run_result
-
-    # Handle smoke subcommand (special case)
-    smoke_result = _handle_smoke_case(args)
-    if smoke_result is not None:
-        return smoke_result
-
-    # Handle tui subcommand (special case)
-    tui_result = _handle_tui_case(args)
-    if tui_result is not None:
-        return tui_result
-
-    # Normal mode parsing
+    result = _try_special_case_handlers(args)
+    if result is not None:
+        return result
     return _parse_normal_mode_args(args)
 
 
