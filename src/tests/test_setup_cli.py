@@ -302,15 +302,17 @@ class TestSetupCleanVenv:
 
         assert exit_code == 0
 
-    def test_clean_venv_prompts_without_yes(self, capsys) -> None:
+    def test_clean_venv_prompts_without_yes(self, tmp_path: Path, capsys) -> None:
         """setup clean-venv without --yes should prompt."""
         # Without --yes flag, should prompt for confirmation
-        # This would require interactive input, so we just verify the flag is checked
-        with patch("builtins.input", return_value="y"):
+        venv_path = tmp_path / "test-venv"
+        venv_path.mkdir()
+
+        with patch("llama_cli.setup_cli.get_venv_path", return_value=venv_path):
             exit_code = cmd_clean_venv(MagicMock(yes=False))
 
-            # Should succeed with user confirmation
-            assert exit_code == 0
+            # Should prompt for confirmation (exit 1 with message)
+            assert exit_code == 1
 
     def test_clean_venv_json_output(self, tmp_path: Path, capsys) -> None:
         """setup clean-venv --json should produce JSON output."""

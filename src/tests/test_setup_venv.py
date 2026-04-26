@@ -404,7 +404,8 @@ class TestVenvPathFallback:
 
     def test_venv_path_fallback_to_home_cache(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """get_venv_path should fallback to ~/.cache when XDG_CACHE_HOME not set."""
-        # Ensure XDG_CACHE_HOME is not set
+        # Ensure VIRTUAL_ENV and XDG_CACHE_HOME are not set
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
 
         result = get_venv_path()
@@ -415,6 +416,7 @@ class TestVenvPathFallback:
 
     def test_venv_path_uses_xdg_cache_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """get_venv_path should use XDG_CACHE_HOME when set."""
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         custom_cache = "/custom/cache"
         monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
 
@@ -426,6 +428,7 @@ class TestVenvPathFallback:
 
     def test_venv_path_respects_xdg_over_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """get_venv_path should prefer XDG_CACHE_HOME over HOME/.cache."""
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         custom_cache = "/custom/cache"
         custom_home = "/custom/home"
         monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
@@ -444,3 +447,42 @@ class TestVenvPathFallback:
 
         result = get_venv_path()
         assert result.is_absolute()
+
+
+class TestVenvPathVirtualEnvPrecedence:
+    """T064: Tests for VIRTUAL_ENV precedence in venv path resolution."""
+
+    def test_venv_path_uses_virtual_env_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """get_venv_path should prefer VIRTUAL_ENV over XDG_CACHE_HOME."""
+        custom_venv = "/custom/venv"
+        monkeypatch.setenv("VIRTUAL_ENV", custom_venv)
+        monkeypatch.setenv("XDG_CACHE_HOME", "/custom/cache")
+
+        result = get_venv_path()
+        expected = Path(custom_venv)
+
+        assert result == expected
+
+    def test_venv_path_falls_back_to_xdg_cache_when_virtual_env_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_venv_path should fall back to XDG_CACHE_HOME when VIRTUAL_ENV is unset."""
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+        monkeypatch.setenv("XDG_CACHE_HOME", "/custom/cache")
+
+        result = get_venv_path()
+        expected = Path("/custom/cache") / "llm-runner" / "venv"
+
+        assert result == expected
+
+    def test_venv_path_falls_back_to_home_cache_when_neither_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_venv_path should fall back to ~/.cache when neither env var is set."""
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+        monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+
+        result = get_venv_path()
+        expected = Path.home() / ".cache" / "llm-runner" / "venv"
+
+        assert result == expected
