@@ -94,7 +94,6 @@ def _setup_colored_logging(level: int = logging.INFO) -> None:
     pipeline_logger.setLevel(level)
     pipeline_logger.handlers.clear()
     pipeline_logger.addHandler(handler)
-    pipeline_logger.propagate = False
 
 
 def _progress_summary(result: BuildResult) -> dict[str, object] | None:

@@ -1163,42 +1163,66 @@ class BuildPipeline:
             cmd = self._get_build_env_cmd(cmd)
 
             logger.info("[build] running cmake --build (this may take several minutes)")
-            logger.debug("[build] command: %s", _format_command(cmd))
+            logger.info("[build] command: %s", _format_command(cmd))
             logger.debug("[build] jobs=%s", self.config.jobs)
 
             started_at = time.monotonic()
-            result = subprocess.run(
+
+            # Stream output in real-time while capturing for logs
+            import sys as _sys
+
+            stdout_lines: list[str] = []
+            stderr_lines: list[str] = []
+
+            with subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                check=False,  # Don't raise on non-zero exit
-            )
+                bufsize=1,
+            ) as proc:
+                # Read stdout line by line
+                if proc.stdout:
+                    for line in proc.stdout:
+                        clean = line.rstrip("\n")
+                        stdout_lines.append(clean)
+                        print(clean, file=_sys.stderr)
+                # Read stderr line by line
+                if proc.stderr:
+                    for line in proc.stderr:
+                        clean = line.rstrip("\n")
+                        stderr_lines.append(clean)
+                        print(clean, file=_sys.stderr)
+
+            result_stdout = "\n".join(stdout_lines)
+            result_stderr = "\n".join(stderr_lines)
+            returncode = proc.returncode
             duration = _format_duration(time.monotonic() - started_at)
 
-            logger.debug("[build] cmake exited with rc=%s in %s", result.returncode, duration)
+            logger.debug("[build] cmake exited with rc=%s in %s", returncode, duration)
 
             self._append_command_output(
                 stage="build",
                 command=cmd,
-                returncode=result.returncode,
-                stdout=result.stdout,
-                stderr=result.stderr,
+                returncode=returncode,
+                stdout=result_stdout,
+                stderr=result_stderr,
             )
 
-            if result.returncode == 0:
+            if returncode == 0:
                 progress.message = f"Build completed for {self.config.backend.value} in {duration}"
                 progress.status = "success"
                 progress.progress_percent = 75
                 logger.info("[build] %s", progress.message)
             else:
-                logger.error("[build] compilation failed (rc=%s)", result.returncode)
+                logger.error("[build] compilation failed (rc=%s)", returncode)
                 progress.status = "failed"
                 progress.message = _format_command_failure(
                     stage="Build",
                     command=cmd,
-                    returncode=result.returncode,
-                    stdout=result.stdout,
-                    stderr=result.stderr,
+                    returncode=returncode,
+                    stdout=result_stdout,
+                    stderr=result_stderr,
                 )
 
         except Exception as e:

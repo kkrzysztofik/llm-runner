@@ -22,7 +22,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from llama_manager.build_pipeline import (
     BuildArtifact,
@@ -32,6 +32,43 @@ from llama_manager.build_pipeline import (
     BuildPipeline,
     BuildProgress,
 )
+
+
+class _MockPopen:
+    """A mock subprocess.Popen for testing that yields lines from stdout/stderr."""
+
+    def __init__(
+        self,
+        cmd: list[str],
+        stdout: int | None = None,
+        stderr: int | None = None,
+        text: bool = False,
+        bufsize: int = 1,
+        returncode: int = 0,
+        stdout_lines: list[str] | None = None,
+        stderr_lines: list[str] | None = None,
+    ) -> None:
+        self.cmd = cmd
+        self._returncode = returncode
+        self._stdout_lines = stdout_lines or []
+        self._stderr_lines = stderr_lines or []
+        self.stdout = MagicMock()
+        self.stdout.__iter__ = Mock(return_value=iter(self._stdout_lines))
+        self.stderr = MagicMock()
+        self.stderr.__iter__ = Mock(return_value=iter(self._stderr_lines))
+
+    def __enter__(self) -> "_MockPopen":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+    def wait(self) -> int:
+        return self._returncode
+
+    @property
+    def returncode(self) -> int:
+        return self._returncode
 
 
 class TestNoAutobuildOnLaunch:
@@ -574,13 +611,15 @@ class TestBuildStageExecution:
         pipeline = BuildPipeline(config)
 
         # Mock the subprocess call
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = "Build successful"
-        mock_result.stderr = ""
+        mock_popen = _MockPopen(
+            cmd=[],
+            returncode=0,
+            stdout_lines=["Build successful"],
+            stderr_lines=[],
+        )
 
         with (
-            patch("subprocess.run", return_value=mock_result) as mock_run,
+            patch("subprocess.Popen", return_value=mock_popen) as mock_popen_factory,
             patch.object(
                 pipeline,
                 "_get_build_env_cmd",
@@ -590,8 +629,8 @@ class TestBuildStageExecution:
             result = pipeline._run_build()
 
             # Verify subprocess was called with correct arguments
-            assert mock_run.called
-            call_args = mock_run.call_args[0][0]
+            assert mock_popen_factory.called
+            call_args = mock_popen_factory.call_args[0][0]
             assert "cmake" in call_args[0]
             assert "--build" in call_args
             assert str(config.build_dir) in call_args
@@ -615,13 +654,15 @@ class TestBuildStageExecution:
         )
         pipeline = BuildPipeline(config)
 
-        mock_result = Mock()
-        mock_result.returncode = 2
-        mock_result.stdout = "[ 10%] Building target\n[ 20%] Compiling object"
-        mock_result.stderr = "fatal error: cuda headers missing"
+        mock_popen = _MockPopen(
+            cmd=[],
+            returncode=2,
+            stdout_lines=["[ 10%] Building target", "[ 20%] Compiling object"],
+            stderr_lines=["fatal error: cuda headers missing"],
+        )
 
         with (
-            patch("subprocess.run", return_value=mock_result),
+            patch("subprocess.Popen", return_value=mock_popen),
             patch.object(pipeline, "_get_build_env_cmd", side_effect=lambda cmd: cmd),
         ):
             result = pipeline._run_build()
