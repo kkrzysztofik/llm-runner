@@ -389,6 +389,8 @@ class BuildPipeline:
         """Write failure diagnostics and return an artifact that points to them."""
         from .reports import write_failure_report
 
+        logger.info("[failure] writing failure diagnostics for stage=%s", progress.stage)
+
         build_log_path = self._write_build_log()
         artifact = self._create_artifact(
             exit_code=1,
@@ -410,6 +412,7 @@ class BuildPipeline:
         )
         artifact.failure_report_path = report.report_dir
         report.save_to_file()
+        logger.info("[failure] report written to %s", report.report_dir)
         return artifact
 
     def _run_with_retry(
@@ -431,7 +434,20 @@ class BuildPipeline:
             progress_percent=0.0,
         )
 
+        logger.info(
+            "[retry] stage=%s max_attempts=%s delay=%ss",
+            stage_name,
+            self.config.retry_attempts,
+            self.config.retry_delay,
+        )
+
         for attempt in range(self.config.retry_attempts):
+            logger.info(
+                "[retry] stage=%s attempt=%s/%s",
+                stage_name,
+                attempt + 1,
+                self.config.retry_attempts,
+            )
             result = stage_func()
             last_result = result
 
@@ -440,11 +456,20 @@ class BuildPipeline:
                 self._progress_callback(result)
 
             if result.status == "success":
+                logger.info("[retry] stage=%s succeeded on attempt %s", stage_name, attempt + 1)
                 return result
+
+            logger.warning(
+                "[retry] stage=%s attempt %s failed: %s",
+                stage_name,
+                attempt + 1,
+                result.message,
+            )
 
             # If not last attempt, retry with exponential backoff
             if attempt < self.config.retry_attempts - 1:
                 delay = self.config.retry_delay * (2**attempt)
+                logger.info("[retry] stage=%s waiting %ss before retry", stage_name, delay)
                 progress = BuildProgress(
                     stage=stage_name,
                     status="retrying",
@@ -456,6 +481,11 @@ class BuildPipeline:
                     self._progress_callback(progress)
                 time.sleep(delay)
 
+        logger.error(
+            "[retry] stage=%s exhausted all %s attempts",
+            stage_name,
+            self.config.retry_attempts,
+        )
         return last_result
 
     def run(self) -> BuildResult:
@@ -472,12 +502,36 @@ class BuildPipeline:
 
         # Record start time for build duration calculation
         self._build_start_time = time.time()
+        backend_name = self.config.backend.value
+
+        logger.info("[pipeline] starting build for backend=%s", backend_name)
+        logger.info(
+            "[pipeline] config: source_dir=%s build_dir=%s output_dir=%s",
+            self.config.source_dir,
+            self.config.build_dir,
+            self.config.output_dir,
+        )
+        logger.info(
+            "[pipeline] config: git_remote=%s git_branch=%s shallow_clone=%s jobs=%s update_sources=%s",
+            _redact_build_text(self.config.git_remote_url),
+            self.config.git_branch,
+            self.config.shallow_clone,
+            self.config.jobs,
+            self.config.update_sources,
+        )
+        logger.info(
+            "[pipeline] config: retry_attempts=%s retry_delay=%ss dry_run=%s",
+            self.config.retry_attempts,
+            self.config.retry_delay,
+            self._dry_run,
+        )
 
         # Acquire build lock
         from .config import Config
 
         config = Config()
         if not self._acquire_lock(config.build_lock_path):
+            logger.error("[pipeline] failed to acquire build lock for %s", backend_name)
             return BuildResult(
                 success=False,
                 error_message=f"Failed to acquire build lock for {self.config.backend}",
@@ -485,26 +539,34 @@ class BuildPipeline:
 
         try:
             # Stage 1: Preflight
+            logger.info("[pipeline] stage 1/5: preflight")
             progress = self._run_with_retry(self._run_preflight, "preflight")
             if progress.status == "failed":
+                logger.error("[pipeline] preflight failed: %s", progress.message)
                 return BuildResult(
                     success=False,
                     error_message=f"Preflight failed: {progress.message}",
                     progress=progress,
                 )
+            logger.info("[pipeline] preflight completed: %s", progress.message)
 
             # Stage 2: Clone
+            logger.info("[pipeline] stage 2/5: clone")
             progress = self._run_with_retry(self._run_clone, "clone")
             if progress.status == "failed":
+                logger.error("[pipeline] clone failed: %s", progress.message)
                 return BuildResult(
                     success=False,
                     error_message=f"Clone failed: {progress.message}",
                     progress=progress,
                 )
+            logger.info("[pipeline] clone completed: %s", progress.message)
 
             # Stage 3: Configure
+            logger.info("[pipeline] stage 3/5: configure")
             progress = self._run_with_retry(self._run_configure, "configure")
             if progress.status == "failed":
+                logger.error("[pipeline] configure failed: %s", progress.message)
                 artifact = self._write_failure_artifact(progress)
                 return BuildResult(
                     success=False,
@@ -512,10 +574,13 @@ class BuildPipeline:
                     error_message=f"Configure failed: {_redact_build_text(progress.message)}",
                     progress=progress,
                 )
+            logger.info("[pipeline] configure completed: %s", progress.message)
 
             # Stage 4: Build
+            logger.info("[pipeline] stage 4/5: build")
             progress = self._run_with_retry(self._run_build, "build")
             if progress.status == "failed":
+                logger.error("[pipeline] build failed: %s", progress.message)
                 artifact = self._write_failure_artifact(progress)
                 return BuildResult(
                     success=False,
@@ -523,16 +588,28 @@ class BuildPipeline:
                     error_message=f"Build failed: {_redact_build_text(progress.message)}",
                     progress=progress,
                 )
+            logger.info("[pipeline] build completed: %s", progress.message)
 
             # Stage 5: Finalize (Provenance)
+            logger.info("[pipeline] stage 5/5: finalize")
             artifact = self._run_finalize(progress)
             if artifact is None:
+                logger.error("[pipeline] finalize failed: could not write provenance")
                 return BuildResult(
                     success=False,
                     error_message="Failed to write provenance",
                     progress=progress,
                 )
 
+            total_duration = _format_duration(time.time() - self._build_start_time)
+            logger.info(
+                "[pipeline] build succeeded for %s in %s (binary=%s size=%s commit=%s)",
+                backend_name,
+                total_duration,
+                artifact.binary_path,
+                artifact.binary_size_bytes,
+                artifact.git_commit_sha,
+            )
             return BuildResult(
                 success=True,
                 artifact=artifact,
@@ -540,6 +617,7 @@ class BuildPipeline:
             )
 
         except Exception as e:
+            logger.exception("[pipeline] unhandled exception in build pipeline")
             return BuildResult(
                 success=False,
                 error_message=_redact_build_text(str(e)),
@@ -557,6 +635,8 @@ class BuildPipeline:
         Returns:
             List of BuildResults: [SYCL build result, CUDA build result]
         """
+        logger.info("[both] starting sequential builds for SYCL then CUDA")
+
         # Create backend-specific directories for isolation
         sycl_build_dir = self.config.build_dir / "build_sycl"
         sycl_output_dir = self.config.output_dir / "output_sycl"
@@ -564,6 +644,7 @@ class BuildPipeline:
         cuda_output_dir = self.config.output_dir / "output_cuda"
 
         # Build SYCL first
+        logger.info("[both] starting SYCL build")
         sycl_config = BuildConfig(
             backend=BuildBackend.SYCL,
             source_dir=self.config.source_dir,
@@ -580,8 +661,10 @@ class BuildPipeline:
         sycl_pipeline.dry_run = self._dry_run
 
         sycl_result = sycl_pipeline.run()
+        logger.info("[both] SYCL build finished: success=%s", sycl_result.success)
 
         # Build CUDA after SYCL completes
+        logger.info("[both] starting CUDA build")
         cuda_config = BuildConfig(
             backend=BuildBackend.CUDA,
             source_dir=self.config.source_dir,
@@ -598,6 +681,7 @@ class BuildPipeline:
         cuda_pipeline.dry_run = self._dry_run
 
         cuda_result = cuda_pipeline.run()
+        logger.info("[both] CUDA build finished: success=%s", cuda_result.success)
 
         return [sycl_result, cuda_result]
 
@@ -618,10 +702,16 @@ class BuildPipeline:
             progress_percent=0.0,
         )
 
+        logger.info("[preflight] detecting toolchain for backend=%s", self.config.backend.value)
+
         # Check toolchain (always run, even in dry-run mode)
         from .toolchain import detect_toolchain
 
         status = detect_toolchain()
+
+        logger.debug(
+            "[preflight] sycl_ready=%s cuda_ready=%s", status.is_sycl_ready, status.is_cuda_ready
+        )
 
         if (self.config.backend == BuildBackend.SYCL and not status.is_sycl_ready) or (
             self.config.backend == BuildBackend.CUDA and not status.is_cuda_ready
@@ -630,11 +720,15 @@ class BuildPipeline:
             progress.status = "failed"
             backend_name = "SYCL" if self.config.backend == BuildBackend.SYCL else "CUDA"
             progress.message = f"Missing {backend_name} tools: {', '.join(missing)}"
+            logger.error(
+                "[preflight] failed: missing %s tools: %s", backend_name, ", ".join(missing)
+            )
             return progress
 
         progress.status = "success"
         progress.message = "Toolchain validated"
         progress.progress_percent = 20
+        logger.info("[preflight] toolchain validated for %s", self.config.backend.value)
         return progress
 
     def _run_clone(self) -> BuildProgress:
@@ -661,17 +755,39 @@ class BuildPipeline:
             progress_percent=20,
         )
 
+        logger.info("[clone] checking source_dir=%s", self.config.source_dir)
+        logger.debug(
+            "[clone] source_exists=%s is_git_repo=%s",
+            self._source_exists(),
+            self._is_git_repo() if self._source_exists() else False,
+        )
+
         # Check if source already exists and is non-empty
         # This enables offline-continue: use existing sources when network unavailable
         if self._source_exists():
             if self.config.update_sources and self._is_git_repo():
+                logger.info(
+                    "[clone] source exists and update_sources=True; updating existing clone"
+                )
                 return self._update_sources(progress)
+            logger.info("[clone] source exists; skipping clone")
             progress.status = "skipped"
             progress.message = MSG_SOURCES_ALREADY_EXIST
             progress.progress_percent = 30
             return progress
 
         # Clone repository
+        logger.info(
+            "[clone] source missing; cloning from %s",
+            _redact_build_text(self.config.git_remote_url),
+        )
+        logger.debug(
+            "[clone] branch=%s shallow=%s target=%s",
+            self.config.git_branch,
+            self.config.shallow_clone,
+            self.config.source_dir,
+        )
+
         try:
             if self._dry_run:
                 progress.message = (
@@ -680,6 +796,7 @@ class BuildPipeline:
                 )
                 progress.status = "success"
                 progress.progress_percent = 30
+                logger.info("[clone] dry-run: %s", progress.message)
                 return progress
 
             self.config.source_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -689,30 +806,39 @@ class BuildPipeline:
                 cmd.extend(["--depth", "1"])
             cmd.extend([self.config.git_remote_url, str(self.config.source_dir)])
 
+            logger.debug("[clone] running: %s", _format_command(cmd))
             subprocess.run(cmd, capture_output=True, text=True, check=True)
 
             progress.message = f"Cloned {self.config.git_remote_url}"
             progress.status = "success"
             progress.progress_percent = 30
+            logger.info("[clone] cloned successfully into %s", self.config.source_dir)
 
         except subprocess.SubprocessError as e:
             # Network/subprocess failure - check if sources exist to enable offline continue
             if self._source_exists():
+                logger.warning(
+                    "[clone] clone failed but source exists; continuing offline: %s",
+                    getattr(e, "stderr", str(e)),
+                )
                 progress.status = "skipped"
                 progress.message = MSG_SOURCES_ALREADY_EXIST
                 progress.progress_percent = 30
             else:
                 stderr = getattr(e, "stderr", str(e))
+                logger.error("[clone] clone failed: %s", stderr)
                 progress.status = "failed"
                 progress.message = f"Git clone failed: {stderr}"
             return progress
         except Exception as e:
             # Other errors (TimeoutExpired, etc.) - check if sources exist
             if self._source_exists():
+                logger.warning("[clone] error but source exists; continuing offline: %s", str(e))
                 progress.status = "skipped"
                 progress.message = MSG_SOURCES_ALREADY_EXIST
                 progress.progress_percent = 30
             else:
+                logger.error("[clone] clone failed: %s", str(e))
                 progress.status = "failed"
                 progress.message = f"Clone failed: {str(e)}"
             return progress
@@ -742,6 +868,8 @@ class BuildPipeline:
         """
         import subprocess
 
+        logger.info("[update-sources] fetching origin in %s", self.config.source_dir)
+
         if self._dry_run:
             progress.message = (
                 f"Would run: git fetch origin && git checkout -B "
@@ -749,7 +877,76 @@ class BuildPipeline:
             )
             progress.status = "success"
             progress.progress_percent = 30
+            logger.info("[update-sources] dry-run: %s", progress.message)
             return progress
+
+        try:
+            # 1. Fetch latest refs from the configured remote
+            fetch_cmd = ["git", "fetch", "origin"]
+            logger.debug("[update-sources] running: %s", _format_command(fetch_cmd))
+            fetch_result = subprocess.run(
+                fetch_cmd,
+                cwd=self.config.source_dir,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            logger.info("[update-sources] fetch completed")
+            logger.debug(
+                "[update-sources] fetch stdout: %s", fetch_result.stdout.strip() or "(empty)"
+            )
+
+            # 2. Fast-forward to the latest commit on the configured branch
+            checkout_cmd = [
+                "git",
+                "checkout",
+                "-B",
+                self.config.git_branch,
+                f"origin/{self.config.git_branch}",
+            ]
+            logger.debug("[update-sources] running: %s", _format_command(checkout_cmd))
+            result = subprocess.run(
+                checkout_cmd,
+                cwd=self.config.source_dir,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self._append_command_output(
+                stage="clone (update)",
+                command=checkout_cmd,
+                returncode=result.returncode,
+                stdout=result.stdout,
+                stderr=result.stderr,
+            )
+
+            if result.returncode != 0:
+                logger.warning(
+                    "[update-sources] checkout failed (rc=%s): %s",
+                    result.returncode,
+                    _tail_lines(result.stderr),
+                )
+                progress.status = "skipped"
+                progress.message = (
+                    f"Source update failed; continuing with existing sources: "
+                    f"{_tail_lines(result.stderr)}"
+                )
+                progress.progress_percent = 30
+                return progress
+
+            progress.message = f"Updated sources to origin/{self.config.git_branch}"
+            progress.status = "success"
+            progress.progress_percent = 30
+            logger.info("[update-sources] checked out %s", progress.message)
+
+        except subprocess.SubprocessError as e:
+            logger.warning("[update-sources] network error during update: %s", str(e))
+            progress.status = "skipped"
+            progress.message = "Network unavailable; continuing with existing sources"
+            progress.progress_percent = 30
+
+        return progress
 
         try:
             # 1. Fetch latest refs from the configured remote
@@ -837,11 +1034,16 @@ class BuildPipeline:
             progress_percent=30,
         )
 
+        logger.info(
+            "[configure] build_dir=%s backend=%s", self.config.build_dir, self.config.backend.value
+        )
+
         # Check if build directory exists and CMakeCache.txt exists.
         # When update_sources is enabled we always re-configure because the
         # source tree may have changed (new files, different CMake flags, etc.).
         cmake_cache = self.config.build_dir / "CMakeCache.txt"
         if cmake_cache.exists() and not self.config.update_sources:
+            logger.info("[configure] CMakeCache.txt exists; skipping configure")
             progress.status = "skipped"
             progress.message = "Already configured"
             progress.progress_percent = 50
@@ -849,6 +1051,7 @@ class BuildPipeline:
 
         # Generate cmake flags
         cmake_args = self._get_cmake_flags(self.config.backend)
+        logger.debug("[configure] cmake_flags=%s", cmake_args)
 
         if self._dry_run:
             cmd = ["cmake", "-S", str(self.config.source_dir), "-B", str(self.config.build_dir)]
@@ -857,19 +1060,27 @@ class BuildPipeline:
             progress.message = f"Would run: {_format_command(cmd)}"
             progress.status = "success"
             progress.progress_percent = 50
+            logger.info("[configure] dry-run: %s", progress.message)
             return progress
 
         try:
             # Create build directory if it doesn't exist
             self.config.build_dir.mkdir(parents=True, exist_ok=True)
+            logger.debug("[configure] created build_dir=%s", self.config.build_dir)
 
             cmd = ["cmake", "-S", str(self.config.source_dir), "-B", str(self.config.build_dir)]
             cmd.extend(cmake_args)
             cmd = self._get_build_env_cmd(cmd)
 
+            logger.info("[configure] running cmake (this may take a while)")
+            logger.debug("[configure] command: %s", _format_command(cmd))
+
             started_at = time.monotonic()
             result = subprocess.run(cmd, capture_output=True, text=True, check=False)
             duration = _format_duration(time.monotonic() - started_at)
+
+            logger.debug("[configure] cmake exited with rc=%s in %s", result.returncode, duration)
+
             self._append_command_output(
                 stage="configure",
                 command=cmd,
@@ -879,6 +1090,7 @@ class BuildPipeline:
             )
 
             if result.returncode != 0:
+                logger.error("[configure] cmake failed (rc=%s)", result.returncode)
                 progress.status = "failed"
                 progress.message = _format_command_failure(
                     stage="CMake configure",
@@ -894,8 +1106,10 @@ class BuildPipeline:
             )
             progress.status = "success"
             progress.progress_percent = 50
+            logger.info("[configure] %s", progress.message)
 
         except Exception as e:
+            logger.error("[configure] exception: %s", str(e))
             progress.status = "failed"
             progress.message = f"Configure failed: {str(e)}"
             return progress
@@ -917,6 +1131,8 @@ class BuildPipeline:
             progress_percent=50,
         )
 
+        logger.info("[build] starting compilation for %s", self.config.backend.value)
+
         if self._dry_run:
             cmd = ["cmake", "--build", str(self.config.build_dir)]
             if self.config.jobs:
@@ -925,6 +1141,7 @@ class BuildPipeline:
             progress.message = f"Would run: {_format_command(cmd)}"
             progress.status = "success"
             progress.progress_percent = 75
+            logger.info("[build] dry-run: %s", progress.message)
             return progress
 
         try:
@@ -932,6 +1149,10 @@ class BuildPipeline:
             if self.config.jobs:
                 cmd.extend(["--parallel", str(self.config.jobs)])
             cmd = self._get_build_env_cmd(cmd)
+
+            logger.info("[build] running cmake --build (this may take several minutes)")
+            logger.debug("[build] command: %s", _format_command(cmd))
+            logger.debug("[build] jobs=%s", self.config.jobs)
 
             started_at = time.monotonic()
             result = subprocess.run(
@@ -941,6 +1162,8 @@ class BuildPipeline:
                 check=False,  # Don't raise on non-zero exit
             )
             duration = _format_duration(time.monotonic() - started_at)
+
+            logger.debug("[build] cmake exited with rc=%s in %s", result.returncode, duration)
 
             self._append_command_output(
                 stage="build",
@@ -954,7 +1177,9 @@ class BuildPipeline:
                 progress.message = f"Build completed for {self.config.backend.value} in {duration}"
                 progress.status = "success"
                 progress.progress_percent = 75
+                logger.info("[build] %s", progress.message)
             else:
+                logger.error("[build] compilation failed (rc=%s)", result.returncode)
                 progress.status = "failed"
                 progress.message = _format_command_failure(
                     stage="Build",
@@ -965,6 +1190,7 @@ class BuildPipeline:
                 )
 
         except Exception as e:
+            logger.error("[build] exception: %s", str(e))
             progress.status = "failed"
             progress.message = f"Build failed: {str(e)}"
 
@@ -982,7 +1208,10 @@ class BuildPipeline:
         import subprocess
 
         if not build_progress.is_complete or build_progress.status != "success":
+            logger.warning("[finalize] build stage incomplete or failed; skipping finalize")
             return None
+
+        logger.info("[finalize] collecting build metadata")
 
         # Get git commit SHA (skip in dry-run mode)
         git_commit_sha = "unknown"
@@ -996,8 +1225,9 @@ class BuildPipeline:
                     check=True,
                 )
                 git_commit_sha = result.stdout.strip()
+                logger.info("[finalize] git commit=%s", git_commit_sha)
             except (subprocess.CalledProcessError, FileNotFoundError):
-                pass
+                logger.warning("[finalize] could not determine git commit SHA")
 
         # Find built binary
         binary_path = None
@@ -1008,8 +1238,21 @@ class BuildPipeline:
             if server_binary.exists():
                 binary_path = server_binary
                 binary_size_bytes = server_binary.stat().st_size
+                logger.info(
+                    "[finalize] found binary: %s (%s bytes)",
+                    binary_path,
+                    binary_size_bytes,
+                )
+            else:
+                logger.warning("[finalize] expected binary not found: %s", server_binary)
+        else:
+            logger.warning("[finalize] build bin/ directory not found: %s", build_dir_bin)
 
         build_log_path = self._write_build_log()
+        if build_log_path:
+            logger.info("[finalize] build log written to %s", build_log_path)
+        else:
+            logger.debug("[finalize] no build log to write")
 
         artifact = self._create_artifact(
             exit_code=0,
@@ -1021,8 +1264,13 @@ class BuildPipeline:
         )
 
         # Write provenance
+        logger.info(
+            "[finalize] writing provenance to %s", self.config.output_dir / "build-artifact.json"
+        )
         if self._write_provenance(artifact):
+            logger.info("[finalize] provenance written successfully")
             return artifact
+        logger.error("[finalize] provenance write failed")
         return None
 
     def _get_cmake_flags(self, backend: BuildBackend) -> list[str]:
@@ -1135,10 +1383,11 @@ class BuildPipeline:
             # Atomic rename
             temp_file.rename(final_file)
 
+            logger.debug("[provenance] atomically wrote %s", final_file)
             return True
 
         except Exception as e:
-            logger.warning("failed to write provenance: %s", e)
+            logger.warning("[provenance] failed to write: %s", e)
             return False
 
     def _acquire_lock(self, lock_path: Path) -> bool:
@@ -1153,11 +1402,15 @@ class BuildPipeline:
             True if lock acquired, False otherwise
         """
         if self._dry_run:
+            logger.debug("[lock] dry-run: skipping lock acquisition")
             return True
+
+        logger.info("[lock] acquiring lock at %s", lock_path)
 
         try:
             # First, check if there's a stale lock and remove it safely
             if lock_path.exists() and self._is_lock_stale(lock_path):
+                logger.warning("[lock] removing stale lock at %s", lock_path)
                 with contextlib.suppress(Exception):
                     lock_path.unlink()
 
@@ -1185,17 +1438,20 @@ class BuildPipeline:
                 os.close(lock_fd)
 
             self._lock_file = lock_path
+            logger.info(
+                "[lock] acquired for backend=%s pid=%s", self.config.backend.value, os.getpid()
+            )
             return True
 
         except FileExistsError:
             # Another process holds the lock
-            logger.error("build lock already held by another process: %s", lock_path)
+            logger.error("[lock] already held by another process: %s", lock_path)
             return False
         except OSError as e:
-            logger.error("failed to acquire build lock: %s", e)
+            logger.error("[lock] failed to acquire: %s", e)
             return False
         except Exception as e:
-            logger.error("failed to acquire build lock: %s", e)
+            logger.error("[lock] failed to acquire: %s", e)
             return False
 
     def release_lock(self) -> None:
@@ -1209,9 +1465,12 @@ class BuildPipeline:
     def _release_lock(self) -> None:
         """Release build lock."""
         if self._lock_file and self._lock_file.exists():
+            logger.info("[lock] releasing %s", self._lock_file)
             with contextlib.suppress(Exception):
                 self._lock_file.unlink()
             self._lock_file = None
+        else:
+            logger.debug("[lock] no active lock to release")
 
     def _is_lock_stale(self, lock_path: Path) -> bool:
         """Check if lock file is stale.
