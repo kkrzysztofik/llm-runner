@@ -380,6 +380,27 @@ class TestDetectTool:
             assert found is False
             assert version is None
 
+    def test_detect_tool_nvcc_extracts_release_version(self) -> None:
+        """detect_tool should extract 'release X.Y' version from nvcc output.
+
+        nvcc --version prints a copyright year first (e.g. 2005), then the
+        actual CUDA release version. We must return the release version.
+        """
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=(
+                    "nvcc: NVIDIA (R) Cuda compiler driver\n"
+                    "Copyright (c) 2005-2026 NVIDIA Corporation\n"
+                    "Built on Thu_Mar_19_11:12:51_PM_PDT_2026\n"
+                    "Cuda compilation tools, release 13.2, V13.2.78\n"
+                ),
+                stderr="",
+            )
+            found, version = detect_tool("nvcc")
+            assert found is True
+            assert version == "13.2"
+
 
 class TestGetToolchainHints:
     """T018: Tests for get_toolchain_hints() function."""

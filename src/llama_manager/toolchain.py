@@ -240,7 +240,7 @@ def detect_tool(
     if timeout is None:
         timeout = 30  # Default timeout
 
-    def _try_tool(cmd: list[str]) -> tuple[bool, str | None]:
+    def _try_tool(cmd: list[str], name: str = "") -> tuple[bool, str | None]:
         """Try to run a tool and extract its version."""
         try:
             result = subprocess.run(
@@ -251,6 +251,16 @@ def detect_tool(
             )
             if result.returncode == 0:
                 output = result.stdout.strip()
+                # Tool-specific version extraction
+                if name == "nvcc":
+                    # nvcc --version output has copyright year first;
+                    # the actual CUDA version is on the "release X.Y" line
+                    release_match = re.search(
+                        r"release\s+(\d+(?:\.\d+){0,2})", output
+                    )
+                    if release_match:
+                        return (True, release_match.group(1))
+                # Generic fallback for all other tools
                 version_match = re.search(r"\d+(?:\.\d+){0,2}", output)
                 if version_match:
                     return (True, version_match.group(0))
@@ -260,7 +270,7 @@ def detect_tool(
         return (False, None)
 
     # Try PATH first
-    found, version = _try_tool([tool_name, "--version"])
+    found, version = _try_tool([tool_name, "--version"], name=tool_name)
     if found:
         return (True, version)
 
@@ -268,7 +278,9 @@ def detect_tool(
     if tool_name in ("icpx", "icx", "dpcpp"):
         fallback = _INTEL_ONEAPI_BIN / tool_name
         if fallback.exists():
-            found, version = _try_tool([str(fallback), "--version"])
+            found, version = _try_tool(
+                [str(fallback), "--version"], name=tool_name
+            )
             if found:
                 return (True, version)
 
