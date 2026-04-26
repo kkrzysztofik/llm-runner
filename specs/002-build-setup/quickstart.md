@@ -90,7 +90,8 @@ Expected outcomes (with valid toolchain):
 - Build stages execute sequentially: preflight → clone → configure → build → provenance
 - Each stage reports status and progress
 - On success: binary at `$XDG_CACHE_HOME/llm-runner/llama.cpp/build/bin/llama-server`
-  (or `<LLAMA_CPP_ROOT>/build/bin/llama-server` / `<source-dir>/build/bin/llama-server` when overridden)
+  (or `~/.cache/llm-runner/llama.cpp/build/bin/llama-server` when XDG_CACHE_HOME is unset;
+  also checks `<LLAMA_CPP_ROOT>/build/bin/llama-server` / `<source-dir>/build/bin/llama-server` when overridden)
 - On success: provenance JSON at `~/.local/state/llm-runner/builds/<timestamp>-sycl.json`
 - Provenance contains: `artifact_type`, `backend`, `created_at`, `git_remote_url`,
   `git_commit_sha`, `git_branch`, `build_command`, `build_duration_seconds`, `exit_code`,

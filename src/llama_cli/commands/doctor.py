@@ -595,6 +595,17 @@ def _collect_directories_repair_actions(result: DoctorRepairResult, config: Conf
                     requires_confirmation=False,
                 )
             )
+        elif dir_path.exists() and not dir_path.is_dir():
+            # Conflict: path exists but is not a directory (file or symlink)
+            result.actions.append(
+                RepairAction(
+                    action_type="remove_and_create_directory",
+                    description=f"Remove conflicting {name} file and create directory: {dir_path}",
+                    command=["rm", "-rf", str(dir_path), "&&", "mkdir", "-m", "700", "-p", str(dir_path)],
+                    dry_run_command=f"# rm -rf '{dir_path}' && mkdir -m 700 -p '{dir_path}'",
+                    requires_confirmation=True,
+                )
+            )
 
 
 def _collect_profile_repair_actions(

@@ -384,13 +384,14 @@ def _handle_doctor_case(args: list[str]) -> argparse.Namespace | None:
     subcommand_parsers = {
         "check": _parse_doctor_check_args,
         "repair": _parse_doctor_repair_args,
+        "fix": _parse_doctor_repair_args,
     }
 
     if subcommand in subcommand_parsers:
         return subcommand_parsers[subcommand](remaining_args)
 
     print(
-        f"error: unknown doctor subcommand '{subcommand}'. Valid subcommands: check, repair",
+        f"error: unknown doctor subcommand '{subcommand}'. Valid subcommands: check, repair, fix",
         file=sys.stderr,
     )
     sys.exit(1)

@@ -198,6 +198,12 @@ def _handle_missing_tools(status: Any, hints: list[Any], backend: str | None = N
         _backend_ready = status.is_complete
 
     missing = status.missing_tools(backend_enum)
+
+    # Filter out optional tools when backend is ready
+    if (backend == "all" or backend is None) and status.is_complete:
+        # Remove optional tools (nvtop) from missing list
+        missing = [t for t in missing if t != "nvtop"]
+
     if not missing:
         _print_success("")
         print(Colors.bold(Colors.bright_green("All required tools are available!")))
@@ -235,7 +241,13 @@ def cmd_check(args: argparse.Namespace) -> int:
 
         if args.json:
             _print_json(_build_status_output(status))
-            return 0 if status.is_complete else 1
+            # Use backend-aware exit code logic (without printing)
+            if args.backend == "sycl":
+                return 0 if status.is_sycl_ready else 1
+            elif args.backend == "cuda":
+                return 0 if status.is_cuda_ready else 1
+            else:
+                return 0 if status.is_complete else 1
 
         _print_status(status)
         return _handle_missing_tools(status, hints, args.backend)

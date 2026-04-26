@@ -690,7 +690,11 @@ def _resolve_sha() -> str:
     """
     from subprocess import CalledProcessError, run
 
-    git_head = Path("src/llama.cpp/.git/HEAD")
+    from llama_manager.config import Config
+
+    cfg = Config()
+    llama_cpp_root = cfg.llama_cpp_root
+    git_head = Path(llama_cpp_root) / ".git" / "HEAD"
     if not git_head.exists():
         return "unknown"
 
@@ -711,7 +715,7 @@ def _resolve_sha() -> str:
     # Fallback: try git rev-parse
     try:
         result = run(
-            ["git", "-C", "src/llama.cpp", "rev-parse", "HEAD"],
+            ["git", "-C", llama_cpp_root, "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
             timeout=5,

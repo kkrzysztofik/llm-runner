@@ -306,6 +306,8 @@ class BuildPipeline:
         self._progress_callback = progress_callback
         self._build_start_time: float = 0.0
         self._build_output: str = ""
+        self._last_build_command: list[str] = []
+        self._last_exit_code: int = 1
 
     @property
     def dry_run(self) -> bool:
@@ -331,6 +333,10 @@ class BuildPipeline:
         stderr: str,
     ) -> None:
         """Append structured command output to the build report payload."""
+        # Store last command and exit code for failure artifact
+        self._last_build_command = command
+        self._last_exit_code = returncode
+
         entry = (
             f"## {stage}\n"
             f"COMMAND: {_format_command(command)}\n"
@@ -369,8 +375,11 @@ class BuildPipeline:
         binary_path: Path | None = None,
         binary_size_bytes: int | None = None,
         git_commit_sha: str = "unknown",
+        build_command: list[str] | None = None,
     ) -> BuildArtifact:
         """Create build provenance for success or failed command stages."""
+        # Use provided build_command or fall back to stored last command
+        cmd = build_command or self._last_build_command or ["cmake", "--build", str(self.config.build_dir)]
         return BuildArtifact(
             artifact_type="llama-server",
             backend=self.config.backend.value,
@@ -378,7 +387,7 @@ class BuildPipeline:
             git_remote_url=_redact_build_text(self.config.git_remote_url),
             git_commit_sha=git_commit_sha,
             git_branch=self.config.git_branch,
-            build_command=["cmake", "--build", str(self.config.build_dir)],
+            build_command=cmd,
             build_duration_seconds=time.time() - self._build_start_time,
             exit_code=exit_code,
             binary_path=binary_path,
@@ -395,9 +404,10 @@ class BuildPipeline:
 
         build_log_path = self._write_build_log()
         artifact = self._create_artifact(
-            exit_code=1,
+            exit_code=self._last_exit_code,
             build_log_path=build_log_path,
             failure_report_path=None,
+            build_command=self._last_build_command,
         )
         report = write_failure_report(
             report_dir=self._build_reports_dir(),
@@ -776,6 +786,13 @@ class BuildPipeline:
                     "[clone] source exists and update_sources=True; updating existing clone"
                 )
                 return self._update_sources(progress)
+            # If git_commit is configured, checkout that specific commit
+            if self.config.git_commit and self._is_git_repo():
+                logger.info(
+                    "[clone] source exists; checking out configured git_commit=%s",
+                    self.config.git_commit,
+                )
+                return self._checkout_commit(progress)
             logger.info("[clone] source exists; skipping clone")
             progress.status = "skipped"
             progress.message = MSG_SOURCES_ALREADY_EXIST
@@ -798,7 +815,7 @@ class BuildPipeline:
             if self._dry_run:
                 progress.message = (
                     f"Would run: git clone --branch {self.config.git_branch} "
-                    f"{self.config.git_remote_url} {self.config.source_dir}"
+                    f"{_redact_build_text(self.config.git_remote_url)} {self.config.source_dir}"
                 )
                 progress.status = "success"
                 progress.progress_percent = 30
@@ -815,7 +832,7 @@ class BuildPipeline:
             logger.debug("[clone] running: %s", _format_command(cmd))
             subprocess.run(cmd, capture_output=True, text=True, check=True)
 
-            progress.message = f"Cloned {self.config.git_remote_url}"
+            progress.message = f"Cloned {_redact_build_text(self.config.git_remote_url)}"
             progress.status = "success"
             progress.progress_percent = 30
             logger.info("[clone] cloned successfully into %s", self.config.source_dir)
@@ -828,16 +845,16 @@ class BuildPipeline:
 
         except subprocess.SubprocessError as e:
             # Network/subprocess failure - check if sources exist to enable offline continue
+            stderr = _redact_build_text(getattr(e, "stderr", None) or str(e))
             if self._source_exists():
                 logger.warning(
                     "[clone] clone failed but source exists; continuing offline: %s",
-                    getattr(e, "stderr", str(e)),
+                    stderr,
                 )
                 progress.status = "skipped"
                 progress.message = MSG_SOURCES_ALREADY_EXIST
                 progress.progress_percent = 30
             else:
-                stderr = getattr(e, "stderr", str(e))
                 logger.error("[clone] clone failed: %s", stderr)
                 progress.status = "failed"
                 progress.message = f"Git clone failed: {stderr}"

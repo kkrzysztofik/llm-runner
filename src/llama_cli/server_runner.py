@@ -322,27 +322,31 @@ def _run_tui(parsed: argparse.Namespace) -> int:
             [cfg.llama_server_bin_intel, cfg.llama_server_bin_nvidia],
             ["Intel llama-server", "NVIDIA llama-server"],
             [
-                create_summary_balanced_cfg(parsed.port or cfg.summary_balanced_port),
-                create_qwen35_cfg(parsed.port2 or cfg.qwen35_port),
+                create_summary_balanced_cfg(
+                    parsed.port if parsed.port is not None else cfg.summary_balanced_port
+                ),
+                create_qwen35_cfg(
+                    parsed.port2 if parsed.port2 is not None else cfg.qwen35_port
+                ),
             ],
             [1, 0],
         ),
         "summary-balanced": (
             [cfg.llama_server_bin_intel],
             ["Intel llama-server"],
-            [create_summary_balanced_cfg(parsed.port or cfg.summary_balanced_port)],
+            [create_summary_balanced_cfg(parsed.port if parsed.port is not None else cfg.summary_balanced_port)],
             [1],
         ),
         "summary-fast": (
             [cfg.llama_server_bin_intel],
             ["Intel llama-server"],
-            [create_summary_fast_cfg(parsed.port or cfg.summary_fast_port)],
+            [create_summary_fast_cfg(parsed.port if parsed.port is not None else cfg.summary_fast_port)],
             [1],
         ),
         "qwen35": (
             [cfg.llama_server_bin_nvidia],
             ["NVIDIA llama-server"],
-            [create_qwen35_cfg(parsed.port or cfg.qwen35_port)],
+            [create_qwen35_cfg(parsed.port if parsed.port is not None else cfg.qwen35_port)],
             [0],
         ),
     }
@@ -492,6 +496,9 @@ def main(args: list[str] | None = None) -> int:
 
         return run_smoke(smoke_args)
 
+    # Enable Intel Sysman for telemetry before any backend operations
+    os.environ["ZES_ENABLE_SYSMAN"] = "1"
+
     # Handle tui subcommand
     if parsed.mode == "tui":
         return _run_tui(parsed)
@@ -503,7 +510,6 @@ def main(args: list[str] | None = None) -> int:
 
     Colors.is_enabled()
     check_prereqs()
-    os.environ["ZES_ENABLE_SYSMAN"] = "1"
 
     if parsed.mode == "dry-run":
         return _run_dry_run_mode(parsed, parsed.acknowledge_risky)

@@ -424,12 +424,23 @@ def run_build_command(args: argparse.Namespace) -> int:
     backends = _get_backends(args.backend)
     config = Config()
     source_dir = args.source_dir or Path(config.llama_cpp_root)
-    output_dir = args.output_dir or config.builds_dir
 
     # Build each backend sequentially
     results: list[tuple[BuildBackend, BuildResult]] = []
     for backend in backends:
-        build_dir = args.build_dir or _default_build_dir(source_dir, backend)
+        # Compute backend-scoped paths
+        if args.build_dir:
+            # When user provides build_dir, namespace it with backend identifier
+            build_dir = Path(args.build_dir) / backend.value
+        else:
+            build_dir = _default_build_dir(source_dir, backend)
+
+        if args.output_dir:
+            # When user provides output_dir, namespace it with backend identifier
+            output_dir = Path(args.output_dir) / backend.value
+        else:
+            output_dir = config.builds_dir / backend.value
+
         result = _build_single_backend(backend, args, source_dir, build_dir, output_dir)
         results.append(result)
 

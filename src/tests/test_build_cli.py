@@ -453,7 +453,7 @@ class TestRunBuildCommand:
             assert build_config.build_dir == source_dir / "build_cuda"
 
     def test_run_build_explicit_build_dir_overrides_backend_defaults(self, tmp_path: Path) -> None:
-        """run_build_command should use an explicit build dir for every selected backend."""
+        """run_build_command should use backend-scoped build dirs when explicit build_dir is provided."""
         build_dir = tmp_path / "explicit-build"
         args = parse_build_args(["both", "--build-dir", str(build_dir)])
         args.source_dir = tmp_path / "source"
@@ -467,7 +467,8 @@ class TestRunBuildCommand:
 
             assert exit_code == 0
             build_dirs = [call.args[0].build_dir for call in mock_cls.call_args_list]
-            assert build_dirs == [build_dir, build_dir]
+            # When explicit build_dir is provided, each backend gets a scoped subdirectory
+            assert build_dirs == [build_dir / "sycl", build_dir / "cuda"]
 
 
 # =============================================================================
