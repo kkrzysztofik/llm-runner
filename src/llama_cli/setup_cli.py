@@ -56,6 +56,25 @@ def _print_json(data: dict[str, Any]) -> None:
     print(json.dumps(data, indent=2, default=str))
 
 
+def _deduplicate_hints(hints: list[Any]) -> list[Any]:
+    """Deduplicate hints by install command + docs URL.
+
+    Args:
+        hints: List of toolchain hints
+
+    Returns:
+        Deduplicated list of hints
+    """
+    seen: set[tuple[str, str | None]] = set()
+    result: list[Any] = []
+    for hint in hints:
+        key = (hint.how_to_fix, hint.docs_ref)
+        if key not in seen:
+            seen.add(key)
+            result.append(hint)
+    return result
+
+
 def _get_hints(backend: str) -> list[Any]:
     """Get toolchain hints for specified backend with deduplication.
 
@@ -66,20 +85,13 @@ def _get_hints(backend: str) -> list[Any]:
         List of toolchain hints
     """
     if backend == "sycl":
-        return get_toolchain_hints("sycl")
+        return _deduplicate_hints(get_toolchain_hints("sycl"))
     elif backend == "cuda":
-        return get_toolchain_hints("cuda")
+        return _deduplicate_hints(get_toolchain_hints("cuda"))
     elif backend == "all":
-        # Aggregate hints from both backends, deduplicate by tool name
         sycl_hints = get_toolchain_hints("sycl")
         cuda_hints = get_toolchain_hints("cuda")
-        seen_tools: set[str] = set()
-        hints = []
-        for hint in sycl_hints + cuda_hints:
-            if hint.failed_check not in seen_tools:
-                seen_tools.add(hint.failed_check)
-                hints.append(hint)
-        return hints
+        return _deduplicate_hints(sycl_hints + cuda_hints)
     return []
 
 

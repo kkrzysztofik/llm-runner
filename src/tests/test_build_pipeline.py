@@ -503,6 +503,8 @@ class TestConfigureStageCmakeFlags:
         # Test SYCL backend
         cmake_args = pipeline._get_cmake_flags(backend=BuildBackend.SYCL)
         assert "-DGGML_SYCL=ON" in cmake_args
+        assert "-DCMAKE_C_COMPILER=icx" in cmake_args
+        assert "-DCMAKE_CXX_COMPILER=icpx" in cmake_args
 
         # Test CUDA backend
         config_cuda = BuildConfig(
@@ -547,7 +549,14 @@ class TestBuildStageExecution:
         mock_result.stdout = "Build successful"
         mock_result.stderr = ""
 
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
+        with (
+            patch("subprocess.run", return_value=mock_result) as mock_run,
+            patch.object(
+                pipeline,
+                "_get_build_env_cmd",
+                side_effect=lambda cmd: cmd,
+            ),
+        ):
             result = pipeline._run_build()
 
             # Verify subprocess was called with correct arguments
@@ -559,6 +568,82 @@ class TestBuildStageExecution:
 
             # Verify success
             assert result.status == "success"
+
+
+class TestBuildEnvCmd:
+    """Tests for _get_build_env_cmd SYCL wrapping."""
+
+    def test_get_build_env_cmd_wraps_sycl_when_setvars_exists(
+        self, tmp_path: Path
+    ) -> None:
+        """_get_build_env_cmd should wrap cmake for SYCL when setvars.sh exists."""
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+        )
+        pipeline = BuildPipeline(config)
+
+        # Mock setvars.sh existing
+        fake_setvars = tmp_path / "setvars.sh"
+        fake_setvars.write_text("# mock")
+
+        with patch(
+            "llama_manager.build_pipeline._INTEL_SETVARS_SH", fake_setvars
+        ):
+            cmd = ["cmake", "--build", str(config.build_dir)]
+            wrapped = pipeline._get_build_env_cmd(cmd)
+            assert wrapped[0] == "bash"
+            assert wrapped[1] == "-c"
+            assert f'source "{fake_setvars}"' in wrapped[2]
+            assert "cmake --build" in wrapped[2]
+
+    def test_get_build_env_cmd_no_wrap_for_cuda(self, tmp_path: Path) -> None:
+        """_get_build_env_cmd should not wrap commands for CUDA backend."""
+        config = BuildConfig(
+            backend=BuildBackend.CUDA,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+        )
+        pipeline = BuildPipeline(config)
+
+        fake_setvars = tmp_path / "setvars.sh"
+        fake_setvars.write_text("# mock")
+
+        with patch(
+            "llama_manager.build_pipeline._INTEL_SETVARS_SH", fake_setvars
+        ):
+            cmd = ["cmake", "--build", str(config.build_dir)]
+            wrapped = pipeline._get_build_env_cmd(cmd)
+            assert wrapped == cmd
+
+    def test_get_build_env_cmd_no_wrap_when_setvars_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """_get_build_env_cmd should not wrap when setvars.sh is missing."""
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+        )
+        pipeline = BuildPipeline(config)
+
+        with patch(
+            "llama_manager.build_pipeline._INTEL_SETVARS_SH",
+            tmp_path / "nonexistent",
+        ):
+            cmd = ["cmake", "--build", str(config.build_dir)]
+            wrapped = pipeline._get_build_env_cmd(cmd)
+            assert wrapped == cmd
 
 
 class TestProvenanceAtomicWrite:

@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .build_pipeline import BuildBackend
 from .config import ErrorCode
@@ -204,6 +205,10 @@ NVTOP_HINT: ToolchainHint = ToolchainHint(
 )
 
 
+# Fallback paths for Intel oneAPI compilers (default install location)
+_INTEL_ONEAPI_BIN = Path("/opt/intel/oneapi/compiler/latest/bin")
+
+
 def detect_tool(
     tool_name: str,
     timeout: int | None = None,
@@ -211,6 +216,8 @@ def detect_tool(
     """Detect if a tool is available and return its version string.
 
     Uses subprocess.run with configurable timeout to check for tool presence.
+    For Intel oneAPI tools (icpx, icx, dpcpp), falls back to the default
+    installation path at /opt/intel/oneapi/compiler/latest/bin/.
 
     Args:
         tool_name: Name of the tool to detect (e.g., "gcc", "cmake", "nvcc")
@@ -233,29 +240,39 @@ def detect_tool(
     if timeout is None:
         timeout = 30  # Default timeout
 
-    try:
-        result = subprocess.run(
-            [tool_name, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        if result.returncode == 0:
-            # Parse version from output (e.g., "gcc (GCC) 11.3.0" → "11.3.0")
-            output = result.stdout.strip()
-            # Try to extract version number using regex (accepts 1-3 components: "12", "12.3", "12.3.4")
-            version_match = re.search(r"\d+(?:\.\d+){0,2}", output)
-            if version_match:
-                version = version_match.group(0)
+    def _try_tool(cmd: list[str]) -> tuple[bool, str | None]:
+        """Try to run a tool and extract its version."""
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            if result.returncode == 0:
+                output = result.stdout.strip()
+                version_match = re.search(r"\d+(?:\.\d+){0,2}", output)
+                if version_match:
+                    return (True, version_match.group(0))
+                return (True, output.split("\n")[0])
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            pass
+        return (False, None)
+
+    # Try PATH first
+    found, version = _try_tool([tool_name, "--version"])
+    if found:
+        return (True, version)
+
+    # Fallback: Intel oneAPI default installation path
+    if tool_name in ("icpx", "icx", "dpcpp"):
+        fallback = _INTEL_ONEAPI_BIN / tool_name
+        if fallback.exists():
+            found, version = _try_tool([str(fallback), "--version"])
+            if found:
                 return (True, version)
-            return (True, output.split("\n")[0])
-        return (False, None)
-    except subprocess.TimeoutExpired:
-        return (False, None)
-    except FileNotFoundError:
-        return (False, None)
-    except Exception:
-        return (False, None)
+
+    return (False, None)
 
 
 def get_toolchain_hints(backend: str) -> list["ToolchainErrorDetail"]:

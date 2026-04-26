@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 MSG_SOURCES_ALREADY_EXIST = "Sources already exist"
 
+# Intel oneAPI environment setup script (default install location)
+_INTEL_SETVARS_SH = Path("/opt/intel/oneapi/setvars.sh")
+
 
 class BuildBackend(StrEnum):
     """Supported build backends"""
@@ -604,7 +607,10 @@ class BuildPipeline:
         cmake_args = self._get_cmake_flags(self.config.backend)
 
         if self._dry_run:
-            progress.message = f"Would run: cmake -S {self.config.source_dir} -B {self.config.build_dir} {' '.join(cmake_args)}"
+            cmd = ["cmake", "-S", str(self.config.source_dir), "-B", str(self.config.build_dir)]
+            cmd.extend(cmake_args)
+            cmd = self._get_build_env_cmd(cmd)
+            progress.message = f"Would run: {' '.join(cmd)}"
             progress.status = "success"
             progress.progress_percent = 50
             return progress
@@ -615,6 +621,7 @@ class BuildPipeline:
 
             cmd = ["cmake", "-S", str(self.config.source_dir), "-B", str(self.config.build_dir)]
             cmd.extend(cmake_args)
+            cmd = self._get_build_env_cmd(cmd)
 
             subprocess.run(cmd, capture_output=True, text=True, check=True)
 
@@ -649,7 +656,11 @@ class BuildPipeline:
         )
 
         if self._dry_run:
-            progress.message = f"Would run: cmake --build {self.config.build_dir}"
+            cmd = ["cmake", "--build", str(self.config.build_dir)]
+            if self.config.jobs:
+                cmd.extend(["--parallel", str(self.config.jobs)])
+            cmd = self._get_build_env_cmd(cmd)
+            progress.message = f"Would run: {' '.join(cmd)}"
             progress.status = "success"
             progress.progress_percent = 75
             return progress
@@ -658,6 +669,7 @@ class BuildPipeline:
             cmd = ["cmake", "--build", str(self.config.build_dir)]
             if self.config.jobs:
                 cmd.extend(["--parallel", str(self.config.jobs)])
+            cmd = self._get_build_env_cmd(cmd)
 
             result = subprocess.run(
                 cmd,
@@ -774,11 +786,39 @@ class BuildPipeline:
         ]
 
         if backend == BuildBackend.SYCL:
-            flags.append(f"-D{BuildConfig.GGML_SYCL}=ON")
+            flags.extend([
+                f"-D{BuildConfig.GGML_SYCL}=ON",
+                "-DCMAKE_C_COMPILER=icx",
+                "-DCMAKE_CXX_COMPILER=icpx",
+            ])
         elif backend == BuildBackend.CUDA:
             flags.append(f"-D{BuildConfig.GGML_CUDA}=ON")
 
         return flags
+
+    def _get_build_env_cmd(self, cmd: list[str]) -> list[str]:
+        """Wrap command with Intel oneAPI environment if needed.
+
+        For SYCL builds, sources /opt/intel/oneapi/setvars.sh before running
+        the command so that compilers and libraries are on PATH.
+
+        Args:
+            cmd: Original command list
+
+        Returns:
+            Potentially wrapped command list
+        """
+        if self.config.backend != BuildBackend.SYCL:
+            return cmd
+        if not _INTEL_SETVARS_SH.exists():
+            return cmd
+        # Use bash -c to source setvars.sh then run the command
+        cmd_str = " ".join(cmd)
+        return [
+            "bash",
+            "-c",
+            f'source "{_INTEL_SETVARS_SH}" && {cmd_str}',
+        ]
 
     def _write_provenance(self, artifact: BuildArtifact) -> bool:
         """Write build artifact provenance atomically.

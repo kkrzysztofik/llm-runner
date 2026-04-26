@@ -8,6 +8,7 @@ Test Tasks:
 """
 
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -346,6 +347,38 @@ class TestDetectTool:
             # Should find it or at least not crash
             assert isinstance(found, bool)
             assert version is None or isinstance(version, str)
+
+    def test_detect_tool_fallback_to_oneapi(self, tmp_path: Path) -> None:
+        """detect_tool should find Intel tools in /opt/intel/oneapi fallback path."""
+        # Create a fake icpx in a temp directory
+        fake_icpx = tmp_path / "icpx"
+        fake_icpx.write_text("#!/bin/bash\necho 'icpx 2024.1.0'")
+        fake_icpx.chmod(0o755)
+
+        with (
+            patch("llama_manager.toolchain._INTEL_ONEAPI_BIN", tmp_path),
+            patch("subprocess.run") as mock_run,
+        ):
+            # First call (PATH) fails
+            mock_run.side_effect = [
+                FileNotFoundError(),
+                MagicMock(returncode=0, stdout="icpx 2024.1.0\n", stderr=""),
+            ]
+            found, version = detect_tool("icpx")
+            assert found is True
+            assert version == "2024.1.0"
+            # Verify fallback path was used
+            assert mock_run.call_args_list[1][0][0] == [str(fake_icpx), "--version"]
+
+    def test_detect_tool_fallback_not_intel_tool(self) -> None:
+        """detect_tool should not use Intel fallback for non-Intel tools."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError()
+            found, version = detect_tool("gcc")
+            # Only one call (PATH), no fallback for gcc
+            assert mock_run.call_count == 1
+            assert found is False
+            assert version is None
 
 
 class TestGetToolchainHints:

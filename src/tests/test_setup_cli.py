@@ -23,6 +23,7 @@ from llama_cli.setup_cli import (
 from llama_cli.setup_cli import (
     main as setup_main,
 )
+from llama_manager.config import ErrorCode
 from llama_manager.setup_venv import VenvResult
 from llama_manager.toolchain import ToolchainStatus
 
@@ -138,6 +139,51 @@ class TestSetupCheck:
 
             # Should succeed for CUDA (all tools present)
             assert exit_code == 0
+
+    def test_setup_check_deduplicates_sycl_hints(self, capsys) -> None:
+        """setup --check should show each unique hint only once for SYCL.
+
+        SYCL has three compiler aliases (dpcpp, icx, icpx) that all map to
+        the same installation hint. The output should not repeat it.
+        """
+        from llama_manager.toolchain import ToolchainErrorDetail
+
+        with (
+            patch("llama_cli.setup_cli.detect_toolchain") as mock_detect,
+            patch("llama_cli.setup_cli.get_toolchain_hints") as mock_hints,
+        ):
+            mock_detect.return_value = ToolchainStatus(
+                gcc=None,
+                make=None,
+                git=None,
+                cmake=None,
+                sycl_compiler=None,
+                cuda_toolkit=None,
+                nvtop=None,
+            )
+            # Return three hints with identical how_to_fix/docs_ref
+            shared_hint = ToolchainErrorDetail(
+                error_code=ErrorCode.TOOLCHAIN_MISSING,
+                failed_check="dpcpp",
+                why_blocked="Required for sycl backend",
+                how_to_fix="Install Intel oneAPI",
+                docs_ref="https://intel.com/oneapi",
+            )
+            mock_hints.return_value = [
+                shared_hint,
+                shared_hint,
+                shared_hint,
+            ]
+
+            exit_code = cmd_check(MagicMock(backend="sycl", json=False))
+
+            assert exit_code == 1
+            captured = capsys.readouterr()
+            # Count occurrences of the hint text — should appear once
+            hint_count = captured.out.count("Install Intel oneAPI")
+            assert hint_count == 1, (
+                f"Expected 1 Intel install hint, found {hint_count}"
+            )
 
 
 class TestSetupVenv:
