@@ -38,6 +38,17 @@ from llama_manager.profile_cache import (
 from llama_manager.toolchain import ToolchainStatus
 
 
+@pytest.fixture(autouse=True)
+def disable_colors():
+    """Disable ANSI colors for all tests to keep assertions simple."""
+    from llama_cli.colors import Colors
+
+    original = Colors.enabled
+    Colors.enabled = False
+    yield
+    Colors.enabled = original
+
+
 def doctor_mocks(
     tmp_path: Path,
 ) -> tuple[MagicMock, MagicMock, MagicMock, MagicMock, MagicMock, ExitStack]:

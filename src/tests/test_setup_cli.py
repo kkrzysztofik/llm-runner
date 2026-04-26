@@ -28,6 +28,17 @@ from llama_manager.setup_venv import VenvResult
 from llama_manager.toolchain import ToolchainStatus
 
 
+@pytest.fixture(autouse=True)
+def disable_colors():
+    """Disable ANSI colors for all tests to keep assertions simple."""
+    from llama_cli.colors import Colors
+
+    original = Colors.enabled
+    Colors.enabled = False
+    yield
+    Colors.enabled = original
+
+
 class TestSetupCheck:
     """T064: Tests for setup --check command."""
 

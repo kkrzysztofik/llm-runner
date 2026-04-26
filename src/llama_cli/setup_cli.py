@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from llama_cli.colors import Colors
 from llama_manager.build_pipeline import BuildBackend
 from llama_manager.setup_venv import (
     check_venv_integrity,
@@ -30,12 +31,12 @@ JSON_OUTPUT_HELP = "Output in JSON format"
 
 
 def _print_error(message: str) -> None:
-    """Print error message to stderr.
+    """Print error message to stderr in red.
 
     Args:
         message: Error message to print.
     """
-    print(f"error: {message}", file=sys.stderr)
+    print(Colors.red(f"error: {message}"), file=sys.stderr)
 
 
 def _print_success(message: str) -> None:
@@ -45,6 +46,11 @@ def _print_success(message: str) -> None:
         message: Success message to print.
     """
     print(message)
+
+
+def _print_header(message: str) -> None:
+    """Print a bold blue header message."""
+    print(Colors.bold(Colors.blue(message)))
 
 
 def _print_json(data: dict[str, Any]) -> None:
@@ -116,23 +122,32 @@ def _build_status_output(status: Any) -> dict[str, Any]:
 
 
 def _print_status(status: Any) -> None:
-    """Print human-readable toolchain status.
+    """Print human-readable toolchain status with colors.
 
     Args:
         status: ToolchainStatus object
     """
-    _print_success("Toolchain Status:")
-    _print_success(f"  gcc: {status.gcc or 'MISSING'}")
-    _print_success(f"  make: {status.make or 'MISSING'}")
-    _print_success(f"  git: {status.git or 'MISSING'}")
-    _print_success(f"  cmake: {status.cmake or 'MISSING'}")
-    _print_success(f"  sycl_compiler: {status.sycl_compiler or 'MISSING'}")
-    _print_success(f"  cuda_toolkit: {status.cuda_toolkit or 'MISSING'}")
-    _print_success(f"  nvtop: {status.nvtop or 'MISSING'}")
+    yes = Colors.bright_green("✓ YES")
+    no = Colors.bright_red("✗ NO")
+    missing = Colors.bright_red("MISSING")
+
+    _print_header("Toolchain Status:")
+    tools = [
+        ("gcc", status.gcc),
+        ("make", status.make),
+        ("git", status.git),
+        ("cmake", status.cmake),
+        ("sycl_compiler", status.sycl_compiler),
+        ("cuda_toolkit", status.cuda_toolkit),
+        ("nvtop", status.nvtop),
+    ]
+    for name, value in tools:
+        display = Colors.green(value) if value else missing
+        print(f"  {Colors.cyan(name)}: {display}")
     _print_success("")
-    _print_success(f"SYCL ready: {'YES' if status.is_sycl_ready else 'NO'}")
-    _print_success(f"CUDA ready: {'YES' if status.is_cuda_ready else 'NO'}")
-    _print_success(f"Complete: {'YES' if status.is_complete else 'NO'}")
+    _print_success(f"SYCL ready: {yes if status.is_sycl_ready else no}")
+    _print_success(f"CUDA ready: {yes if status.is_cuda_ready else no}")
+    _print_success(f"Complete: {yes if status.is_complete else no}")
 
 
 def _backend_from_string(backend: str) -> BuildBackend | None:
@@ -152,7 +167,7 @@ def _backend_from_string(backend: str) -> BuildBackend | None:
 
 
 def _handle_missing_tools(status: Any, hints: list[Any]) -> int:
-    """Handle and display missing tools information.
+    """Handle and display missing tools information with colors.
 
     Args:
         status: ToolchainStatus object
@@ -164,7 +179,7 @@ def _handle_missing_tools(status: Any, hints: list[Any]) -> int:
     missing = status.missing_tools(None)
     if not missing:
         _print_success("")
-        _print_success("All required tools are available!")
+        print(Colors.bold(Colors.bright_green("All required tools are available!")))
         return 0
 
     _print_success("")
@@ -172,11 +187,11 @@ def _handle_missing_tools(status: Any, hints: list[Any]) -> int:
 
     if hints:
         _print_success("")
-        _print_success("Installation hints:")
+        print(Colors.yellow("Installation hints:"))
         for hint in hints:
-            _print_success(f"  - {hint.how_to_fix}")
+            print(f"  {Colors.yellow('-')} {hint.how_to_fix}")
             if hint.docs_ref:
-                _print_success(f"    Docs: {hint.docs_ref}")
+                print(Colors.dim(f"    Docs: {hint.docs_ref}"))
 
     return 1
 
