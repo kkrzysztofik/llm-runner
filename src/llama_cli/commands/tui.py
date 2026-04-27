@@ -122,6 +122,10 @@ class TUIApp:
         # Non-blocking profile flavor request queue
         self._profile_request: str | None = None
 
+        # Slot configuration mode (for adding new slots)
+        self._slot_config_state: dict[str, str] = {}  # slot_id -> current prompt field
+        self._slot_config_values: dict[str, dict[str, str]] = {}  # slot_id -> {field: value}
+
         self.server_manager = ServerManager()
 
         # Slot state tracking for TUI dashboard
@@ -464,6 +468,11 @@ class TUIApp:
             except queue.Empty:
                 break
 
+            # Handle slot configuration mode first
+            if self._slot_config_state:
+                self._process_slot_config_input(key)
+                continue
+
             if self._handle_profile_key(key):
                 continue
 
@@ -534,6 +543,172 @@ class TUIApp:
             # Keep at most 5 messages
             if len(self._status_messages) > 5:
                 self._status_messages.pop(0)
+
+    # ------------------------------------------------------------------
+    # Slot configuration (add new slots)
+    # ------------------------------------------------------------------
+
+    SLOT_CONFIG_FIELDS = ["model", "port", "backend", "threads", "ctx_size"]
+    SLOT_CONFIG_PROMPTS = {
+        "model": "Model path: ",
+        "port": "Port: ",
+        "backend": "Backend (cuda/sycl): ",
+        "threads": "Threads: ",
+        "ctx_size": "Context size: ",
+    }
+
+    def _prompt_add_slot(self) -> None:
+        """Start the slot configuration flow."""
+        slot_id = f"slot{len(self.configs) + 1}"
+        self._slot_config_state[slot_id] = "model"
+        self._slot_config_values[slot_id] = {}
+        self._push_status_message(f"Adding {slot_id}: {self.SLOT_CONFIG_PROMPTS['model']}")
+
+    def _process_slot_config_input(self, key: str) -> None:
+        """Process input during slot configuration mode.
+
+        Non-blocking - called from _process_keypresses.
+        """
+        # Find any slots in config mode
+        slots_to_process = list(self._slot_config_state.keys())
+        for slot_id in slots_to_process:
+            current_field = self._slot_config_state.get(slot_id)
+            if current_field is None:
+                continue
+
+            # Handle Enter key - advance to next field or complete
+            if key == "\n":
+                self._advance_slot_config_field(slot_id)
+                continue
+
+            # Handle Escape key - cancel
+            if key == "\x1b":
+                self._cancel_slot_config(slot_id)
+                continue
+
+            # Handle backspace
+            if key == "\x7f" or key == "\b":
+                current_value = self._slot_config_values.get(slot_id, {}).get(current_field, "")
+                if current_value:
+                    self._slot_config_values[slot_id][current_field] = current_value[:-1]
+                continue
+
+            # Handle regular character input (only for value fields)
+            if len(key) == 1 and current_field in self.SLOT_CONFIG_FIELDS:
+                current_value = self._slot_config_values.get(slot_id, {}).get(current_field, "")
+                self._slot_config_values[slot_id][current_field] = current_value + key
+
+    def _advance_slot_config_field(self, slot_id: str) -> None:
+        """Advance to the next field in slot configuration."""
+        values = self._slot_config_values.get(slot_id, {})
+        current_field = self._slot_config_state.get(slot_id)
+
+        if current_field is None:
+            return
+
+        # Validate current field before advancing
+        if current_field == "port":
+            try:
+                port = int(values.get("port", ""))
+                if port < 1024 or port > 65535:
+                    self._push_status_message(f"Invalid port {port}, using 8080")
+                    values["port"] = "8080"
+            except ValueError:
+                self._push_status_message("Invalid port, using 8080")
+                values["port"] = "8080"
+        elif current_field == "threads":
+            try:
+                threads = int(values.get("threads", ""))
+                if threads < 1:
+                    self._push_status_message("Invalid threads, using 4")
+                    values["threads"] = "4"
+            except ValueError:
+                self._push_status_message("Invalid threads, using 4")
+                values["threads"] = "4"
+        elif current_field == "ctx_size":
+            try:
+                ctx_size = int(values.get("ctx_size", ""))
+                if ctx_size < 512:
+                    self._push_status_message("Invalid ctx_size, using 2048")
+                    values["ctx_size"] = "2048"
+            except ValueError:
+                self._push_status_message("Invalid ctx_size, using 2048")
+                values["ctx_size"] = "2048"
+        elif current_field == "backend":
+            backend = values.get("backend", "").lower()
+            if backend not in ("cuda", "sycl"):
+                self._push_status_message("Invalid backend, using sycl")
+                values["backend"] = "sycl"
+            else:
+                values["backend"] = backend
+        elif current_field == "model" and not values.get("model", "").strip():
+            self._push_status_message("Model path required")
+            return
+
+        # Find next field
+        fields = self.SLOT_CONFIG_FIELDS
+        try:
+            current_idx = fields.index(current_field)
+            if current_idx + 1 < len(fields):
+                next_field = fields[current_idx + 1]
+                self._slot_config_state[slot_id] = next_field
+                self._push_status_message(f"Adding {slot_id}: {self.SLOT_CONFIG_PROMPTS[next_field]}")
+            else:
+                # All fields complete - create the slot
+                self._finalize_slot_config(slot_id)
+        except ValueError:
+            self._cancel_slot_config(slot_id)
+
+    def _finalize_slot_config(self, slot_id: str) -> None:
+        """Create the slot from collected configuration values."""
+        values = self._slot_config_values.get(slot_id, {})
+        if not values.get("model"):
+            self._push_status_message("Slot configuration cancelled")
+            self._slot_config_state.pop(slot_id, None)
+            self._slot_config_values.pop(slot_id, None)
+            return
+
+        # Create ServerConfig for the new slot
+        from llama_manager.config import ServerConfig
+
+        backend = values.get("backend", "sycl")
+        port = int(values.get("port", "8080"))
+        threads = int(values.get("threads", "4"))
+        ctx_size = int(values.get("ctx_size", "2048"))
+
+        # Determine device string from backend
+        device = "SYCL" if backend == "sycl" else "CUDA"
+
+        new_cfg = ServerConfig(
+            alias=slot_id,
+            model=values["model"],
+            device=device,
+            port=port,
+            ctx_size=ctx_size,
+            ubatch_size=512,
+            threads=threads,
+            backend=backend,
+        )
+
+        self.configs.append(new_cfg)
+        self.log_buffers[slot_id] = LogBuffer(redact_sensitive=True)
+
+        # Determine GPU index
+        gpu_idx = 1 if backend == "sycl" else 0
+        self.gpu_indices.append(gpu_idx)
+        self.gpu_stats.append(GPUStats(gpu_idx, collector=self._make_collector(gpu_idx)))
+
+        self._push_status_message(f"Added {slot_id}: {values['model']} on {backend}:{port}")
+
+        # Clean up config state
+        self._slot_config_state.pop(slot_id, None)
+        self._slot_config_values.pop(slot_id, None)
+
+    def _cancel_slot_config(self, slot_id: str) -> None:
+        """Cancel slot configuration."""
+        self._push_status_message("Slot configuration cancelled")
+        self._slot_config_state.pop(slot_id, None)
+        self._slot_config_values.pop(slot_id, None)
 
     def _run_profile_background(self, alias: str, flavor: str) -> None:
         """Run profiling in a background thread so the TUI stays responsive."""
@@ -773,6 +948,18 @@ class TUIApp:
     def _build_slot_status_panel(self) -> Panel:
         """Build a panel showing per-slot status (health, logs, GPU stats, backend label)."""
         sections = [self._build_slot_section(cfg) for cfg in self.configs]
+
+        # Show empty slot placeholders if no slots configured
+        if not sections:
+            empty_msg = Text(
+                "No slots configured.\n\n"
+                "Press 'a' to add a new slot\n"
+                "or run with a mode:\n"
+                "  llm-runner tui both",
+                style="dim",
+            )
+            sections = [empty_msg]
+
         group = Group(*sections)
         return Panel(group, title="Slot Status", border_style="blue")
 
@@ -881,6 +1068,11 @@ class TUIApp:
         # Handle 'r' key — refresh display
         if key == "r":
             self._push_status_message("Display refreshed.")
+            return
+
+        # Handle 'a' key — add new slot
+        if key == "a":
+            self._prompt_add_slot()
             return
 
         # Handle 'P' key — trigger profiling on the focused slot

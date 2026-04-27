@@ -498,22 +498,17 @@ def _handle_tui_case(args: list[str]) -> argparse.Namespace | None:
     if not (len(args) >= 1 and args[0] == "tui"):
         return None
 
-    if len(args) < 2:
-        print(
-            "error: tui requires a mode argument (summary-balanced|summary-fast|qwen35|both)",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    # Mode is now optional - if not provided, TUI starts in standalone mode
+    mode = args[1] if len(args) >= 2 and args[1] not in ("--port", "--port2", "--acknowledge-risky") else None
 
-    mode = args[1]
-    if mode not in RUNNABLE_TUI_MODES:
+    if mode is not None and mode not in RUNNABLE_TUI_MODES:
         print(
             f"error: invalid tui mode '{mode}'. Valid modes: {', '.join(RUNNABLE_TUI_MODES)}",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    port, port2, acknowledge_risky = _parse_tui_args(args, 2)
+    port, port2, acknowledge_risky = _parse_tui_args(args, 2 if mode else 1)
 
     return argparse.Namespace(
         mode="tui",

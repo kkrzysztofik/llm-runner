@@ -396,15 +396,20 @@ def _run_tui(parsed: argparse.Namespace) -> int:
     from llama_cli.commands.tui import TUIApp
 
     cfg = Config()
-    mode_configs = _build_tui_mode_configs(cfg, parsed)
 
-    bins, names, configs, gpu_indices = mode_configs.get(parsed.tui_mode, ([], [], [], []))
-    for bin_path, name in zip(bins, names, strict=True):
-        exec_error = require_executable(bin_path, name)
-        if exec_error is not None:
-            _print_validation_error(exec_error)
+    # Standalone mode (no mode specified) - start with empty slots
+    if parsed.tui_mode is None:
+        configs = []
+        gpu_indices = []
+    else:
+        mode_configs = _build_tui_mode_configs(cfg, parsed)
+        bins, names, configs, gpu_indices = mode_configs.get(parsed.tui_mode, ([], [], [], []))
+        for bin_path, name in zip(bins, names, strict=True):
+            exec_error = require_executable(bin_path, name)
+            if exec_error is not None:
+                _print_validation_error(exec_error)
 
-    _validate_tui_configs(configs)
+        _validate_tui_configs(configs)
 
     app = TUIApp(configs, gpu_indices)
     app.run(acknowledged=parsed.acknowledge_risky)
