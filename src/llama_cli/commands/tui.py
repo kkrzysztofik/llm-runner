@@ -1351,6 +1351,12 @@ class TUIApp:
         # Apply profile overrides at startup (before slot launch validation)
         self.configs = self._apply_profile_overrides()
 
+        # If no slots configured, skip launch and show empty state
+        if not self.configs:
+            self._push_status_message("No slots configured. Press 'a' to add a slot.")
+            self._run_tui_loop_without_servers()
+            return
+
         slots = [
             ModelSlot(slot_id=cfg.alias, model_path=cfg.model, port=cfg.port)
             for cfg in self.configs
@@ -1389,6 +1395,32 @@ class TUIApp:
         for cfg in launched_configs:
             self.handle_slot_transition(cfg.alias, SlotState.RUNNING)
 
+        # Start input polling for keypresses
+        self._start_input_polling()
+
+        try:
+            with Live(
+                self.render(),
+                screen=True,
+                refresh_per_second=10,
+                auto_refresh=False,
+                vertical_overflow="ellipsis",
+            ) as live:
+                while self.running:
+                    # Process any pending keypresses
+                    self._process_keypresses()
+                    time.sleep(0.1)
+                    live.update(self.render(), refresh=True)
+        finally:
+            self._stop_input_polling()
+
+        self._cleanup()
+
+    def _run_tui_loop_without_servers(self) -> None:
+        """Run the TUI loop without any server processes.
+
+        Used when no slots are configured - allows user to add slots interactively.
+        """
         # Start input polling for keypresses
         self._start_input_polling()
 
