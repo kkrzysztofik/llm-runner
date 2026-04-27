@@ -195,7 +195,9 @@ def _handle_missing_tools(status: Any, hints: list[Any], backend: str | None = N
     """
     backend_enum = _resolve_backend_enum(backend)
 
-    missing = _filter_optional_tools(status.missing_tools(backend_enum), backend, status.is_complete)
+    missing = _filter_optional_tools(
+        status.missing_tools(backend_enum), backend, status.is_complete
+    )
 
     if not missing:
         _print_success("")

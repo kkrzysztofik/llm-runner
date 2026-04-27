@@ -759,9 +759,7 @@ class BuildPipeline:
         Returns a BuildProgress if the clone should be skipped, None to proceed.
         """
         if self.config.update_sources and self._is_git_repo():
-            logger.info(
-                "[clone] source exists and update_sources=True; updating existing clone"
-            )
+            logger.info("[clone] source exists and update_sources=True; updating existing clone")
             return self._update_sources(progress)
         if self.config.git_commit and self._is_git_repo():
             logger.info(
@@ -815,9 +813,7 @@ class BuildPipeline:
 
         return progress
 
-    def _handle_clone_error(
-        self, progress: BuildProgress, error: Exception
-    ) -> BuildProgress:
+    def _handle_clone_error(self, progress: BuildProgress, error: Exception) -> BuildProgress:
         """Handle clone failure with offline-continue support."""
         if self._source_exists():
             logger.warning("[clone] error but source exists; continuing offline: %s", str(error))
