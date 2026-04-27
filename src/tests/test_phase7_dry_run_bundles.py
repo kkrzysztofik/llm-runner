@@ -237,12 +237,11 @@ class TestDryRunFlagBundlesParity:
         from llama_cli.commands.dry_run import dry_run
 
         with (
-            patch("llama_cli.commands.dry_run._run_summary_balanced_mode") as mock_run,
+            patch("llama_cli.commands.dry_run._run_registry_mode") as mock_run,
             patch("llama_cli.commands.dry_run._print_smoke_probe_info"),
             patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
         ):
             mock_run.return_value = False
-            mock_run.slot_payloads = []
 
             with contextlib.suppress(SystemExit):
                 dry_run(mode="summary-balanced", primary_port="8080")
@@ -254,7 +253,7 @@ class TestDryRunFlagBundlesParity:
         from llama_cli.commands.dry_run import dry_run
 
         with (
-            patch("llama_cli.commands.dry_run._run_both_mode") as mock_run,
+            patch("llama_cli.commands.dry_run._run_registry_mode") as mock_run,
             patch("llama_cli.commands.dry_run._print_smoke_probe_info"),
             patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
         ):

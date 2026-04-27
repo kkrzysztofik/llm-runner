@@ -13,15 +13,23 @@ from llama_manager.config import (
     Config,
     ErrorCode,
     ModelSlot,
+    RunGroupSpec,
+    RunProfileError,
+    RunProfileRegistry,
+    RunProfileSpec,
     ServerConfig,
     ValidationResult,
     validate_slot_id,
     validate_slot_port,
 )
 from llama_manager.config_builder import (
+    create_default_profile_registry,
     create_qwen35_cfg,
+    create_server_config_from_profile,
     create_summary_balanced_cfg,
     create_summary_fast_cfg,
+    resolve_profile_config,
+    resolve_run_group_configs,
 )
 from llama_manager.log_buffer import LogBuffer
 from llama_manager.process_manager import ServerManager, write_artifact
@@ -1088,3 +1096,524 @@ class TestSlotState:
         assert SlotState("running") == SlotState.RUNNING
         assert SlotState("idle") == SlotState.IDLE
         assert SlotState("offline") == SlotState.OFFLINE
+
+
+# =============================================================================
+# RunProfileSpec validation
+# =============================================================================
+
+
+class TestRunProfileSpec:
+    """Tests for RunProfileSpec dataclass validation."""
+
+    def test_valid_spec(self) -> None:
+        """Valid RunProfileSpec should be created without error."""
+        spec = RunProfileSpec(
+            profile_id="test-profile",
+            model="/path/to/model.gguf",
+            alias="test-alias",
+            device="SYCL0",
+            port=8080,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+            n_gpu_layers=99,
+            server_bin="/path/to/server",
+            backend="llama_cpp",
+            risky_acknowledged=(),
+        )
+        assert spec.profile_id == "test-profile"
+        assert spec.port == 8080
+
+    def test_empty_profile_id_raises(self) -> None:
+        """Empty profile_id should raise RunProfileError."""
+        with pytest.raises(RunProfileError):
+            RunProfileSpec(
+                profile_id="",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                risky_acknowledged=(),
+            )
+
+    def test_empty_model_raises(self) -> None:
+        """Empty model path should raise RunProfileError."""
+        with pytest.raises(RunProfileError):
+            RunProfileSpec(
+                profile_id="test",
+                model="",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                risky_acknowledged=(),
+            )
+
+    def test_empty_alias_raises(self) -> None:
+        """Empty alias should raise RunProfileError."""
+        with pytest.raises(RunProfileError):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                risky_acknowledged=(),
+            )
+
+    def test_invalid_port_raises(self) -> None:
+        """Port outside 1-65535 should raise RunProfileError."""
+        with pytest.raises(RunProfileError):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=0,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                risky_acknowledged=(),
+            )
+
+    def test_negative_threads_raises(self) -> None:
+        """Negative threads should raise RunProfileError."""
+        with pytest.raises(RunProfileError):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=-1,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                risky_acknowledged=(),
+            )
+
+    def test_negative_ctx_size_raises(self) -> None:
+        """Negative ctx_size should raise RunProfileError."""
+        with pytest.raises(RunProfileError):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=-1,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                risky_acknowledged=(),
+            )
+
+    def test_negative_n_gpu_layers_int_raises(self) -> None:
+        """Negative integer n_gpu_layers should raise RunProfileError."""
+        with pytest.raises(RunProfileError):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=-1,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                risky_acknowledged=(),
+            )
+
+    def test_empty_n_gpu_layers_str_raises(self) -> None:
+        """Empty string n_gpu_layers should raise RunProfileError."""
+        with pytest.raises(RunProfileError):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers="",
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                risky_acknowledged=(),
+            )
+
+    def test_all_field_defaults(self) -> None:
+        """Optional fields should have sensible defaults."""
+        spec = RunProfileSpec(
+            profile_id="test",
+            model="/path/to/model.gguf",
+            alias="test",
+            device="SYCL0",
+            port=8080,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+            n_gpu_layers=99,
+            server_bin="/path/to/server",
+            backend="llama_cpp",
+            risky_acknowledged=(),
+        )
+        # Optional text fields default to empty string or specific values
+        assert spec.description == ""
+        assert spec.bind_address == "127.0.0.1"
+        assert spec.tensor_split == ""
+        # Optional enum-like fields have defaults
+        assert spec.reasoning_mode == "auto"
+        assert spec.reasoning_format == "none"
+        # Optional bool defaults to False
+        assert spec.use_jinja is False
+        # Optional cache types default to q8_0
+        assert spec.cache_type_k == "q8_0"
+        assert spec.cache_type_v == "q8_0"
+        # Optional tuple defaults to empty
+        assert spec.risky_acknowledged == ()
+
+
+# =============================================================================
+# RunGroupSpec validation
+# =============================================================================
+
+
+class TestRunGroupSpec:
+    """Tests for RunGroupSpec dataclass validation."""
+
+    def test_valid_group(self) -> None:
+        """Valid RunGroupSpec should be created without error."""
+        group = RunGroupSpec(
+            group_id="test-group",
+            profile_ids=("profile-a", "profile-b"),
+            description="Test group",
+            tui_enabled=True,
+        )
+        assert group.group_id == "test-group"
+        assert len(group.profile_ids) == 2
+
+    def test_empty_group_id_raises(self) -> None:
+        """Empty group_id should raise RunProfileError."""
+        with pytest.raises(RunProfileError):
+            RunGroupSpec(
+                group_id="",
+                profile_ids=("profile-a",),
+            )
+
+    def test_empty_profile_ids_raises(self) -> None:
+        """Empty profile_ids tuple should raise RunProfileError."""
+        with pytest.raises(RunProfileError):
+            RunGroupSpec(
+                group_id="test-group",
+                profile_ids=(),
+            )
+
+
+# =============================================================================
+# RunProfileRegistry validation
+# =============================================================================
+
+
+class TestRunProfileRegistry:
+    """Tests for RunProfileRegistry validation and accessors."""
+
+    def _make_spec(self, pid: str) -> RunProfileSpec:
+        return RunProfileSpec(
+            profile_id=pid,
+            model=f"/path/to/{pid}.gguf",
+            alias=pid,
+            device="SYCL0",
+            port=8080,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+            n_gpu_layers=99,
+            server_bin="/path/to/server",
+            backend="llama_cpp",
+            risky_acknowledged=(),
+        )
+
+    def test_valid_registry(self) -> None:
+        """Valid registry with profiles and groups should be created."""
+        registry = RunProfileRegistry(
+            profiles=(self._make_spec("a"),),
+            run_groups=(RunGroupSpec(group_id="g1", profile_ids=("a",)),),
+        )
+        assert registry.profile_ids == ("a",)
+        assert registry.run_group_ids == ("g1",)
+
+    def test_duplicate_profile_ids_raises(self) -> None:
+        """Duplicate profile_id should raise RunProfileError."""
+        with pytest.raises(RunProfileError):
+            RunProfileRegistry(
+                profiles=(self._make_spec("a"), self._make_spec("a")),
+                run_groups=(),
+            )
+
+    def test_duplicate_group_ids_raises(self) -> None:
+        """Duplicate group_id should raise RunProfileError."""
+        with pytest.raises(RunProfileError):
+            RunProfileRegistry(
+                profiles=(self._make_spec("a"),),
+                run_groups=(
+                    RunGroupSpec(group_id="g1", profile_ids=("a",)),
+                    RunGroupSpec(group_id="g1", profile_ids=("a",)),
+                ),
+            )
+
+    def test_unknown_profile_reference_raises(self) -> None:
+        """Group referencing unknown profile should raise RunProfileError."""
+        with pytest.raises(RunProfileError):
+            RunProfileRegistry(
+                profiles=(self._make_spec("a"),),
+                run_groups=(RunGroupSpec(group_id="g1", profile_ids=("a", "unknown")),),
+            )
+
+    def test_get_profile_returns_spec(self) -> None:
+        """get_profile should return the RunProfileSpec for a known id."""
+        registry = RunProfileRegistry(
+            profiles=(self._make_spec("a"),),
+            run_groups=(),
+        )
+        spec = registry.get_profile("a")
+        assert spec.profile_id == "a"
+
+    def test_get_profile_unknown_raises(self) -> None:
+        """get_profile for unknown id should raise RunProfileError."""
+        registry = RunProfileRegistry(
+            profiles=(self._make_spec("a"),),
+            run_groups=(),
+        )
+        with pytest.raises(RunProfileError):
+            registry.get_profile("unknown")
+
+    def test_get_run_group_returns_spec(self) -> None:
+        """get_run_group should return the RunGroupSpec for a known id."""
+        registry = RunProfileRegistry(
+            profiles=(self._make_spec("a"),),
+            run_groups=(RunGroupSpec(group_id="g1", profile_ids=("a",)),),
+        )
+        group = registry.get_run_group("g1")
+        assert group.group_id == "g1"
+
+    def test_get_run_group_unknown_raises(self) -> None:
+        """get_run_group for unknown id should raise RunProfileError."""
+        registry = RunProfileRegistry(
+            profiles=(self._make_spec("a"),),
+            run_groups=(),
+        )
+        with pytest.raises(RunProfileError):
+            registry.get_run_group("unknown")
+
+
+# =============================================================================
+# Default registry contents
+# =============================================================================
+
+
+class TestDefaultRegistry:
+    """Tests for create_default_profile_registry contents."""
+
+    def test_registry_has_expected_profiles(self) -> None:
+        """Default registry should contain summary-balanced, summary-fast, qwen35."""
+        registry = create_default_profile_registry()
+        expected = {"summary-balanced", "summary-fast", "qwen35"}
+        assert set(registry.profile_ids) == expected
+
+    def test_registry_has_expected_groups(self) -> None:
+        """Default registry should contain summary-balanced, summary-fast, qwen35, both."""
+        registry = create_default_profile_registry()
+        expected = {"summary-balanced", "summary-fast", "qwen35", "both"}
+        assert set(registry.run_group_ids) == expected
+
+    def test_both_group_has_two_profiles(self) -> None:
+        """The 'both' run group should reference summary-balanced and qwen35."""
+        registry = create_default_profile_registry()
+        group = registry.get_run_group("both")
+        assert set(group.profile_ids) == {"summary-balanced", "qwen35"}
+
+    def test_all_groups_tui_enabled(self) -> None:
+        """All default run groups should be TUI-enabled."""
+        registry = create_default_profile_registry()
+        for gid in registry.run_group_ids:
+            group = registry.get_run_group(gid)
+            assert group.tui_enabled is True, f"Group {gid} should be TUI-enabled"
+
+    def test_profile_ports_are_distinct(self) -> None:
+        """Default profiles should have distinct ports."""
+        registry = create_default_profile_registry()
+        ports = [registry.get_profile(pid).port for pid in registry.profile_ids]
+        assert len(ports) == len(set(ports)), "All default profile ports must be distinct"
+
+    def test_profile_models_are_non_empty(self) -> None:
+        """All default profiles should have non-empty model paths."""
+        registry = create_default_profile_registry()
+        for pid in registry.profile_ids:
+            profile = registry.get_profile(pid)
+            assert profile.model, f"Profile {pid} has empty model path"
+
+    def test_profile_backends_are_set(self) -> None:
+        """All default profiles should have backend set."""
+        registry = create_default_profile_registry()
+        for pid in registry.profile_ids:
+            profile = registry.get_profile(pid)
+            assert profile.backend, f"Profile {pid} has empty backend"
+
+
+# =============================================================================
+# Generic ServerConfig resolution
+# =============================================================================
+
+
+class TestServerConfigResolution:
+    """Tests for create_server_config_from_profile and resolve_profile_config."""
+
+    def test_create_server_config_from_profile_basic(self) -> None:
+        """Should produce a valid ServerConfig from a RunProfileSpec."""
+        registry = create_default_profile_registry()
+        profile = registry.get_profile("summary-balanced")
+        cfg = create_server_config_from_profile(profile)
+        assert isinstance(cfg, ServerConfig)
+        assert cfg.alias == profile.alias
+        assert cfg.port == profile.port
+        assert cfg.model == profile.model
+
+    def test_create_server_config_from_profile_with_overrides(self) -> None:
+        """Explicit overrides should win over profile defaults."""
+        registry = create_default_profile_registry()
+        profile = registry.get_profile("summary-balanced")
+        cfg = create_server_config_from_profile(profile, {"port": 9999, "threads": 16})
+        assert cfg.port == 9999
+        assert cfg.threads == 16
+
+    def test_resolve_profile_config(self) -> None:
+        """resolve_profile_config should return ServerConfig for a known profile."""
+        registry = create_default_profile_registry()
+        cfg = resolve_profile_config(registry, "qwen35")
+        assert isinstance(cfg, ServerConfig)
+        assert cfg.alias == "qwen35-coding"
+
+    def test_resolve_profile_config_unknown_raises(self) -> None:
+        """resolve_profile_config for unknown profile should raise RunProfileError."""
+        registry = create_default_profile_registry()
+        with pytest.raises(RunProfileError):
+            resolve_profile_config(registry, "nonexistent-profile")
+
+    def test_resolve_profile_config_with_overrides(self) -> None:
+        """resolve_profile_config should apply explicit overrides."""
+        registry = create_default_profile_registry()
+        cfg = resolve_profile_config(registry, "summary-fast", {"port": 7777})
+        assert cfg.port == 7777
+
+
+# =============================================================================
+# resolve_run_group_configs
+# =============================================================================
+
+
+class TestResolveRunGroupConfigs:
+    """Tests for resolve_run_group_configs."""
+
+    def test_resolve_both_group(self) -> None:
+        """Resolving 'both' should return two ServerConfigs."""
+        registry = create_default_profile_registry()
+        configs = resolve_run_group_configs(registry, "both")
+        assert len(configs) == 2
+        assert configs[0].alias == "summary-balanced"
+        assert configs[1].alias == "qwen35-coding"
+
+    def test_resolve_group_with_port_overrides(self) -> None:
+        """Port overrides should be applied positionally to group profiles."""
+        registry = create_default_profile_registry()
+        configs = resolve_run_group_configs(registry, "both", (9090, 9091))
+        assert configs[0].port == 9090
+        assert configs[1].port == 9091
+
+    def test_resolve_group_partial_port_override(self) -> None:
+        """Single port override should only affect first profile in group."""
+        registry = create_default_profile_registry()
+        default_qwen35_port = registry.get_profile("qwen35").port
+        configs = resolve_run_group_configs(registry, "both", (9090,))
+        assert configs[0].port == 9090
+        assert configs[1].port == default_qwen35_port
+
+    def test_resolve_group_too_many_port_overrides_raises(self) -> None:
+        """More port overrides than group profiles should raise RunProfileError."""
+        registry = create_default_profile_registry()
+        with pytest.raises(RunProfileError):
+            resolve_run_group_configs(registry, "summary-balanced", (8080, 8081, 8082))
+
+    def test_resolve_group_unknown_raises(self) -> None:
+        """Unknown group id should raise RunProfileError."""
+        registry = create_default_profile_registry()
+        with pytest.raises(RunProfileError):
+            resolve_run_group_configs(registry, "nonexistent-group")
+
+    def test_resolve_single_profile_group(self) -> None:
+        """Single-profile group should return one ServerConfig."""
+        registry = create_default_profile_registry()
+        configs = resolve_run_group_configs(registry, "summary-fast")
+        assert len(configs) == 1
+        assert configs[0].alias == "summary-fast"
+
+
+# =============================================================================
+# Compatibility builders still work
+# =============================================================================
+
+
+class TestCompatibilityBuildersWithRegistry:
+    """Verify legacy builders still produce correct configs via registry."""
+
+    def test_summary_balanced_builder(self) -> None:
+        """create_summary_balanced_cfg should produce correct config."""
+        cfg = create_summary_balanced_cfg(port=8080)
+        assert cfg.port == 8080
+        assert cfg.alias == "summary-balanced"
+
+    def test_summary_fast_builder(self) -> None:
+        """create_summary_fast_cfg should produce correct config."""
+        cfg = create_summary_fast_cfg(port=8082)
+        assert cfg.port == 8082
+        assert cfg.alias == "summary-fast"
+
+    def test_qwen35_builder(self) -> None:
+        """create_qwen35_cfg should produce correct config."""
+        cfg = create_qwen35_cfg(port=8081)
+        assert cfg.port == 8081
+        assert cfg.alias == "qwen35-coding"
+
+    def test_builder_with_overrides(self) -> None:
+        """Builders should accept and apply overrides."""
+        cfg = create_summary_balanced_cfg(port=9999, threads=16, ctx_size=8192)
+        assert cfg.port == 9999
+        assert cfg.threads == 16
+        assert cfg.ctx_size == 8192

@@ -8,23 +8,23 @@ a second argument specifying the mode to preview.
 import argparse
 import sys
 
-VALID_MODES = (
-    "summary-balanced",
-    "summary-fast",
-    "qwen35",
-    "both",
+from llama_manager.config_builder import create_default_profile_registry
+
+COMMAND_MODES = (
     "build",
     "setup",
     "doctor",
 )
 
-# Modes that can be run via "llm-runner tui"
-RUNNABLE_TUI_MODES = (
-    "summary-balanced",
-    "summary-fast",
-    "qwen35",
-    "both",
-)
+
+def get_runnable_tui_modes() -> tuple[str, ...]:
+    """Return registry-backed modes that can launch model servers."""
+    return create_default_profile_registry().run_group_ids
+
+
+# Modes that can be run via "llm-runner tui".
+RUNNABLE_TUI_MODES = get_runnable_tui_modes()
+VALID_MODES = (*RUNNABLE_TUI_MODES, *COMMAND_MODES)
 
 BUILD_BACKENDS = ("sycl", "cuda", "both")
 SMOKE_MODE = "smoke"

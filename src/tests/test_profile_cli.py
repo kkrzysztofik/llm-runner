@@ -637,6 +637,20 @@ class TestCmdProfile:
             profiles_dir = tmp_path / "profiles"
             profiles_dir.mkdir(parents=True, exist_ok=True)
             mock_cfg.profiles_dir = profiles_dir
+            mock_cfg.summary_balanced_port = 8080
+            mock_cfg.summary_fast_port = 8082
+            mock_cfg.qwen35_port = 8081
+            mock_cfg.default_threads_summary_balanced = 8
+            mock_cfg.default_ctx_size_summary = 16144
+            mock_cfg.default_ubatch_size_summary_balanced = 1024
+            mock_cfg.default_cache_type_summary_k = "q8_0"
+            mock_cfg.default_cache_type_summary_v = "q8_0"
+            mock_cfg.default_n_gpu_layers = 99
+            mock_cfg.default_n_gpu_layers_qwen35 = "all"
+            mock_cfg.server_binary_version = "1.18.0"
+            mock_cfg.model_summary_balanced = str(tmp_path / "model.gguf")
+            mock_cfg.llama_server_bin_intel = str(tmp_path / "llama-server")
+            mock_cfg.llama_server_bin_nvidia = ""
 
             # Create lockfile in the parent of profiles_dir
             lockfile = tmp_path / "test-slot.lock"
@@ -797,6 +811,20 @@ class TestCmdProfile:
             profiles_dir = tmp_path / "profiles"
             profiles_dir.mkdir(parents=True, exist_ok=True)
             mock_cfg.profiles_dir = profiles_dir
+            mock_cfg.summary_balanced_port = 8080
+            mock_cfg.summary_fast_port = 8082
+            mock_cfg.qwen35_port = 8081
+            mock_cfg.default_threads_summary_balanced = 8
+            mock_cfg.default_ctx_size_summary = 16144
+            mock_cfg.default_ubatch_size_summary_balanced = 1024
+            mock_cfg.default_cache_type_summary_k = "q8_0"
+            mock_cfg.default_cache_type_summary_v = "q8_0"
+            mock_cfg.default_n_gpu_layers = 99
+            mock_cfg.default_n_gpu_layers_qwen35 = "all"
+            mock_cfg.server_binary_version = "1.18.0"
+            mock_cfg.model_summary_balanced = str(tmp_path / "model.gguf")
+            mock_cfg.llama_server_bin_intel = str(tmp_path / "llama-server")
+            mock_cfg.llama_server_bin_nvidia = ""
 
             benchmark_result = _make_benchmark_result()
             mock_record = MagicMock()

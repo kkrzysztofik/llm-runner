@@ -2,6 +2,22 @@
 set -euo pipefail
 
 # ============================================================
+# NOTE: This shell wrapper is a legacy launch surface with
+# hardcoded profile definitions. The primary launch interface
+# is the Python CLI (`llm-runner`), which resolves profiles
+# and run groups from the dynamic registry in config_builder.py.
+#
+# For new workflows, prefer:
+#   uv run llm-runner dry-run <mode>   # validate before launch
+#   uv run llm-runner <mode> [ports]   # launch servers
+#   llm-runner tui <mode>              # Rich TUI dashboard
+#
+# This script remains useful for direct activation without the
+# Python dependency chain, but its profiles are NOT synchronized
+# with the Python registry. Keep them aligned manually.
+# ============================================================
+
+# ============================================================
 # CONFIGURATION
 # ============================================================
 

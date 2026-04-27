@@ -34,6 +34,7 @@ from llama_manager import (
     validate_server_config,
     validate_slots,
 )
+from llama_manager.config_builder import create_default_profile_registry, resolve_run_group_configs
 from llama_manager.server import detect_risky_operations
 
 RISK_ACK_LABEL = "warning_bypass"
@@ -310,45 +311,56 @@ def _resolve_port(ports: list[int], index: int, default: int) -> int:
 
 def _build_tui_mode_configs(cfg: Config, parsed: argparse.Namespace) -> dict:
     """Build the mode configuration dict for TUI launch."""
-    return {
-        "both": (
-            [cfg.llama_server_bin_intel, cfg.llama_server_bin_nvidia],
-            [INTEL_SERVER_NAME, NVIDIA_SERVER_NAME],
-            [
-                create_summary_balanced_cfg(
-                    parsed.port if parsed.port is not None else cfg.summary_balanced_port
-                ),
-                create_qwen35_cfg(parsed.port2 if parsed.port2 is not None else cfg.qwen35_port),
-            ],
-            [1, 0],
-        ),
-        "summary-balanced": (
-            [cfg.llama_server_bin_intel],
-            [INTEL_SERVER_NAME],
-            [
-                create_summary_balanced_cfg(
-                    parsed.port if parsed.port is not None else cfg.summary_balanced_port
-                )
-            ],
-            [1],
-        ),
-        "summary-fast": (
-            [cfg.llama_server_bin_intel],
-            [INTEL_SERVER_NAME],
-            [
-                create_summary_fast_cfg(
-                    parsed.port if parsed.port is not None else cfg.summary_fast_port
-                )
-            ],
-            [1],
-        ),
-        "qwen35": (
-            [cfg.llama_server_bin_nvidia],
-            [NVIDIA_SERVER_NAME],
-            [create_qwen35_cfg(parsed.port if parsed.port is not None else cfg.qwen35_port)],
-            [0],
-        ),
-    }
+    registry = create_default_profile_registry(cfg)
+    mode_configs = {}
+    for group in registry.run_groups:
+        if not group.tui_enabled:
+            continue
+        configs = _resolve_tui_group_configs(group.group_id, cfg, parsed)
+        mode_configs[group.group_id] = (
+            [server_cfg.server_bin for server_cfg in configs],
+            [_server_name_for_config(server_cfg) for server_cfg in configs],
+            configs,
+            [_gpu_index_for_config(server_cfg) for server_cfg in configs],
+        )
+    return mode_configs
+
+
+def _resolve_tui_group_configs(
+    group_id: str,
+    cfg: Config,
+    parsed: argparse.Namespace,
+) -> list[ServerConfig]:
+    """Resolve TUI configs while preserving positional port override semantics."""
+    registry = create_default_profile_registry(cfg)
+    default_configs = resolve_run_group_configs(registry, group_id)
+    port_overrides: list[int] = []
+
+    if parsed.port is not None:
+        port_overrides.append(parsed.port)
+    elif parsed.port2 is not None and default_configs:
+        port_overrides.append(default_configs[0].port)
+
+    if parsed.port2 is not None and len(default_configs) > 1:
+        port_overrides.append(parsed.port2)
+
+    if not port_overrides:
+        return default_configs
+    return resolve_run_group_configs(registry, group_id, tuple(port_overrides))
+
+
+def _server_name_for_config(server_cfg: ServerConfig) -> str:
+    """Return a human-readable executable label for a resolved server config."""
+    if server_cfg.device.startswith("SYCL"):
+        return INTEL_SERVER_NAME
+    return NVIDIA_SERVER_NAME
+
+
+def _gpu_index_for_config(server_cfg: ServerConfig) -> int:
+    """Return the TUI GPU index for a resolved server config."""
+    if server_cfg.device.startswith("SYCL"):
+        return 1
+    return 0
 
 
 def _validate_tui_configs(configs: list[ServerConfig]) -> None:
@@ -400,21 +412,61 @@ def _run_tui(parsed: argparse.Namespace) -> int:
 
 
 def _run_mode(parsed_mode: str, ports: list[int], manager: ServerManager, cfg: Config) -> int:
-    if parsed_mode == "summary-balanced":
-        port = _resolve_port(ports, 0, cfg.summary_balanced_port)
-        return run_summary_balanced(port, manager)
-    if parsed_mode == "summary-fast":
-        port = _resolve_port(ports, 0, cfg.summary_fast_port)
-        return run_summary_fast(port, manager)
-    if parsed_mode == "qwen35":
-        port = _resolve_port(ports, 0, cfg.qwen35_port)
-        return run_qwen35(port, manager)
-    if parsed_mode == "both":
-        port32 = _resolve_port(ports, 0, cfg.summary_balanced_port)
-        port35 = _resolve_port(ports, 1, cfg.qwen35_port)
-        return run_both(port32, port35, manager)
+    configs = _build_target_configs(parsed_mode, ports, cfg)
+    if configs:
+        return _run_server_configs(configs, manager, cfg)
     usage()
     return 1
+
+
+def _run_server_configs(configs: list[ServerConfig], manager: ServerManager, cfg: Config) -> int:
+    """Launch resolved server configs through the appropriate manager path."""
+    _validate_launch_configs(configs)
+    if len(configs) == 1:
+        server_cfg = configs[0]
+        print(f"Starting {server_cfg.alias} at http://{cfg.host}:{server_cfg.port}/v1")
+        return manager.run_server_foreground(server_cfg.alias, build_server_cmd(server_cfg))
+
+    print(f"Launching {len(configs)} server(s)...")
+    for server_cfg in configs:
+        print(f"  {server_cfg.alias}: http://{cfg.host}:{server_cfg.port}/v1")
+
+    log_handlers: dict[str, Callable[[str], None]] = {}
+    for server_cfg in configs:
+        log_handlers[server_cfg.alias] = lambda line, name=server_cfg.alias: print(
+            f"[{name}] {line}", flush=True
+        )
+
+    manager.start_servers(configs, log_handlers)
+    code = manager.wait_for_any()
+    manager.cleanup_servers()
+    return code
+
+
+def _validate_launch_configs(configs: list[ServerConfig]) -> None:
+    """Validate ports, models, executables, and backend eligibility before launch."""
+    slots = [
+        ModelSlot(slot_id=server_cfg.alias, model_path=server_cfg.model, port=server_cfg.port)
+        for server_cfg in configs
+    ]
+    validation_error = validate_slots(slots)
+    if validation_error is not None:
+        for error_detail in validation_error.errors:
+            _print_validation_error(error_detail)
+
+    for server_cfg in configs:
+        model_error = require_model(server_cfg.model)
+        if model_error is not None:
+            _print_validation_error(model_error)
+        if server_cfg.server_bin:
+            exec_error = require_executable(
+                server_cfg.server_bin, _server_name_for_config(server_cfg)
+            )
+            if exec_error is not None:
+                _print_validation_error(exec_error)
+        backend_error = validate_server_config(server_cfg)
+        if backend_error is not None:
+            _print_validation_error(backend_error)
 
 
 def _normalize_main_args(args: list[str] | None) -> list[str]:
@@ -442,20 +494,10 @@ def _normalize_main_args(args: list[str] | None) -> list[str]:
 
 
 def _build_target_configs(parsed_mode: str, ports: list[int], cfg: Config) -> list[ServerConfig]:
-    if parsed_mode == "summary-balanced":
-        port = _resolve_port(ports, 0, cfg.summary_balanced_port)
-        return [create_summary_balanced_cfg(port)]
-    if parsed_mode == "summary-fast":
-        port = _resolve_port(ports, 0, cfg.summary_fast_port)
-        return [create_summary_fast_cfg(port)]
-    if parsed_mode == "qwen35":
-        port = _resolve_port(ports, 0, cfg.qwen35_port)
-        return [create_qwen35_cfg(port)]
-    if parsed_mode == "both":
-        port32 = _resolve_port(ports, 0, cfg.summary_balanced_port)
-        port35 = _resolve_port(ports, 1, cfg.qwen35_port)
-        return [create_summary_balanced_cfg(port32), create_qwen35_cfg(port35)]
-    return []
+    registry = create_default_profile_registry(cfg)
+    if parsed_mode not in registry.run_group_ids:
+        return []
+    return resolve_run_group_configs(registry, parsed_mode, tuple(ports))
 
 
 def main(args: list[str] | None = None) -> int:
@@ -542,6 +584,8 @@ def main(args: list[str] | None = None) -> int:
 
     try:
         return _run_mode(parsed.mode, parsed.ports, manager, cfg)
+    except SystemExit as e:
+        return e.code if isinstance(e.code, int) else 1
     except ValueError as e:
         print(f"error: invalid arguments: {e}", file=sys.stderr)
         return 1
