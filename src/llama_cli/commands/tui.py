@@ -40,6 +40,7 @@ from llama_manager import (
     SlotState,
     get_gpu_identifier,
     load_profile_with_staleness,
+    profile_to_override_dict,
 )
 from llama_manager.build_pipeline import (
     BuildBackend,
@@ -47,6 +48,7 @@ from llama_manager.build_pipeline import (
     BuildPipeline,
     BuildProgress,
 )
+from llama_manager.config_builder import merge_config_overrides
 from llama_manager.server import detect_risky_operations
 
 RISK_ACK_LABEL = "warning_bypass"
@@ -992,6 +994,104 @@ class TUIApp:
             for warning in launch_result.warnings or []:
                 print(f"  warning: {warning}", file=sys.stderr)
 
+    def _apply_profile_overrides(self) -> list[ServerConfig]:
+        """Apply cached profile overrides to configs at startup.
+
+        For each config, attempts to load a cached profile. If found and fresh,
+        applies the whitelisted profile parameters (threads, ctx_size, ubatch_size,
+        cache types) via merge_config_overrides. Reports status via TUI messages.
+
+        Returns:
+            Updated configs list with profile overrides applied where applicable.
+        """
+        from llama_cli.commands.profile import _get_driver_version
+
+        updated_configs: list[ServerConfig] = []
+
+        for cfg in self.configs:
+            try:
+                gpu_identifier = get_gpu_identifier(cfg.backend)
+                driver_version = _get_driver_version(cfg.backend)
+                binary_version = self.config.server_binary_version or "unknown"
+
+                record, staleness = load_profile_with_staleness(
+                    profiles_dir=self.config.profiles_dir,
+                    gpu_identifier=gpu_identifier,
+                    backend=cfg.backend,
+                    flavor=ProfileFlavor.BALANCED,
+                    current_driver_version=driver_version,
+                    current_binary_version=binary_version,
+                    staleness_days=self.config.profile_staleness_days,
+                )
+            except Exception:
+                self._push_status_message(f"No profile found for {cfg.alias}; using defaults")
+                updated_configs.append(cfg)
+                continue
+
+            if record is None:
+                self._push_status_message(f"No profile found for {cfg.alias}; using defaults")
+                updated_configs.append(cfg)
+                continue
+
+            if staleness is not None and staleness.is_stale:
+                reasons = "; ".join(r.value.replace("_", " ").title() for r in staleness.reasons)
+                self._push_status_message(
+                    f"Profile stale for {cfg.alias}: {reasons}; using defaults"
+                )
+                updated_configs.append(cfg)
+                continue
+
+            # Profile exists and is fresh - apply overrides
+            profile_overrides = profile_to_override_dict(record)
+
+            if not profile_overrides:
+                self._push_status_message(f"Profile empty for {cfg.alias}; using defaults")
+                updated_configs.append(cfg)
+                continue
+
+            # Apply profile overrides via merge_config_overrides
+            # Note: We pass the original cfg as override_config to preserve non-override fields
+            override_dict = {
+                "threads": cfg.threads,
+                "ctx_size": cfg.ctx_size,
+                "ubatch_size": cfg.ubatch_size,
+                "cache_type_k": cfg.cache_type_k,
+                "cache_type_v": cfg.cache_type_v,
+            }
+
+            merged = merge_config_overrides(
+                defaults=self.config,
+                slot_config=None,
+                workstation_config=None,
+                profile_config=profile_overrides,
+                override_config=override_dict,
+            )
+
+            # Preserve identity fields that shouldn't come from profile
+            merged.model = cfg.model
+            merged.alias = cfg.alias
+            merged.device = cfg.device
+            merged.port = cfg.port
+            merged.bind_address = cfg.bind_address
+            merged.server_bin = cfg.server_bin
+            merged.backend = cfg.backend
+            merged.tensor_split = cfg.tensor_split
+            merged.reasoning_mode = cfg.reasoning_mode
+            merged.reasoning_format = cfg.reasoning_format
+            merged.chat_template_kwargs = cfg.chat_template_kwargs
+            merged.reasoning_budget = cfg.reasoning_budget
+            merged.use_jinja = cfg.use_jinja
+            merged.n_gpu_layers = cfg.n_gpu_layers
+            merged.risky_acknowledged = cfg.risky_acknowledged
+
+            self._push_status_message(
+                f"Applied profile: {cfg.alias} (balanced) "
+                f"[threads={merged.threads}, ctx={merged.ctx_size}]"
+            )
+            updated_configs.append(merged)
+
+        return updated_configs
+
     def build_llama_cpp(self, backend: str = "sycl", dry_run: bool = False) -> bool:
         """Build llama.cpp using BuildPipeline.
 
@@ -1056,6 +1156,9 @@ class TUIApp:
                 signal.signal(signal.SIGINT, self._original_sigint_handler)
 
     def run(self, acknowledged: bool = False) -> None:
+        # Apply profile overrides at startup (before slot launch validation)
+        self.configs = self._apply_profile_overrides()
+
         slots = [
             ModelSlot(slot_id=cfg.alias, model_path=cfg.model, port=cfg.port)
             for cfg in self.configs
