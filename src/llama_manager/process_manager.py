@@ -890,26 +890,26 @@ def _redact_sensitive(text: str) -> str:
 
     """
     # Redact key=value patterns (unquoted values) — module-level compiled
-    text = _SENSITIVE_WORD_PATTERN.sub("[REDACTED]", text)
+    text = _SENSITIVE_WORD_PATTERN.sub(REDACTED_VALUE, text)
     # Redact quoted values: KEY="secret" or KEY='secret'
     text = re.sub(
         r'(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\s*=\s*"[^"]*"',
-        "[REDACTED]",
+        REDACTED_VALUE,
         text,
     )
     text = re.sub(
         r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\s*=\s*'[^']*'",
-        "[REDACTED]",
+        REDACTED_VALUE,
         text,
     )
     # Redact Authorization: Bearer <token>
     text = re.sub(
-        r"(?i)\b[A-Z_]*(?:Authorization)\s*:\s*Bearer\s+\S+",
-        "[REDACTED]",
+        r"(?i)\b[A-Z_]*Authorization\s*:\s*Bearer\s+\S+",
+        REDACTED_VALUE,
         text,
     )
     # Fall back to word-boundary key-name-only pattern for any remaining cases
-    text = _SENSITIVE_KEY_NAME_PATTERN.sub("[REDACTED]", text)
+    text = _SENSITIVE_KEY_NAME_PATTERN.sub(REDACTED_VALUE, text)
     return text
 
 

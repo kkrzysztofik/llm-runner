@@ -168,6 +168,15 @@ class TestHandleBuildCase:
         assert result is not None
         assert result.backend == "cuda"
 
+    def test_handle_build_both(self) -> None:
+        """_handle_build_case should parse 'build both'."""
+        from llama_cli.cli_parser import _handle_build_case
+
+        result = _handle_build_case(["build", "both"])
+        assert result is not None
+        assert result.backend == "both"
+        assert result.build_args == ["both"]
+
     def test_handle_build_with_dry_run(self) -> None:
         """_handle_build_case should parse --dry-run flag."""
         from llama_cli.cli_parser import _handle_build_case
@@ -175,14 +184,30 @@ class TestHandleBuildCase:
         result = _handle_build_case(["build", "sycl", "--dry-run"])
         assert result is not None
         assert result.dry_run is True
+        assert result.build_args == ["sycl", "--dry-run"]
 
-    def test_handle_build_with_jobs(self) -> None:
-        """_handle_build_case should parse -jN flag."""
+    def test_handle_build_preserves_build_cli_options(self) -> None:
+        """_handle_build_case should pass build-specific options through."""
         from llama_cli.cli_parser import _handle_build_case
 
-        result = _handle_build_case(["build", "sycl", "-j8"])
+        result = _handle_build_case(
+            [
+                "build",
+                "both",
+                "--source-dir",
+                "/tmp/llama.cpp",
+                "--jobs",
+                "8",
+            ]
+        )
         assert result is not None
-        assert result.jobs == 8
+        assert result.build_args == [
+            "both",
+            "--source-dir",
+            "/tmp/llama.cpp",
+            "--jobs",
+            "8",
+        ]
 
     def test_handle_build_missing_backend(self) -> None:
         """_handle_build_case should exit when no backend specified."""

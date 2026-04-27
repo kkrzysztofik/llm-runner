@@ -321,7 +321,7 @@ class TestSetupCheckSkipsVenvIntegrity:
         # This test verifies the contract that --check is toolchain-only
 
         # Mock a scenario where venv is corrupted but tools are available
-        with patch("llama_cli.setup_cli.detect_toolchain") as mock_detect:
+        with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
             # Tools are available
             mock_status = MagicMock()
             mock_status.is_sycl_ready = True
@@ -331,7 +331,7 @@ class TestSetupCheckSkipsVenvIntegrity:
             mock_detect.return_value = mock_status
 
             # Call cmd_check to verify detect_toolchain is called
-            from llama_cli.setup_cli import cmd_check
+            from llama_cli.commands.setup import cmd_check
 
             exit_code = cmd_check(MagicMock(backend="all", json=False))
 
@@ -404,7 +404,8 @@ class TestVenvPathFallback:
 
     def test_venv_path_fallback_to_home_cache(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """get_venv_path should fallback to ~/.cache when XDG_CACHE_HOME not set."""
-        # Ensure XDG_CACHE_HOME is not set
+        # Ensure VIRTUAL_ENV and XDG_CACHE_HOME are not set
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
 
         result = get_venv_path()
@@ -415,6 +416,7 @@ class TestVenvPathFallback:
 
     def test_venv_path_uses_xdg_cache_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """get_venv_path should use XDG_CACHE_HOME when set."""
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         custom_cache = "/custom/cache"
         monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
 
@@ -426,6 +428,7 @@ class TestVenvPathFallback:
 
     def test_venv_path_respects_xdg_over_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """get_venv_path should prefer XDG_CACHE_HOME over HOME/.cache."""
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         custom_cache = "/custom/cache"
         custom_home = "/custom/home"
         monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
@@ -444,3 +447,44 @@ class TestVenvPathFallback:
 
         result = get_venv_path()
         assert result.is_absolute()
+
+
+class TestVenvPathVirtualEnvPrecedence:
+    """T064: Tests for VIRTUAL_ENV precedence in venv path resolution."""
+
+    def test_venv_path_ignores_virtual_env_and_uses_managed_venv(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_venv_path should always return the managed venv, ignoring VIRTUAL_ENV."""
+        custom_venv = "/custom/venv"
+        monkeypatch.setenv("VIRTUAL_ENV", custom_venv)
+        monkeypatch.setenv("XDG_CACHE_HOME", "/custom/cache")
+
+        result = get_venv_path()
+        expected = Path("/custom/cache") / "llm-runner" / "venv"
+
+        assert result == expected
+
+    def test_venv_path_falls_back_to_xdg_cache_when_virtual_env_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_venv_path should fall back to XDG_CACHE_HOME when VIRTUAL_ENV is unset."""
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+        monkeypatch.setenv("XDG_CACHE_HOME", "/custom/cache")
+
+        result = get_venv_path()
+        expected = Path("/custom/cache") / "llm-runner" / "venv"
+
+        assert result == expected
+
+    def test_venv_path_falls_back_to_home_cache_when_neither_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_venv_path should fall back to ~/.cache when neither env var is set."""
+        monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+        monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+
+        result = get_venv_path()
+        expected = Path.home() / ".cache" / "llm-runner" / "venv"
+
+        assert result == expected

@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from llama_cli.colors import Colors
 from llama_manager.build_pipeline import BuildBackend
 from llama_manager.setup_venv import (
     check_venv_integrity,
@@ -30,12 +31,12 @@ JSON_OUTPUT_HELP = "Output in JSON format"
 
 
 def _print_error(message: str) -> None:
-    """Print error message to stderr.
+    """Print error message to stderr in red.
 
     Args:
         message: Error message to print.
     """
-    print(f"error: {message}", file=sys.stderr)
+    print(Colors.red(f"error: {message}"), file=sys.stderr)
 
 
 def _print_success(message: str) -> None:
@@ -47,6 +48,11 @@ def _print_success(message: str) -> None:
     print(message)
 
 
+def _print_header(message: str) -> None:
+    """Print a bold blue header message."""
+    print(Colors.bold(Colors.blue(message)))
+
+
 def _print_json(data: dict[str, Any]) -> None:
     """Print JSON data to stdout.
 
@@ -54,6 +60,25 @@ def _print_json(data: dict[str, Any]) -> None:
         data: Dictionary to serialize to JSON.
     """
     print(json.dumps(data, indent=2, default=str))
+
+
+def _deduplicate_hints(hints: list[Any]) -> list[Any]:
+    """Deduplicate hints by install command + docs URL.
+
+    Args:
+        hints: List of toolchain hints
+
+    Returns:
+        Deduplicated list of hints
+    """
+    seen: set[tuple[str, str | None]] = set()
+    result: list[Any] = []
+    for hint in hints:
+        key = (hint.how_to_fix, hint.docs_ref)
+        if key not in seen:
+            seen.add(key)
+            result.append(hint)
+    return result
 
 
 def _get_hints(backend: str) -> list[Any]:
@@ -66,20 +91,13 @@ def _get_hints(backend: str) -> list[Any]:
         List of toolchain hints
     """
     if backend == "sycl":
-        return get_toolchain_hints("sycl")
+        return _deduplicate_hints(get_toolchain_hints("sycl"))
     elif backend == "cuda":
-        return get_toolchain_hints("cuda")
+        return _deduplicate_hints(get_toolchain_hints("cuda"))
     elif backend == "all":
-        # Aggregate hints from both backends, deduplicate by tool name
         sycl_hints = get_toolchain_hints("sycl")
         cuda_hints = get_toolchain_hints("cuda")
-        seen_tools: set[str] = set()
-        hints = []
-        for hint in sycl_hints + cuda_hints:
-            if hint.failed_check not in seen_tools:
-                seen_tools.add(hint.failed_check)
-                hints.append(hint)
-        return hints
+        return _deduplicate_hints(sycl_hints + cuda_hints)
     return []
 
 
@@ -104,23 +122,32 @@ def _build_status_output(status: Any) -> dict[str, Any]:
 
 
 def _print_status(status: Any) -> None:
-    """Print human-readable toolchain status.
+    """Print human-readable toolchain status with colors.
 
     Args:
         status: ToolchainStatus object
     """
-    _print_success("Toolchain Status:")
-    _print_success(f"  gcc: {status.gcc or 'MISSING'}")
-    _print_success(f"  make: {status.make or 'MISSING'}")
-    _print_success(f"  git: {status.git or 'MISSING'}")
-    _print_success(f"  cmake: {status.cmake or 'MISSING'}")
-    _print_success(f"  sycl_compiler: {status.sycl_compiler or 'MISSING'}")
-    _print_success(f"  cuda_toolkit: {status.cuda_toolkit or 'MISSING'}")
-    _print_success(f"  nvtop: {status.nvtop or 'MISSING'}")
+    yes = Colors.bright_green("✓ YES")
+    no = Colors.bright_red("✗ NO")
+    missing = Colors.bright_red("MISSING")
+
+    _print_header("Toolchain Status:")
+    tools = [
+        ("gcc", status.gcc),
+        ("make", status.make),
+        ("git", status.git),
+        ("cmake", status.cmake),
+        ("sycl_compiler", status.sycl_compiler),
+        ("cuda_toolkit", status.cuda_toolkit),
+        ("nvtop", status.nvtop),
+    ]
+    for name, value in tools:
+        display = Colors.green(value) if value else missing
+        print(f"  {Colors.cyan(name)}: {display}")
     _print_success("")
-    _print_success(f"SYCL ready: {'YES' if status.is_sycl_ready else 'NO'}")
-    _print_success(f"CUDA ready: {'YES' if status.is_cuda_ready else 'NO'}")
-    _print_success(f"Complete: {'YES' if status.is_complete else 'NO'}")
+    _print_success(f"SYCL ready: {yes if status.is_sycl_ready else no}")
+    _print_success(f"CUDA ready: {yes if status.is_cuda_ready else no}")
+    _print_success(f"Complete: {yes if status.is_complete else no}")
 
 
 def _backend_from_string(backend: str) -> BuildBackend | None:
@@ -139,20 +166,42 @@ def _backend_from_string(backend: str) -> BuildBackend | None:
     return None
 
 
-def _handle_missing_tools(status: Any, hints: list[Any]) -> int:
-    """Handle and display missing tools information.
+def _resolve_backend_enum(backend: str | None) -> BuildBackend | None:
+    """Convert backend string to BuildBackend enum."""
+    if backend == "sycl":
+        return BuildBackend.SYCL
+    if backend == "cuda":
+        return BuildBackend.CUDA
+    return None
+
+
+def _filter_optional_tools(missing: list[str], backend: str | None, is_complete: bool) -> list[str]:
+    """Filter out optional tools when all backends are complete."""
+    if (backend == "all" or backend is None) and is_complete:
+        return [t for t in missing if t != "nvtop"]
+    return missing
+
+
+def _handle_missing_tools(status: Any, hints: list[Any], backend: str | None = None) -> int:
+    """Handle and display missing tools information with colors.
 
     Args:
         status: ToolchainStatus object
         hints: List of toolchain hints
+        backend: Backend to check tools for (sycl, cuda, or None for all)
 
     Returns:
         Exit code (1 for failure)
     """
-    missing = status.missing_tools(None)
+    backend_enum = _resolve_backend_enum(backend)
+
+    missing = _filter_optional_tools(
+        status.missing_tools(backend_enum), backend, status.is_complete
+    )
+
     if not missing:
         _print_success("")
-        _print_success("All required tools are available!")
+        print(Colors.bold(Colors.bright_green("All required tools are available!")))
         return 0
 
     _print_success("")
@@ -160,11 +209,11 @@ def _handle_missing_tools(status: Any, hints: list[Any]) -> int:
 
     if hints:
         _print_success("")
-        _print_success("Installation hints:")
+        print(Colors.yellow("Installation hints:"))
         for hint in hints:
-            _print_success(f"  - {hint.how_to_fix}")
+            print(f"  {Colors.yellow('-')} {hint.how_to_fix}")
             if hint.docs_ref:
-                _print_success(f"    Docs: {hint.docs_ref}")
+                print(Colors.dim(f"    Docs: {hint.docs_ref}"))
 
     return 1
 
@@ -187,10 +236,16 @@ def cmd_check(args: argparse.Namespace) -> int:
 
         if args.json:
             _print_json(_build_status_output(status))
-            return 0 if status.is_complete else 1
+            # Use backend-aware exit code logic (without printing)
+            if args.backend == "sycl":
+                return 0 if status.is_sycl_ready else 1
+            elif args.backend == "cuda":
+                return 0 if status.is_cuda_ready else 1
+            else:
+                return 0 if status.is_complete else 1
 
         _print_status(status)
-        return _handle_missing_tools(status, hints)
+        return _handle_missing_tools(status, hints, args.backend)
     except Exception as e:
         _print_error(f"Toolchain detection failed: {e}")
         return 1

@@ -204,8 +204,10 @@ fields are present. After a failed build, confirm the report directory exists wi
   `artifact_type`, `backend`, `created_at`, `git_remote_url`, `git_commit_sha`, `git_branch`,
   `build_command`, `exit_code`, `binary_path`.
 - **FR-006.2**: Build artifacts MUST live at predictable paths determined by `Config`:
-  Intel SYCL binary at `src/llama.cpp/build/bin/llama-server`, NVIDIA CUDA binary at
-  `src/llama.cpp/build_cuda/bin/llama-server`. The system MUST NOT silently auto-build on launch.
+  by default the source root is `$XDG_CACHE_HOME/llm-runner/llama.cpp` (fallback
+  `~/.cache/llm-runner/llama.cpp`), overrideable with `LLAMA_CPP_ROOT` or `--source-dir`.
+  Intel SYCL binary is `<source-root>/build/bin/llama-server`; NVIDIA CUDA binary is
+  `<source-root>/build_cuda/bin/llama-server`. The system MUST NOT silently auto-build on launch.
 - **FR-006.3**: Provenance files MUST be written atomically. Implementation:
    1. Write the provenance JSON to a temporary file in the same directory as the final destination
    2. Rename the temp file into place as the final file

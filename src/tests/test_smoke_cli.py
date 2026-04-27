@@ -781,7 +781,7 @@ class TestBuildSlotConfigs:
 
     def test_build_slot_configs_both_returns_two_slots(self) -> None:
         """mode 'both' should return summary-balanced and qwen35-coding tuples."""
-        from llama_cli.smoke_cli import _build_slot_configs
+        from llama_cli.commands.smoke import _build_slot_configs
 
         targets = _build_slot_configs("both")
 
@@ -799,7 +799,7 @@ class TestBuildSlotConfigs:
         self,
     ) -> None:
         """mode 'slot' with slot_id should return one tuple with resolved port/model."""
-        from llama_cli.smoke_cli import _build_slot_configs
+        from llama_cli.commands.smoke import _build_slot_configs
 
         targets = _build_slot_configs("slot", "summary-fast")
 
@@ -810,7 +810,7 @@ class TestBuildSlotConfigs:
 
     def test_build_slot_configs_slot_missing_id_exits(self) -> None:
         """mode 'slot' without slot_id should exit with code 1 and stderr message."""
-        from llama_cli.smoke_cli import _build_slot_configs
+        from llama_cli.commands.smoke import _build_slot_configs
 
         with pytest.raises(SystemExit) as exc_info:
             _build_slot_configs("slot", None)
@@ -819,7 +819,7 @@ class TestBuildSlotConfigs:
 
     def test_build_slot_configs_bogus_mode_exits(self) -> None:
         """unknown mode should exit with code 1 and stderr message."""
-        from llama_cli.smoke_cli import _build_slot_configs
+        from llama_cli.commands.smoke import _build_slot_configs
 
         with pytest.raises(SystemExit) as exc_info:
             _build_slot_configs("bogus")
@@ -832,7 +832,7 @@ class TestResolveSlotPort:
 
     def test_resolve_slot_port_unknown_exits(self) -> None:
         """_resolve_slot_port should exit for unknown slot_id."""
-        from llama_cli.smoke_cli import _resolve_slot_port
+        from llama_cli.commands.smoke import _resolve_slot_port
         from llama_manager.config import Config
 
         cfg = Config()
@@ -844,7 +844,7 @@ class TestResolveSlotPort:
 
     def test_resolve_slot_port_known(self) -> None:
         """_resolve_slot_port should return correct port for known slot_ids."""
-        from llama_cli.smoke_cli import _resolve_slot_port
+        from llama_cli.commands.smoke import _resolve_slot_port
         from llama_manager.config import Config
 
         cfg = Config()
@@ -858,7 +858,7 @@ class TestResolveSlotModel:
 
     def test_resolve_slot_model_unknown_exits(self) -> None:
         """_resolve_slot_model should exit for unknown slot_id."""
-        from llama_cli.smoke_cli import _resolve_slot_model
+        from llama_cli.commands.smoke import _resolve_slot_model
         from llama_manager.config import Config
 
         cfg = Config()
@@ -870,7 +870,7 @@ class TestResolveSlotModel:
 
     def test_resolve_slot_model_known(self) -> None:
         """_resolve_slot_model should return correct model for known slot_ids."""
-        from llama_cli.smoke_cli import _resolve_slot_model
+        from llama_cli.commands.smoke import _resolve_slot_model
         from llama_manager.config import Config
 
         cfg = Config()
@@ -891,7 +891,7 @@ class TestProbeServer:
         """_probe_server should call probe_slot(host, port, smoke_cfg, model_path, model_id, expected_model_id=None)."""
         from unittest.mock import MagicMock, patch
 
-        from llama_cli.smoke_cli import _probe_server
+        from llama_cli.commands.smoke import _probe_server
         from llama_manager.smoke import SmokeProbeResult, SmokeProbeStatus
 
         model_path = "/path/to/model.gguf"
@@ -906,7 +906,9 @@ class TestProbeServer:
             phase_reached=MagicMock(),
         )
 
-        with patch("llama_cli.smoke_cli.probe_slot", return_value=expected_result) as mock_probe:
+        with patch(
+            "llama_cli.commands.smoke.probe_slot", return_value=expected_result
+        ) as mock_probe:
             result = _probe_server(model_path, host, port, smoke_cfg)
 
         mock_probe.assert_called_once_with(
@@ -932,7 +934,7 @@ class TestValidateSmokeArgs:
         """_validate_smoke_args should return 1 for invalid mode."""
         import argparse
 
-        from llama_cli.smoke_cli import _validate_smoke_args
+        from llama_cli.commands.smoke import _validate_smoke_args
 
         parsed = argparse.Namespace(mode="bogus", slot_id=None)
         result = _validate_smoke_args(parsed)
@@ -942,7 +944,7 @@ class TestValidateSmokeArgs:
         """_validate_smoke_args should return 1 for slot mode without slot_id."""
         import argparse
 
-        from llama_cli.smoke_cli import _validate_smoke_args
+        from llama_cli.commands.smoke import _validate_smoke_args
 
         parsed = argparse.Namespace(mode="slot", slot_id=None)
         result = _validate_smoke_args(parsed)
@@ -952,7 +954,7 @@ class TestValidateSmokeArgs:
         """_validate_smoke_args should return None for valid slot mode with slot_id."""
         import argparse
 
-        from llama_cli.smoke_cli import _validate_smoke_args
+        from llama_cli.commands.smoke import _validate_smoke_args
 
         parsed = argparse.Namespace(mode="slot", slot_id="summary-balanced")
         result = _validate_smoke_args(parsed)
@@ -962,7 +964,7 @@ class TestValidateSmokeArgs:
         """_validate_smoke_args should return None for valid both mode."""
         import argparse
 
-        from llama_cli.smoke_cli import _validate_smoke_args
+        from llama_cli.commands.smoke import _validate_smoke_args
 
         parsed = argparse.Namespace(mode="both", slot_id=None)
         result = _validate_smoke_args(parsed)
@@ -1001,7 +1003,7 @@ class TestBuildSmokeConfig:
 
     def test_build_smoke_config_cli_overrides(self) -> None:
         """_build_smoke_config should apply CLI overrides when values are non-zero/non-empty."""
-        from llama_cli.smoke_cli import _build_smoke_config
+        from llama_cli.commands.smoke import _build_smoke_config
 
         parsed = self._make_parsed(
             api_key="sk-test",
@@ -1022,7 +1024,7 @@ class TestBuildSmokeConfig:
 
     def test_build_smoke_config_fallbacks_to_config_defaults(self) -> None:
         """_build_smoke_config should fall back to Config defaults when CLI values are zero/empty."""
-        from llama_cli.smoke_cli import _build_smoke_config
+        from llama_cli.commands.smoke import _build_smoke_config
         from llama_manager.config import Config
 
         parsed = self._make_parsed()
@@ -1037,7 +1039,7 @@ class TestBuildSmokeConfig:
 
     def test_build_smoke_config_empty_prompt_not_overridden(self) -> None:
         """Empty CLI prompt should not override the default prompt."""
-        from llama_cli.smoke_cli import _build_smoke_config
+        from llama_cli.commands.smoke import _build_smoke_config
         from llama_manager.config import Config
 
         parsed = self._make_parsed(prompt="")
@@ -1059,7 +1061,7 @@ class TestRunProbes:
         """_run_probes should call _probe_server once for each target."""
         from unittest.mock import MagicMock, patch
 
-        from llama_cli.smoke_cli import _run_probes
+        from llama_cli.commands.smoke import _run_probes
         from llama_manager.smoke import SmokeProbeResult, SmokeProbeStatus
 
         targets = [
@@ -1075,7 +1077,9 @@ class TestRunProbes:
             phase_reached=MagicMock(),
         )
 
-        with patch("llama_cli.smoke_cli._probe_server", return_value=mock_result) as mock_probe:
+        with patch(
+            "llama_cli.commands.smoke._probe_server", return_value=mock_result
+        ) as mock_probe:
             results = _run_probes(targets, smoke_cfg)
 
         assert len(results) == 2
@@ -1087,7 +1091,7 @@ class TestRunProbes:
         """_run_probes should call time.sleep before the second target when delay > 0."""
         from unittest.mock import MagicMock, patch
 
-        from llama_cli.smoke_cli import _run_probes
+        from llama_cli.commands.smoke import _run_probes
         from llama_manager.smoke import SmokeProbeResult, SmokeProbeStatus
 
         targets = [
@@ -1104,8 +1108,8 @@ class TestRunProbes:
         )
 
         with (
-            patch("llama_cli.smoke_cli._probe_server", return_value=mock_result),
-            patch("llama_cli.smoke_cli.time.sleep") as mock_sleep,
+            patch("llama_cli.commands.smoke._probe_server", return_value=mock_result),
+            patch("llama_cli.commands.smoke.time.sleep") as mock_sleep,
         ):
             _run_probes(targets, smoke_cfg)
 
@@ -1116,7 +1120,7 @@ class TestRunProbes:
         """_run_probes should not call time.sleep when delay is 0."""
         from unittest.mock import MagicMock, patch
 
-        from llama_cli.smoke_cli import _run_probes
+        from llama_cli.commands.smoke import _run_probes
         from llama_manager.smoke import SmokeProbeResult, SmokeProbeStatus
 
         targets = [
@@ -1133,8 +1137,8 @@ class TestRunProbes:
         )
 
         with (
-            patch("llama_cli.smoke_cli._probe_server", return_value=mock_result),
-            patch("llama_cli.smoke_cli.time.sleep") as mock_sleep,
+            patch("llama_cli.commands.smoke._probe_server", return_value=mock_result),
+            patch("llama_cli.commands.smoke.time.sleep") as mock_sleep,
         ):
             _run_probes(targets, smoke_cfg)
 
@@ -1153,7 +1157,7 @@ class TestRunSmoke:
         """run_smoke with --json should call _print_report_json."""
         from unittest.mock import MagicMock, patch
 
-        from llama_cli.smoke_cli import run_smoke
+        from llama_cli.commands.smoke import run_smoke
         from llama_manager.smoke import SmokeProbeResult, SmokeProbeStatus
 
         mock_result = SmokeProbeResult(
@@ -1164,12 +1168,12 @@ class TestRunSmoke:
 
         with (
             patch(
-                "llama_cli.smoke_cli._build_slot_configs",
+                "llama_cli.commands.smoke._build_slot_configs",
                 return_value=[("test", "/m.gguf", "127.0.0.1", 8080)],
             ),
-            patch("llama_cli.smoke_cli._build_smoke_config") as mock_cfg,
-            patch("llama_cli.smoke_cli._run_probes", return_value=[mock_result]),
-            patch("llama_cli.smoke_cli._print_report_json") as mock_json_printer,
+            patch("llama_cli.commands.smoke._build_smoke_config") as mock_cfg,
+            patch("llama_cli.commands.smoke._run_probes", return_value=[mock_result]),
+            patch("llama_cli.commands.smoke._print_report_json") as mock_json_printer,
         ):
             mock_cfg.inter_slot_delay_s = 0
             mock_cfg.listen_timeout_s = 5
@@ -1186,7 +1190,7 @@ class TestRunSmoke:
         """run_smoke with failures should call resolve_runtime_dir and _ensure_report_dir."""
         from unittest.mock import MagicMock, patch
 
-        from llama_cli.smoke_cli import run_smoke
+        from llama_cli.commands.smoke import run_smoke
         from llama_manager.smoke import SmokeProbeResult, SmokeProbeStatus
 
         mock_fail_result = SmokeProbeResult(
@@ -1197,14 +1201,14 @@ class TestRunSmoke:
 
         with (
             patch(
-                "llama_cli.smoke_cli._build_slot_configs",
+                "llama_cli.commands.smoke._build_slot_configs",
                 return_value=[("test", "/m.gguf", "127.0.0.1", 8080)],
             ),
-            patch("llama_cli.smoke_cli._build_smoke_config") as mock_cfg,
-            patch("llama_cli.smoke_cli._run_probes", return_value=[mock_fail_result]),
-            patch("llama_cli.smoke_cli._print_report_human") as mock_human_printer,
-            patch("llama_cli.smoke_cli.resolve_runtime_dir") as mock_runtime,
-            patch("llama_cli.smoke_cli._ensure_report_dir") as mock_ensure,
+            patch("llama_cli.commands.smoke._build_smoke_config") as mock_cfg,
+            patch("llama_cli.commands.smoke._run_probes", return_value=[mock_fail_result]),
+            patch("llama_cli.commands.smoke._print_report_human") as mock_human_printer,
+            patch("llama_cli.commands.smoke.resolve_runtime_dir") as mock_runtime,
+            patch("llama_cli.commands.smoke._ensure_report_dir") as mock_ensure,
         ):
             mock_cfg.inter_slot_delay_s = 0
             mock_cfg.listen_timeout_s = 5
@@ -1229,7 +1233,7 @@ class TestPrintReportHuman:
 
     def test_print_report_human_pass(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Human report should print header, pass count, and passing slot."""
-        from llama_cli.smoke_cli import _print_report_human
+        from llama_cli.commands.smoke import _print_report_human
         from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
 
         result = SmokeProbeResult(
@@ -1252,7 +1256,7 @@ class TestPrintReportHuman:
 
     def test_print_report_human_failure_phase(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Human report should print failure_phase when present."""
-        from llama_cli.smoke_cli import _print_report_human
+        from llama_cli.commands.smoke import _print_report_human
         from llama_manager.config import SmokeFailurePhase
         from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
 
@@ -1275,7 +1279,7 @@ class TestPrintReportHuman:
 
     def test_print_report_human_with_model_id(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Human report should print model_id when present."""
-        from llama_cli.smoke_cli import _print_report_human
+        from llama_cli.commands.smoke import _print_report_human
         from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
 
         result = SmokeProbeResult(
@@ -1306,7 +1310,7 @@ class TestPrintReportJson:
         """JSON report should contain results, overall_exit_code, and provenance."""
         from unittest.mock import patch
 
-        from llama_cli.smoke_cli import _print_report_json
+        from llama_cli.commands.smoke import _print_report_json
         from llama_manager.smoke import (
             ProvenanceRecord,
             SmokePhase,
@@ -1324,7 +1328,7 @@ class TestPrintReportJson:
             provenance=provenance,
         )
 
-        with patch("llama_cli.smoke_cli.json.dumps") as mock_dumps:
+        with patch("llama_cli.commands.smoke.json.dumps") as mock_dumps:
             _print_report_json(MagicMock(results=[result], pass_count=1, fail_count=0))
 
         mock_dumps.assert_called_once()
@@ -1339,7 +1343,7 @@ class TestPrintReportJson:
         """JSON report should include failure_phase as None when absent."""
         from unittest.mock import patch
 
-        from llama_cli.smoke_cli import _print_report_json
+        from llama_cli.commands.smoke import _print_report_json
         from llama_manager.smoke import (
             ProvenanceRecord,
             SmokePhase,
@@ -1357,7 +1361,7 @@ class TestPrintReportJson:
             provenance=provenance,
         )
 
-        with patch("llama_cli.smoke_cli.json.dumps") as mock_dumps:
+        with patch("llama_cli.commands.smoke.json.dumps") as mock_dumps:
             _print_report_json(MagicMock(results=[result], pass_count=1, fail_count=0))
 
         call_args = mock_dumps.call_args[0][0]

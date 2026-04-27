@@ -9,6 +9,14 @@ from enum import StrEnum
 from pathlib import Path
 
 
+def _default_llama_cpp_root() -> str:
+    """Return the default llama.cpp checkout path under XDG cache."""
+    if llama_cpp_root := os.environ.get("LLAMA_CPP_ROOT"):
+        return llama_cpp_root
+    xdg_cache_base = os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))
+    return str(Path(xdg_cache_base) / "llm-runner" / "llama.cpp")
+
+
 @dataclass
 class Config:
     """Server configuration defaults.
@@ -22,9 +30,7 @@ class Config:
     """
 
     # Paths
-    llama_cpp_root: str = field(
-        default_factory=lambda: os.environ.get("LLAMA_CPP_ROOT", "src/llama.cpp")
-    )
+    llama_cpp_root: str = field(default_factory=_default_llama_cpp_root)
     llama_server_bin_intel: str = ""
     llama_server_bin_nvidia: str = ""
 
@@ -164,9 +170,9 @@ class Config:
         """Return the builds directory path.
 
         Returns:
-            Path to $XDG_DATA_BASE/llm-runner/builds
+            Path to $XDG_STATE_HOME/llm-runner/builds
         """
-        return Path(self.xdg_data_base) / "llm-runner" / "builds"
+        return Path(self.xdg_state_base) / "llm-runner" / "builds"
 
     @property
     def reports_dir(self) -> Path:

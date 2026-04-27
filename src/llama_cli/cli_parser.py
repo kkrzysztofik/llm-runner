@@ -18,6 +18,15 @@ VALID_MODES = (
     "doctor",
 )
 
+# Modes that can be run via "llm-runner tui"
+RUNNABLE_TUI_MODES = (
+    "summary-balanced",
+    "summary-fast",
+    "qwen35",
+    "both",
+)
+
+BUILD_BACKENDS = ("sycl", "cuda", "both")
 SMOKE_MODE = "smoke"
 
 # NOTE: --strict-profiles is documented as post-MVP deferral (FR-M3-009).
@@ -115,6 +124,7 @@ def _parse_normal_mode_args(args: list[str]) -> argparse.Namespace:
       doctor           Run doctor diagnostics (use subcommands: check, repair)
       build            Run build pipeline
       setup            Run setup commands (use subcommands: check, venv, clean-venv)
+      tui              Launch interactive TUI
 
     Exit codes:
       0    Success
@@ -133,6 +143,8 @@ def _parse_normal_mode_args(args: list[str]) -> argparse.Namespace:
       %(prog)s doctor repair
       %(prog)s build sycl
       %(prog)s setup check
+      %(prog)s tui both
+      %(prog)s tui summary-balanced --port 8080
             """,
     )
 
@@ -175,33 +187,24 @@ def _handle_build_case(args: list[str]) -> argparse.Namespace | None:
     if len(args) >= 1 and args[0] == "build":
         if len(args) < 2:
             print(
-                "error: build requires a backend argument (sycl|cuda)",
+                "error: build requires a backend argument (sycl|cuda|both)",
                 file=sys.stderr,
             )
             sys.exit(1)
 
         backend = args[1]
-        if backend not in ("sycl", "cuda"):
+        if backend not in BUILD_BACKENDS:
             print(
-                f"error: invalid backend '{backend}'. Valid backends: sycl, cuda",
+                f"error: invalid backend '{backend}'. Valid backends: {', '.join(BUILD_BACKENDS)}",
                 file=sys.stderr,
             )
             sys.exit(1)
 
-        # Parse additional build arguments
-        dry_run = "--dry-run" in args
-        jobs = None
-        for arg in args[2:]:
-            if arg == "--dry-run":
-                continue
-            elif arg.startswith("-j") or arg.startswith("--jobs"):
-                jobs = parse_jobs_arg(arg)
-
         return argparse.Namespace(
             mode="build",
             backend=backend,
-            dry_run=dry_run,
-            jobs=jobs,
+            build_args=args[1:],
+            dry_run="--dry-run" in args,
         )
     return None
 
@@ -381,13 +384,14 @@ def _handle_doctor_case(args: list[str]) -> argparse.Namespace | None:
     subcommand_parsers = {
         "check": _parse_doctor_check_args,
         "repair": _parse_doctor_repair_args,
+        "fix": _parse_doctor_repair_args,
     }
 
     if subcommand in subcommand_parsers:
         return subcommand_parsers[subcommand](remaining_args)
 
     print(
-        f"error: unknown doctor subcommand '{subcommand}'. Valid subcommands: check, repair",
+        f"error: unknown doctor subcommand '{subcommand}'. Valid subcommands: check, repair, fix",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -429,6 +433,95 @@ def _handle_dry_run_case(args: list[str]) -> argparse.Namespace | None:
             sys.exit(1)
         return _parse_dry_run_args(args)
     return None
+
+
+def _parse_tui_port(args: list[str], i: int, flag: str) -> tuple[int | None, int, bool]:
+    """Parse a single port argument (--port or --port2).
+
+    Returns:
+        Tuple of (port_value_or_None, new_index, had_error).
+    """
+    i += 1
+    if i < len(args):
+        try:
+            return int(args[i]), i + 1, False
+        except ValueError:
+            print(f"error: invalid {flag} value '{args[i]}'", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print(f"error: {flag} requires a value", file=sys.stderr)
+        sys.exit(1)
+
+
+def _parse_tui_args(args: list[str], start: int) -> tuple[int | None, int | None, bool]:
+    """Parse TUI optional arguments starting from index *start*.
+
+    Returns:
+        Tuple of (port, port2, acknowledge_risky).
+    """
+    port: int | None = None
+    port2: int | None = None
+    acknowledge_risky = False
+    i = start
+
+    while i < len(args):
+        arg = args[i]
+        if arg in ("--port", "-p"):
+            port, i, _ = _parse_tui_port(args, i, arg)
+        elif arg in ("--port2", "-P"):
+            port2, i, _ = _parse_tui_port(args, i, arg)
+        elif arg == "--acknowledge-risky":
+            acknowledge_risky = True
+            i += 1
+        elif arg.startswith("-"):
+            print(f"error: unknown tui flag '{arg}'", file=sys.stderr)
+            sys.exit(1)
+        else:
+            print(f"error: unexpected tui argument '{arg}'", file=sys.stderr)
+            sys.exit(1)
+
+    return port, port2, acknowledge_risky
+
+
+def _handle_tui_case(args: list[str]) -> argparse.Namespace | None:
+    """Handle tui subcommand special case.
+
+    Args:
+        args: List of command-line arguments.
+
+    Returns:
+        Parsed namespace if tui subcommand, None otherwise.
+
+    Raises:
+        SystemExit: On missing or invalid tui arguments.
+    """
+    if not (len(args) >= 1 and args[0] == "tui"):
+        return None
+
+    if len(args) < 2:
+        print(
+            "error: tui requires a mode argument (summary-balanced|summary-fast|qwen35|both)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    mode = args[1]
+    if mode not in RUNNABLE_TUI_MODES:
+        print(
+            f"error: invalid tui mode '{mode}'. Valid modes: {', '.join(RUNNABLE_TUI_MODES)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    port, port2, acknowledge_risky = _parse_tui_args(args, 2)
+
+    return argparse.Namespace(
+        mode="tui",
+        tui_mode=mode,
+        port=port,
+        port2=port2,
+        acknowledge_risky=acknowledge_risky,
+    )
 
 
 def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
@@ -620,6 +713,31 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
     )
 
 
+def _try_special_case_handlers(args: list[str]) -> argparse.Namespace | None:
+    """Try all special case handlers in order.
+
+    Args:
+        args: List of command-line arguments.
+
+    Returns:
+        Parsed namespace if a special case matched, None otherwise.
+    """
+    handlers = [
+        _handle_build_case,
+        _handle_setup_case,
+        _handle_doctor_case,
+        _handle_profile_case,
+        _handle_dry_run_case,
+        _handle_smoke_case,
+        _handle_tui_case,
+    ]
+    for handler in handlers:
+        result = handler(args)
+        if result is not None:
+            return result
+    return None
+
+
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments.
 
@@ -635,37 +753,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     if args is None:
         args = sys.argv[1:]
 
-    # Handle build command first (special case)
-    build_result = _handle_build_case(args)
-    if build_result is not None:
-        return build_result
-
-    # Handle setup command (special case)
-    setup_result = _handle_setup_case(args)
-    if setup_result is not None:
-        return setup_result
-
-    # Handle doctor command (special case) - must be before dry-run
-    doctor_result = _handle_doctor_case(args)
-    if doctor_result is not None:
-        return doctor_result
-
-    # Handle profile subcommand (not in VALID_MODES)
-    profile_result = _handle_profile_case(args)
-    if profile_result is not None:
-        return profile_result
-
-    # Handle dry-run mode (special case)
-    dry_run_result = _handle_dry_run_case(args)
-    if dry_run_result is not None:
-        return dry_run_result
-
-    # Handle smoke subcommand (special case)
-    smoke_result = _handle_smoke_case(args)
-    if smoke_result is not None:
-        return smoke_result
-
-    # Normal mode parsing
+    result = _try_special_case_handlers(args)
+    if result is not None:
+        return result
     return _parse_normal_mode_args(args)
 
 

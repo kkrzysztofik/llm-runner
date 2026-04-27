@@ -1,119 +1,165 @@
 # llm-runner
 
-A terminal-based user interface for managing multiple llama-server instances
-with live logs, configuration display, and GPU monitoring.
+`llm-runner` is a local-first control plane for launching, validating, building,
+and probing `llama.cpp` server instances on a mixed Intel SYCL + NVIDIA CUDA
+workstation.
 
-**Current Branch Scope:** The `001-prd-mvp-spec` branch implements **PRD Milestone M1 only**
-(slot-first orchestration, dry-run, validation), not the full PRD MVP. See
-[PRD Spec-001 Compliance Review](docs/reviews/prd-spec-001-compliance-review.md) for
-detailed scope and deferred items.
-
-## Setup
-
-```bash
-cd /path/to/llm-runner
-source .venv/bin/activate
-```
-
-## Usage
-
-```bash
-# Run both models side-by-side
-python src/run_models_tui.py both
-
-# Run with custom ports
-python src/run_models_tui.py both --port 8080 --port2 8081
-
-# Run single model
-python src/run_models_tui.py summary-balanced --port 8080
-python src/run_models_tui.py qwen35 --port 8081
-python src/run_models_tui.py summary-fast
-
-# Get help
-python src/run_models_tui.py --help
-
-# Or use the llm-runner CLI script (for CLI mode only)
-uv run llm-runner both
-```
+It ships a CLI for launch, dry-run, build, setup, doctor, smoke, and profile
+flows, plus a Rich-based TUI for live logs and GPU telemetry.
 
 ## Features
 
-- **2-column layout**: View two models side-by-side (auto-switches to single
-column on small terminals)
-- **Live logs**: Real-time stdout/stderr from each server process
-- **GPU stats**: Monitor GPU utilization, memory, temperature, and power draw
-via nvtop
-- **Config display**: Shows port, device, context size, threads, and batch size
-- **Auto-scroll**: Logs automatically scroll to show newest output
-- **Resize support**: Layout adapts to terminal size changes
+- Launch one or two llama-server instances with explicit slot/port mapping
+- Preview exact commands with deterministic dry-run output
+- Run build and setup flows for SYCL and CUDA backends
+- Inspect toolchain, lockfiles, reports, and profile staleness with doctor
+- Smoke-test live servers and capture JSON reports
+- Benchmark GPU performance and persist profile guidance
+- Redact sensitive values in logs, artifacts, and reports
 
-## GPU Device Mapping
+## Requirements
 
-- **NVIDIA (CUDA)**: GPU 0 (RTX 3090) - used by qwen35-coding
-- **Intel (SYCL)**: GPU 1 (Arc B580) - used by summary-balanced, summary-fast
+- Python 3.12+
+- `uv`
+- A local `llama.cpp` checkout managed under XDG cache by default
+- Model files for the configured slots
+- Intel and/or NVIDIA tooling for the backends you plan to use
 
-## Security
-
-### Dependency Security
-
-We take dependency security seriously. All CI runs include automated dependency
-auditing via `pip-audit`.
-
-#### CI Dependency Scan
-
-CI automatically runs `uv run pip-audit` on every push and pull request to detect
-known CVEs in dependencies. The audit job is part of the CI workflow but does not
-block merging — it provides visibility into potential vulnerabilities.
-
-#### Local Pre-release Check
-
-Before merging or releasing, run:
+## Install
 
 ```bash
-uv run pip-audit
+uv sync --extra dev
 ```
 
-#### Vulnerability Response Cadence
-
-| Severity | Response Target |
-| -------- | --------------- |
-| Critical | Immediately — patch or pin within 24h |
-| High     | Within 1 week |
-| Medium   | Within 1 month |
-| Low      | Included in routine dependency refresh |
-
-#### Routine Dependency Refresh
-
-Quarterly (or before major releases), update all dependencies:
+Optional shell activation:
 
 ```bash
-uv pip compile pyproject.toml --upgrade
-uv sync
-uv run pip-audit
+source .venv/bin/activate
 ```
 
-Review `pip-audit` output and update dependencies via `uv add --upgrade-package <pkg>`.
+## Configuration
 
-### Snyk CI Integration
+The codebase reads these common environment variables:
 
-Snyk provides continuous security scanning in CI via two checks:
+- `LLAMA_CPP_ROOT` — path to the llama.cpp checkout (overrides the XDG cache default)
+- `MODEL_SUMMARY_BALANCED`
+- `MODEL_SUMMARY_FAST`
+- `MODEL_QWEN35`
+- `MODEL_QWEN35_BOTH`
+- `XDG_CACHE_HOME`
+- `XDG_STATE_HOME`
+- `XDG_DATA_HOME`
+- `XDG_RUNTIME_DIR`
+- `LLM_RUNNER_RUNTIME_DIR`
 
-- **Snyk Open Source** — scans Python dependencies for known CVEs
-- **Snyk Code** — scans source code for security vulnerabilities (SAST)
+Defaults place:
 
-Both scans run on every push to `main` and on every pull request targeting `main`.
-CI **fails** on findings at severity level **high** or above.
+- llama.cpp source at `$XDG_CACHE_HOME/llm-runner/llama.cpp`
+- SYCL/CUDA binaries under that source root at `build/bin/llama-server` and
+  `build_cuda/bin/llama-server`
+- venv at `$XDG_CACHE_HOME/llm-runner/venv`
+- build provenance at `$XDG_STATE_HOME/llm-runner/builds`
+- reports at `$XDG_DATA_HOME/llm-runner/reports`
+- runtime locks/artifacts under `$LLM_RUNNER_RUNTIME_DIR` or
+  `$XDG_RUNTIME_DIR/llm-runner`
 
-The GitHub Actions secret `SNYK_TOKEN` must be configured in repository settings.
-Pull requests from forks may skip Snyk checks because fork workflows cannot access
-repository secrets.
+## Usage
 
----
+### Launch modes
 
-The inference servers bind to `127.0.0.1:8080` and `127.0.0.1:8081` by default,
-making them accessible only from localhost. Do not expose these ports to external
-networks without configuring proper authentication and firewall rules.
+```bash
+uv run llm-runner summary-balanced [port]
+uv run llm-runner summary-fast [port]
+uv run llm-runner qwen35 [port]
+uv run llm-runner both [summary_port qwen35_port]
+```
 
-## Exit
+Default ports:
 
-Press `Ctrl+C` to gracefully stop all servers and exit.
+- `summary-balanced` → `8080`
+- `summary-fast` → `8082`
+- `qwen35` → `8081`
+
+### Dry-run
+
+```bash
+uv run llm-runner dry-run both
+uv run llm-runner dry-run summary-balanced 8080
+```
+
+### Build
+
+```bash
+uv run llm-runner build sycl
+uv run llm-runner build cuda
+uv run llm-runner build both
+```
+
+Use `LLAMA_CPP_ROOT=/path/to/llama.cpp` or `--source-dir /path/to/llama.cpp`
+to build from an explicit checkout instead of the XDG-managed default.
+
+### Setup
+
+```bash
+uv run llm-runner setup check
+uv run llm-runner setup venv
+uv run llm-runner setup clean-venv --yes
+```
+
+### Doctor
+
+```bash
+uv run llm-runner doctor check
+uv run llm-runner doctor repair --dry-run
+```
+
+### Smoke
+
+```bash
+uv run llm-runner smoke both
+uv run llm-runner smoke slot summary-balanced
+```
+
+### Profile
+
+```bash
+uv run llm-runner profile summary-balanced balanced
+uv run llm-runner profile qwen35 quality --json
+```
+
+## TUI
+
+The Rich TUI launcher:
+
+```bash
+llm-runner tui both
+llm-runner tui summary-balanced --port 8080
+```
+
+It shows live logs, configuration, and GPU stats for the configured slots.
+
+Legacy/internal fallback (requires source tree):
+
+```bash
+uv run python src/run_models_tui.py both
+```
+
+## Safety Notes
+
+- All servers bind to `127.0.0.1` by default
+- Risky launches require explicit acknowledgement
+- Sensitive environment values are redacted by key name (`KEY`, `TOKEN`,
+  `SECRET`, `PASSWORD`, `AUTH`)
+- Lockfiles and artifacts are written into runtime directories with strict
+  permissions
+
+## Development
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run pyright
+uv run pytest
+```
+
+See `QUICKSTART.md` for a guided first-run sequence.

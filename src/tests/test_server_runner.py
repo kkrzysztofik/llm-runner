@@ -5,7 +5,6 @@ Covers:
 - _normalize_main_args: argument normalization
 - _build_target_configs: config building for different modes
 - _run_dry_run_mode: dry-run handling
-- run_build: build execution
 - verify_risks: risk verification
 - _print_backend_error_and_exit: backend error output
 - _print_validation_error: validation error output
@@ -30,11 +29,9 @@ from llama_cli.server_runner import (
     _normalize_main_args,
     _resolve_port,
     _run_dry_run_mode,
-    run_build,
     verify_risks,
 )
 from llama_manager import Config, ErrorCode, ErrorDetail, ServerConfig, ServerManager
-from llama_manager.build_pipeline import BuildBackend, BuildConfig, BuildResult
 
 # =============================================================================
 # _resolve_port
@@ -188,7 +185,7 @@ class TestRunDryRunMode:
         exit_code = _run_dry_run_mode(parsed, acknowledged=False)
         assert exit_code == 1
 
-    @patch("llama_cli.dry_run.dry_run")
+    @patch("llama_cli.commands.dry_run.dry_run")
     def test_dry_run_with_valid_mode(self, mock_dry_run: MagicMock) -> None:
         """_run_dry_run_mode should call dry_run with correct args."""
         parsed = argparse.Namespace(
@@ -201,7 +198,7 @@ class TestRunDryRunMode:
         assert exit_code == 0
         mock_dry_run.assert_called_once_with("both", "8080", "8081", acknowledged=True)
 
-    @patch("llama_cli.dry_run.dry_run")
+    @patch("llama_cli.commands.dry_run.dry_run")
     def test_dry_run_with_single_port(self, mock_dry_run: MagicMock) -> None:
         """_run_dry_run_mode should handle single port."""
         parsed = argparse.Namespace(
@@ -213,108 +210,6 @@ class TestRunDryRunMode:
         exit_code = _run_dry_run_mode(parsed, acknowledged=False)
         assert exit_code == 0
         mock_dry_run.assert_called_once_with("summary-balanced", "8080", "", acknowledged=False)
-
-
-# =============================================================================
-# run_build
-# =============================================================================
-
-
-class TestRunBuild:
-    """Tests for run_build function."""
-
-    def test_run_build_sycl(self, tmp_path: Path) -> None:
-        """run_build should create correct build config for SYCL."""
-        with patch("llama_cli.server_runner.Config") as mock_config_cls:
-            mock_config = MagicMock()
-            mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
-            mock_config.builds_dir = tmp_path / "output"
-            mock_config.build_git_remote = "https://github.com/ggerganov/llama.cpp"
-            mock_config.build_git_branch = "main"
-            mock_config.build_retry_attempts = 2
-            mock_config.build_retry_delay = 5
-            mock_config_cls.return_value = mock_config
-
-            with patch("llama_manager.build_pipeline.BuildPipeline") as mock_pipeline_cls:
-                mock_result = BuildResult(success=True)
-                mock_pipeline_cls.return_value.run.return_value = mock_result
-                mock_pipeline_cls.return_value.dry_run = False
-
-                exit_code = run_build("sycl", dry_run=False)
-
-                assert exit_code == 0
-                # Verify pipeline was created with correct config
-                call_args = mock_pipeline_cls.call_args
-                build_config = call_args[0][0]
-                assert isinstance(build_config, BuildConfig)
-                assert build_config.backend == BuildBackend.SYCL
-
-    def test_run_build_cuda(self, tmp_path: Path) -> None:
-        """run_build should create correct build config for CUDA."""
-        with patch("llama_cli.server_runner.Config") as mock_config_cls:
-            mock_config = MagicMock()
-            mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
-            mock_config.builds_dir = tmp_path / "output"
-            mock_config.build_git_remote = "https://github.com/ggerganov/llama.cpp"
-            mock_config.build_git_branch = "main"
-            mock_config.build_retry_attempts = 2
-            mock_config.build_retry_delay = 5
-            mock_config_cls.return_value = mock_config
-
-            with patch("llama_manager.build_pipeline.BuildPipeline") as mock_pipeline_cls:
-                mock_pipeline_cls.return_value.run.return_value = BuildResult(success=True)
-                mock_pipeline_cls.return_value.dry_run = False
-
-                exit_code = run_build("cuda", dry_run=False)
-
-                assert exit_code == 0
-                call_args = mock_pipeline_cls.call_args
-                build_config = call_args[0][0]
-                assert build_config.backend == BuildBackend.CUDA
-                # CUDA uses build_cuda directory
-                assert "build_cuda" in str(build_config.build_dir)
-
-    def test_run_build_failure(self, tmp_path: Path) -> None:
-        """run_build should return 1 on build failure."""
-        with patch("llama_cli.server_runner.Config") as mock_config_cls:
-            mock_config = MagicMock()
-            mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
-            mock_config.builds_dir = tmp_path / "output"
-            mock_config.build_git_remote = "https://github.com/ggerganov/llama.cpp"
-            mock_config.build_git_branch = "main"
-            mock_config.build_retry_attempts = 2
-            mock_config.build_retry_delay = 5
-            mock_config_cls.return_value = mock_config
-
-            with patch("llama_manager.build_pipeline.BuildPipeline") as mock_pipeline_cls:
-                mock_pipeline_cls.return_value.run.return_value = BuildResult(
-                    success=False,
-                    error_message="Build failed",
-                )
-                mock_pipeline_cls.return_value.dry_run = False
-
-                exit_code = run_build("sycl", dry_run=False)
-
-                assert exit_code == 1
-
-    def test_run_build_dry_run_mode(self, tmp_path: Path) -> None:
-        """run_build should set dry_run on pipeline."""
-        with patch("llama_cli.server_runner.Config") as mock_config_cls:
-            mock_config = MagicMock()
-            mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
-            mock_config.builds_dir = tmp_path / "output"
-            mock_config.build_git_remote = "https://github.com/ggerganov/llama.cpp"
-            mock_config.build_git_branch = "main"
-            mock_config.build_retry_attempts = 2
-            mock_config.build_retry_delay = 5
-            mock_config_cls.return_value = mock_config
-
-            with patch("llama_manager.build_pipeline.BuildPipeline") as mock_pipeline_cls:
-                mock_pipeline_cls.return_value.run.return_value = BuildResult(success=True)
-
-                run_build("sycl", dry_run=True)
-
-                assert mock_pipeline_cls.return_value.dry_run is True
 
 
 # =============================================================================
@@ -1315,7 +1210,7 @@ class TestMain:
             assert "Usage:" in captured.out
 
     def test_main_build_dispatch(self, tmp_path: Path) -> None:
-        """main should dispatch to run_build for 'build' mode."""
+        """main should dispatch build args to the build CLI."""
         with (
             patch("llama_cli.server_runner._normalize_main_args", return_value=["build", "sycl"]),
             patch("llama_cli.server_runner.parse_args") as mock_parse,
@@ -1323,6 +1218,7 @@ class TestMain:
             parsed = argparse.Namespace(
                 mode="build",
                 backend="sycl",
+                build_args=["sycl"],
                 dry_run=False,
                 ports=[],
                 acknowledge_risky=False,
@@ -1338,16 +1234,16 @@ class TestMain:
             )
             mock_parse.return_value = parsed
 
-            with patch("llama_cli.server_runner.run_build", return_value=0) as mock_build:
+            with patch("llama_cli.commands.build.main", return_value=0) as mock_build:
                 from llama_cli.server_runner import main
 
                 result = main()
 
                 assert result == 0
-                mock_build.assert_called_once_with("sycl", False)
+                mock_build.assert_called_once_with(["sycl"])
 
     def test_main_build_dry_run_dispatch(self, tmp_path: Path) -> None:
-        """main should pass dry_run=True to run_build."""
+        """main should preserve build CLI flags."""
         with (
             patch(
                 "llama_cli.server_runner._normalize_main_args",
@@ -1358,6 +1254,7 @@ class TestMain:
             parsed = argparse.Namespace(
                 mode="build",
                 backend="sycl",
+                build_args=["sycl", "--dry-run"],
                 dry_run=True,
                 ports=[],
                 acknowledge_risky=False,
@@ -1373,13 +1270,46 @@ class TestMain:
             )
             mock_parse.return_value = parsed
 
-            with patch("llama_cli.server_runner.run_build", return_value=0) as mock_build:
+            with patch("llama_cli.commands.build.main", return_value=0) as mock_build:
                 from llama_cli.server_runner import main
 
                 result = main()
 
                 assert result == 0
-                mock_build.assert_called_once_with("sycl", True)
+                mock_build.assert_called_once_with(["sycl", "--dry-run"])
+
+    def test_main_build_both_dispatch(self) -> None:
+        """main should dispatch 'build both' through the build CLI."""
+        with (
+            patch("llama_cli.server_runner._normalize_main_args", return_value=["build", "both"]),
+            patch("llama_cli.server_runner.parse_args") as mock_parse,
+        ):
+            parsed = argparse.Namespace(
+                mode="build",
+                backend="both",
+                build_args=["both"],
+                dry_run=False,
+                ports=[],
+                acknowledge_risky=False,
+                smoke_mode=None,
+                slot_id=None,
+                api_key=None,
+                model_id=None,
+                max_tokens=None,
+                prompt=None,
+                delay=None,
+                timeout=None,
+                json=False,
+            )
+            mock_parse.return_value = parsed
+
+            with patch("llama_cli.commands.build.main", return_value=0) as mock_build:
+                from llama_cli.server_runner import main
+
+                result = main()
+
+                assert result == 0
+                mock_build.assert_called_once_with(["both"])
 
     def test_main_setup_dispatch(self) -> None:
         """main should dispatch to setup_main for 'setup' mode."""
@@ -1437,7 +1367,7 @@ class TestMain:
             )
             mock_parse.return_value = parsed
 
-            with patch("llama_cli.doctor_cli.main", return_value=0) as mock_doctor:
+            with patch("llama_cli.commands.doctor.main", return_value=0) as mock_doctor:
                 from llama_cli.server_runner import main
 
                 result = main()
@@ -1472,7 +1402,7 @@ class TestMain:
             )
             mock_parse.return_value = parsed
 
-            with patch("llama_cli.profile_cli.main", return_value=0) as mock_profile:
+            with patch("llama_cli.commands.profile.main", return_value=0) as mock_profile:
                 from llama_cli.server_runner import main
 
                 result = main()
@@ -1524,7 +1454,7 @@ class TestMain:
             )
             mock_parse.return_value = parsed
 
-            with patch("llama_cli.smoke_cli.run_smoke", return_value=0) as mock_smoke:
+            with patch("llama_cli.commands.smoke.run_smoke", return_value=0) as mock_smoke:
                 from llama_cli.server_runner import main
 
                 result = main()
@@ -1575,7 +1505,7 @@ class TestMain:
             )
             mock_parse.return_value = parsed
 
-            with patch("llama_cli.smoke_cli.run_smoke", return_value=0) as mock_smoke:
+            with patch("llama_cli.commands.smoke.run_smoke", return_value=0) as mock_smoke:
                 from llama_cli.server_runner import main
 
                 result = main()

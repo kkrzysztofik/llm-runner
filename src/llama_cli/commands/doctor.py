@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from llama_cli.colors import Colors
 from llama_manager.build_pipeline import BuildBackend, BuildLock
 from llama_manager.config import Config
 from llama_manager.profile_cache import (
@@ -110,13 +111,18 @@ class DoctorRepairResult:
 
 
 def _print_error(message: str) -> None:
-    """Print error message to stderr."""
-    print(f"error: {message}", file=sys.stderr)
+    """Print error message to stderr in red."""
+    print(Colors.red(f"error: {message}"), file=sys.stderr)
 
 
 def _print_success(message: str) -> None:
     """Print success message to stdout."""
     print(message)
+
+
+def _print_header(message: str) -> None:
+    """Print a bold blue header message."""
+    print(Colors.bold(Colors.blue(message)))
 
 
 def _print_json(data: dict[str, Any]) -> None:
@@ -331,25 +337,34 @@ def _build_profile_guidance(
 
 
 def _print_check_results(result: DoctorCheckResult) -> int:
-    """Print doctor check results in human-readable format.
+    """Print doctor check results in human-readable format with colors.
 
     Returns:
         Exit code (0 if healthy, 1 otherwise)
     """
-    _print_success("Doctor Check Results:")
-    _print_success(f"  Toolchain complete: {'YES' if result.toolchain_complete else 'NO'}")
-    _print_success(f"  Venv exists: {'YES' if result.venv_exists else 'NO'}")
-    _print_success(f"  Venv intact: {'YES' if result.venv_intact else 'NO'}")
-    _print_success(f"  Build lock free: {'YES' if result.build_lock_free else 'NO'}")
-    _print_success(f"  Staging dirs clean: {'YES' if result.staging_dirs_clean else 'NO'}")
-    _print_success(f"  Reports dir exists: {'YES' if result.reports_dir_exists else 'NO'}")
-    _print_success(f"  Profiles: {result.profiles_total} total, {result.profiles_stale} stale")
+    yes = Colors.bright_green("✓ YES")
+    no = Colors.bright_red("✗ NO")
+    warn_no = Colors.bright_yellow("⚠ NO")
+
+    _print_header("Doctor Check Results:")
+    _print_success(f"  Toolchain complete: {yes if result.toolchain_complete else no}")
+    _print_success(f"  Venv exists: {yes if result.venv_exists else no}")
+    _print_success(f"  Venv intact: {yes if result.venv_intact else no}")
+    _print_success(f"  Build lock free: {yes if result.build_lock_free else no}")
+    _print_success(f"  Staging dirs clean: {yes if result.staging_dirs_clean else no}")
+    _print_success(f"  Reports dir exists: {yes if result.reports_dir_exists else warn_no}")
+    stale_count = (
+        Colors.bright_red(str(result.profiles_stale))
+        if result.profiles_stale > 0
+        else Colors.bright_green(str(result.profiles_stale))
+    )
+    _print_success(f"  Profiles: {result.profiles_total} total, {stale_count} stale")
 
     if result.warnings:
         _print_success("")
-        _print_success("Warnings:")
+        print(Colors.yellow("Warnings:"))
         for warning in result.warnings:
-            _print_success(f"  - {warning}")
+            print(Colors.yellow(f"  - {warning}"))
 
     if result.errors:
         _print_success("")
@@ -359,10 +374,10 @@ def _print_check_results(result: DoctorCheckResult) -> int:
 
     _print_success("")
     if result.is_healthy:
-        _print_success("System is healthy!")
+        print(Colors.bold(Colors.bright_green("System is healthy!")))
         return 0
     else:
-        _print_error("System has issues. Run 'doctor --repair' to fix.")
+        print(Colors.bold(Colors.bright_red("System has issues. Run 'doctor --repair' to fix.")))
         return 1
 
 
@@ -552,6 +567,57 @@ def _collect_lock_repair_actions(result: DoctorRepairResult, config: Config) -> 
         )
 
 
+def _collect_directories_repair_actions(result: DoctorRepairResult, config: Config) -> None:
+    """Collect repair actions for missing standard directories.
+
+    Creates the reports, profiles, and builds directories if they do not
+    exist, ensuring they are created with restrictive owner-only
+    permissions (0o700).
+
+    Args:
+        result: DoctorRepairResult to append actions to.
+        config: Application config (provides directory paths).
+    """
+    directories: list[tuple[str, Path]] = [
+        ("reports", config.reports_dir),
+        ("profiles", config.profiles_dir),
+        ("builds", config.builds_dir),
+    ]
+
+    for name, dir_path in directories:
+        if not dir_path.exists():
+            result.actions.append(
+                RepairAction(
+                    action_type="create_directory",
+                    description=f"Create missing {name} directory: {dir_path}",
+                    command=["mkdir", "-m", "700", "-p", str(dir_path)],
+                    dry_run_command=f"# mkdir -m 700 -p '{dir_path}'",
+                    requires_confirmation=False,
+                )
+            )
+        elif dir_path.exists() and not dir_path.is_dir():
+            # Conflict: path exists but is not a directory (file or symlink)
+            result.actions.append(
+                RepairAction(
+                    action_type="remove_and_create_directory",
+                    description=f"Remove conflicting {name} file and create directory: {dir_path}",
+                    command=[
+                        "rm",
+                        "-rf",
+                        str(dir_path),
+                        "&&",
+                        "mkdir",
+                        "-m",
+                        "700",
+                        "-p",
+                        str(dir_path),
+                    ],
+                    dry_run_command=f"# rm -rf '{dir_path}' && mkdir -m 700 -p '{dir_path}'",
+                    requires_confirmation=True,
+                )
+            )
+
+
 def _collect_profile_repair_actions(
     result: DoctorRepairResult,
     config: Config,
@@ -649,24 +715,26 @@ def _execute_repair_actions(result: DoctorRepairResult) -> None:
 
 
 def _print_repair_results(result: DoctorRepairResult) -> None:
-    """Print repair results in human-readable format."""
-    _print_success("Doctor Repair Actions:")
+    """Print repair results in human-readable format with colors."""
+    _print_header("Doctor Repair Actions:")
 
     if not result.actions:
-        _print_success("  No repairs needed. System is healthy.")
+        print(f"  {Colors.bright_green('No repairs needed. System is healthy.')}")
         return
 
     for i, action in enumerate(result.actions, 1):
-        confirm_marker = " [CONFIRMATION REQUIRED]" if action.requires_confirmation else ""
-        _print_success(f"  {i}. {action.description}{confirm_marker}")
+        confirm_marker = (
+            Colors.bright_yellow(" [CONFIRMATION REQUIRED]") if action.requires_confirmation else ""
+        )
+        print(f"  {Colors.cyan(str(i))}. {action.description}{confirm_marker}")
         if action.dry_run_command:
-            _print_success(f"     Command: {action.dry_run_command}")
+            print(Colors.dim(f"     Command: {action.dry_run_command}"))
 
     if result.performed_actions:
         _print_success("")
-        _print_success("Performed actions:")
+        print(Colors.bright_green("Performed actions:"))
         for action in result.performed_actions:
-            _print_success(f"  - {action}")
+            print(f"  {Colors.green('✓')} {action}")
 
     if result.failures:
         _print_success("")
@@ -691,6 +759,7 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
     _collect_venv_repair_actions(result)
     _collect_staging_repair_actions(result, config)
     _collect_lock_repair_actions(result, config)
+    _collect_directories_repair_actions(result, config)
     # Pass None for current versions to preserve age-only staleness
     # detection.  See cmd_doctor_check for rationale.
     _collect_profile_repair_actions(
@@ -722,9 +791,10 @@ def create_parser() -> argparse.ArgumentParser:
 Examples:
   %(prog)s check              Check system health
   %(prog)s check --json       Output in JSON format
-  %(prog)s --repair           Attempt automatic repairs
-  %(prog)s --repair --dry-run Show what would be fixed
-  %(prog)s --repair --json    Output repair actions in JSON
+  %(prog)s repair             Attempt automatic repairs
+  %(prog)s fix                Alias for repair
+  %(prog)s repair --dry-run   Show what would be fixed
+  %(prog)s repair --json      Output repair actions in JSON
 
 FR-004.7: doctor --repair command for failed staging cleanup
         """,
@@ -757,9 +827,10 @@ FR-004.7: doctor --repair command for failed staging cleanup
     )
     check_parser.set_defaults(func=cmd_doctor_check)
 
-    # doctor --repair
+    # doctor --repair (alias: fix)
     repair_parser = subparsers.add_parser(
         "repair",
+        aliases=["fix"],
         help="Attempt automatic repairs",
         description="Fix detected issues automatically",
     )

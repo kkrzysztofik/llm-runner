@@ -125,7 +125,7 @@ llm-runner/
 # stdlib → third-party → first-party
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import psutil
 
@@ -146,17 +146,24 @@ from .config import Config, ServerConfig
 ### Config Dataclass
 
 ```python
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 @dataclass
 class Config:
-    """Server configuration defaults"""
-    llama_cpp_root: str = "src/llama.cpp"  # Relative to project root
-    llama_server_bin_intel: str | None = None  # Computed in __post_init__
-    
+    """Server configuration defaults.
+
+    Config holds hardware-specific defaults (paths, ports, GPU settings).
+    Binary paths default to empty strings and are computed in __post_init__:
+    - llama_server_bin_intel: SYCL backend path (build/bin/llama-server)
+    - llama_server_bin_nvidia: CUDA backend path (build_cuda/bin/llama-server)
+    """
+    llama_cpp_root: str = field(default_factory=_default_llama_cpp_root)
+    llama_server_bin_intel: str = ""  # Computed in __post_init__
+    llama_server_bin_nvidia: str = ""  # Computed in __post_init__
+
     def __post_init__(self) -> None:
-        if self.llama_server_bin_intel is None:
-            self.llama_server_bin_intel = f"{self.llama_cpp_root}/build/bin/llama-server"
+        self.llama_server_bin_intel = f"{self.llama_cpp_root}/build/bin/llama-server"
+        self.llama_server_bin_nvidia = f"{self.llama_cpp_root}/build_cuda/bin/llama-server"
     # ... more defaults
 ```
 

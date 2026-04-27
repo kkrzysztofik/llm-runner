@@ -131,10 +131,10 @@ def test_dry_run_artifact_uses_slot_scope_list_and_resolved_command_mapping(tmp_
         return tmp_path / "artifact.json"
 
     with (
-        patch("llama_cli.dry_run.resolve_runtime_dir", return_value=tmp_path),
-        patch("llama_cli.dry_run.write_artifact", side_effect=_capture_artifact),
+        patch("llama_cli.commands.dry_run.resolve_runtime_dir", return_value=tmp_path),
+        patch("llama_cli.commands.dry_run.write_artifact", side_effect=_capture_artifact),
     ):
-        from llama_cli.dry_run import dry_run
+        from llama_cli.commands.dry_run import dry_run
 
         dry_run("summary-balanced")
 
@@ -152,10 +152,10 @@ def test_dry_run_both_artifact_uses_slot_ids_for_scope_and_resolved_command(tmp_
         return tmp_path / "artifact.json"
 
     with (
-        patch("llama_cli.dry_run.resolve_runtime_dir", return_value=tmp_path),
-        patch("llama_cli.dry_run.write_artifact", side_effect=_capture_artifact),
+        patch("llama_cli.commands.dry_run.resolve_runtime_dir", return_value=tmp_path),
+        patch("llama_cli.commands.dry_run.write_artifact", side_effect=_capture_artifact),
     ):
-        from llama_cli.dry_run import dry_run
+        from llama_cli.commands.dry_run import dry_run
 
         dry_run("both")
 

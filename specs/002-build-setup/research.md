@@ -32,16 +32,22 @@
 
 ## 4) Build artifact storage paths
 
-- **Decision**: Follow existing `Config` convention — SYCL binary at `src/llama.cpp/build/bin/llama-server`,
-  CUDA binary at `src/llama.cpp/build_cuda/bin/llama-server`. Provenance at
+- **Decision**: Use an XDG-managed `llama.cpp` source/build root by default. Source lives at
+  `$XDG_CACHE_HOME/llm-runner/llama.cpp` (fallback `~/.cache/llm-runner/llama.cpp`), with
+  SYCL binary at `<source-root>/build/bin/llama-server` and CUDA binary at
+  `<source-root>/build_cuda/bin/llama-server`. `LLAMA_CPP_ROOT` and `--source-dir` remain explicit
+  overrides for user-managed checkouts. Provenance stays at
   `$XDG_STATE_HOME/llm-runner/builds/<timestamp>-<backend>.json`.
-- **Rationale**: Preserves backward compatibility with existing `Config.llama_server_bin_intel` and
-  `Config.llama_server_bin_nvidia` computed paths. Provenance is stored in XDG_STATE_HOME
-  (not XDG_DATA_HOME) because provenance files are transient build artifacts that represent
-  application state rather than persistent user data — this aligns with the XDG Base Directory
-  Specification where STATE_HOME is for "history, logs, and similar stateful data".
+- **Rationale**: The `llama.cpp` checkout and CMake build trees are cacheable/rebuildable artifacts,
+  so they belong under XDG cache rather than as a repository submodule. `Config` still computes binary
+  paths relative to a single source root, preserving the clean SYCL/CUDA split without requiring a
+  pinned in-repo checkout. Provenance is stored in XDG_STATE_HOME because it records build history and
+  state rather than user data.
 - **Alternatives considered**:
-  - Store binaries in XDG directories (rejected: breaks existing Config paths and run scripts).
+  - Keep the repository submodule as the default (rejected: user does not need pinned upstream revision;
+    in-tree checkouts make cache/build cleanup less clear).
+  - Store binaries directly in XDG data/state while source lives elsewhere (rejected: separates CMake
+    build outputs from the source tree and complicates upstream build assumptions).
   - Provenance alongside binaries (rejected: mixes build output with metadata; harder to rotate/clean).
 
 ## 5) Sudo handling in M2

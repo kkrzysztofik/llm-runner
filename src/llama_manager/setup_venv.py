@@ -66,11 +66,14 @@ class VenvResult:
 
 
 def get_venv_path() -> Path:
-    """Return the virtual environment path.
+    """Return the managed virtual environment path.
+
+    Always returns the managed venv location at $XDG_CACHE_HOME/llm-runner/venv
+    (or ~/.cache/llm-runner/venv). Does not honor VIRTUAL_ENV to ensure
+    setup/doctor only operate on the managed venv.
 
     Returns:
-        Path to $XDG_CACHE_HOME/llm-runner/venv or ~/.cache/llm-runner/venv
-        if XDG_CACHE_HOME is not set.
+        Path to the managed virtual environment.
     """
     xdg_cache = os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))
     return Path(xdg_cache) / "llm-runner" / "venv"

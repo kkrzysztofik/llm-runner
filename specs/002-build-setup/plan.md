@@ -275,7 +275,7 @@ This section maps PRD requirements to spec.md sections and implementation tasks.
 │  /home/kmk/.local/state/llm-runner/builds/...json       │
 ├─────────────────────────────────────────────────────────┤
 │  ✓ Build Complete                                       │
-│  Binary: /home/kmk/src/llama.cpp/build/bin/llama-server │
+│  Binary: /home/kmk/.cache/llm-runner/llama.cpp/build/bin/llama-server │
 │  Report: N/A                                            │
 └─────────────────────────────────────────────────────────┘
 ```

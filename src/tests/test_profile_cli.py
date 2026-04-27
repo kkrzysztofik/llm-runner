@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llama_cli.profile_cli import (
+from llama_cli.commands.profile import (
     _default_subprocess_runner,
     _detect_backend,
     _get_driver_version,
@@ -274,7 +274,7 @@ class TestMain:
 
     def test_json_flag_parsed(self) -> None:
         """main should pass --json flag to cmd_profile."""
-        with patch("llama_cli.profile_cli.cmd_profile") as mock_cmd:
+        with patch("llama_cli.commands.profile.cmd_profile") as mock_cmd:
             mock_cmd.return_value = 0
             exit_code = main(["slot1", "balanced", "--json"])
 
@@ -287,7 +287,7 @@ class TestMain:
 
     def test_json_flag_at_end(self) -> None:
         """main should detect --json flag at the end of args."""
-        with patch("llama_cli.profile_cli.cmd_profile") as mock_cmd:
+        with patch("llama_cli.commands.profile.cmd_profile") as mock_cmd:
             mock_cmd.return_value = 0
             exit_code = main(["slot1", "quality", "--json"])
 
@@ -300,7 +300,7 @@ class TestMain:
 
     def test_valid_call_success(self) -> None:
         """main should forward valid args and return cmd_profile exit code."""
-        with patch("llama_cli.profile_cli.cmd_profile") as mock_cmd:
+        with patch("llama_cli.commands.profile.cmd_profile") as mock_cmd:
             mock_cmd.return_value = 0
             exit_code = main(["my-slot", "balanced"])
 
@@ -313,7 +313,7 @@ class TestMain:
 
     def test_valid_call_returns_nonzero(self) -> None:
         """main should return non-zero exit code from cmd_profile on failure."""
-        with patch("llama_cli.profile_cli.cmd_profile") as mock_cmd:
+        with patch("llama_cli.commands.profile.cmd_profile") as mock_cmd:
             mock_cmd.return_value = 1
             exit_code = main(["my-slot", "fast"])
 
@@ -352,7 +352,7 @@ def _build_mock_config(
         patcher). The patcher must be stopped by the caller after cmd_profile
         finishes to keep the Config substitution alive during execution.
     """
-    patcher = patch("llama_cli.profile_cli.Config")
+    patcher = patch("llama_cli.commands.profile.Config")
     mock_cfg_cls = patcher.start()
 
     profiles_dir = tmp_path / "profiles"
@@ -407,22 +407,22 @@ class TestCmdProfile:
 
         try:
             with (
-                patch("llama_cli.profile_cli._detect_backend", return_value="sycl"),
-                patch("llama_cli.profile_cli.require_executable"),
-                patch("llama_cli.profile_cli.get_gpu_identifier", return_value="test-gpu"),
-                patch("llama_cli.profile_cli._get_driver_version", return_value="unknown"),
+                patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
+                patch("llama_cli.commands.profile.require_executable"),
+                patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
+                patch("llama_cli.commands.profile._get_driver_version", return_value="unknown"),
                 patch(
-                    "llama_cli.profile_cli.compute_driver_version_hash",
+                    "llama_cli.commands.profile.compute_driver_version_hash",
                     return_value="abc123",
                 ),
                 patch(
-                    "llama_cli.profile_cli.build_benchmark_cmd",
+                    "llama_cli.commands.profile.build_benchmark_cmd",
                     return_value=["bench", "-m", "model"],
                 ),
-                patch("llama_cli.profile_cli.run_benchmark", return_value=benchmark_result),
-                patch("llama_cli.profile_cli.ProfileFlavor"),
-                patch("llama_cli.profile_cli.ProfileRecord") as mock_record_cls,
-                patch("llama_cli.profile_cli.write_profile") as mock_write,
+                patch("llama_cli.commands.profile.run_benchmark", return_value=benchmark_result),
+                patch("llama_cli.commands.profile.ProfileFlavor"),
+                patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
+                patch("llama_cli.commands.profile.write_profile") as mock_write,
             ):
                 mock_record = MagicMock()
                 mock_record.to_dict.return_value = {
@@ -468,18 +468,18 @@ class TestCmdProfile:
 
         try:
             with (
-                patch("llama_cli.profile_cli._detect_backend", return_value="sycl"),
-                patch("llama_cli.profile_cli.require_executable"),
-                patch("llama_cli.profile_cli.get_gpu_identifier", return_value="test-gpu"),
-                patch("llama_cli.profile_cli._get_driver_version", return_value="unknown"),
+                patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
+                patch("llama_cli.commands.profile.require_executable"),
+                patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
+                patch("llama_cli.commands.profile._get_driver_version", return_value="unknown"),
                 patch(
-                    "llama_cli.profile_cli.compute_driver_version_hash",
+                    "llama_cli.commands.profile.compute_driver_version_hash",
                     return_value="abc123",
                 ),
-                patch("llama_cli.profile_cli.build_benchmark_cmd", return_value=["bench"]),
-                patch("llama_cli.profile_cli.run_benchmark", return_value=None),
-                patch("llama_cli.profile_cli.ProfileFlavor"),
-                patch("llama_cli.profile_cli.ProfileRecord"),
+                patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
+                patch("llama_cli.commands.profile.run_benchmark", return_value=None),
+                patch("llama_cli.commands.profile.ProfileFlavor"),
+                patch("llama_cli.commands.profile.ProfileRecord"),
             ):
                 exit_code = cmd_profile(
                     slot_id="test-slot",
@@ -503,18 +503,18 @@ class TestCmdProfile:
 
         try:
             with (
-                patch("llama_cli.profile_cli._detect_backend", return_value="sycl"),
-                patch("llama_cli.profile_cli.require_executable"),
-                patch("llama_cli.profile_cli.get_gpu_identifier", return_value="test-gpu"),
-                patch("llama_cli.profile_cli._get_driver_version", return_value="unknown"),
+                patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
+                patch("llama_cli.commands.profile.require_executable"),
+                patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
+                patch("llama_cli.commands.profile._get_driver_version", return_value="unknown"),
                 patch(
-                    "llama_cli.profile_cli.compute_driver_version_hash",
+                    "llama_cli.commands.profile.compute_driver_version_hash",
                     return_value="abc123",
                 ),
-                patch("llama_cli.profile_cli.build_benchmark_cmd", return_value=["bench"]),
-                patch("llama_cli.profile_cli.run_benchmark", return_value=None),
-                patch("llama_cli.profile_cli.ProfileFlavor"),
-                patch("llama_cli.profile_cli.ProfileRecord"),
+                patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
+                patch("llama_cli.commands.profile.run_benchmark", return_value=None),
+                patch("llama_cli.commands.profile.ProfileFlavor"),
+                patch("llama_cli.commands.profile.ProfileRecord"),
             ):
                 exit_code = cmd_profile(
                     slot_id="test-slot",
@@ -554,19 +554,19 @@ class TestCmdProfile:
             }
 
             with (
-                patch("llama_cli.profile_cli._detect_backend", return_value="sycl"),
-                patch("llama_cli.profile_cli.require_executable"),
-                patch("llama_cli.profile_cli.get_gpu_identifier", return_value="test-gpu"),
-                patch("llama_cli.profile_cli._get_driver_version", return_value="unknown"),
+                patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
+                patch("llama_cli.commands.profile.require_executable"),
+                patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
+                patch("llama_cli.commands.profile._get_driver_version", return_value="unknown"),
                 patch(
-                    "llama_cli.profile_cli.compute_driver_version_hash",
+                    "llama_cli.commands.profile.compute_driver_version_hash",
                     return_value="abc123",
                 ),
-                patch("llama_cli.profile_cli.build_benchmark_cmd", return_value=["bench"]),
-                patch("llama_cli.profile_cli.run_benchmark", return_value=benchmark_result),
-                patch("llama_cli.profile_cli.ProfileFlavor"),
-                patch("llama_cli.profile_cli.ProfileRecord") as mock_record_cls,
-                patch("llama_cli.profile_cli.write_profile") as mock_write,
+                patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
+                patch("llama_cli.commands.profile.run_benchmark", return_value=benchmark_result),
+                patch("llama_cli.commands.profile.ProfileFlavor"),
+                patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
+                patch("llama_cli.commands.profile.write_profile") as mock_write,
             ):
                 mock_record_cls.return_value = mock_record
                 mock_write.return_value = tmp_path / "profiles" / "profile.json"
@@ -593,7 +593,7 @@ class TestCmdProfile:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """cmd_profile should return 1 when the benchmark binary doesn't exist."""
-        with patch("llama_cli.profile_cli.Config") as mock_cfg_cls:
+        with patch("llama_cli.commands.profile.Config") as mock_cfg_cls:
             cfg = mock_cfg_cls.return_value
             cfg.llama_server_bin_intel = ""
             cfg.model_summary_balanced = str(tmp_path / "model.gguf")
@@ -610,9 +610,9 @@ class TestCmdProfile:
             cfg.profiles_dir.mkdir(parents=True, exist_ok=True)
 
             with (
-                patch("llama_cli.profile_cli._detect_backend", return_value="sycl"),
+                patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
                 patch(
-                    "llama_cli.profile_cli.require_executable",
+                    "llama_cli.commands.profile.require_executable",
                     side_effect=FileNotFoundError("file not found: /no/such/binary"),
                 ),
             ):
@@ -632,7 +632,7 @@ class TestCmdProfile:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """cmd_profile should print a warning when a lockfile exists."""
-        with patch("llama_cli.profile_cli.Config") as mock_cfg_cls:
+        with patch("llama_cli.commands.profile.Config") as mock_cfg_cls:
             mock_cfg = mock_cfg_cls.return_value
             profiles_dir = tmp_path / "profiles"
             profiles_dir.mkdir(parents=True, exist_ok=True)
@@ -645,19 +645,19 @@ class TestCmdProfile:
             benchmark_result = _make_benchmark_result()
 
             with (
-                patch("llama_cli.profile_cli._detect_backend", return_value="sycl"),
-                patch("llama_cli.profile_cli.require_executable"),
-                patch("llama_cli.profile_cli.get_gpu_identifier", return_value="test-gpu"),
-                patch("llama_cli.profile_cli._get_driver_version", return_value="unknown"),
+                patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
+                patch("llama_cli.commands.profile.require_executable"),
+                patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
+                patch("llama_cli.commands.profile._get_driver_version", return_value="unknown"),
                 patch(
-                    "llama_cli.profile_cli.compute_driver_version_hash",
+                    "llama_cli.commands.profile.compute_driver_version_hash",
                     return_value="abc123",
                 ),
-                patch("llama_cli.profile_cli.build_benchmark_cmd", return_value=["bench"]),
-                patch("llama_cli.profile_cli.run_benchmark", return_value=benchmark_result),
-                patch("llama_cli.profile_cli.ProfileFlavor"),
-                patch("llama_cli.profile_cli.ProfileRecord") as mock_record_cls,
-                patch("llama_cli.profile_cli.write_profile") as mock_write,
+                patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
+                patch("llama_cli.commands.profile.run_benchmark", return_value=benchmark_result),
+                patch("llama_cli.commands.profile.ProfileFlavor"),
+                patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
+                patch("llama_cli.commands.profile.write_profile") as mock_write,
             ):
                 mock_record = MagicMock()
                 mock_record.to_dict.return_value = {"test": "data"}
@@ -712,19 +712,21 @@ class TestCmdProfile:
             mock_record.to_dict.return_value = {"test": "data"}
 
             with (
-                patch("llama_cli.profile_cli._detect_backend", return_value="cuda"),
-                patch("llama_cli.profile_cli.require_executable"),
-                patch("llama_cli.profile_cli.get_gpu_identifier", return_value="nvidia-rtx-3090"),
-                patch("llama_cli.profile_cli._get_driver_version", return_value="535.104.05"),
+                patch("llama_cli.commands.profile._detect_backend", return_value="cuda"),
+                patch("llama_cli.commands.profile.require_executable"),
                 patch(
-                    "llama_cli.profile_cli.compute_driver_version_hash",
+                    "llama_cli.commands.profile.get_gpu_identifier", return_value="nvidia-rtx-3090"
+                ),
+                patch("llama_cli.commands.profile._get_driver_version", return_value="535.104.05"),
+                patch(
+                    "llama_cli.commands.profile.compute_driver_version_hash",
                     return_value="def456",
                 ),
-                patch("llama_cli.profile_cli.build_benchmark_cmd", return_value=["bench"]),
-                patch("llama_cli.profile_cli.run_benchmark", return_value=benchmark_result),
-                patch("llama_cli.profile_cli.ProfileFlavor"),
-                patch("llama_cli.profile_cli.ProfileRecord") as mock_record_cls,
-                patch("llama_cli.profile_cli.write_profile") as mock_write,
+                patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
+                patch("llama_cli.commands.profile.run_benchmark", return_value=benchmark_result),
+                patch("llama_cli.commands.profile.ProfileFlavor"),
+                patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
+                patch("llama_cli.commands.profile.write_profile") as mock_write,
             ):
                 mock_record_cls.return_value = mock_record
                 mock_write.return_value = tmp_path / "profiles" / "profile.json"
@@ -756,19 +758,21 @@ class TestCmdProfile:
                 mock_record.to_dict.return_value = {"test": "data"}
 
                 with (
-                    patch("llama_cli.profile_cli._detect_backend", return_value="sycl"),
-                    patch("llama_cli.profile_cli.require_executable"),
-                    patch("llama_cli.profile_cli.get_gpu_identifier", return_value="test-gpu"),
-                    patch("llama_cli.profile_cli._get_driver_version", return_value="unknown"),
+                    patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
+                    patch("llama_cli.commands.profile.require_executable"),
+                    patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
+                    patch("llama_cli.commands.profile._get_driver_version", return_value="unknown"),
                     patch(
-                        "llama_cli.profile_cli.compute_driver_version_hash",
+                        "llama_cli.commands.profile.compute_driver_version_hash",
                         return_value="abc123",
                     ),
-                    patch("llama_cli.profile_cli.build_benchmark_cmd", return_value=["bench"]),
-                    patch("llama_cli.profile_cli.run_benchmark", return_value=benchmark_result),
-                    patch("llama_cli.profile_cli.ProfileFlavor"),
-                    patch("llama_cli.profile_cli.ProfileRecord") as mock_record_cls,
-                    patch("llama_cli.profile_cli.write_profile") as mock_write,
+                    patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
+                    patch(
+                        "llama_cli.commands.profile.run_benchmark", return_value=benchmark_result
+                    ),
+                    patch("llama_cli.commands.profile.ProfileFlavor"),
+                    patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
+                    patch("llama_cli.commands.profile.write_profile") as mock_write,
                 ):
                     mock_record_cls.return_value = mock_record
                     mock_write.return_value = tmp_path / "profiles" / "profile.json"
@@ -788,7 +792,7 @@ class TestCmdProfile:
         tmp_path: Path,
     ) -> None:
         """cmd_profile should call write_profile with the profiles_dir from config."""
-        with patch("llama_cli.profile_cli.Config") as mock_cfg_cls:
+        with patch("llama_cli.commands.profile.Config") as mock_cfg_cls:
             mock_cfg = mock_cfg_cls.return_value
             profiles_dir = tmp_path / "profiles"
             profiles_dir.mkdir(parents=True, exist_ok=True)
@@ -799,19 +803,19 @@ class TestCmdProfile:
             mock_record.to_dict.return_value = {"test": "data"}
 
             with (
-                patch("llama_cli.profile_cli._detect_backend", return_value="sycl"),
-                patch("llama_cli.profile_cli.require_executable"),
-                patch("llama_cli.profile_cli.get_gpu_identifier", return_value="test-gpu"),
-                patch("llama_cli.profile_cli._get_driver_version", return_value="unknown"),
+                patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
+                patch("llama_cli.commands.profile.require_executable"),
+                patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
+                patch("llama_cli.commands.profile._get_driver_version", return_value="unknown"),
                 patch(
-                    "llama_cli.profile_cli.compute_driver_version_hash",
+                    "llama_cli.commands.profile.compute_driver_version_hash",
                     return_value="abc123",
                 ),
-                patch("llama_cli.profile_cli.build_benchmark_cmd", return_value=["bench"]),
-                patch("llama_cli.profile_cli.run_benchmark", return_value=benchmark_result),
-                patch("llama_cli.profile_cli.ProfileFlavor"),
-                patch("llama_cli.profile_cli.ProfileRecord") as mock_record_cls,
-                patch("llama_cli.profile_cli.write_profile") as mock_write,
+                patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
+                patch("llama_cli.commands.profile.run_benchmark", return_value=benchmark_result),
+                patch("llama_cli.commands.profile.ProfileFlavor"),
+                patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
+                patch("llama_cli.commands.profile.write_profile") as mock_write,
             ):
                 mock_record_cls.return_value = mock_record
                 mock_write.return_value = profiles_dir / "profile.json"

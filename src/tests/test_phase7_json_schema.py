@@ -48,7 +48,7 @@ def _to_report_dict(report: SmokeCompositeReport, capsys) -> dict:
     Always uses the production _print_report_json formatter and parses its
     stdout output. The capsys parameter is required to capture output.
     """
-    from llama_cli.smoke_cli import _print_report_json
+    from llama_cli.commands.smoke import _print_report_json
 
     _print_report_json(report)
     captured = capsys.readouterr()

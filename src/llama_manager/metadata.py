@@ -205,6 +205,36 @@ def _parse_tokenizer_type(data: bytes) -> str | None:
     return None
 
 
+def _read_int8(data: bytes, offset: int) -> int | None:
+    """Read int8 from data at offset."""
+    if offset + 1 > len(data):
+        return None
+    val = int.from_bytes(data[offset : offset + 1], "little")
+    return val - 256 if val > 127 else val
+
+
+def _read_int16(data: bytes, offset: int) -> int | None:
+    """Read int16 from data at offset."""
+    if offset + 2 > len(data):
+        return None
+    val = int.from_bytes(data[offset : offset + 2], "little")
+    return val - 65536 if val > 32767 else val
+
+
+def _read_int32(data: bytes, offset: int) -> int | None:
+    """Read int32 from data at offset."""
+    if offset + 4 > len(data):
+        return None
+    val = int.from_bytes(data[offset : offset + 4], "little")
+    return val - 4294967296 if val > 2147483647 else val
+
+
+def _skip_non_integer_type(_data: bytes, offset: int, type_tag: int) -> int:
+    """Skip non-integer GGUF types, return new offset."""
+    skip_sizes = {7: 2, 8: 4, 9: 8}  # f16, f32, f64
+    return offset + skip_sizes.get(type_tag, 0)
+
+
 def _parse_numeric_field(data: bytes, key: bytes | str) -> int | None:
     """Attempt to extract a numeric field from GGUF header bytes.
 
@@ -226,79 +256,82 @@ def _parse_numeric_field(data: bytes, key: bytes | str) -> int | None:
     target_key = key_bytes.decode("utf-8", errors="replace")
 
     # GGUF v2/v3: 8 magic + 4 version + 8 num_tensors + 8 num_kv = 28 bytes
-    # KV records start after header
     kv_start = 28
-
     if len(data) < kv_start:
         return None
 
     offset = kv_start
-
     while offset + 8 <= len(data):
-        # Read key: length (uint32 LE) + key bytes
-        if offset + 4 > len(data):
+        offset, record_key = _read_key(data, offset)
+        if record_key is None:
             break
-        key_length = int.from_bytes(data[offset : offset + 4], "little")
+        if record_key != target_key:
+            offset = _skip_record(data, offset)
+            continue
+        type_tag = _read_type_tag(data, offset)
+        if type_tag is None:
+            break
         offset += 4
+        result = _read_integer_value(data, offset, type_tag)
+        if result is not None:
+            return result
+        offset = _skip_non_integer_type(data, offset, type_tag)
+    return None
 
-        if offset + key_length > len(data):
-            break
-        record_key = data[offset : offset + key_length].decode("utf-8", errors="replace")
-        offset += key_length
 
-        # Read type tag (uint32 LE)
+def _read_key(data: bytes, offset: int) -> tuple[int, str | None]:
+    """Read key from GGUF record, return (new_offset, key_string)."""
+    if offset + 4 > len(data):
+        return offset, None
+    key_length = int.from_bytes(data[offset : offset + 4], "little")
+    offset += 4
+    if offset + key_length > len(data):
+        return offset, None
+    record_key = data[offset : offset + key_length].decode("utf-8", errors="replace")
+    return offset + key_length, record_key
+
+
+def _read_type_tag(data: bytes, offset: int) -> int | None:
+    """Read type tag from GGUF record."""
+    if offset + 4 > len(data):
+        return None
+    return int.from_bytes(data[offset : offset + 4], "little")
+
+
+def _skip_record(data: bytes, offset: int) -> int:
+    """Skip a GGUF record, return new offset."""
+    type_tag = _read_type_tag(data, offset)
+    if type_tag is None:
+        return offset
+    offset += 4
+    if type_tag in (1, 2):
+        return offset + 1
+    if type_tag in (3, 4):
+        return offset + 2
+    if type_tag in (5, 6):
+        return offset + 4
+    if type_tag == 6:  # string
         if offset + 4 > len(data):
-            break
-        type_tag = int.from_bytes(data[offset : offset + 4], "little")
-        offset += 4
+            return offset
+        str_len = int.from_bytes(data[offset : offset + 4], "little")
+        return offset + 4 + str_len
+    return offset
 
-        # GGUF value type tags (gguf.values.GGMLValueType)
-        # 0=bool, 1-5=integer (u8/i8/u16/i16/u32/i32/f16/f32/f64), 6=string, etc.
-        # Numeric integer types: u8(1), i8(2), u16(3), i16(4), u32(5), i32(6)
-        # f16(7), f32(8), f64(9) — also numeric but we focus on integers
-        if record_key == target_key:
-            if type_tag in (1, 2, 3, 4, 5, 6):  # u8, i8, u16, i16, u32, i32
-                if type_tag in (1, 2):  # 1 byte
-                    if offset + 1 <= len(data):
-                        val = int.from_bytes(data[offset : offset + 1], "little")
-                        if type_tag == 2 and val > 127:  # i8 signed
-                            val -= 256
-                        offset += 1
-                        return val
-                elif type_tag in (3, 4):  # 2 bytes
-                    if offset + 2 <= len(data):
-                        val = int.from_bytes(data[offset : offset + 2], "little")
-                        if type_tag == 4 and val > 32767:  # i16 signed
-                            val -= 65536
-                        offset += 2
-                        return val
-                elif type_tag in (5, 6) and offset + 4 <= len(data):  # 4 bytes
-                    val = int.from_bytes(data[offset : offset + 4], "little")
-                    if type_tag == 6 and val > 2147483647:  # i32 signed
-                        val -= 4294967296
-                    offset += 4
-                    return val
-            elif type_tag == 9:  # f64 — not integer, skip
-                offset += 8
-            elif type_tag == 8:  # f32 — not integer, skip
-                offset += 4
-            elif type_tag == 7:  # f16 — not integer, skip
-                offset += 2
-            elif type_tag == 6:  # string type
-                # String value: length (uint32) + bytes
-                if offset + 4 <= len(data):
-                    str_len = int.from_bytes(data[offset : offset + 4], "little")
-                    offset += 4 + str_len
-                else:
-                    break
-            else:
-                # Unknown type — skip based on type
-                # For safety, just advance past the record
-                # This is a best-effort parser for raw bytes
-                break
 
-    return None
-    return None
+def _read_integer_value(data: bytes, offset: int, type_tag: int) -> int | None:
+    """Read integer value if type is integer, else None."""
+    if type_tag not in (1, 2, 3, 4, 5, 6):
+        return None
+    readers = {
+        1: _read_int8,
+        2: _read_int8,
+        3: _read_int16,
+        4: _read_int16,
+        5: _read_int32,
+        6: _read_int32,
+    }
+    reader = readers.get(type_tag)
+    return reader(data, offset) if reader else None
 
 
 def _extract_architecture_from_reader(
@@ -605,7 +638,7 @@ def extract_gguf_metadata(
         raise ValueError(
             f"prefix_cap_bytes must be a positive integer, got: {prefix_cap_bytes}",
         )
-    if not isinstance(parse_timeout_s, (int, float)) or parse_timeout_s <= 0:
+    if not isinstance(parse_timeout_s, int | float) or parse_timeout_s <= 0:
         raise ValueError(
             f"parse_timeout_s must be a positive number, got: {parse_timeout_s}",
         )

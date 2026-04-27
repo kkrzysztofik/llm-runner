@@ -6,6 +6,7 @@ using the BuildPipeline.
 
 import argparse
 import json
+import logging
 import os
 import sys
 from dataclasses import asdict
@@ -18,6 +19,93 @@ from llama_manager.build_pipeline import (
     BuildResult,
 )
 from llama_manager.config import Config
+
+
+def _format_bytes(size_bytes: int | None) -> str:
+    """Format an optional byte count for CLI output."""
+    if size_bytes is None:
+        return "unknown size"
+    size = float(size_bytes)
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if size < 1024 or unit == "GiB":
+            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
+        size /= 1024
+    raise AssertionError("unreachable")
+
+
+def _format_duration(seconds: float) -> str:
+    """Format build duration for CLI output."""
+    if seconds < 1:
+        return f"{seconds * 1000:.0f}ms"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, remaining_seconds = divmod(seconds, 60)
+    return f"{int(minutes)}m {remaining_seconds:.0f}s"
+
+
+# ANSI color codes for log formatting
+_COLOR_RESET = "\033[0m"
+_COLOR_TIMESTAMP = "\033[36m"  # cyan
+_COLOR_INFO = "\033[32m"  # green
+_COLOR_WARNING = "\033[33m"  # yellow
+_COLOR_ERROR = "\033[31m"  # red
+_COLOR_DEBUG = "\033[34m"  # blue
+_COLOR_DIM = "\033[2m"  # dim
+
+
+class _ColoredFormatter(logging.Formatter):
+    """Custom formatter that adds timestamps and ANSI colors to log output."""
+
+    _LEVEL_COLORS = {
+        logging.DEBUG: _COLOR_DEBUG,
+        logging.INFO: _COLOR_INFO,
+        logging.WARNING: _COLOR_WARNING,
+        logging.ERROR: _COLOR_ERROR,
+        logging.CRITICAL: _COLOR_ERROR,
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format a log record with timestamp and color-coded level."""
+        timestamp = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
+        level_color = self._LEVEL_COLORS.get(record.levelno, _COLOR_RESET)
+        level_name = record.levelname.lower()
+        # Extract the tag from the message if it starts with [tag]
+        msg = record.getMessage()
+        # Build the formatted line
+        return (
+            f"{_COLOR_DIM}[{timestamp}]{_COLOR_RESET} "
+            f"{level_color}[{level_name}]{_COLOR_RESET} "
+            f"{msg}"
+        )
+
+
+def _setup_colored_logging(level: int = logging.INFO) -> None:
+    """Configure stderr logging with timestamps and ANSI colors.
+
+    Args:
+        level: Minimum log level to display (default: INFO).
+    """
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(_ColoredFormatter())
+    handler.setLevel(level)
+
+    # Target the build pipeline logger specifically
+    pipeline_logger = logging.getLogger("llama_manager.build_pipeline")
+    pipeline_logger.setLevel(level)
+    pipeline_logger.handlers.clear()
+    pipeline_logger.addHandler(handler)
+
+
+def _progress_summary(result: BuildResult) -> dict[str, object] | None:
+    """Return JSON-safe progress metadata for a build result."""
+    if result.progress is None:
+        return None
+    return {
+        "stage": result.progress.stage,
+        "status": result.progress.status,
+        "message": result.progress.message,
+        "progress_percent": result.progress.progress_percent,
+    }
 
 
 def parse_build_args(args: list[str] | None = None) -> argparse.Namespace:
@@ -51,13 +139,16 @@ Examples:
     parser.add_argument(
         "--source-dir",
         type=Path,
-        help="Source directory for llama.cpp (default: src/llama.cpp)",
+        help=(
+            "Source directory for llama.cpp "
+            "(default: $XDG_CACHE_HOME/llm-runner/llama.cpp, override with LLAMA_CPP_ROOT)"
+        ),
     )
 
     parser.add_argument(
         "--build-dir",
         type=Path,
-        help="Build directory (default: src/llama.cpp/build)",
+        help="Build directory (default: build or build_cuda under selected source directory)",
     )
 
     parser.add_argument(
@@ -85,10 +176,25 @@ Examples:
     )
 
     parser.add_argument(
+        "--no-update-sources",
+        action="store_true",
+        help=(
+            "Skip fetching updates for existing llama.cpp sources "
+            "(default: update sources to latest)"
+        ),
+    )
+
+    parser.add_argument(
+        "--git-commit",
+        default=None,
+        help="Specific git commit hash to checkout after clone/update (default: use branch HEAD)",
+    )
+
+    parser.add_argument(
         "--jobs",
         "-j",
         type=int,
-        default=None,
+        default=os.cpu_count() or 1,
         help="Number of parallel build jobs (default: auto-detect)",
     )
 
@@ -138,6 +244,13 @@ def _get_backends(backend_arg: str) -> list[BuildBackend]:
     return backend_map.get(backend_arg, [BuildBackend.SYCL])
 
 
+def _default_build_dir(source_dir: Path, backend: BuildBackend) -> Path:
+    """Return the default build directory for a backend under the source root."""
+    if backend is BuildBackend.CUDA:
+        return source_dir / "build_cuda"
+    return source_dir / "build"
+
+
 def _create_build_config(
     args: argparse.Namespace,
     backend: BuildBackend,
@@ -168,6 +281,8 @@ def _create_build_config(
         jobs=args.jobs,
         retry_attempts=args.retry_attempts,
         retry_delay=args.retry_delay,
+        update_sources=not args.no_update_sources,
+        git_commit=args.git_commit,
     )
 
 
@@ -194,9 +309,12 @@ def _build_single_backend(
     pipeline = BuildPipeline(build_config)
     pipeline.dry_run = args.dry_run
 
-    print(f"Building for {backend.value} backend...", file=sys.stderr)
+    print(f"▶ Building llama.cpp [{backend.value}]", file=sys.stderr)
+    print(f"  source: {source_dir}", file=sys.stderr)
+    print(f"  build:  {build_dir}", file=sys.stderr)
+    print(f"  output: {output_dir}", file=sys.stderr)
     if args.dry_run:
-        print("DRY RUN MODE - commands will not be executed", file=sys.stderr)
+        print("  mode:   dry-run (commands will not be executed)", file=sys.stderr)
 
     result = pipeline.run()
     return (backend, result)
@@ -229,10 +347,19 @@ def _format_success_text(results: list[tuple[BuildBackend, BuildResult]]) -> Non
     Args:
         results: List of (backend, result) tuples
     """
-    print("Build completed successfully!", file=sys.stderr)
+    print("✓ Build completed successfully", file=sys.stderr)
     for backend, result in results:
         if result.artifact:
-            print(f"  {backend.value}: {result.artifact.binary_path}", file=sys.stderr)
+            artifact = result.artifact
+            duration = _format_duration(artifact.build_duration_seconds)
+            size = _format_bytes(artifact.binary_size_bytes)
+            print(f"\n  [{backend.value}]", file=sys.stderr)
+            print(f"    binary:   {artifact.binary_path or 'not found'}", file=sys.stderr)
+            print(f"    size:     {size}", file=sys.stderr)
+            print(f"    duration: {duration}", file=sys.stderr)
+            print(f"    commit:   {artifact.git_commit_sha}", file=sys.stderr)
+            if artifact.build_log_path:
+                print(f"    log:      {artifact.build_log_path}", file=sys.stderr)
 
 
 def _format_error_json(results: list[tuple[BuildBackend, BuildResult]]) -> str:
@@ -247,9 +374,18 @@ def _format_error_json(results: list[tuple[BuildBackend, BuildResult]]) -> str:
     errors = []
     for backend, result in results:
         if not result.success:
-            errors.append(
-                {"backend": backend.value, "error": result.error_message or "Unknown error"}
-            )
+            error: dict[str, object] = {
+                "backend": backend.value,
+                "error": result.error_message or "Unknown error",
+            }
+            progress = _progress_summary(result)
+            if progress is not None:
+                error["progress"] = progress
+            if result.artifact and result.artifact.build_log_path:
+                error["build_log_path"] = str(result.artifact.build_log_path)
+            if result.artifact and result.artifact.failure_report_path:
+                error["failure_report_path"] = str(result.artifact.failure_report_path)
+            errors.append(error)
     return json.dumps({"success": False, "errors": errors}, indent=2)
 
 
@@ -259,10 +395,50 @@ def _format_error_text(results: list[tuple[BuildBackend, BuildResult]]) -> None:
     Args:
         results: List of (backend, result) tuples
     """
-    print("Build failed:", file=sys.stderr)
+    print("✗ Build failed", file=sys.stderr)
     for backend, result in results:
         if not result.success:
-            print(f"  {backend.value}: {result.error_message}", file=sys.stderr)
+            print(f"\n  [{backend.value}]", file=sys.stderr)
+            if result.progress:
+                print(f"    stage:  {result.progress.stage}", file=sys.stderr)
+                print(f"    status: {result.progress.status}", file=sys.stderr)
+            message = result.error_message or "Unknown error"
+            indented_message = message.replace("\n", "\n      ")
+            print(f"    error:  {indented_message}", file=sys.stderr)
+            if result.artifact and result.artifact.build_log_path:
+                print(f"    log:    {result.artifact.build_log_path}", file=sys.stderr)
+            if result.artifact and result.artifact.failure_report_path:
+                print(f"    report: {result.artifact.failure_report_path}", file=sys.stderr)
+
+
+def _resolve_backend_paths(
+    args: argparse.Namespace,
+    backend: BuildBackend,
+    source_dir: Path,
+    config: Config,
+) -> tuple[Path, Path]:
+    """Compute backend-scoped build and output directories.
+
+    Args:
+        args: Parsed build arguments.
+        backend: Target backend (SYCL or CUDA).
+        source_dir: llama.cpp source directory.
+        config: Application configuration.
+
+    Returns:
+        Tuple of (build_dir, output_dir).
+    """
+    if args.build_dir:
+        build_dir = Path(args.build_dir) / backend.value
+    else:
+        build_dir = _default_build_dir(source_dir, backend)
+
+    if args.output_dir:
+        output_dir = Path(args.output_dir) / backend.value
+    else:
+        output_dir = config.builds_dir / backend.value
+
+    return build_dir, output_dir
 
 
 def run_build_command(args: argparse.Namespace) -> int:
@@ -274,23 +450,18 @@ def run_build_command(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for failure)
     """
-    # Determine backend(s) and paths
     backends = _get_backends(args.backend)
     config = Config()
     source_dir = args.source_dir or Path(config.llama_cpp_root)
-    build_dir = args.build_dir or (source_dir / "build")
-    output_dir = args.output_dir or config.builds_dir
 
-    # Build each backend sequentially
     results: list[tuple[BuildBackend, BuildResult]] = []
     for backend in backends:
+        build_dir, output_dir = _resolve_backend_paths(args, backend, source_dir, config)
         result = _build_single_backend(backend, args, source_dir, build_dir, output_dir)
         results.append(result)
 
-    # Check if all builds succeeded
     all_success = all(result.success for _backend, result in results)
 
-    # Output results
     if all_success:
         if args.json:
             print(_format_success_json(results))
@@ -305,21 +476,25 @@ def run_build_command(args: argparse.Namespace) -> int:
         return 1
 
 
-def main() -> int:
+def main(args: list[str] | None = None) -> int:
     """Main entry point for build command.
+
+    Args:
+        args: Optional list of command-line arguments. If None, uses sys.argv[1:].
 
     Returns:
         Exit code
     """
-    args = None
+    args_parsed = None
     try:
-        args = parse_build_args()
-        return run_build_command(args)
+        args_parsed = parse_build_args(args)
+        _setup_colored_logging()
+        return run_build_command(args_parsed)
     except KeyboardInterrupt:
         print("\nBuild interrupted by user", file=sys.stderr)
         return 130  # Standard exit code for Ctrl+C
     except Exception as e:
-        if args is not None and args.json:
+        if args_parsed is not None and args_parsed.json:
             print(json.dumps({"success": False, "error": str(e)}, indent=2))
         else:
             print(f"error: {e}", file=sys.stderr)

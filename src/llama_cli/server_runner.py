@@ -11,12 +11,11 @@ import os
 import signal
 import sys
 from collections.abc import Callable
-from pathlib import Path
 from typing import NoReturn
 
 from llama_cli.cli_parser import parse_args
 from llama_cli.colors import Colors
-from llama_cli.setup_cli import main as setup_main
+from llama_cli.commands.setup import main as setup_main
 from llama_manager import (
     Config,
     ErrorCode,
@@ -45,6 +44,10 @@ PORT_SUMMARY_BALANCED = "summary-balanced port"
 PORT_SUMMARY_FAST = "summary-fast port"
 PORT_QWEN35 = "qwen35 port"
 
+# Server backend display names
+INTEL_SERVER_NAME = "Intel llama-server"
+NVIDIA_SERVER_NAME = "NVIDIA llama-server"
+
 
 def usage() -> None:
     print("""Usage:
@@ -55,19 +58,14 @@ def usage() -> None:
   src/run_opencode_models.py dry-run <mode> [ports...]
   src/run_opencode_models.py smoke <mode> [slot_id] [--json]
   src/run_opencode_models.py profile <slot_id> <flavor> [--json]
-  src/run_opencode_models.py setup <subcommand>
-
-Modes:
+  src/run_opencode_models.py setup <subcommand>\n  src/run_opencode_models.py tui <mode> [--port PORT] [--port2 PORT2]\n\nModes:
   summary-balanced  Run summary-balanced model (Intel SYCL)
   summary-fast      Run summary-fast model (Intel SYCL)
   qwen35           Run qwen35-coding model (NVIDIA CUDA)
   both             Run summary-balanced and qwen35 side-by-side
   dry-run          Preview commands without executing
   smoke            Run smoke health probes (both|slot)
-  setup            Toolchain diagnostics and venv management
-  profile          Run benchmark profile
-
-Smoke Subcommands:
+  setup            Toolchain diagnostics and venv management\n  profile          Run benchmark profile\n  tui              Launch interactive TUI\n\nSmoke Subcommands:
   both             Probe all servers
   slot <id>        Probe a specific slot
 
@@ -85,6 +83,11 @@ Setup Subcommands:
   venv            Create or reuse virtual environment (FR-005.2)
   clean-venv      Remove virtual environment (FR-005.3)
 
+TUI Options:
+  --port          Port for primary model
+  --port2         Port for secondary model
+  --acknowledge-risky  Acknowledge risky operations
+
 Examples:
   src/run_opencode_models.py summary-balanced
   src/run_opencode_models.py summary-fast 8082
@@ -97,7 +100,9 @@ Examples:
   src/run_opencode_models.py profile slot0 balanced --json
   src/run_opencode_models.py setup --check
   src/run_opencode_models.py setup venv
-  src/run_opencode_models.py setup clean-venv --yes""")
+  src/run_opencode_models.py setup clean-venv --yes
+  src/run_opencode_models.py tui both
+  src/run_opencode_models.py tui summary-balanced --port 8080""")
 
 
 def _print_backend_error_and_exit() -> NoReturn:
@@ -111,7 +116,7 @@ def _print_backend_error_and_exit() -> NoReturn:
 
 def check_prereqs() -> None:
     cfg = Config()
-    require_executable(cfg.llama_server_bin_intel, "Intel llama-server")
+    require_executable(cfg.llama_server_bin_intel, INTEL_SERVER_NAME)
 
 
 def _print_validation_error(error_detail: ErrorDetail) -> NoReturn:
@@ -170,7 +175,7 @@ def run_qwen35(port: int, manager: ServerManager) -> int:
     model_error = require_model(cfg.model_qwen35)
     if model_error is not None:
         _print_validation_error(model_error)
-    exec_error = require_executable(cfg.llama_server_bin_nvidia, "NVIDIA llama-server")
+    exec_error = require_executable(cfg.llama_server_bin_nvidia, NVIDIA_SERVER_NAME)
     if exec_error is not None:
         _print_validation_error(exec_error)
     print(f"Starting qwen35-coding at http://{cfg.host}:{port}/v1 (NVIDIA CUDA)")
@@ -189,7 +194,7 @@ def run_both(port32: int, port35: int, manager: ServerManager) -> int:
     validate_ports(port32, port35, PORT_SUMMARY_BALANCED, PORT_QWEN35)
     require_model(cfg.model_summary_balanced)
     require_model(cfg.model_qwen35_both)
-    require_executable(cfg.llama_server_bin_nvidia, "NVIDIA llama-server")
+    require_executable(cfg.llama_server_bin_nvidia, NVIDIA_SERVER_NAME)
 
     slots: list[ModelSlot] = [
         ModelSlot(slot_id="summary-balanced", model_path=cfg.model_summary_balanced, port=port32),
@@ -270,7 +275,7 @@ def _acknowledge_risk_if_required(
 
 
 def _run_dry_run_mode(parsed: argparse.Namespace, acknowledged: bool) -> int:
-    from llama_cli.dry_run import dry_run
+    from llama_cli.commands.dry_run import dry_run
 
     # parsed.mode should be "dry-run"
     # parsed.dry_run_mode is the actual mode to preview
@@ -301,6 +306,97 @@ def _resolve_port(ports: list[int], index: int, default: int) -> int:
         The port number at the specified index, or the default if unavailable.
     """
     return ports[index] if len(ports) > index else default
+
+
+def _build_tui_mode_configs(cfg: Config, parsed: argparse.Namespace) -> dict:
+    """Build the mode configuration dict for TUI launch."""
+    return {
+        "both": (
+            [cfg.llama_server_bin_intel, cfg.llama_server_bin_nvidia],
+            [INTEL_SERVER_NAME, NVIDIA_SERVER_NAME],
+            [
+                create_summary_balanced_cfg(
+                    parsed.port if parsed.port is not None else cfg.summary_balanced_port
+                ),
+                create_qwen35_cfg(parsed.port2 if parsed.port2 is not None else cfg.qwen35_port),
+            ],
+            [1, 0],
+        ),
+        "summary-balanced": (
+            [cfg.llama_server_bin_intel],
+            [INTEL_SERVER_NAME],
+            [
+                create_summary_balanced_cfg(
+                    parsed.port if parsed.port is not None else cfg.summary_balanced_port
+                )
+            ],
+            [1],
+        ),
+        "summary-fast": (
+            [cfg.llama_server_bin_intel],
+            [INTEL_SERVER_NAME],
+            [
+                create_summary_fast_cfg(
+                    parsed.port if parsed.port is not None else cfg.summary_fast_port
+                )
+            ],
+            [1],
+        ),
+        "qwen35": (
+            [cfg.llama_server_bin_nvidia],
+            [NVIDIA_SERVER_NAME],
+            [create_qwen35_cfg(parsed.port if parsed.port is not None else cfg.qwen35_port)],
+            [0],
+        ),
+    }
+
+
+def _validate_tui_configs(configs: list[ServerConfig]) -> None:
+    """Validate ports and models for all TUI server configs."""
+    for server_cfg in configs:
+        port_error = validate_port(server_cfg.port, server_cfg.alias)
+        if port_error is not None:
+            _print_validation_error(port_error)
+        model_error = require_model(server_cfg.model)
+        if model_error is not None:
+            _print_validation_error(model_error)
+
+    if len(configs) > 1:
+        ports_error = validate_ports(
+            configs[0].port,
+            configs[1].port,
+            configs[0].alias + " port",
+            configs[1].alias + " port",
+        )
+        if ports_error is not None:
+            _print_validation_error(ports_error)
+
+
+def _run_tui(parsed: argparse.Namespace) -> int:
+    """Run the TUI application.
+
+    Args:
+        parsed: Parsed arguments with tui_mode, port, port2, acknowledge_risky.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    from llama_cli.commands.tui import TUIApp
+
+    cfg = Config()
+    mode_configs = _build_tui_mode_configs(cfg, parsed)
+
+    bins, names, configs, gpu_indices = mode_configs.get(parsed.tui_mode, ([], [], [], []))
+    for bin_path, name in zip(bins, names, strict=True):
+        exec_error = require_executable(bin_path, name)
+        if exec_error is not None:
+            _print_validation_error(exec_error)
+
+    _validate_tui_configs(configs)
+
+    app = TUIApp(configs, gpu_indices)
+    app.run(acknowledged=parsed.acknowledge_risky)
+    return 0
 
 
 def _run_mode(parsed_mode: str, ports: list[int], manager: ServerManager, cfg: Config) -> int:
@@ -338,6 +434,7 @@ def _normalize_main_args(args: list[str] | None) -> list[str]:
         "setup",
         "profile",
         "smoke",
+        "tui",
     }
     if args[0] in modes or args[0].startswith("-"):
         return args
@@ -372,7 +469,9 @@ def main(args: list[str] | None = None) -> int:
 
     # Handle build command
     if parsed.mode == "build":
-        return run_build(parsed.backend, parsed.dry_run)
+        from llama_cli.commands.build import main as build_main
+
+        return build_main(parsed.build_args)
 
     # Handle setup command
     if parsed.mode == "setup":
@@ -380,19 +479,19 @@ def main(args: list[str] | None = None) -> int:
 
     # Handle doctor command (FR-004.7)
     if parsed.mode == "doctor":
-        from llama_cli.doctor_cli import main as doctor_main
+        from llama_cli.commands.doctor import main as doctor_main
 
         return doctor_main(argv[1:])
 
     # Handle profile subcommand
     if parsed.mode == "profile":
-        from llama_cli.profile_cli import main as profile_main
+        from llama_cli.commands.profile import main as profile_main
 
         return profile_main(argv[1:])
 
     # Handle smoke subcommand
     if parsed.mode == "smoke":
-        from llama_cli.smoke_cli import run_smoke
+        from llama_cli.commands.smoke import run_smoke
 
         smoke_args = [
             parsed.smoke_mode,
@@ -416,6 +515,13 @@ def main(args: list[str] | None = None) -> int:
 
         return run_smoke(smoke_args)
 
+    # Enable Intel Sysman for telemetry before any backend operations
+    os.environ["ZES_ENABLE_SYSMAN"] = "1"
+
+    # Handle tui subcommand
+    if parsed.mode == "tui":
+        return _run_tui(parsed)
+
     manager = ServerManager()
     signal.signal(signal.SIGINT, manager.on_interrupt)
     signal.signal(signal.SIGTERM, manager.on_terminate)
@@ -423,7 +529,6 @@ def main(args: list[str] | None = None) -> int:
 
     Colors.is_enabled()
     check_prereqs()
-    os.environ["ZES_ENABLE_SYSMAN"] = "1"
 
     if parsed.mode == "dry-run":
         return _run_dry_run_mode(parsed, parsed.acknowledge_risky)
@@ -442,59 +547,6 @@ def main(args: list[str] | None = None) -> int:
         return 1
     except IndexError as e:
         print(f"error: index error: {e}", file=sys.stderr)
-        return 1
-
-
-def run_build(backend: str, dry_run: bool = False) -> int:
-    """Run the build command.
-
-    Args:
-        backend: Build backend ("sycl" or "cuda")
-        dry_run: If True, print commands without executing
-
-    Returns:
-        Exit code (0 for success, 1 for failure)
-    """
-    from llama_manager.build_pipeline import BuildBackend, BuildConfig, BuildPipeline
-
-    config = Config()
-
-    # Determine paths based on backend
-    source_dir = Path(config.llama_cpp_root)
-    build_dir = source_dir / ("build_cuda" if backend == "cuda" else "build")
-    output_dir = config.builds_dir
-
-    # Create build config
-    build_backend = BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA
-    build_config = BuildConfig(
-        backend=build_backend,
-        source_dir=source_dir,
-        build_dir=build_dir,
-        output_dir=output_dir,
-        git_remote_url=config.build_git_remote,
-        git_branch=config.build_git_branch,
-        shallow_clone=True,
-        retry_attempts=config.build_retry_attempts,
-        retry_delay=config.build_retry_delay,
-    )
-
-    # Create and run pipeline directly
-    pipeline = BuildPipeline(build_config)
-    pipeline.dry_run = dry_run
-
-    print(f"Building for {backend} backend...", file=sys.stderr)
-    if dry_run:
-        print("DRY RUN MODE - commands will not be executed", file=sys.stderr)
-
-    result = pipeline.run()
-
-    if result.success:
-        print("Build completed successfully!", file=sys.stderr)
-        if result.artifact:
-            print(f"Artifact: {result.artifact.binary_path}", file=sys.stderr)
-        return 0
-    else:
-        print(f"Build failed: {result.error_message}", file=sys.stderr)
         return 1
 
 
