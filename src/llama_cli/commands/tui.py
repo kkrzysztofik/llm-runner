@@ -191,6 +191,7 @@ class TUIApp:
         layout.split_column(
             Layout(name="alerts", size=8),
             Layout(name="content", ratio=1),
+            Layout(name="menu", size=1),
         )
 
         if self.width >= 80:
@@ -257,6 +258,7 @@ class TUIApp:
         else:
             layout["right"].update(self._build_placeholder_panel())
 
+        layout["menu"].update(self._build_command_menu())
         return layout
 
     def _build_status_panel(self, launch_result: LaunchResult) -> None:
@@ -437,7 +439,12 @@ class TUIApp:
             return True
 
         if key == "^C":
-            self._abort_profile()
+            if self._profile_request is not None:
+                self._profile_request = None
+                self._push_status_message("Profile selection cancelled.")
+                return True
+            # Let _on_key handle running profiles / shutdown
+            return False
 
         if key.upper() == "P" and self.configs:
             cfg = self.configs[0]
@@ -478,6 +485,9 @@ class TUIApp:
 
             if self.risk_panel is not None:
                 self._handle_risk_key(key)
+                continue
+
+            self._on_key(key)
 
         # Handle queued profile flavor request non-blockingly
         if self._profile_request is not None:
@@ -900,6 +910,40 @@ class TUIApp:
             title="Status",
             border_style="dim",
         )
+
+    def _build_command_menu(self) -> Text:
+        """Build an htop-style bottom command menu.
+
+        Context-aware: shows different commands based on active TUI state.
+        """
+        menu = Text()
+
+        def _add_item(key: str, desc: str) -> None:
+            menu.append(f" {key} ", style="bold cyan reverse")
+            menu.append(f" {desc} ", style="white")
+
+        if self._profile_request is not None:
+            _add_item("1", "Balanced")
+            _add_item("2", "Fast")
+            _add_item("3", "Quality")
+            _add_item("^C", "Cancel")
+        elif self._slot_config_state:
+            _add_item("Enter", "Next")
+            _add_item("Backspace", "Edit")
+            _add_item("Esc", "Cancel")
+        elif self.risk_panel is not None:
+            _add_item("y", "Confirm")
+            _add_item("n", "Abort")
+            if self.active_risk_kind != "vram":
+                _add_item("q", "Quit")
+        else:
+            _add_item("q", "Quit")
+            _add_item("r", "Refresh")
+            _add_item("a", "Add slot")
+            _add_item("P", "Profile")
+            _add_item("^C", "Stop")
+
+        return menu
 
     _BACKEND_LABELS: dict[str, str] = {
         "sycl": "SYCL",

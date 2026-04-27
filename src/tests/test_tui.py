@@ -661,3 +661,37 @@ class TestHandleVramRisk:
 
         # Panel should remain unchanged
         assert app.risk_panel is not None
+
+
+class TestProcessKeypressesDispatch:
+    """Tests for _process_keypresses dispatching normal keys via _on_key."""
+
+    def test_q_key_triggers_graceful_shutdown(self) -> None:
+        """_process_keypresses should dispatch 'q' to _on_key for shutdown."""
+        from llama_cli.commands.tui import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
+        app._keypress_queue.put("q")
+        app._process_keypresses()
+        assert app.running is False
+
+    def test_r_key_triggers_refresh_message(self) -> None:
+        """_process_keypresses should dispatch 'r' to _on_key for refresh."""
+        from llama_cli.commands.tui import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
+        app._keypress_queue.put("r")
+        app._process_keypresses()
+        assert any("refreshed" in msg.lower() for msg in app._status_messages)
+
+    def test_risk_panel_blocks_normal_keys(self) -> None:
+        """_process_keypresses should not dispatch normal keys when risk panel is active."""
+        from llama_cli.commands.tui import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
+        app.risk_panel = MagicMock()
+        app._keypress_queue.put("r")
+        app._process_keypresses()
+        # 'r' is not a risk action key; with risk panel active it should be
+        # consumed without triggering a refresh.
+        assert not any("refreshed" in msg.lower() for msg in app._status_messages)

@@ -161,6 +161,18 @@ class TestTUIAppBuildLayout:
         content = layout["content"]
         assert content is not None
 
+    def test_build_layout_includes_menu(self) -> None:
+        """build_layout should include a menu layout area."""
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        layout = app.build_layout()
+        assert layout["menu"] is not None
+
+    def test_build_layout_menu_size_one(self) -> None:
+        """menu layout should have size=1."""
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        layout = app.build_layout()
+        assert layout["menu"].size == 1
+
 
 # =============================================================================
 # render
@@ -195,6 +207,12 @@ class TestTUIAppRender:
         app.status_panel = MagicMock()
         layout = app.render()
         assert layout is not None
+
+    def test_render_populates_menu(self) -> None:
+        """render should populate the menu layout."""
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        layout = app.render()
+        assert layout["menu"] is not None
 
 
 # =============================================================================
@@ -598,6 +616,54 @@ class TestProfilingFlow:
         assert mock_load.call_args.kwargs["gpu_identifier"] == "intel-arc_b580-00"
         assert mock_load.call_args.kwargs["current_driver_version"] == "driver-1"
         assert mock_load.call_args.kwargs["current_binary_version"] == "v1.2.3"
+
+
+class TestBuildCommandMenu:
+    """Tests for TUIApp._build_command_menu."""
+
+    def test_normal_mode_shows_expected_commands(self) -> None:
+        menu = TUIApp(configs=[_make_config()], gpu_indices=[0])._build_command_menu()
+        text = menu.plain
+        assert "Quit" in text
+        assert "Refresh" in text
+        assert "Add slot" in text
+        assert "Profile" in text
+        assert "Stop" in text
+
+    def test_profile_pending_shows_flavor_commands(self) -> None:
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        app._profile_request = "slot0"
+        menu = app._build_command_menu()
+        text = menu.plain
+        assert "Balanced" in text
+        assert "Fast" in text
+        assert "Quality" in text
+        assert "Cancel" in text
+
+    def test_slot_config_shows_input_commands(self) -> None:
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        app._slot_config_state["slot1"] = "model"
+        menu = app._build_command_menu()
+        text = menu.plain
+        assert "Next" in text
+        assert "Edit" in text
+        assert "Cancel" in text
+
+    def test_risk_panel_shows_confirm_commands(self) -> None:
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        app.risk_panel = MagicMock()
+        menu = app._build_command_menu()
+        text = menu.plain
+        assert "Confirm" in text
+        assert "Abort" in text
+
+    def test_risk_panel_vram_hides_quit(self) -> None:
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        app.risk_panel = MagicMock()
+        app.active_risk_kind = "vram"
+        menu = app._build_command_menu()
+        text = menu.plain
+        assert "Quit" not in text
 
 
 class TestCbreakStdin:
