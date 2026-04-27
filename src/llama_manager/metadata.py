@@ -229,7 +229,7 @@ def _read_int32(data: bytes, offset: int) -> int | None:
     return val - 4294967296 if val > 2147483647 else val
 
 
-def _skip_non_integer_type(data: bytes, offset: int, type_tag: int) -> int:
+def _skip_non_integer_type(_data: bytes, offset: int, type_tag: int) -> int:
     """Skip non-integer GGUF types, return new offset."""
     skip_sizes = {7: 2, 8: 4, 9: 8}  # f16, f32, f64
     return offset + skip_sizes.get(type_tag, 0)

@@ -1,6 +1,7 @@
 # Toolchain detection and status checking for M2 build setup
 
 import re
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -209,6 +210,34 @@ NVTOP_HINT: ToolchainHint = ToolchainHint(
 _INTEL_ONEAPI_BIN = Path("/opt/intel/oneapi/compiler/latest/bin")
 
 
+def _extract_version(output: str, tool_name: str) -> str | None:
+    """Extract version string from tool --version output."""
+    if tool_name == "nvcc":
+        release_match = re.search(r"release\s+(\d+(?:\.\d+){0,2})", output)
+        if release_match:
+            return release_match.group(1)
+    version_match = re.search(r"\d+(?:\.\d+){0,2}", output)
+    if version_match:
+        return version_match.group(0)
+    return output.split("\n")[0] if output else None
+
+
+def _try_tool(cmd: list[str], name: str, timeout: int) -> tuple[bool, str | None]:
+    """Try to run a tool and extract its version."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode == 0:
+            version = _extract_version(result.stdout.strip(), name)
+            if version is not None:
+                return (True, version)
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return (False, None)
+
+
+_INTEL_ONEAPI_TOOLS = frozenset({"icpx", "icx", "dpcpp"})
+
+
 def detect_tool(
     tool_name: str,
     timeout: int | None = None,
@@ -235,48 +264,17 @@ def detect_tool(
         >>> detect_tool("nonexistent_tool")
         (False, None)
     """
-    import subprocess
-
     if timeout is None:
-        timeout = 30  # Default timeout
+        timeout = 30
 
-    def _try_tool(cmd: list[str], name: str = "") -> tuple[bool, str | None]:
-        """Try to run a tool and extract its version."""
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-            if result.returncode == 0:
-                output = result.stdout.strip()
-                # Tool-specific version extraction
-                if name == "nvcc":
-                    # nvcc --version output has copyright year first;
-                    # the actual CUDA version is on the "release X.Y" line
-                    release_match = re.search(r"release\s+(\d+(?:\.\d+){0,2})", output)
-                    if release_match:
-                        return (True, release_match.group(1))
-                # Generic fallback for all other tools
-                version_match = re.search(r"\d+(?:\.\d+){0,2}", output)
-                if version_match:
-                    return (True, version_match.group(0))
-                return (True, output.split("\n")[0])
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            pass
-        return (False, None)
-
-    # Try PATH first
-    found, version = _try_tool([tool_name, "--version"], name=tool_name)
+    found, version = _try_tool([tool_name, "--version"], tool_name, timeout)
     if found:
         return (True, version)
 
-    # Fallback: Intel oneAPI default installation path
-    if tool_name in ("icpx", "icx", "dpcpp"):
+    if tool_name in _INTEL_ONEAPI_TOOLS:
         fallback = _INTEL_ONEAPI_BIN / tool_name
         if fallback.exists():
-            found, version = _try_tool([str(fallback), "--version"], name=tool_name)
+            found, version = _try_tool([str(fallback), "--version"], tool_name, timeout)
             if found:
                 return (True, version)
 

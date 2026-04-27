@@ -422,6 +422,38 @@ class TUIApp:
                     # Don't crash the TUI if stdin polling fails
                     time.sleep(0.1)
 
+    def _handle_profile_key(self, key: str) -> bool:
+        """Handle profile-related keys. Returns True if key was consumed."""
+        if self._profile_request is not None and key in {"1", "2", "3"}:
+            alias = self._profile_request
+            self._profile_request = None
+            self._wait_for_flavor_selection(alias, preselected_key=key)
+            return True
+
+        if key == "^C":
+            self._abort_profile()
+
+        if key.upper() == "P" and self.configs:
+            cfg = self.configs[0]
+            self._prompt_profile_flavor(cfg.alias)
+            return True
+
+        return False
+
+    def _handle_risk_key(self, key: str) -> None:
+        """Handle hardware warning and VRAM risk keys."""
+        if key in ("y", "n"):
+            if self.active_risk_kind == "vram":
+                result = self.handle_vram_risk(key)
+            else:
+                result = self.handle_hardware_warning(key)
+            if result in ("proceed", "abort"):
+                self.active_risk_kind = None
+        elif key == "q" and self.active_risk_kind != "vram":
+            result = self.handle_hardware_warning(key)
+            if result in ("acknowledge", "abort", "quit"):
+                self.active_risk_kind = None
+
     def _process_keypresses(self) -> None:
         """Drain the keypress queue and handle relevant keys."""
         while not self._keypress_queue.empty():
@@ -430,37 +462,11 @@ class TUIApp:
             except queue.Empty:
                 break
 
-            if self._profile_request is not None and key in {"1", "2", "3"}:
-                alias = self._profile_request
-                self._profile_request = None
-                self._wait_for_flavor_selection(alias, preselected_key=key)
+            if self._handle_profile_key(key):
                 continue
 
-            # Handle Ctrl+C during profiling — abort the current profile
-            if key == "^C":
-                self._abort_profile()
-            # Handle 'P' key — trigger profiling on the focused slot
-            if key.upper() == "P" and self.configs:
-                # Use the first config (left column = focused slot)
-                cfg = self.configs[0]
-                self._prompt_profile_flavor(cfg.alias)
-                continue
-
-            # Handle hardware warning keys (y/n/q) and VRAM risk keys (y/n)
             if self.risk_panel is not None:
-                if key in ("y", "n"):
-                    if self.active_risk_kind == "vram":
-                        result = self.handle_vram_risk(key)
-                    else:
-                        result = self.handle_hardware_warning(key)
-                    if result in ("proceed", "abort"):
-                        self.active_risk_kind = None
-                        continue
-                elif key == "q" and self.active_risk_kind != "vram":
-                    result = self.handle_hardware_warning(key)
-                    if result in ("acknowledge", "abort", "quit"):
-                        self.active_risk_kind = None
-                        continue
+                self._handle_risk_key(key)
 
         # Handle queued profile flavor request non-blockingly
         if self._profile_request is not None:
@@ -601,7 +607,7 @@ class TUIApp:
         try:
             from llama_cli.commands.profile import _get_driver_version
 
-            record, staleness = load_profile_with_staleness(
+            _record, staleness = load_profile_with_staleness(
                 profiles_dir=self.config.profiles_dir,
                 gpu_identifier=get_gpu_identifier(cfg.backend),
                 backend=cfg.backend,
@@ -718,57 +724,53 @@ class TUIApp:
             border_style="dim",
         )
 
+    _BACKEND_LABELS: dict[str, str] = {
+        "sycl": "SYCL",
+        "cuda": "CUDA",
+        "llama_cpp": "CPU",
+    }
+    _STATUS_COLORS: dict[str, str] = {
+        SlotState.RUNNING.value: "green",
+        SlotState.LAUNCHING.value: "yellow",
+        SlotState.DEGRADED.value: "yellow",
+        SlotState.CRASHED.value: "red",
+        SlotState.OFFLINE.value: "dim",
+        SlotState.IDLE.value: "dim",
+    }
+
+    def _build_slot_section(self, cfg: ServerConfig) -> Text:
+        """Build the status Text for a single slot."""
+        alias = cfg.alias
+        state = self._slot_states.get(alias, SlotState.OFFLINE.value)
+
+        status = state
+        if state == SlotState.RUNNING.value:
+            proc = self._server_processes.get(alias)
+            if not proc or not (proc.pid and psutil.pid_exists(proc.pid)):
+                status = SlotState.CRASHED.value
+
+        backend_label = self._BACKEND_LABELS.get(cfg.backend, self._BACKEND_LABELS["llama_cpp"])
+        color = self._STATUS_COLORS.get(status, "white")
+
+        header = Text()
+        header.append(f"[{alias}] ", style="bold")
+        header.append(f"{status.upper()} ", style=color)
+        header.append(f"| {backend_label} ", style="cyan")
+        header.append(f"| http://{self.config.host}:{cfg.port}", style="dim")
+        header.append("\n")
+
+        buffer = self.log_buffers.get(alias)
+        if buffer is not None:
+            log_lines = buffer.get_lines()[-3:] if buffer.get_lines() else []
+            log_text = "\n".join(log_lines) if log_lines else "  (no logs yet)"
+            if log_text:
+                header.append(Text(log_text + "\n", style="dim"))
+
+        return header
+
     def _build_slot_status_panel(self) -> Panel:
         """Build a panel showing per-slot status (health, logs, GPU stats, backend label)."""
-        sections: list[Text] = []
-
-        for cfg in self.configs:
-            alias = cfg.alias
-            state = self._slot_states.get(alias, SlotState.OFFLINE.value)
-
-            status = state
-            if state == SlotState.RUNNING.value:
-                proc = self._server_processes.get(alias)
-                if not proc or not (proc.pid and psutil.pid_exists(proc.pid)):
-                    status = SlotState.CRASHED.value
-
-            # Determine backend label
-            backend_map: dict[str, str] = {
-                "sycl": "SYCL",
-                "cuda": "CUDA",
-                "llama_cpp": "CPU",
-            }
-            backend_label = backend_map.get(cfg.backend, backend_map["llama_cpp"])
-
-            # Color for status
-            status_colors: dict[str, str] = {
-                SlotState.RUNNING.value: "green",
-                SlotState.LAUNCHING.value: "yellow",
-                SlotState.DEGRADED.value: "yellow",
-                SlotState.CRASHED.value: "red",
-                SlotState.OFFLINE.value: "dim",
-                SlotState.IDLE.value: "dim",
-            }
-            color = status_colors.get(status, "white")
-
-            # Build section for this slot
-            header = Text()
-            header.append(f"[{alias}] ", style="bold")
-            header.append(f"{status.upper()} ", style=color)
-            header.append(f"| {backend_label} ", style="cyan")
-            header.append(f"| http://{self.config.host}:{cfg.port}", style="dim")
-            header.append("\n")
-
-            # Log buffer preview (last 3 lines)
-            buffer = self.log_buffers.get(alias)
-            if buffer is not None:
-                log_lines = buffer.get_lines()[-3:] if buffer.get_lines() else []
-                log_text = "\n".join(log_lines) if log_lines else "  (no logs yet)"
-                if log_text:
-                    header.append(Text(log_text + "\n", style="dim"))
-
-            sections.append(header)
-
+        sections = [self._build_slot_section(cfg) for cfg in self.configs]
         group = Group(*sections)
         return Panel(group, title="Slot Status", border_style="blue")
 

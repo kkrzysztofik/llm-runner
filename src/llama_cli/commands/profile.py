@@ -365,6 +365,25 @@ def _create_and_save_profile(
     return 0
 
 
+def _check_slot_lockfile(slot_id: str, config: Config, _emit: Callable[[str], None]) -> None:
+    """Warn if slot appears to be running (lockfile exists)."""
+    try:
+        runtime_dir = config.profiles_dir.parent
+        lock_path = runtime_dir / f"{slot_id}.lock"
+        if lock_path.exists():
+            _emit(
+                f"warning: slot '{slot_id}' appears to be running (lockfile exists), proceeding anyway",
+            )
+    except OSError as exc:
+        LOGGER.warning("Unable to inspect slot lockfile for %s", slot_id, exc_info=exc)
+
+
+def _resolve_bench_bin(server_config: ServerConfig, config: Config) -> str | None:
+    """Resolve benchmark binary path, return None if unavailable."""
+    server_bin = server_config.server_bin or config.llama_server_bin_intel
+    return server_bin.replace("llama-server", "llama-bench") if server_bin else "llama-bench"
+
+
 def cmd_profile(
     slot_id: str,
     flavor: str,
@@ -398,25 +417,16 @@ def cmd_profile(
         _emit(f"Profile '{slot_id}' cancelled.", stderr=True)
         return 1
 
-    # Check if slot is already running (skip if we can't determine)
-    try:
-        runtime_dir = config.profiles_dir.parent
-        lock_path = runtime_dir / f"{slot_id}.lock"
-        if lock_path.exists():
-            _emit(
-                f"warning: slot '{slot_id}' appears to be running (lockfile exists), proceeding anyway",
-                stderr=True,
-            )
-    except OSError as exc:
-        LOGGER.warning("Unable to inspect slot lockfile for %s", slot_id, exc_info=exc)
+    _check_slot_lockfile(slot_id, config, lambda msg: _emit(msg, stderr=True))
 
     server_config = _resolve_slot_server_config(slot_id, config)
     backend = _detect_backend(server_config)
     _emit(f"Detected backend: {backend}", stderr=True)
 
-    # Resolve benchmark binary path
-    server_bin = server_config.server_bin or config.llama_server_bin_intel
-    bench_bin = server_bin.replace("llama-server", "llama-bench") if server_bin else "llama-bench"
+    bench_bin = _resolve_bench_bin(server_config, config)
+    if bench_bin is None:
+        _emit("error: benchmark binary unavailable", stderr=True)
+        return 1
 
     try:
         require_executable(bench_bin)

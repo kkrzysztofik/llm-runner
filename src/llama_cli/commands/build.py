@@ -411,6 +411,36 @@ def _format_error_text(results: list[tuple[BuildBackend, BuildResult]]) -> None:
                 print(f"    report: {result.artifact.failure_report_path}", file=sys.stderr)
 
 
+def _resolve_backend_paths(
+    args: argparse.Namespace,
+    backend: BuildBackend,
+    source_dir: Path,
+    config: Config,
+) -> tuple[Path, Path]:
+    """Compute backend-scoped build and output directories.
+
+    Args:
+        args: Parsed build arguments.
+        backend: Target backend (SYCL or CUDA).
+        source_dir: llama.cpp source directory.
+        config: Application configuration.
+
+    Returns:
+        Tuple of (build_dir, output_dir).
+    """
+    if args.build_dir:
+        build_dir = Path(args.build_dir) / backend.value
+    else:
+        build_dir = _default_build_dir(source_dir, backend)
+
+    if args.output_dir:
+        output_dir = Path(args.output_dir) / backend.value
+    else:
+        output_dir = config.builds_dir / backend.value
+
+    return build_dir, output_dir
+
+
 def run_build_command(args: argparse.Namespace) -> int:
     """Execute build command.
 
@@ -420,34 +450,18 @@ def run_build_command(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for failure)
     """
-    # Determine backend(s) and paths
     backends = _get_backends(args.backend)
     config = Config()
     source_dir = args.source_dir or Path(config.llama_cpp_root)
 
-    # Build each backend sequentially
     results: list[tuple[BuildBackend, BuildResult]] = []
     for backend in backends:
-        # Compute backend-scoped paths
-        if args.build_dir:
-            # When user provides build_dir, namespace it with backend identifier
-            build_dir = Path(args.build_dir) / backend.value
-        else:
-            build_dir = _default_build_dir(source_dir, backend)
-
-        if args.output_dir:
-            # When user provides output_dir, namespace it with backend identifier
-            output_dir = Path(args.output_dir) / backend.value
-        else:
-            output_dir = config.builds_dir / backend.value
-
+        build_dir, output_dir = _resolve_backend_paths(args, backend, source_dir, config)
         result = _build_single_backend(backend, args, source_dir, build_dir, output_dir)
         results.append(result)
 
-    # Check if all builds succeeded
     all_success = all(result.success for _backend, result in results)
 
-    # Output results
     if all_success:
         if args.json:
             print(_format_success_json(results))

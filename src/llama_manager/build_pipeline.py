@@ -6,6 +6,8 @@ import logging
 import os
 import re
 import shlex
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -751,70 +753,30 @@ class BuildPipeline:
         logger.info("[preflight] toolchain validated for %s", self.config.backend.value)
         return progress
 
-    def _run_clone(self) -> BuildProgress:
-        """Run clone stage - clone git repository.
+    def _handle_existing_source(self, progress: BuildProgress) -> BuildProgress | None:
+        """Handle case where source directory already exists.
 
-        Implements offline-continue support: if source directory exists and
-        contains files, skip the clone operation and continue with existing
-        sources. This allows builds to continue when network is unavailable
-        but local clone exists.
-
-        When ``update_sources`` is enabled and the source directory is a valid
-        git repository, the pipeline fetches the latest changes and fast-forwards
-        to ``origin/<branch>`` instead of skipping.
-
-        Returns:
-            BuildProgress with stage status
+        Returns a BuildProgress if the clone should be skipped, None to proceed.
         """
-        import subprocess
+        if self.config.update_sources and self._is_git_repo():
+            logger.info(
+                "[clone] source exists and update_sources=True; updating existing clone"
+            )
+            return self._update_sources(progress)
+        if self.config.git_commit and self._is_git_repo():
+            logger.info(
+                "[clone] source exists; checking out configured git_commit=%s",
+                self.config.git_commit,
+            )
+            return self._checkout_commit(progress)
+        logger.info("[clone] source exists; skipping clone")
+        progress.status = "skipped"
+        progress.message = MSG_SOURCES_ALREADY_EXIST
+        progress.progress_percent = 30
+        return progress
 
-        progress = BuildProgress(
-            stage="clone",
-            status="running",
-            message="Cloning repository...",
-            progress_percent=20,
-        )
-
-        logger.info("[clone] checking source_dir=%s", self.config.source_dir)
-        logger.debug(
-            "[clone] source_exists=%s is_git_repo=%s",
-            self._source_exists(),
-            self._is_git_repo() if self._source_exists() else False,
-        )
-
-        # Check if source already exists and is non-empty
-        # This enables offline-continue: use existing sources when network unavailable
-        if self._source_exists():
-            if self.config.update_sources and self._is_git_repo():
-                logger.info(
-                    "[clone] source exists and update_sources=True; updating existing clone"
-                )
-                return self._update_sources(progress)
-            # If git_commit is configured, checkout that specific commit
-            if self.config.git_commit and self._is_git_repo():
-                logger.info(
-                    "[clone] source exists; checking out configured git_commit=%s",
-                    self.config.git_commit,
-                )
-                return self._checkout_commit(progress)
-            logger.info("[clone] source exists; skipping clone")
-            progress.status = "skipped"
-            progress.message = MSG_SOURCES_ALREADY_EXIST
-            progress.progress_percent = 30
-            return progress
-
-        # Clone repository
-        logger.info(
-            "[clone] source missing; cloning from %s",
-            _redact_build_text(self.config.git_remote_url),
-        )
-        logger.debug(
-            "[clone] branch=%s shallow=%s target=%s",
-            self.config.git_branch,
-            self.config.shallow_clone,
-            self.config.source_dir,
-        )
-
+    def _execute_clone(self, progress: BuildProgress) -> BuildProgress:
+        """Execute the git clone operation."""
         try:
             if self._dry_run:
                 progress.message = (
@@ -841,42 +803,80 @@ class BuildPipeline:
             progress.progress_percent = 30
             logger.info("[clone] cloned successfully into %s", self.config.source_dir)
 
-            # Checkout specific commit if requested
             if self.config.git_commit:
                 progress = self._checkout_commit(progress)
                 if progress.status != "success":
                     return progress
 
         except subprocess.SubprocessError as e:
-            # Network/subprocess failure - check if sources exist to enable offline continue
-            stderr = _redact_build_text(getattr(e, "stderr", None) or str(e))
-            if self._source_exists():
-                logger.warning(
-                    "[clone] clone failed but source exists; continuing offline: %s",
-                    stderr,
-                )
-                progress.status = "skipped"
-                progress.message = MSG_SOURCES_ALREADY_EXIST
-                progress.progress_percent = 30
-            else:
-                logger.error("[clone] clone failed: %s", stderr)
-                progress.status = "failed"
-                progress.message = f"Git clone failed: {stderr}"
-            return progress
+            return self._handle_clone_error(progress, e)
         except Exception as e:
-            # Other errors (TimeoutExpired, etc.) - check if sources exist
-            if self._source_exists():
-                logger.warning("[clone] error but source exists; continuing offline: %s", str(e))
-                progress.status = "skipped"
-                progress.message = MSG_SOURCES_ALREADY_EXIST
-                progress.progress_percent = 30
-            else:
-                logger.error("[clone] clone failed: %s", str(e))
-                progress.status = "failed"
-                progress.message = f"Clone failed: {str(e)}"
-            return progress
+            return self._handle_clone_error(progress, e)
 
         return progress
+
+    def _handle_clone_error(
+        self, progress: BuildProgress, error: Exception
+    ) -> BuildProgress:
+        """Handle clone failure with offline-continue support."""
+        if self._source_exists():
+            logger.warning("[clone] error but source exists; continuing offline: %s", str(error))
+            progress.status = "skipped"
+            progress.message = MSG_SOURCES_ALREADY_EXIST
+            progress.progress_percent = 30
+        else:
+            stderr = _redact_build_text(getattr(error, "stderr", None) or str(error))
+            logger.error("[clone] clone failed: %s", stderr)
+            progress.status = "failed"
+            progress.message = f"Clone failed: {stderr}"
+        return progress
+
+    def _run_clone(self) -> BuildProgress:
+        """Run clone stage - clone git repository.
+
+        Implements offline-continue support: if source directory exists and
+        contains files, skip the clone operation and continue with existing
+        sources. This allows builds to continue when network is unavailable
+        but local clone exists.
+
+        When ``update_sources`` is enabled and the source directory is a valid
+        git repository, the pipeline fetches the latest changes and fast-forwards
+        to ``origin/<branch>`` instead of skipping.
+
+        Returns:
+            BuildProgress with stage status
+        """
+        progress = BuildProgress(
+            stage="clone",
+            status="running",
+            message="Cloning repository...",
+            progress_percent=20,
+        )
+
+        logger.info("[clone] checking source_dir=%s", self.config.source_dir)
+        logger.debug(
+            "[clone] source_exists=%s is_git_repo=%s",
+            self._source_exists(),
+            self._is_git_repo() if self._source_exists() else False,
+        )
+
+        if self._source_exists():
+            result = self._handle_existing_source(progress)
+            if result is not None:
+                return result
+
+        logger.info(
+            "[clone] source missing; cloning from %s",
+            _redact_build_text(self.config.git_remote_url),
+        )
+        logger.debug(
+            "[clone] branch=%s shallow=%s target=%s",
+            self.config.git_branch,
+            self.config.shallow_clone,
+            self.config.source_dir,
+        )
+
+        return self._execute_clone(progress)
 
     def _is_git_repo(self) -> bool:
         """Check if source directory contains a valid git repository.
@@ -1156,14 +1156,90 @@ class BuildPipeline:
 
         return progress
 
+    def _build_cmake_cmd(self) -> list[str]:
+        """Construct the cmake --build command."""
+        cmd = ["cmake", "--build", str(self.config.build_dir)]
+        if self.config.jobs:
+            cmd.extend(["-j", str(self.config.jobs)])
+        return self._get_build_env_cmd(cmd)
+
+    def _run_build_subprocess(self, cmd: list[str], progress: BuildProgress) -> BuildProgress:
+        """Execute cmake --build with real-time output streaming."""
+        started_at = time.monotonic()
+
+        with subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        ) as proc:
+            stdout_lines: list[str] = []
+            stderr_lines: list[str] = []
+            stdout_done = threading.Event()
+            stderr_done = threading.Event()
+
+            def read_stdout() -> None:
+                if proc.stdout:
+                    for line in proc.stdout:
+                        stdout_lines.append(line.rstrip("\n"))
+                        print(line.rstrip("\n"), file=sys.stderr)
+                stdout_done.set()
+
+            def read_stderr() -> None:
+                if proc.stderr:
+                    for line in proc.stderr:
+                        stderr_lines.append(line.rstrip("\n"))
+                        print(line.rstrip("\n"), file=sys.stderr)
+                stderr_done.set()
+
+            stdout_t = threading.Thread(target=read_stdout)
+            stderr_t = threading.Thread(target=read_stderr)
+            stdout_t.start()
+            stderr_t.start()
+            proc.wait()
+            stdout_t.join()
+            stderr_t.join()
+
+        result_stdout = "\n".join(stdout_lines)
+        result_stderr = "\n".join(stderr_lines)
+        returncode = proc.returncode
+        duration = _format_duration(time.monotonic() - started_at)
+
+        logger.debug("[build] cmake exited with rc=%s in %s", returncode, duration)
+
+        self._append_command_output(
+            stage="build",
+            command=cmd,
+            returncode=returncode,
+            stdout=result_stdout,
+            stderr=result_stderr,
+        )
+
+        if returncode == 0:
+            progress.message = f"Build completed for {self.config.backend.value} in {duration}"
+            progress.status = "success"
+            progress.progress_percent = 75
+            logger.info("[build] %s", progress.message)
+        else:
+            logger.error("[build] compilation failed (rc=%s)", returncode)
+            progress.status = "failed"
+            progress.message = _format_command_failure(
+                stage="Build",
+                command=cmd,
+                returncode=returncode,
+                stdout=result_stdout,
+                stderr=result_stderr,
+            )
+
+        return progress
+
     def _run_build(self) -> BuildProgress:
         """Run build stage - compile with cmake --build.
 
         Returns:
             BuildProgress with stage status
         """
-        import subprocess
-
         progress = BuildProgress(
             stage="build",
             status="running",
@@ -1174,10 +1250,7 @@ class BuildPipeline:
         logger.info("[build] starting compilation for %s", self.config.backend.value)
 
         if self._dry_run:
-            cmd = ["cmake", "--build", str(self.config.build_dir)]
-            if self.config.jobs:
-                cmd.extend(["-j", str(self.config.jobs)])
-            cmd = self._get_build_env_cmd(cmd)
+            cmd = self._build_cmake_cmd()
             progress.message = f"Would run: {_format_command(cmd)}"
             progress.status = "success"
             progress.progress_percent = 75
@@ -1185,90 +1258,11 @@ class BuildPipeline:
             return progress
 
         try:
-            cmd = ["cmake", "--build", str(self.config.build_dir)]
-            if self.config.jobs:
-                cmd.extend(["-j", str(self.config.jobs)])
-            cmd = self._get_build_env_cmd(cmd)
-
+            cmd = self._build_cmake_cmd()
             logger.info("[build] running cmake --build (this may take several minutes)")
             logger.info("[build] command: %s", _format_command(cmd))
             logger.debug("[build] jobs=%s", self.config.jobs)
-
-            started_at = time.monotonic()
-
-            # Stream output in real-time while capturing for logs
-            import sys as _sys
-
-            with subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-            ) as proc:
-                # Read stdout and stderr concurrently to avoid deadlock
-                stdout_lines: list[str] = []
-                stderr_lines: list[str] = []
-                stdout_done = threading.Event()
-                stderr_done = threading.Event()
-
-                def read_stdout() -> None:
-                    if proc.stdout:
-                        for line in proc.stdout:
-                            clean = line.rstrip("\n")
-                            stdout_lines.append(clean)
-                            print(clean, file=_sys.stderr)
-                    stdout_done.set()
-
-                def read_stderr() -> None:
-                    if proc.stderr:
-                        for line in proc.stderr:
-                            clean = line.rstrip("\n")
-                            stderr_lines.append(clean)
-                            print(clean, file=_sys.stderr)
-                    stderr_done.set()
-
-                stdout_thread = threading.Thread(target=read_stdout)
-                stderr_thread = threading.Thread(target=read_stderr)
-                stdout_thread.start()
-                stderr_thread.start()
-
-                # Wait for both streams to be fully read
-                proc.wait()
-                stdout_thread.join()
-                stderr_thread.join()
-
-            result_stdout = "\n".join(stdout_lines)
-            result_stderr = "\n".join(stderr_lines)
-            returncode = proc.returncode
-            duration = _format_duration(time.monotonic() - started_at)
-
-            logger.debug("[build] cmake exited with rc=%s in %s", returncode, duration)
-
-            self._append_command_output(
-                stage="build",
-                command=cmd,
-                returncode=returncode,
-                stdout=result_stdout,
-                stderr=result_stderr,
-            )
-
-            if returncode == 0:
-                progress.message = f"Build completed for {self.config.backend.value} in {duration}"
-                progress.status = "success"
-                progress.progress_percent = 75
-                logger.info("[build] %s", progress.message)
-            else:
-                logger.error("[build] compilation failed (rc=%s)", returncode)
-                progress.status = "failed"
-                progress.message = _format_command_failure(
-                    stage="Build",
-                    command=cmd,
-                    returncode=returncode,
-                    stdout=result_stdout,
-                    stderr=result_stderr,
-                )
-
+            return self._run_build_subprocess(cmd, progress)
         except Exception as e:
             logger.error("[build] exception: %s", str(e))
             progress.status = "failed"

@@ -435,6 +435,54 @@ def _handle_dry_run_case(args: list[str]) -> argparse.Namespace | None:
     return None
 
 
+def _parse_tui_port(args: list[str], i: int, flag: str) -> tuple[int | None, int, bool]:
+    """Parse a single port argument (--port or --port2).
+
+    Returns:
+        Tuple of (port_value_or_None, new_index, had_error).
+    """
+    i += 1
+    if i < len(args):
+        try:
+            return int(args[i]), i + 1, False
+        except ValueError:
+            print(f"error: invalid {flag} value '{args[i]}'", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print(f"error: {flag} requires a value", file=sys.stderr)
+        sys.exit(1)
+
+
+def _parse_tui_args(args: list[str], start: int) -> tuple[int | None, int | None, bool]:
+    """Parse TUI optional arguments starting from index *start*.
+
+    Returns:
+        Tuple of (port, port2, acknowledge_risky).
+    """
+    port: int | None = None
+    port2: int | None = None
+    acknowledge_risky = False
+    i = start
+
+    while i < len(args):
+        arg = args[i]
+        if arg in ("--port", "-p"):
+            port, i, _ = _parse_tui_port(args, i, arg)
+        elif arg in ("--port2", "-P"):
+            port2, i, _ = _parse_tui_port(args, i, arg)
+        elif arg == "--acknowledge-risky":
+            acknowledge_risky = True
+            i += 1
+        elif arg.startswith("-"):
+            print(f"error: unknown tui flag '{arg}'", file=sys.stderr)
+            sys.exit(1)
+        else:
+            print(f"error: unexpected tui argument '{arg}'", file=sys.stderr)
+            sys.exit(1)
+
+    return port, port2, acknowledge_risky
+
+
 def _handle_tui_case(args: list[str]) -> argparse.Namespace | None:
     """Handle tui subcommand special case.
 
@@ -465,45 +513,7 @@ def _handle_tui_case(args: list[str]) -> argparse.Namespace | None:
         )
         sys.exit(1)
 
-    port: int | None = None
-    port2: int | None = None
-    acknowledge_risky = False
-    i = 2
-    while i < len(args):
-        arg = args[i]
-        if arg in ("--port", "-p"):
-            i += 1
-            if i < len(args):
-                try:
-                    port = int(args[i])
-                except ValueError:
-                    print(f"error: invalid port value '{args[i]}'", file=sys.stderr)
-                    sys.exit(1)
-                i += 1
-            else:
-                print(f"error: {arg} requires a value", file=sys.stderr)
-                sys.exit(1)
-        elif arg in ("--port2", "-P"):
-            i += 1
-            if i < len(args):
-                try:
-                    port2 = int(args[i])
-                except ValueError:
-                    print(f"error: invalid port2 value '{args[i]}'", file=sys.stderr)
-                    sys.exit(1)
-                i += 1
-            else:
-                print(f"error: {arg} requires a value", file=sys.stderr)
-                sys.exit(1)
-        elif arg == "--acknowledge-risky":
-            acknowledge_risky = True
-            i += 1
-        elif arg.startswith("-"):
-            print(f"error: unknown tui flag '{arg}'", file=sys.stderr)
-            sys.exit(1)
-        else:
-            print(f"error: unexpected tui argument '{arg}'", file=sys.stderr)
-            sys.exit(1)
+    port, port2, acknowledge_risky = _parse_tui_args(args, 2)
 
     return argparse.Namespace(
         mode="tui",

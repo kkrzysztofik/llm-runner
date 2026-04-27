@@ -166,6 +166,22 @@ def _backend_from_string(backend: str) -> BuildBackend | None:
     return None
 
 
+def _resolve_backend_enum(backend: str | None) -> BuildBackend | None:
+    """Convert backend string to BuildBackend enum."""
+    if backend == "sycl":
+        return BuildBackend.SYCL
+    if backend == "cuda":
+        return BuildBackend.CUDA
+    return None
+
+
+def _filter_optional_tools(missing: list[str], backend: str | None, is_complete: bool) -> list[str]:
+    """Filter out optional tools when all backends are complete."""
+    if (backend == "all" or backend is None) and is_complete:
+        return [t for t in missing if t != "nvtop"]
+    return missing
+
+
 def _handle_missing_tools(status: Any, hints: list[Any], backend: str | None = None) -> int:
     """Handle and display missing tools information with colors.
 
@@ -177,32 +193,9 @@ def _handle_missing_tools(status: Any, hints: list[Any], backend: str | None = N
     Returns:
         Exit code (1 for failure)
     """
-    from llama_manager.build_pipeline import BuildBackend
+    backend_enum = _resolve_backend_enum(backend)
 
-    # Convert backend string to BuildBackend enum
-    backend_enum: BuildBackend | None = None
-    if backend == "sycl":
-        backend_enum = BuildBackend.SYCL
-    elif backend == "cuda":
-        backend_enum = BuildBackend.CUDA
-    # "all" and None map to None (returns all missing tools)
-
-    # Determine if the backend is ready
-    if backend == "sycl":
-        _backend_ready = status.is_sycl_ready
-    elif backend == "cuda":
-        _backend_ready = status.is_cuda_ready
-    elif backend == "all" or backend is None:
-        _backend_ready = status.is_complete
-    else:
-        _backend_ready = status.is_complete
-
-    missing = status.missing_tools(backend_enum)
-
-    # Filter out optional tools when backend is ready
-    if (backend == "all" or backend is None) and status.is_complete:
-        # Remove optional tools (nvtop) from missing list
-        missing = [t for t in missing if t != "nvtop"]
+    missing = _filter_optional_tools(status.missing_tools(backend_enum), backend, status.is_complete)
 
     if not missing:
         _print_success("")

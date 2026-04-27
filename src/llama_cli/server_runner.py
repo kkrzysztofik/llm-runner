@@ -44,6 +44,10 @@ PORT_SUMMARY_BALANCED = "summary-balanced port"
 PORT_SUMMARY_FAST = "summary-fast port"
 PORT_QWEN35 = "qwen35 port"
 
+# Server backend display names
+INTEL_SERVER_NAME = "Intel llama-server"
+NVIDIA_SERVER_NAME = "NVIDIA llama-server"
+
 
 def usage() -> None:
     print("""Usage:
@@ -112,7 +116,7 @@ def _print_backend_error_and_exit() -> NoReturn:
 
 def check_prereqs() -> None:
     cfg = Config()
-    require_executable(cfg.llama_server_bin_intel, "Intel llama-server")
+    require_executable(cfg.llama_server_bin_intel, INTEL_SERVER_NAME)
 
 
 def _print_validation_error(error_detail: ErrorDetail) -> NoReturn:
@@ -171,7 +175,7 @@ def run_qwen35(port: int, manager: ServerManager) -> int:
     model_error = require_model(cfg.model_qwen35)
     if model_error is not None:
         _print_validation_error(model_error)
-    exec_error = require_executable(cfg.llama_server_bin_nvidia, "NVIDIA llama-server")
+    exec_error = require_executable(cfg.llama_server_bin_nvidia, NVIDIA_SERVER_NAME)
     if exec_error is not None:
         _print_validation_error(exec_error)
     print(f"Starting qwen35-coding at http://{cfg.host}:{port}/v1 (NVIDIA CUDA)")
@@ -190,7 +194,7 @@ def run_both(port32: int, port35: int, manager: ServerManager) -> int:
     validate_ports(port32, port35, PORT_SUMMARY_BALANCED, PORT_QWEN35)
     require_model(cfg.model_summary_balanced)
     require_model(cfg.model_qwen35_both)
-    require_executable(cfg.llama_server_bin_nvidia, "NVIDIA llama-server")
+    require_executable(cfg.llama_server_bin_nvidia, NVIDIA_SERVER_NAME)
 
     slots: list[ModelSlot] = [
         ModelSlot(slot_id="summary-balanced", model_path=cfg.model_summary_balanced, port=port32),
@@ -304,23 +308,12 @@ def _resolve_port(ports: list[int], index: int, default: int) -> int:
     return ports[index] if len(ports) > index else default
 
 
-def _run_tui(parsed: argparse.Namespace) -> int:
-    """Run the TUI application.
-
-    Args:
-        parsed: Parsed arguments with tui_mode, port, port2, acknowledge_risky.
-
-    Returns:
-        Exit code (0 for success, 1 for failure).
-    """
-    from llama_cli.commands.tui import TUIApp
-
-    cfg = Config()
-
-    mode_configs = {
+def _build_tui_mode_configs(cfg: Config, parsed: argparse.Namespace) -> dict:
+    """Build the mode configuration dict for TUI launch."""
+    return {
         "both": (
             [cfg.llama_server_bin_intel, cfg.llama_server_bin_nvidia],
-            ["Intel llama-server", "NVIDIA llama-server"],
+            [INTEL_SERVER_NAME, NVIDIA_SERVER_NAME],
             [
                 create_summary_balanced_cfg(
                     parsed.port if parsed.port is not None else cfg.summary_balanced_port
@@ -331,7 +324,7 @@ def _run_tui(parsed: argparse.Namespace) -> int:
         ),
         "summary-balanced": (
             [cfg.llama_server_bin_intel],
-            ["Intel llama-server"],
+            [INTEL_SERVER_NAME],
             [
                 create_summary_balanced_cfg(
                     parsed.port if parsed.port is not None else cfg.summary_balanced_port
@@ -341,7 +334,7 @@ def _run_tui(parsed: argparse.Namespace) -> int:
         ),
         "summary-fast": (
             [cfg.llama_server_bin_intel],
-            ["Intel llama-server"],
+            [INTEL_SERVER_NAME],
             [
                 create_summary_fast_cfg(
                     parsed.port if parsed.port is not None else cfg.summary_fast_port
@@ -351,18 +344,15 @@ def _run_tui(parsed: argparse.Namespace) -> int:
         ),
         "qwen35": (
             [cfg.llama_server_bin_nvidia],
-            ["NVIDIA llama-server"],
+            [NVIDIA_SERVER_NAME],
             [create_qwen35_cfg(parsed.port if parsed.port is not None else cfg.qwen35_port)],
             [0],
         ),
     }
 
-    bins, names, configs, gpu_indices = mode_configs.get(parsed.tui_mode, ([], [], [], []))
-    for bin_path, name in zip(bins, names, strict=True):
-        exec_error = require_executable(bin_path, name)
-        if exec_error is not None:
-            _print_validation_error(exec_error)
 
+def _validate_tui_configs(configs: list[ServerConfig]) -> None:
+    """Validate ports and models for all TUI server configs."""
     for server_cfg in configs:
         port_error = validate_port(server_cfg.port, server_cfg.alias)
         if port_error is not None:
@@ -380,6 +370,29 @@ def _run_tui(parsed: argparse.Namespace) -> int:
         )
         if ports_error is not None:
             _print_validation_error(ports_error)
+
+
+def _run_tui(parsed: argparse.Namespace) -> int:
+    """Run the TUI application.
+
+    Args:
+        parsed: Parsed arguments with tui_mode, port, port2, acknowledge_risky.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    from llama_cli.commands.tui import TUIApp
+
+    cfg = Config()
+    mode_configs = _build_tui_mode_configs(cfg, parsed)
+
+    bins, names, configs, gpu_indices = mode_configs.get(parsed.tui_mode, ([], [], [], []))
+    for bin_path, name in zip(bins, names, strict=True):
+        exec_error = require_executable(bin_path, name)
+        if exec_error is not None:
+            _print_validation_error(exec_error)
+
+    _validate_tui_configs(configs)
 
     app = TUIApp(configs, gpu_indices)
     app.run(acknowledged=parsed.acknowledge_risky)
