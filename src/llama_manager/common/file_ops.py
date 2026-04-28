@@ -34,6 +34,27 @@ def fsync_directory(dir_path: Path) -> None:
         pass
 
 
+def atomic_exclusive_create_json(
+    path: Path,
+    data: dict,
+    mode: int = FILE_MODE_OWNER_ONLY,
+    *,
+    fsync_after: bool = True,
+) -> None:
+    """Create *path* exclusively with JSON content (``O_CREAT | O_EXCL``).
+
+    Raises ``FileExistsError`` immediately if *path* exists — the correct
+    primitive for lock-file creation where existence means another owner.
+    """
+    fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, mode)
+    try:
+        os.write(fd, json.dumps(data, indent=2).encode("utf-8"))
+        if fsync_after:
+            os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def atomic_write_json(
     path: Path,
     data: dict,

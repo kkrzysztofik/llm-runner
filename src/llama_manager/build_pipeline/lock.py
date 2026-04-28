@@ -7,7 +7,7 @@ import os
 import time
 from pathlib import Path
 
-from ..common.constants import FILE_MODE_OWNER_ONLY
+from ..common.file_ops import atomic_exclusive_create_json
 from .models import BuildLock
 
 logger = logging.getLogger(__name__)
@@ -42,25 +42,13 @@ def acquire_lock(lock_path: Path, backend: str, *, dry_run: bool = False) -> boo
         # Ensure parent directory exists
         lock_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Atomic lock acquisition using O_EXCL flag
-        # O_CREAT|O_EXCL ensures the file is created only if it doesn't exist
-        # This is atomic at the filesystem level
-        lock_fd = os.open(
-            str(lock_path),
-            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-            FILE_MODE_OWNER_ONLY,
-        )
-
-        # Write lock data to the file descriptor
+        # Atomic lock acquisition using O_EXCL — fails if file already exists.
         lock_data = {
             "pid": os.getpid(),
             "started_at": time.time(),
             "backend": backend,
         }
-        try:
-            os.write(lock_fd, json.dumps(lock_data).encode("utf-8"))
-        finally:
-            os.close(lock_fd)
+        atomic_exclusive_create_json(lock_path, lock_data)
 
         logger.info("[lock] acquired for backend=%s pid=%s", backend, os.getpid())
         return True
