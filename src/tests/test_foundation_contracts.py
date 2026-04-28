@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 import pytest
 
+from llama_manager.common.security import redact_env_value
 from llama_manager.config import (
     ErrorCode,
     ErrorDetail,
@@ -37,7 +38,6 @@ from llama_manager.process_manager import (
     write_artifact,
 )
 from llama_manager.server import (
-    redact_sensitive,
     validate_slots,
 )
 
@@ -241,48 +241,48 @@ class TestValidationException:
 
 
 class TestRedactSensitive:
-    """Tests for redact_sensitive helper function."""
+    """Tests for redact_env_value helper function."""
 
     def test_redacts_api_key(self) -> None:
         """Should redact keys containing KEY."""
-        assert redact_sensitive("secret_value", "API_KEY") == "[REDACTED]"
-        assert redact_sensitive("value", "MY_API_KEY") == "[REDACTED]"
+        assert redact_env_value("secret_value", "API_KEY") == "[REDACTED]"
+        assert redact_env_value("value", "MY_API_KEY") == "[REDACTED]"
 
     def test_redacts_token(self) -> None:
         """Should redact keys containing TOKEN."""
-        assert redact_sensitive("token_value", "AUTH_TOKEN") == "[REDACTED]"
-        assert redact_sensitive("value", "refresh_token") == "[REDACTED]"
+        assert redact_env_value("token_value", "AUTH_TOKEN") == "[REDACTED]"
+        assert redact_env_value("value", "refresh_token") == "[REDACTED]"
 
     def test_redacts_secret(self) -> None:
         """Should redact keys containing SECRET."""
-        assert redact_sensitive("secret_value", "MY_SECRET") == "[REDACTED]"
-        assert redact_sensitive("value", "DATABASE_SECRET") == "[REDACTED]"
+        assert redact_env_value("secret_value", "MY_SECRET") == "[REDACTED]"
+        assert redact_env_value("value", "DATABASE_SECRET") == "[REDACTED]"
 
     def test_redacts_password(self) -> None:
         """Should redact keys containing PASSWORD."""
-        assert redact_sensitive("password_value", "DB_PASSWORD") == "[REDACTED]"
-        assert redact_sensitive("value", "admin_password") == "[REDACTED]"
+        assert redact_env_value("password_value", "DB_PASSWORD") == "[REDACTED]"
+        assert redact_env_value("value", "admin_password") == "[REDACTED]"
 
     def test_redacts_auth(self) -> None:
         """Should redact keys containing AUTH."""
-        assert redact_sensitive("auth_value", "AUTH_SECRET") == "[REDACTED]"
-        assert redact_sensitive("value", "AUTH_TOKEN") == "[REDACTED]"
+        assert redact_env_value("auth_value", "AUTH_SECRET") == "[REDACTED]"
+        assert redact_env_value("value", "AUTH_TOKEN") == "[REDACTED]"
 
     def test_case_insensitive(self) -> None:
         """Pattern matching should be case insensitive."""
-        assert redact_sensitive("value", "api_key") == "[REDACTED]"
-        assert redact_sensitive("value", "API_KEY") == "[REDACTED]"
-        assert redact_sensitive("value", "Api_Key") == "[REDACTED]"
+        assert redact_env_value("value", "api_key") == "[REDACTED]"
+        assert redact_env_value("value", "API_KEY") == "[REDACTED]"
+        assert redact_env_value("value", "Api_Key") == "[REDACTED]"
 
     def test_non_sensitive_keys_unchanged(self) -> None:
         """Non-sensitive keys should pass through unchanged."""
-        assert redact_sensitive("/path/to/model", "MODEL_PATH") == "/path/to/model"
-        assert redact_sensitive("12345", "PORT_NUMBER") == "12345"
-        assert redact_sensitive("value", "CONFIG_VALUE") == "value"
+        assert redact_env_value("/path/to/model", "MODEL_PATH") == "/path/to/model"
+        assert redact_env_value("12345", "PORT_NUMBER") == "12345"
+        assert redact_env_value("value", "CONFIG_VALUE") == "value"
 
     def test_empty_string_value(self) -> None:
         """Empty string values should still be redacted."""
-        assert redact_sensitive("", "API_KEY") == "[REDACTED]"
+        assert redact_env_value("", "API_KEY") == "[REDACTED]"
 
 
 class TestValidateSlots:

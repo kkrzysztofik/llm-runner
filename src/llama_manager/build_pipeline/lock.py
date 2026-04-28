@@ -7,6 +7,7 @@ import os
 import time
 from pathlib import Path
 
+from ..common.constants import FILE_MODE_OWNER_ONLY
 from .models import BuildLock
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ def acquire_lock(lock_path: Path, backend: str, *, dry_run: bool = False) -> boo
         lock_fd = os.open(
             str(lock_path),
             os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-            0o600,  # Owner read/write only
+            FILE_MODE_OWNER_ONLY,
         )
 
         # Write lock data to the file descriptor

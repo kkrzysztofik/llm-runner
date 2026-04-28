@@ -1,34 +1,10 @@
 # Thread-safe log buffer with autoscroll support
 
 
-import re
 import threading
 from collections import deque
 
-# Precompiled regex pattern for sensitive value redaction
-# Matches KEY|TOKEN|SECRET|PASSWORD|AUTH patterns in env var names followed by = and value
-_PATTERN1 = re.compile(
-    r"(\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH)[A-Z0-9_]*)=(\S+)",
-    re.IGNORECASE,
-)
-
-
-def _redact_sensitive_values(line: str) -> str:
-    """Redact sensitive values from a log line.
-
-    Matches KEY|TOKEN|SECRET|PASSWORD|AUTH patterns (case-insensitive) in
-    environment variable names and redacts their values.
-
-    Args:
-        line: Log line potentially containing sensitive values
-
-    Returns:
-        Log line with sensitive values redacted
-
-    """
-    # Matches env var names containing sensitive keywords followed by = and a value
-    # Examples: API_KEY=secret123, TOKEN=abc, PASSWORD="hidden"
-    return _PATTERN1.sub(r"\1=[REDACTED]", line)
+from .common.security import redact_log_line
 
 
 class LogBuffer:
@@ -54,7 +30,7 @@ class LogBuffer:
         """Add a log line with optional sensitive value redaction"""
         with self.lock:
             if self.redact_sensitive:
-                line = _redact_sensitive_values(line)
+                line = redact_log_line(line)
             self.lines.append(line)
 
     def clear(self) -> None:

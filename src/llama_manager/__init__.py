@@ -30,6 +30,7 @@ from .build_pipeline import (
     BuildLock,
     BuildProgress,
 )
+from .common.security import is_sensitive_key, redact_env_value
 from .config import (
     Config,
     DoctorCheckStatus,
@@ -199,6 +200,9 @@ __all__ = [
     "require_model",
     "require_executable",
     "redact_sensitive",
+    # Security helpers
+    "redact_env_value",
+    "is_sensitive_key",
     # Config builders
     "create_summary_balanced_cfg",
     "create_summary_fast_cfg",

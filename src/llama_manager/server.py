@@ -4,10 +4,10 @@
 import hashlib
 import json
 import os
-import re
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
+from .common.security import redact_env_value
 from .config import (
     Config,
     ErrorCode,
@@ -18,9 +18,6 @@ from .config import (
     ValidationResult,
     VRamRecommendation,
 )
-
-# Precompiled regex pattern for sensitive key detection (Finding 172)
-_SENSITIVE_KEY_PATTERN = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|AUTH)", re.IGNORECASE)
 
 # ---------------------------------------------------------------------------
 # Doctor diagnostics (T069)
@@ -243,26 +240,17 @@ def sort_validation_errors(
 def redact_sensitive(env_value: str, env_key: str) -> str:
     """FR-007: Redact sensitive environment variable values.
 
-    Matches environment variable key names (not values) containing KEY|TOKEN|SECRET|PASSWORD|AUTH
-    (case-insensitive) and replaces the value with "[REDACTED]".
+    Delegates to :func:`llama_manager.security.redact_env_value`.
 
     Args:
-        env_value: The environment variable value to potentially redact
-        env_key: The environment variable key/name to check for sensitive patterns
+        env_value: The environment variable value to potentially redact.
+        env_key: The environment variable key/name to check.
 
     Returns:
-        "[REDACTED]" if the key matches a sensitive pattern, otherwise the original value
-
-    Example:
-        >>> redact_sensitive("my_secret_value", "API_KEY")
-        "[REDACTED]"
-        >>> redact_sensitive("/path/to/model", "MODEL_PATH")
-        "/path/to/model"
-
+        ``"[REDACTED]"`` if the key matches a sensitive pattern, otherwise
+        *env_value* unchanged.
     """
-    if _SENSITIVE_KEY_PATTERN.search(env_key):
-        return "[REDACTED]"
-    return env_value
+    return redact_env_value(env_value, env_key)
 
 
 def validate_backend_eligibility(backend: str) -> ErrorDetail | None:

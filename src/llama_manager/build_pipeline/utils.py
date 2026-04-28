@@ -4,6 +4,9 @@ import re
 import shlex
 from pathlib import Path
 
+from ..common.security import REDACTED_VALUE
+from ..reports import redact_sensitive
+
 # Message constants used across pipeline stages
 MSG_SOURCES_ALREADY_EXIST = "Sources already exist"
 
@@ -19,10 +22,8 @@ def _format_command(command: list[str]) -> str:
 
 def _redact_build_text(text: str) -> str:
     """Redact secrets from command lines and captured build output."""
-    from ..reports import redact_sensitive
-
     redacted = redact_sensitive(text)
-    return re.sub(r"(https?://)[^\s/@:]+:[^\s/@]+@", r"\1[REDACTED]@", redacted)
+    return re.sub(r"(https?://)[^\s/@:]+:[^\s/@]+@", rf"\1{REDACTED_VALUE}@", redacted)
 
 
 def _format_duration(seconds: float) -> str:

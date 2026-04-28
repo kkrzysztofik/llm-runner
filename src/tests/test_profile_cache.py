@@ -329,22 +329,22 @@ class TestEnsureProfilesDirPermissions:
 
 
 class TestAtomicWriteJson:
-    """Tests for _atomic_write_json function."""
+    """Tests for atomic_write_json function."""
 
     def test_permission_mismatch_raises_oserror(self, tmp_path: Path) -> None:
         """OSError raised when permissions don't match after rename."""
-        from llama_manager.profile_cache import _atomic_write_json
+        from llama_manager.common.file_ops import atomic_write_json
 
         profile_path = tmp_path / "test.json"
 
-        with patch("llama_manager.profile_cache.os.stat") as mock_stat:
+        with patch("llama_manager.common.file_ops.os.stat") as mock_stat:
             # Return a mode that doesn't match 0o600 (e.g. 0o644)
             fake_stat = MagicMock()
             fake_stat.st_mode = 0o100644  # regular file with 0644 permissions
             mock_stat.return_value = fake_stat
 
             with pytest.raises(OSError, match="permissions mismatch"):
-                _atomic_write_json(profile_path, {"key": "value"})
+                atomic_write_json(profile_path, {"key": "value"}, verify_permissions=True)
 
             # The target file exists (os.replace succeeded), but OSError was raised
             # The temp file was cleaned up by the except block
@@ -352,10 +352,11 @@ class TestAtomicWriteJson:
 
     def test_successful_write_returns_none(self, tmp_path: Path) -> None:
         """Successful write returns None and creates file with correct permissions."""
-        from llama_manager.profile_cache import FILE_MODE_OWNER_ONLY, _atomic_write_json
+        from llama_manager.common.constants import FILE_MODE_OWNER_ONLY
+        from llama_manager.common.file_ops import atomic_write_json
 
         profile_path = tmp_path / "test.json"
-        result = _atomic_write_json(profile_path, {"key": "value"})
+        result = atomic_write_json(profile_path, {"key": "value"})
 
         assert result is None
         assert profile_path.exists()
@@ -364,21 +365,21 @@ class TestAtomicWriteJson:
 
     def test_write_content_is_valid_json(self, tmp_path: Path) -> None:
         """Written content is valid JSON with correct data."""
-        from llama_manager.profile_cache import _atomic_write_json
+        from llama_manager.common.file_ops import atomic_write_json
 
         profile_path = tmp_path / "test.json"
         data = {"name": "test", "count": 42, "nested": {"a": 1}}
-        _atomic_write_json(profile_path, data)
+        atomic_write_json(profile_path, data)
 
         loaded = json.loads(profile_path.read_text(encoding="utf-8"))
         assert loaded == data
 
     def test_write_ends_with_newline(self, tmp_path: Path) -> None:
         """Written file ends with a newline character."""
-        from llama_manager.profile_cache import _atomic_write_json
+        from llama_manager.common.file_ops import atomic_write_json
 
         profile_path = tmp_path / "test.json"
-        _atomic_write_json(profile_path, {"a": 1})
+        atomic_write_json(profile_path, {"a": 1})
 
         content = profile_path.read_text(encoding="utf-8")
         assert content.endswith("\n")

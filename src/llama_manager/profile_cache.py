@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
 import os
 import re
-import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+from .common.constants import DIR_MODE_OWNER_ONLY
+from .common.file_ops import atomic_write_json
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -25,11 +26,6 @@ CURRENT_SCHEMA_VERSION: str = _CURRENT_SCHEMA_VERSION
 PROFILE_OVERRIDE_FIELDS: frozenset[str] = frozenset(
     ["threads", "ctx_size", "ubatch_size", "cache_type_k", "cache_type_v"],
 )
-
-DIR_MODE_OWNER_ONLY: int = 0o700
-
-FILE_MODE_OWNER_ONLY: int = 0o600
-
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -378,56 +374,6 @@ def get_profile_path(
     return candidate
 
 
-def _atomic_write_json(file_path: Path, data: dict[str, Any]) -> None:
-    """Atomically write a dict as JSON to *file_path*.
-
-    Writes to a temporary file in the same directory, syncs to disk,
-    then renames to the target path. Final permissions are set to
-    owner-only (0o600).
-
-    Args:
-        file_path: Destination file path (must be on the same filesystem
-            as the directory containing ``file_path``).
-        data: Dictionary to serialize as JSON.
-
-    Raises:
-        OSError: If the write, sync, rename, or permission operation fails.
-
-    """
-    target_dir = file_path.parent
-    fd, tmp_path = tempfile.mkstemp(
-        prefix=".tmp_profile_",
-        suffix=".json",
-        dir=str(target_dir),
-    )
-    try:
-        # Write JSON content
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2, ensure_ascii=False)
-            fh.write("\n")
-            fh.flush()
-            os.fsync(fh.fileno())
-
-        # Set permissions before rename so the final file has correct mode
-        os.chmod(tmp_path, FILE_MODE_OWNER_ONLY)
-
-        # Atomic rename
-        os.replace(tmp_path, str(file_path))
-
-        # Verify permissions after rename
-        current_mode = os.stat(file_path).st_mode & 0o777
-        if current_mode != FILE_MODE_OWNER_ONLY:
-            raise OSError(
-                f"profile file permissions mismatch after write: "
-                f"expected {FILE_MODE_OWNER_ONLY:o}, got {current_mode:o}",
-            )
-    except BaseException:
-        # Clean up temp file on any failure
-        with contextlib.suppress(FileNotFoundError):
-            os.unlink(tmp_path)
-        raise
-
-
 def write_profile(profiles_dir: Path, record: ProfileRecord) -> Path:
     """Write a ``ProfileRecord`` as an atomically-stored JSON file.
 
@@ -456,7 +402,7 @@ def write_profile(profiles_dir: Path, record: ProfileRecord) -> Path:
         flavor=record.flavor,
     )
 
-    _atomic_write_json(profile_path, record.to_dict())
+    atomic_write_json(profile_path, record.to_dict(), verify_permissions=True)
     return profile_path
 
 

@@ -21,6 +21,14 @@ from typing import Any, Final, TextIO, TypedDict, cast
 
 import psutil
 
+from .common.constants import DIR_MODE_OWNER_ONLY, FILE_MODE_OWNER_ONLY
+from .common.file_ops import atomic_write_json
+from .common.security import (
+    REDACTED_VALUE,
+    SENSITIVE_KEY_NAME_PATTERN,
+    SENSITIVE_WORD_PATTERN,
+    is_sensitive_key,
+)
 from .config import (
     Config,
     ErrorCode,
@@ -32,29 +40,10 @@ from .config import (
 )
 from .gpu_stats import GPUStats
 from .log_buffer import LogBuffer
-from .server import _SENSITIVE_KEY_PATTERN
 
-# Compiled pattern for redacting sensitive key=value pairs in log text.
-# AUTH_HEADER must come before AUTH in alternation to avoid partial match.
-# \b[A-Z_]* matches optional underscore-prefixed prefix (e.g. MY_ in MY_AUTH).
-# \b after the keyword group ensures word-boundary so "AUTH" doesn't match
-# inside "AUTHORIZE" and similar words.
-_SENSITIVE_WORD_PATTERN: re.Pattern[str] = re.compile(
-    r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\b\s*=\s*\S+",
-)
-
-# Compiled pattern for redacting sensitive key names (no value).
-# Used as fallback for cases where the key appears without an assignment.
-_SENSITIVE_KEY_NAME_PATTERN: re.Pattern[str] = re.compile(
-    r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH|AUTH_HEADER)\b",
-)
-
-# File permission constants (owner-only access)
-FILE_MODE_OWNER_ONLY: Final[int] = 0o600
-DIR_MODE_OWNER_ONLY: Final[int] = 0o700
+# Module-local string constants (process_manager-specific).
 LOCKFILE_CHECK_NAME: Final[str] = "lockfile_integrity"
 ARTIFACT_CHECK_NAME: Final[str] = "artifact_persistence"
-REDACTED_VALUE: Final[str] = "[REDACTED]"
 OWNER_ONLY_PERMISSIONS_FAILURE: Final[str] = (
     "artifact persistence failed to enforce required owner-only permissions"
 )
@@ -238,73 +227,6 @@ class DryRunArtifactPayload(TypedDict):
     validation_results: dict[str, Any]
     warnings: list[Any]
     environment_redacted: dict[str, Any]
-
-
-def _fsync_directory(dir_path: Path) -> None:
-    """fsync a directory to ensure metadata durability.
-
-    Args:
-        dir_path: Directory path to fsync
-
-    """
-    if not dir_path.exists():
-        return
-    try:
-        fd = os.open(str(dir_path), os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-    except OSError:
-        # Directory fsync is best-effort
-        pass
-
-
-def _atomic_write_json(path: Path, data: dict, mode: int = FILE_MODE_OWNER_ONLY) -> None:
-    """Truly atomic JSON write with fsync.
-
-    Implements atomic write via:
-    1. Write to temp file in same directory
-    2. Flush and fsync temp file
-    3. os.replace() for atomic rename
-    4. fsync directory for metadata durability
-
-    Args:
-        path: Path to write to
-        data: Dictionary to serialize as JSON
-        mode: File permissions (default 0o600)
-
-    Raises:
-        OSError: If file creation, write, or sync fails
-        TypeError: If data is not JSON-serializable
-
-    """
-    # Serialize JSON first (fail before writing file)
-    json_text = json.dumps(data, indent=2)
-
-    # Create temp file in same directory for atomic rename
-    temp_path = path.with_suffix(".tmp")
-    try:
-        # Open with O_CREAT|O_TRUNC to set mode at creation time
-        fd = os.open(str(temp_path), os.O_CREAT | os.O_TRUNC | os.O_WRONLY, mode)
-        try:
-            # Write content
-            os.write(fd, json_text.encode("utf-8"))
-            # Flush to OS buffer
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-
-        # Atomic rename
-        os.replace(str(temp_path), str(path))
-
-        # fsync directory to ensure directory entry is durable
-        _fsync_directory(path.parent)
-    except OSError:
-        # Clean up temp file if it exists
-        with contextlib.suppress(OSError):
-            temp_path.unlink()
-        raise
 
 
 def resolve_runtime_dir() -> Path:
@@ -520,7 +442,7 @@ def update_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> None:
 
     try:
         # Atomic write with mode set at file creation (TOCTOU fix)
-        _atomic_write_json(lock_path, lock_data, FILE_MODE_OWNER_ONLY)
+        atomic_write_json(lock_path, lock_data, FILE_MODE_OWNER_ONLY)
     except OSError as e:
         error_detail = ErrorDetail(
             error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
@@ -696,19 +618,22 @@ def write_artifact(runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload
         # TypedDict is not recognized as dict by pyright, so we cast explicitly
         redacted_data = _redact_sensitive_in_dict(cast(dict, data))
 
-        # Atomic write with mode set at file creation (TOCTOU fix)
-        _atomic_write_json(artifact_path, redacted_data, FILE_MODE_OWNER_ONLY)
-
-        # Verify file permissions
-        file_mode = stat.S_IMODE(os.stat(artifact_path).st_mode)
-        if file_mode != FILE_MODE_OWNER_ONLY:
+        # Atomic write — verify_permissions=True raises OSError on mode mismatch.
+        try:
+            atomic_write_json(
+                artifact_path,
+                redacted_data,
+                FILE_MODE_OWNER_ONLY,
+                verify_permissions=True,
+            )
+        except OSError:
             error_detail = ErrorDetail(
                 error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
                 failed_check=ARTIFACT_CHECK_NAME,
                 why_blocked=OWNER_ONLY_PERMISSIONS_FAILURE,
                 how_to_fix=PERMISSION_WRITABILITY_HINT,
             )
-            raise ValidationException(MultiValidationError(errors=[error_detail]))
+            raise ValidationException(MultiValidationError(errors=[error_detail])) from None
 
         return artifact_path
     except PermissionError as e:
@@ -814,7 +739,7 @@ def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
         full_key = f"{env_key_prefix}_{key}" if env_key_prefix else key
         if isinstance(value, dict):
             result[key] = _redact_sensitive_in_dict(value, full_key)
-        elif isinstance(value, str) and _SENSITIVE_KEY_PATTERN.search(key):
+        elif isinstance(value, str) and is_sensitive_key(key):
             result[key] = REDACTED_VALUE
         else:
             result[key] = value
@@ -889,8 +814,8 @@ def _redact_sensitive(text: str) -> str:
         Text with sensitive patterns (key + value) replaced by ``[REDACTED]``.
 
     """
-    # Redact key=value patterns (unquoted values) — module-level compiled
-    text = _SENSITIVE_WORD_PATTERN.sub(REDACTED_VALUE, text)
+    # Redact key=value patterns (unquoted values) — shared compiled pattern
+    text = SENSITIVE_WORD_PATTERN.sub(REDACTED_VALUE, text)
     # Redact quoted values: KEY="secret" or KEY='secret'
     text = re.sub(
         r'(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\s*=\s*"[^"]*"',
@@ -909,7 +834,7 @@ def _redact_sensitive(text: str) -> str:
         text,
     )
     # Fall back to word-boundary key-name-only pattern for any remaining cases
-    text = _SENSITIVE_KEY_NAME_PATTERN.sub(REDACTED_VALUE, text)
+    text = SENSITIVE_KEY_NAME_PATTERN.sub(REDACTED_VALUE, text)
     return text
 
 
