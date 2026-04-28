@@ -199,7 +199,7 @@ class TextualDashboardApp(App[None]):
             return
 
         snapshot = self.controller.render()
-        content = self.query_one("#content", Container)
+        content = self.query_one("#content", Horizontal)
         content_orientation = self.controller.build_layout().content_orientation
         content.set_classes(content_orientation)
 
