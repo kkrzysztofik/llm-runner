@@ -628,15 +628,21 @@ def write_artifact(runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload
                 verify_permissions=True,
             )
         except OSError:
-            raise _artifact_error(OWNER_ONLY_PERMISSIONS_FAILURE, PERMISSION_WRITABILITY_HINT) from None
+            raise _artifact_error(
+                OWNER_ONLY_PERMISSIONS_FAILURE, PERMISSION_WRITABILITY_HINT
+            ) from None
 
         return artifact_path
     except PermissionError as e:
-        raise _artifact_error("artifact persistence failed due to permission denied", PERMISSION_SUPPORT_HINT) from e
+        raise _artifact_error(
+            "artifact persistence failed due to permission denied", PERMISSION_SUPPORT_HINT
+        ) from e
     except OSError as e:
         raise _artifact_error(f"artifact persistence failed: {e}", PERMISSION_SUPPORT_HINT) from e
     except TypeError as e:
-        raise _artifact_error(f"artifact serialization failed: {e}", "ensure artifact data is JSON-serializable") from e
+        raise _artifact_error(
+            f"artifact serialization failed: {e}", "ensure artifact data is JSON-serializable"
+        ) from e
 
 
 def _validate_artifact_fields(data: DryRunArtifactPayload | dict) -> None:

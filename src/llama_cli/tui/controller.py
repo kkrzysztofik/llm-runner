@@ -1,31 +1,18 @@
-"""TUI application for llm-runner.
-
-This module provides a Textual terminal interface for managing
-multiple llama-server instances with real-time log streaming, GPU stats,
-and configuration display.
-"""
+"""TUIApp controller — manages server lifecycle, state, and rendering."""
 
 import queue
 import signal
 import sys
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from types import FrameType
 from typing import Any
 
-import psutil
 from rich.console import Group
 from rich.panel import Panel
 from rich.text import Text
-from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.containers import Container, Horizontal
-from textual.events import Key, Resize
-from textual.widgets import Footer, Header, Static
 
-from llama_cli.colors import Colors
 from llama_cli.gpu_collectors import collect_nvtop_stats
 from llama_manager import (
     Config,
@@ -47,183 +34,26 @@ from llama_manager.build_pipeline import (
     BuildPipeline,
     BuildProgress,
 )
-from llama_manager.config_builder import merge_config_overrides
+from llama_manager.config import merge_config_overrides
 from llama_manager.server import detect_risky_operations
 
-RISK_ACK_LABEL = "warning_bypass"
-RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
-STATUS_PREFIX = "STATUS: "
-STYLE_BOLD_RED = "bold red"
-STYLE_BOLD_YELLOW = "bold yellow"
-
-
-@dataclass(frozen=True)
-class TextualLayoutSpec:
-    """Responsive layout metadata consumed by tests and the Textual app."""
-
-    content_orientation: str
-
-
-@dataclass(frozen=True)
-class DashboardSnapshot:
-    """Current dashboard renderables for Textual widgets."""
-
-    alerts: Panel
-    left: Panel | None
-    right: Panel
-    menu: Text
-
-
-class TextualDashboardApp(App[None]):
-    """Textual shell for the llm-runner dashboard."""
-
-    TITLE = "llm-runner"
-    CSS = """
-    Screen {
-        layout: vertical;
-    }
-
-    #dashboard {
-        height: 1fr;
-        layout: vertical;
-    }
-
-    #alerts {
-        height: auto;
-        max-height: 35%;
-    }
-
-    #content {
-        height: 1fr;
-    }
-
-    #content.horizontal {
-        layout: horizontal;
-    }
-
-    #content.vertical {
-        layout: vertical;
-    }
-
-    .column {
-        width: 1fr;
-        height: 1fr;
-    }
-
-    #menu {
-        height: 1;
-    }
-    """
-    BINDINGS = [
-        Binding("q", "quit_dashboard", "Quit", priority=True),
-        Binding("ctrl+c", "interrupt_dashboard", "Stop", priority=True),
-        Binding("r", "refresh_dashboard", "Refresh"),
-        Binding("a", "add_slot", "Add slot"),
-        Binding("p", "profile", "Profile"),
-        Binding("y", "confirm", "Confirm"),
-        Binding("n", "reject", "Abort"),
-        Binding("1", "select_flavor('1')", "Balanced"),
-        Binding("2", "select_flavor('2')", "Fast"),
-        Binding("3", "select_flavor('3')", "Quality"),
-    ]
-
-    def __init__(self, controller: "TUIApp") -> None:
-        super().__init__()
-        self.controller = controller
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        with Container(id="dashboard"):
-            yield Static(id="alerts")
-            with Horizontal(id="content", classes="horizontal"):
-                yield Static(id="left", classes="column")
-                yield Static(id="right", classes="column")
-            yield Static(id="menu")
-        yield Footer()
-
-    def on_mount(self) -> None:
-        self.refresh_dashboard()
-        self.set_interval(0.25, self.refresh_dashboard)
-
-    def on_resize(self, event: Resize) -> None:
-        self.controller.width = event.size.width
-        self.controller.height = event.size.height
-        self.refresh_dashboard()
-
-    def on_key(self, event: Key) -> None:
-        key = self._textual_key_to_controller_key(event)
-        if key is None:
-            return
-        self.controller.handle_keypress(key)
-        self.refresh_dashboard()
-        event.stop()
-
-    def action_quit_dashboard(self) -> None:
-        self.controller.handle_keypress("q")
-        self.exit()
-
-    def action_interrupt_dashboard(self) -> None:
-        self.controller.handle_keypress("^C")
-        if not self.controller.running:
-            self.exit()
-
-    def action_refresh_dashboard(self) -> None:
-        self.controller.handle_keypress("r")
-        self.refresh_dashboard()
-
-    def action_add_slot(self) -> None:
-        self.controller.handle_keypress("a")
-        self.refresh_dashboard()
-
-    def action_profile(self) -> None:
-        self.controller.handle_keypress("P")
-        self.refresh_dashboard()
-
-    def action_confirm(self) -> None:
-        self.controller.handle_keypress("y")
-        self.refresh_dashboard()
-
-    def action_reject(self) -> None:
-        self.controller.handle_keypress("n")
-        if not self.controller.running:
-            self.exit()
-        self.refresh_dashboard()
-
-    def action_select_flavor(self, key: str) -> None:
-        self.controller.handle_keypress(key)
-        self.refresh_dashboard()
-
-    def refresh_dashboard(self) -> None:
-        if not self.controller.running:
-            self.exit()
-            return
-
-        snapshot = self.controller.render()
-        content = self.query_one("#content", Horizontal)
-        content_orientation = self.controller.build_layout().content_orientation
-        content.set_classes(content_orientation)
-
-        self.query_one("#alerts", Static).update(snapshot.alerts)
-        if snapshot.left is not None:
-            self.query_one("#left", Static).display = True
-            self.query_one("#left", Static).update(snapshot.left)
-        else:
-            self.query_one("#left", Static).display = False
-        self.query_one("#right", Static).update(snapshot.right)
-        self.query_one("#menu", Static).update(snapshot.menu)
-
-    def _textual_key_to_controller_key(self, event: Key) -> str | None:
-        if event.key == "enter":
-            return "\n"
-        if event.key == "escape":
-            return "\x1b"
-        if event.key in {"backspace", "delete_left"}:
-            return "\x7f"
-        if event.key == "ctrl+c":
-            return "^C"
-        if event.character is not None and len(event.character) == 1:
-            return event.character
-        return None
+from .components.alerts import (
+    build_gpu_telemetry_panel,
+    build_profile_status_panel,
+    build_risk_panel_acknowledged,
+    build_risk_panel_required,
+    build_status_messages_panel,
+    build_status_panel,
+)
+from .components.menu import build_command_menu
+from .components.panels import (
+    build_column_panel,
+    build_placeholder_panel,
+    build_slot_status_panel,
+)
+from .constants import RISK_ACK_LABEL
+from .textual_app import TextualDashboardApp
+from .types import DashboardSnapshot, TextualLayoutSpec
 
 
 class TUIApp:
@@ -390,104 +220,78 @@ class TUIApp:
             menu=self._build_command_menu(),
         )
 
+    # ------------------------------------------------------------------
+    # Rendering delegation helpers
+    # ------------------------------------------------------------------
+
     def _build_status_panel(self, launch_result: LaunchResult) -> None:
-        if launch_result.is_success():
-            self.status_panel = None
-            return
-
-        status_text = Text()
-        if launch_result.is_blocked():
-            status_text.append(STATUS_PREFIX, style=STYLE_BOLD_RED)
-            status_text.append("BLOCKED", style="bold red reverse")
-            status_text.append("\n\n")
-            if launch_result.errors is not None:
-                status_text.append("FR-005 Error Details:\n", style=STYLE_BOLD_YELLOW)
-                for error_detail in launch_result.errors.errors:
-                    status_text.append(f"  - {error_detail.error_code}\n", style="red")
-                    status_text.append(
-                        f"    failed_check: {error_detail.failed_check}\n",
-                        style="dim",
-                    )
-                    status_text.append(
-                        f"    why_blocked: {error_detail.why_blocked}\n",
-                        style="dim",
-                    )
-                    status_text.append(
-                        f"    how_to_fix: {error_detail.how_to_fix}\n\n",
-                        style="dim",
-                    )
-            self.status_panel = Panel(
-                status_text,
-                title="[red]Launch Failed[/red]",
-                border_style="red",
-            )
-            return
-
-        status_text.append(STATUS_PREFIX, style=STYLE_BOLD_YELLOW)
-        status_text.append("DEGRADED", style=STYLE_BOLD_YELLOW)
-        status_text.append(" (partial success)\n\n", style="dim")
-        launched = launch_result.launched or []
-        if launched:
-            status_text.append("Launched slots:\n", style="bold green")
-            for slot_id in launched:
-                status_text.append(f"  + {slot_id}\n", style="green")
-            status_text.append("\n")
-        for warning in launch_result.warnings or []:
-            status_text.append(f"  ! {warning}\n", style="yellow")
-        self.status_panel = Panel(
-            status_text,
-            title="[yellow]Launch Degraded[/yellow]",
-            border_style="yellow",
-        )
+        self.status_panel = build_status_panel(launch_result)
 
     def _build_risk_panel_required(self, kind: str = "hardware") -> None:
-        text = Text()
-        text.append("RISK STATUS: ", style="bold")
-        text.append(" ACKNOWLEDGEMENT REQUIRED ", style="bold red reverse")
-        text.append("\nLaunch is blocked until you acknowledge risky operations.")
-        self.risk_panel = Panel(text, title="Risk Management", border_style="red")
+        self.risk_panel = build_risk_panel_required(kind)
         self.risks_acknowledged = False
         self.active_risk_kind = kind
 
     def _build_risk_panel_acknowledged(self, kind: str = "hardware") -> None:
-        text = Text()
-        text.append("RISK STATUS: ", style="bold")
-        text.append(" ACKNOWLEDGED ", style="bold green reverse")
-        text.append("\nRisky operations (privileged ports, non-loopback bind) were acknowledged.")
-        self.risk_panel = Panel(text, title="Risk Management", border_style="green")
+        self.risk_panel = build_risk_panel_acknowledged(kind)
         self.risks_acknowledged = True
         self.active_risk_kind = kind
 
     def _build_column_panel(
         self, cfg: ServerConfig, buffer: LogBuffer, gpu: GPUStats | None
     ) -> Panel:
-        color_code = Colors.get_code(cfg.alias)
-        color_style = color_code if color_code else "white"
-
-        header = Text()
-        header.append(f"{cfg.alias.upper()} ", style=f"bold {color_style}")
-        header.append(f"http://{self.config.host}:{cfg.port}/v1", style="dim")
-        header.append("\n")
-        header.append(
-            f"Device: {cfg.device} | Ctx: {cfg.ctx_size} | Threads: {cfg.threads}", style="cyan"
-        )
-
-        # Stale profile warning badge
         stale_warning = self._get_stale_warning(cfg)
-        if stale_warning:
-            header.append("\n")
-            header.append(stale_warning, style="yellow")
+        return build_column_panel(cfg, buffer, gpu, self.config.host, stale_warning)
 
-        header.append("\n\n")
+    def _build_placeholder_panel(self) -> Panel:
+        return build_placeholder_panel()
 
-        logs_text = buffer.get_text(empty_message="Waiting for output...")
-        logs = Panel(Text(logs_text), title="Logs", border_style="dim")
-        gpu_renderable = (
-            Panel(Text(gpu.format_stats_text()), title="GPU", border_style="yellow")
-            if gpu is not None
-            else Panel(Text("GPU stats unavailable", style="dim"), title="GPU", border_style="dim")
+    def _build_slot_status_panel(self) -> Panel:
+        return build_slot_status_panel(
+            self.configs,
+            self._slot_states,
+            self._server_processes,
+            self.log_buffers,
+            self.config.host,
         )
-        return Panel(Group(header, gpu_renderable, logs), border_style=color_style)
+
+    def _build_profile_status_panel(self) -> Panel | None:
+        with self._profile_lock:
+            active = {a: s for a, s in self._profile_status.items() if s != "idle"}
+        return build_profile_status_panel(active, self._profile_flavor)
+
+    def _build_status_messages_panel(self) -> Panel | None:
+        with self._status_lock:
+            if not self._status_messages:
+                return None
+            messages = list(self._status_messages)
+            self._status_messages.clear()
+        return build_status_messages_panel(messages)
+
+    def _build_command_menu(self) -> Text:
+        return build_command_menu(
+            self._profile_request,
+            self._slot_config_state,
+            self.risk_panel,
+            self.active_risk_kind,
+        )
+
+    def _update_gpu_telemetry(self) -> None:
+        """Update GPU telemetry panel with latest stats."""
+        if not self.gpu_stats:
+            self.telemetry_panel = None
+            return
+
+        lines: list[str] = []
+        for gpu in self.gpu_stats:
+            gpu.update()  # Refresh stats from collector
+            lines.append(gpu.format_stats_text())
+
+        self.telemetry_panel = build_gpu_telemetry_panel(lines)
+
+    # ------------------------------------------------------------------
+    # Print helpers
+    # ------------------------------------------------------------------
 
     def _print_acknowledgement_required_and_exit(self) -> None:
         print("error: acknowledgement_required", file=sys.stderr)
@@ -894,45 +698,6 @@ class TUIApp:
         reasons = "; ".join(r.value.replace("_", " ").title() for r in staleness.reasons)
         return f"\u26a0 profile stale \u2014 {reasons}"
 
-    def _build_profile_status_panel(self) -> Panel | None:
-        """Build a panel showing active profile operations."""
-        with self._profile_lock:
-            active = {a: s for a, s in self._profile_status.items() if s != "idle"}
-        if not active:
-            return None
-
-        text = Text()
-        for alias, status in active.items():
-            flavor = self._profile_flavor.get(alias, "unknown")
-            if status == "running":
-                text.append("\u25b6 ", style="yellow")
-                text.append(f"Profiling {alias}: {flavor} ", style="yellow")
-                text.append("[running...]", style="dim")
-            elif status == "done":
-                text.append("\u2713 ", style="green")
-                text.append(f"Profile {alias}: {flavor} ", style="green")
-                text.append("[done]", style="dim")
-            elif status == "failed":
-                text.append("\u2717 ", style="red")
-                text.append(f"Profile {alias}: {flavor} ", style="red")
-                text.append("[failed]", style="dim")
-            text.append("\n")
-
-        return Panel(text, title="Profile Status", border_style="yellow")
-
-    def _build_status_messages_panel(self) -> Panel | None:
-        """Build a panel showing TUI-safe status messages."""
-        with self._status_lock:
-            if not self._status_messages:
-                return None
-            messages = list(self._status_messages)
-            self._status_messages.clear()
-
-        text = Text()
-        for msg in messages:
-            text.append(msg + "\n", style="green")
-        return Panel(text, title="Status", border_style="green")
-
     def _acknowledge_risks(
         self, launch_attempt_id: str, ack_token: str, acknowledged: bool
     ) -> bool:
@@ -984,188 +749,6 @@ class TUIApp:
             return
         self.risk_panel = None
         self.risks_acknowledged = False
-
-    def _build_placeholder_panel(self) -> Panel:
-        """Build a placeholder panel for the right column when only one config exists."""
-        return Panel(
-            Text("[dim]No secondary config[/dim]"),
-            title="Status",
-            border_style="dim",
-        )
-
-    def _build_command_menu(self) -> Text:
-        """Build an htop-style bottom command menu.
-
-        Context-aware: shows different commands based on active TUI state.
-        """
-        menu = Text()
-
-        def _add_item(key: str, desc: str) -> None:
-            menu.append(f" {key} ", style="bold cyan reverse")
-            menu.append(f" {desc} ", style="white")
-
-        if self._profile_request is not None:
-            _add_item("1", "Balanced")
-            _add_item("2", "Fast")
-            _add_item("3", "Quality")
-            _add_item("^C", "Cancel")
-        elif self._slot_config_state:
-            _add_item("Enter", "Next")
-            _add_item("Backspace", "Edit")
-            _add_item("Esc", "Cancel")
-        elif self.risk_panel is not None:
-            _add_item("y", "Confirm")
-            _add_item("n", "Abort")
-            if self.active_risk_kind != "vram":
-                _add_item("q", "Quit")
-        else:
-            _add_item("q", "Quit")
-            _add_item("r", "Refresh")
-            _add_item("a", "Add slot")
-            _add_item("P", "Profile")
-            _add_item("^C", "Stop")
-
-        return menu
-
-    _BACKEND_LABELS: dict[str, str] = {
-        "sycl": "SYCL",
-        "cuda": "CUDA",
-        "llama_cpp": "CPU",
-    }
-    _STATUS_COLORS: dict[str, str] = {
-        SlotState.RUNNING.value: "green",
-        SlotState.LAUNCHING.value: "yellow",
-        SlotState.DEGRADED.value: "yellow",
-        SlotState.CRASHED.value: "red",
-        SlotState.OFFLINE.value: "dim",
-        SlotState.IDLE.value: "dim",
-    }
-
-    def _build_slot_section(self, cfg: ServerConfig) -> Text:
-        """Build the status Text for a single slot."""
-        alias = cfg.alias
-        state = self._slot_states.get(alias, SlotState.OFFLINE.value)
-
-        status = state
-        if state == SlotState.RUNNING.value:
-            proc = self._server_processes.get(alias)
-            if not proc or not (proc.pid and psutil.pid_exists(proc.pid)):
-                status = SlotState.CRASHED.value
-
-        backend_label = self._BACKEND_LABELS.get(cfg.backend, self._BACKEND_LABELS["llama_cpp"])
-        color = self._STATUS_COLORS.get(status, "white")
-
-        header = Text()
-        header.append(f"[{alias}] ", style="bold")
-        header.append(f"{status.upper()} ", style=color)
-        header.append(f"| {backend_label} ", style="cyan")
-        header.append(f"| http://{self.config.host}:{cfg.port}", style="dim")
-        header.append("\n")
-
-        buffer = self.log_buffers.get(alias)
-        if buffer is not None:
-            log_lines = buffer.get_lines()[-3:] if buffer.get_lines() else []
-            log_text = "\n".join(log_lines) if log_lines else "  (no logs yet)"
-            if log_text:
-                header.append(Text(log_text + "\n", style="dim"))
-
-        return header
-
-    def _build_slot_status_panel(self) -> Panel:
-        """Build a panel showing per-slot status (health, logs, GPU stats, backend label)."""
-        sections = [self._build_slot_section(cfg) for cfg in self.configs]
-
-        # Show empty slot placeholders if no slots configured
-        if not sections:
-            empty_msg = Text(
-                "No slots configured.\n\n"
-                "Press 'a' to add a new slot\n"
-                "or run with a mode:\n"
-                "  llm-runner tui both",
-                style="dim",
-            )
-            sections = [empty_msg]
-
-        group = Group(*sections)
-        return Panel(group, title="Slot Status", border_style="blue")
-
-    def _update_gpu_telemetry(self) -> None:
-        """Update GPU telemetry panel with latest stats."""
-        if not self.gpu_stats:
-            self.telemetry_panel = None
-            return
-
-        lines: list[str] = []
-        for gpu in self.gpu_stats:
-            gpu.update()  # Refresh stats from collector
-            lines.append(gpu.format_stats_text())
-
-        telemetry_text = Text("\n".join(lines))
-        self.telemetry_panel = Panel(
-            telemetry_text,
-            title="GPU Telemetry",
-            border_style="yellow",
-        )
-
-    def handle_slot_transition(self, slot_id: str, new_state: SlotState) -> None:
-        """Handle a slot state transition and update the UI.
-
-        Args:
-            slot_id: The slot identifier.
-            new_state: The new state for the slot.
-        """
-        old_state = self._slot_states.get(slot_id)
-        self._slot_states[slot_id] = new_state.value
-
-        # Handle specific transitions
-        if old_state is None and new_state == SlotState.RUNNING:
-            # First launch - clear any previous status panels
-            self.status_panel = None
-            self._push_status_message(f"Slot '{slot_id}' launched successfully.")
-            return
-
-        transition_messages: dict[tuple[str, str], tuple[str, str]] = {
-            (SlotState.LAUNCHING.value, SlotState.RUNNING.value): (
-                "Launched",
-                "green",
-            ),
-            (SlotState.RUNNING.value, SlotState.DEGRADED.value): (
-                "Degraded",
-                "yellow",
-            ),
-            (SlotState.RUNNING.value, SlotState.CRASHED.value): (
-                "Crashed",
-                "red",
-            ),
-            (SlotState.DEGRADED.value, SlotState.OFFLINE.value): (
-                "Offline",
-                "yellow",
-            ),
-            (SlotState.CRASHED.value, SlotState.OFFLINE.value): (
-                "Offline",
-                "red",
-            ),
-            (SlotState.OFFLINE.value, SlotState.IDLE.value): (
-                "Idle",
-                "dim",
-            ),
-        }
-
-        if old_state is not None:
-            key = (old_state, new_state.value)
-            if key in transition_messages:
-                label, color = transition_messages[key]
-                msg = f"Slot '{slot_id}': {label} ({color})"
-                self._push_status_message(msg)
-
-    def _graceful_shutdown(self) -> None:
-        """Initiate graceful shutdown of all server processes."""
-        if not self.running:
-            return
-
-        self._push_status_message("Shutting down...")
-        self.server_manager.cleanup_servers()
-        self.running = False
 
     def _on_key(self, key: str) -> None:
         """Handle key presses from the keypress queue."""
@@ -1257,6 +840,66 @@ class TUIApp:
             return "abort"
         return "ignore"
 
+    def handle_slot_transition(self, slot_id: str, new_state: SlotState) -> None:
+        """Handle a slot state transition and update the UI.
+
+        Args:
+            slot_id: The slot identifier.
+            new_state: The new state for the slot.
+        """
+        old_state = self._slot_states.get(slot_id)
+        self._slot_states[slot_id] = new_state.value
+
+        # Handle specific transitions
+        if old_state is None and new_state == SlotState.RUNNING:
+            # First launch - clear any previous status panels
+            self.status_panel = None
+            self._push_status_message(f"Slot '{slot_id}' launched successfully.")
+            return
+
+        transition_messages: dict[tuple[str, str], tuple[str, str]] = {
+            (SlotState.LAUNCHING.value, SlotState.RUNNING.value): (
+                "Launched",
+                "green",
+            ),
+            (SlotState.RUNNING.value, SlotState.DEGRADED.value): (
+                "Degraded",
+                "yellow",
+            ),
+            (SlotState.RUNNING.value, SlotState.CRASHED.value): (
+                "Crashed",
+                "red",
+            ),
+            (SlotState.DEGRADED.value, SlotState.OFFLINE.value): (
+                "Offline",
+                "yellow",
+            ),
+            (SlotState.CRASHED.value, SlotState.OFFLINE.value): (
+                "Offline",
+                "red",
+            ),
+            (SlotState.OFFLINE.value, SlotState.IDLE.value): (
+                "Idle",
+                "dim",
+            ),
+        }
+
+        if old_state is not None:
+            key = (old_state, new_state.value)
+            if key in transition_messages:
+                label, color = transition_messages[key]
+                msg = f"Slot '{slot_id}': {label} ({color})"
+                self._push_status_message(msg)
+
+    def _graceful_shutdown(self) -> None:
+        """Initiate graceful shutdown of all server processes."""
+        if not self.running:
+            return
+
+        self._push_status_message("Shutting down...")
+        self.server_manager.cleanup_servers()
+        self.running = False
+
     def _handle_build_progress(self, progress: BuildProgress) -> None:
         """Handle build progress updates from pipeline.
 
@@ -1269,8 +912,8 @@ class TUIApp:
         if self._build_in_progress:
             if progress.is_retrying:
                 status_text = Text()
-                status_text.append(STATUS_PREFIX, style=STYLE_BOLD_YELLOW)
-                status_text.append("RETRYING", style=STYLE_BOLD_YELLOW)
+                status_text.append("STATUS: ", style="bold yellow")
+                status_text.append("RETRYING", style="bold yellow")
                 status_text.append(f" - {progress.message}\n", style="dim")
                 if progress.retries_remaining is not None:
                     status_text.append(
@@ -1284,8 +927,8 @@ class TUIApp:
                 )
             elif progress.status == "failed":
                 status_text = Text()
-                status_text.append(STATUS_PREFIX, style=STYLE_BOLD_RED)
-                status_text.append("FAILED", style=STYLE_BOLD_RED)
+                status_text.append("STATUS: ", style="bold red")
+                status_text.append("FAILED", style="bold red")
                 status_text.append(f" - {progress.message}\n", style="dim")
                 self.status_panel = Panel(
                     status_text,
@@ -1368,7 +1011,6 @@ class TUIApp:
                 continue
 
             # Apply profile overrides via merge_config_overrides
-            # Note: We pass the original cfg as override_config to preserve non-override fields
             override_dict = {
                 "threads": cfg.threads,
                 "ctx_size": cfg.ctx_size,

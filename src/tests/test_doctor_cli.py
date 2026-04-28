@@ -32,7 +32,7 @@ from llama_cli.commands.doctor import (
 from llama_cli.commands.doctor import (
     main as doctor_main,
 )
-from llama_manager.profile_cache import (
+from llama_manager.config.profile_cache import (
     ProfileRecord,
     StalenessResult,
 )
@@ -1166,7 +1166,7 @@ class TestBuildProfileGuidance:
         """Helper to create a staleness result and profile record."""
         from datetime import UTC, datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             ProfileFlavor,
             ProfileMetrics,
             StalenessReason,

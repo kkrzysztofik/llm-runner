@@ -2,8 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from llama_manager.config import Config
-from llama_manager.config_builder import merge_config_overrides
+from llama_manager.config import Config, merge_config_overrides
 
 
 def test_precedence_overrides_win() -> None:
@@ -99,7 +98,7 @@ def test_merge_validates_threads_positive() -> None:
 
 def test_model_path_validation_only_when_model_is_overridden() -> None:
     defaults = Config()
-    with patch("llama_manager.config_builder.os.path.exists", return_value=False):
+    with patch("llama_manager.config.builder.os.path.exists", return_value=False):
         # Should not validate defaults-only model path
         merge_config_overrides(defaults, override_config={"port": 8088})
 

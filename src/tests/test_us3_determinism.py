@@ -1,7 +1,6 @@
 import json
 
-from llama_manager.config import Config
-from llama_manager.config_builder import merge_config_overrides
+from llama_manager.config import Config, merge_config_overrides
 from llama_manager.server import build_server_cmd
 
 

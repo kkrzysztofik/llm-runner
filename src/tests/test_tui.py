@@ -16,23 +16,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from llama_manager.config import ServerConfig, SlotState
+from llama_manager.config import SlotState
+from tests.helpers import make_server_config
 
-
-def _make_minimal_config(**overrides: object) -> ServerConfig:
-    """Helper to create a minimal ServerConfig with optional overrides."""
-    defaults: dict[str, object] = {
-        "model": "/models/test.gguf",
-        "alias": "test-slot",
-        "device": "SYCL0",
-        "port": 8080,
-        "ctx_size": 4096,
-        "ubatch_size": 512,
-        "threads": 4,
-        "server_bin": "dummy-llama-server",
-    }
-    defaults.update(overrides)
-    return ServerConfig(**defaults)  # type: ignore[arg-type]
+_make_minimal_config = make_server_config
 
 
 class TestPerSlotStatusDisplay:
@@ -40,7 +27,7 @@ class TestPerSlotStatusDisplay:
 
     def test_tui_app_instantiation_with_configs(self) -> None:
         """TUIApp should be instantiable with configs and GPU indices."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         configs = [_make_minimal_config(alias="slot1")]
         app = TUIApp(configs=configs, gpu_indices=[0])
@@ -52,7 +39,7 @@ class TestPerSlotStatusDisplay:
 
     def test_tui_app_instantiation_with_multiple_configs(self) -> None:
         """TUIApp should handle multiple configs."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         configs = [
             _make_minimal_config(alias="slot1", port=8080),
@@ -66,7 +53,7 @@ class TestPerSlotStatusDisplay:
 
     def test_log_buffers_created_per_config(self) -> None:
         """TUIApp should create a LogBuffer for each config."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         configs = [
             _make_minimal_config(alias="log-test-1"),
@@ -79,21 +66,21 @@ class TestPerSlotStatusDisplay:
 
     def test_status_panel_initialized(self) -> None:
         """TUIApp should initialize status_panel as None."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         assert app.status_panel is None
 
     def test_risk_panel_initialized(self) -> None:
         """TUIApp should initialize risk_panel as None."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         assert app.risk_panel is None
 
     def test_build_column_panel_creates_panel(self) -> None:
         """_build_column_panel should return a Panel with config info."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
         from llama_manager.log_buffer import LogBuffer
 
         cfg = _make_minimal_config(alias="panel-test")
@@ -108,7 +95,7 @@ class TestPerSlotStatusDisplay:
 
     def test_build_placeholder_panel(self) -> None:
         """_build_placeholder_panel should return a dim panel."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[])
         panel = app._build_placeholder_panel()
@@ -121,14 +108,14 @@ class TestGPUTelemetryPanel:
 
     def test_gpu_stats_initialized(self) -> None:
         """GPUStats should be initialized for each GPU index."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0, 1])
         assert len(app.gpu_stats) == 2
 
     def test_gpu_stats_collects_data(self) -> None:
         """GPUStats should collect data when updated."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         stats = app.gpu_stats[0]
@@ -148,7 +135,7 @@ class TestGPUTelemetryPanel:
 
     def test_gpu_stats_format_text(self) -> None:
         """GPUStats.format_stats_text should produce readable output."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         stats = app.gpu_stats[0]
@@ -159,7 +146,7 @@ class TestGPUTelemetryPanel:
 
     def test_gpu_stats_with_mock_collector(self) -> None:
         """GPUStats should use injected collector for testing."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         stats = app.gpu_stats[0]
@@ -181,7 +168,7 @@ class TestGPUTelemetryPanel:
 
     def test_gpu_stats_update_interval(self) -> None:
         """GPUStats should respect update_interval to avoid excessive updates."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         stats = app.gpu_stats[0]
@@ -208,7 +195,7 @@ class TestGPUTelemetryPanel:
 
     def test_gpu_stats_with_none_gpu_in_column_panel(self) -> None:
         """_build_column_panel should handle None GPU gracefully."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
         from llama_manager.log_buffer import LogBuffer
 
         cfg = _make_minimal_config(alias="no-gpu-test")
@@ -226,14 +213,14 @@ class TestSlotStateTransitionHandling:
 
     def test_tui_app_has_server_manager(self) -> None:
         """TUIApp should have a ServerManager for lifecycle management."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         assert app.server_manager is not None
 
     def test_server_manager_lifecycle_audit(self) -> None:
         """ServerManager should maintain lifecycle audit trail."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -255,7 +242,7 @@ class TestSlotStateTransitionHandling:
 
     def test_tui_status_panel_on_blocked(self) -> None:
         """_build_status_panel should create error panel for blocked launch."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
         from llama_manager.config import ErrorCode, ErrorDetail, MultiValidationError
         from llama_manager.process_manager import LaunchResult
 
@@ -281,7 +268,7 @@ class TestSlotStateTransitionHandling:
 
     def test_tui_status_panel_on_degraded(self) -> None:
         """_build_status_panel should create warning panel for degraded launch."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
         from llama_manager.process_manager import LaunchResult
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
@@ -297,7 +284,7 @@ class TestSlotStateTransitionHandling:
 
     def test_tui_status_panel_clears_on_success(self) -> None:
         """_build_status_panel should clear panel on successful launch."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
         from llama_manager.process_manager import LaunchResult
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
@@ -313,7 +300,7 @@ class TestSlotStateTransitionHandling:
 
     def test_risk_panel_required(self) -> None:
         """_build_risk_panel_required should set risk_panel with required style."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         app._build_risk_panel_required()
@@ -323,7 +310,7 @@ class TestSlotStateTransitionHandling:
 
     def test_risk_panel_acknowledged(self) -> None:
         """_build_risk_panel_acknowledged should set risk_panel with acknowledged style."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         app._build_risk_panel_acknowledged()
@@ -337,7 +324,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_stop_sets_running_false(self) -> None:
         """TUIApp.stop() should set running=False."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         assert app.running is True
@@ -347,7 +334,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_signal_handler_calls_stop(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_signal_handler should call stop() to stop the TUI loop."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         assert app.running is True
@@ -358,7 +345,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_cleanup_calls_server_manager_cleanup(self) -> None:
         """TUIApp._cleanup() should call server_manager.cleanup_servers()."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -377,7 +364,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_cleanup_does_not_require_input_polling_thread(self) -> None:
         """TUIApp._cleanup() should not depend on legacy input polling."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         app._cleanup()
@@ -385,7 +372,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_on_interrupt_calls_cleanup_and_exits(self) -> None:
         """ServerManager.on_interrupt should call cleanup_servers and exit with code 130."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -405,7 +392,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_on_terminate_calls_cleanup_and_exits(self) -> None:
         """ServerManager.on_terminate should call cleanup_servers and exit with code 143."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -425,7 +412,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_signal_handler_releases_build_lock(self) -> None:
         """_signal_handler should release build lock if build in progress."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -441,7 +428,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_keypress_queue_processes_keys(self) -> None:
         """_process_keypresses should drain the keypress queue."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -457,7 +444,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_push_status_message(self) -> None:
         """_push_status_message should add messages to the status buffer."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -471,7 +458,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_push_status_message_limited_to_five(self) -> None:
         """_push_status_message should keep at most 5 messages."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -482,7 +469,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_build_status_messages_panel(self) -> None:
         """_build_status_messages_panel should create panel from status messages."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         app._push_status_message("status update 1")
@@ -492,7 +479,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_build_status_messages_panel_empty(self) -> None:
         """_build_status_messages_panel should return None when no messages."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -501,7 +488,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_handle_keypress_dispatches_through_queue(self) -> None:
         """Textual key dispatch should reuse the queue-based state machine."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         app.handle_keypress("r")
@@ -510,7 +497,7 @@ class TestGracefulShutdownKeyHandler:
 
     def test_abort_profile(self) -> None:
         """_abort_profile should cancel any running profile."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -531,7 +518,7 @@ class TestHandleHardwareWarning:
 
     def test_handle_hardware_warning_y_acknowledges(self) -> None:
         """handle_hardware_warning should acknowledge and clear panel on 'y'."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -547,7 +534,7 @@ class TestHandleHardwareWarning:
 
     def test_handle_hardware_warning_n_aborts(self) -> None:
         """handle_hardware_warning should abort on 'n' key."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -563,7 +550,7 @@ class TestHandleHardwareWarning:
 
     def test_handle_hardware_warning_q_quits(self) -> None:
         """handle_hardware_warning should quit on 'q' key."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -579,7 +566,7 @@ class TestHandleHardwareWarning:
 
     def test_handle_hardware_warning_other_ignored(self) -> None:
         """handle_hardware_warning should ignore non-action keys."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -599,7 +586,7 @@ class TestHandleVramRisk:
 
     def test_handle_vram_risk_y_proceeds(self) -> None:
         """handle_vram_risk should proceed on 'y' key and clear panel."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -616,7 +603,7 @@ class TestHandleVramRisk:
 
     def test_handle_vram_risk_n_aborts(self) -> None:
         """handle_vram_risk should abort on 'n' key."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -628,7 +615,7 @@ class TestHandleVramRisk:
 
     def test_handle_vram_risk_other_ignored(self) -> None:
         """handle_vram_risk should ignore non-action keys."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -649,7 +636,7 @@ class TestProcessKeypressesDispatch:
 
     def test_q_key_triggers_graceful_shutdown(self) -> None:
         """_process_keypresses should dispatch 'q' to _on_key for shutdown."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         app._keypress_queue.put("q")
@@ -658,7 +645,7 @@ class TestProcessKeypressesDispatch:
 
     def test_r_key_triggers_refresh_message(self) -> None:
         """_process_keypresses should dispatch 'r' to _on_key for refresh."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         app._keypress_queue.put("r")
@@ -667,7 +654,7 @@ class TestProcessKeypressesDispatch:
 
     def test_risk_panel_blocks_normal_keys(self) -> None:
         """_process_keypresses should not dispatch normal keys when risk panel is active."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         app.risk_panel = MagicMock()

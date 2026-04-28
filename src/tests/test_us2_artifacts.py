@@ -87,10 +87,10 @@ class TestFR007ArtifactRequiredFields:
 
     def test_artifact_with_server_config_data(self, tmp_path: Path) -> None:
         """FR-007: write_artifact should work with ServerConfig-derived data."""
-        from llama_manager import config_builder
+        from llama_manager.config import create_summary_balanced_cfg
 
         # Create a ServerConfig
-        sc = config_builder.create_summary_balanced_cfg(port=8080)
+        sc = create_summary_balanced_cfg(port=8080)
         payload = build_dry_run_slot_payload(
             sc,
             slot_id="summary-balanced",

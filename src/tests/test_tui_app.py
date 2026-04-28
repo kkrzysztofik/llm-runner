@@ -14,9 +14,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llama_cli.commands.tui import TUIApp
-from llama_manager import ServerConfig
+from llama_cli.tui import TUIApp
 from llama_manager.build_pipeline import BuildBackend, BuildProgress, BuildResult
+from llama_manager.config import ServerConfig
+from tests.helpers import make_server_config
 
 
 def _make_config(
@@ -25,14 +26,11 @@ def _make_config(
     device: str = "CUDA",
 ) -> ServerConfig:
     """Helper to create a ServerConfig for tests."""
-    return ServerConfig(
+    return make_server_config(
         model="/path/to/model.gguf",
         alias=alias,
         device=device,
         port=port,
-        ctx_size=4096,
-        ubatch_size=512,
-        threads=4,
     )
 
 
@@ -397,7 +395,7 @@ class TestBuildLlamaCpp:
 
     def test_build_llama_cpp_success(self, tmp_path: Path) -> None:
         """build_llama_cpp should return True on success."""
-        with patch("llama_cli.commands.tui.Config") as mock_config_cls:
+        with patch("llama_cli.tui.controller.Config") as mock_config_cls:
             mock_config = MagicMock()
             mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
             mock_config.builds_dir = tmp_path / "output"
@@ -407,7 +405,7 @@ class TestBuildLlamaCpp:
             mock_config.build_retry_delay = 5
             mock_config_cls.return_value = mock_config
 
-            with patch("llama_cli.commands.tui.BuildPipeline") as mock_pipeline_cls:
+            with patch("llama_cli.tui.controller.BuildPipeline") as mock_pipeline_cls:
                 mock_pipeline_cls.return_value.run.return_value = BuildResult(success=True)
                 mock_pipeline_cls.return_value.dry_run = False
 
@@ -419,7 +417,7 @@ class TestBuildLlamaCpp:
 
     def test_build_llama_cpp_failure(self, tmp_path: Path) -> None:
         """build_llama_cpp should return False on failure."""
-        with patch("llama_cli.commands.tui.Config") as mock_config_cls:
+        with patch("llama_cli.tui.controller.Config") as mock_config_cls:
             mock_config = MagicMock()
             mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
             mock_config.builds_dir = tmp_path / "output"
@@ -429,7 +427,7 @@ class TestBuildLlamaCpp:
             mock_config.build_retry_delay = 5
             mock_config_cls.return_value = mock_config
 
-            with patch("llama_cli.commands.tui.BuildPipeline") as mock_pipeline_cls:
+            with patch("llama_cli.tui.controller.BuildPipeline") as mock_pipeline_cls:
                 mock_pipeline_cls.return_value.run.return_value = BuildResult(
                     success=False, error_message="failed"
                 )
@@ -443,7 +441,7 @@ class TestBuildLlamaCpp:
 
     def test_build_llama_cpp_dry_run(self, tmp_path: Path) -> None:
         """build_llama_cpp should set dry_run on pipeline."""
-        with patch("llama_cli.commands.tui.Config") as mock_config_cls:
+        with patch("llama_cli.tui.controller.Config") as mock_config_cls:
             mock_config = MagicMock()
             mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
             mock_config.builds_dir = tmp_path / "output"
@@ -453,7 +451,7 @@ class TestBuildLlamaCpp:
             mock_config.build_retry_delay = 5
             mock_config_cls.return_value = mock_config
 
-            with patch("llama_cli.commands.tui.BuildPipeline") as mock_pipeline_cls:
+            with patch("llama_cli.tui.controller.BuildPipeline") as mock_pipeline_cls:
                 mock_pipeline_cls.return_value.run.return_value = BuildResult(success=True)
 
                 app = TUIApp(configs=[_make_config()], gpu_indices=[0])
@@ -463,7 +461,7 @@ class TestBuildLlamaCpp:
 
     def test_build_llama_cpp_cuda_backend(self, tmp_path: Path) -> None:
         """build_llama_cpp should use correct backend for CUDA."""
-        with patch("llama_cli.commands.tui.Config") as mock_config_cls:
+        with patch("llama_cli.tui.controller.Config") as mock_config_cls:
             mock_config = MagicMock()
             mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
             mock_config.builds_dir = tmp_path / "output"
@@ -473,7 +471,7 @@ class TestBuildLlamaCpp:
             mock_config.build_retry_delay = 5
             mock_config_cls.return_value = mock_config
 
-            with patch("llama_cli.commands.tui.BuildPipeline") as mock_pipeline_cls:
+            with patch("llama_cli.tui.controller.BuildPipeline") as mock_pipeline_cls:
                 mock_pipeline_cls.return_value.run.return_value = BuildResult(success=True)
 
                 app = TUIApp(configs=[_make_config()], gpu_indices=[0])
@@ -585,13 +583,13 @@ class TestProfilingFlow:
 
         with (
             patch(
-                "llama_cli.commands.tui.get_gpu_identifier", return_value="intel-arc_b580-00"
+                "llama_cli.tui.controller.get_gpu_identifier", return_value="intel-arc_b580-00"
             ) as mock_gpu,
             patch(
                 "llama_cli.commands.profile._get_driver_version", return_value="driver-1"
             ) as mock_driver,
             patch(
-                "llama_cli.commands.tui.load_profile_with_staleness",
+                "llama_cli.tui.controller.load_profile_with_staleness",
                 return_value=(MagicMock(), stale_result),
             ) as mock_load,
         ):

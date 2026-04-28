@@ -21,7 +21,7 @@ from llama_manager import (
     validate_port,
     validate_ports,
 )
-from llama_manager.config_builder import create_default_profile_registry, resolve_run_group_configs
+from llama_manager.config import create_default_profile_registry, resolve_run_group_configs
 
 # Server backend display names
 INTEL_SERVER_NAME = "Intel llama-server"
@@ -214,7 +214,7 @@ def _run_tui(parsed: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for failure).
     """
-    from llama_cli.commands.tui import TUIApp
+    from llama_cli.tui import TUIApp
 
     cfg = Config()
 

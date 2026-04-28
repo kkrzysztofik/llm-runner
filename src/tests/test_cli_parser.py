@@ -600,7 +600,7 @@ class TestCliParserDynamicRegistryIntegration:
     def test_get_runnable_tui_modes_returns_registry_groups(self) -> None:
         """get_runnable_tui_modes should return run_group_ids from default registry."""
         from llama_cli.cli_parser import get_runnable_tui_modes
-        from llama_manager.config_builder import create_default_profile_registry
+        from llama_manager.config import create_default_profile_registry
 
         registry = create_default_profile_registry()
         modes = get_runnable_tui_modes()

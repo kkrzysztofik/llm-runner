@@ -12,8 +12,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from .common.constants import DIR_MODE_OWNER_ONLY
-from .common.file_ops import atomic_write_json
+from ..common.constants import DIR_MODE_OWNER_ONLY
+from ..common.file_ops import atomic_write_json
 
 # ---------------------------------------------------------------------------
 # Module-level constants

@@ -8,7 +8,7 @@ a second argument specifying the mode to preview.
 import argparse
 import sys
 
-from llama_manager.config_builder import create_default_profile_registry
+from llama_manager.config import create_default_profile_registry
 
 COMMAND_MODES = (
     "build",

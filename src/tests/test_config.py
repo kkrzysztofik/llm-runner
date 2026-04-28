@@ -19,10 +19,6 @@ from llama_manager.config import (
     RunProfileSpec,
     ServerConfig,
     ValidationResult,
-    validate_slot_id,
-    validate_slot_port,
-)
-from llama_manager.config_builder import (
     create_default_profile_registry,
     create_qwen35_cfg,
     create_server_config_from_profile,
@@ -30,6 +26,8 @@ from llama_manager.config_builder import (
     create_summary_fast_cfg,
     resolve_profile_config,
     resolve_run_group_configs,
+    validate_slot_id,
+    validate_slot_port,
 )
 from llama_manager.log_buffer import LogBuffer
 from llama_manager.process_manager import ServerManager, write_artifact
@@ -918,7 +916,7 @@ class TestTUILifecycle:
 
     def test_tui_uses_servermanager(self) -> None:
         """TUIApp should use ServerManager for lifecycle management."""
-        from llama_cli.commands.tui import TUIApp
+        from llama_cli.tui import TUIApp
         from llama_manager import ServerConfig
 
         configs = [

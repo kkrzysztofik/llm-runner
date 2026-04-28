@@ -1,0 +1,114 @@
+"""Config subpackage — public API re-exported from focused submodules."""
+
+from .builder import (
+    create_default_profile_registry,
+    create_default_run_groups,
+    create_default_run_profiles,
+    create_qwen35_cfg,
+    create_server_config_from_profile,
+    create_smoke_config,
+    create_summary_balanced_cfg,
+    create_summary_fast_cfg,
+    merge_config_overrides,
+    resolve_profile_config,
+    resolve_run_group_configs,
+)
+from .defaults import Config, SmokeProbeConfiguration
+from .enums import (
+    DoctorCheckStatus,
+    ErrorCode,
+    GgufParseError,
+    SlotState,
+    SmokeFailurePhase,
+    SmokePhase,
+    SmokeProbeStatus,
+    VRamRecommendation,
+)
+from .errors import ErrorDetail, MultiValidationError, ValidationResult
+from .profile_cache import (
+    CURRENT_SCHEMA_VERSION,
+    PROFILE_OVERRIDE_FIELDS,
+    ProfileFlavor,
+    ProfileMetrics,
+    ProfileRecord,
+    StalenessReason,
+    StalenessResult,
+    check_staleness,
+    compute_driver_version_hash,
+    compute_gpu_identifier,
+    ensure_profiles_dir,
+    get_profile_path,
+    load_profile_with_staleness,
+    profile_to_override_dict,
+    read_profile,
+    write_profile,
+)
+from .profiles import RunGroupSpec, RunProfileError, RunProfileRegistry, RunProfileSpec
+from .server import (
+    ModelSlot,
+    ServerConfig,
+    detect_duplicate_slots,
+    normalize_slot_id,
+    validate_slot_id,
+    validate_slot_port,
+)
+
+__all__ = [
+    # enums
+    "DoctorCheckStatus",
+    "ErrorCode",
+    "GgufParseError",
+    "SlotState",
+    "SmokeFailurePhase",
+    "SmokePhase",
+    "SmokeProbeStatus",
+    "VRamRecommendation",
+    # errors
+    "ErrorDetail",
+    "MultiValidationError",
+    "ValidationResult",
+    # server
+    "ModelSlot",
+    "ServerConfig",
+    "detect_duplicate_slots",
+    "normalize_slot_id",
+    "validate_slot_id",
+    "validate_slot_port",
+    # profiles
+    "RunGroupSpec",
+    "RunProfileError",
+    "RunProfileRegistry",
+    "RunProfileSpec",
+    # defaults
+    "Config",
+    "SmokeProbeConfiguration",
+    # profile_cache
+    "CURRENT_SCHEMA_VERSION",
+    "PROFILE_OVERRIDE_FIELDS",
+    "ProfileFlavor",
+    "ProfileMetrics",
+    "ProfileRecord",
+    "StalenessReason",
+    "StalenessResult",
+    "check_staleness",
+    "compute_driver_version_hash",
+    "compute_gpu_identifier",
+    "ensure_profiles_dir",
+    "get_profile_path",
+    "load_profile_with_staleness",
+    "profile_to_override_dict",
+    "read_profile",
+    "write_profile",
+    # builder
+    "create_default_profile_registry",
+    "create_default_run_groups",
+    "create_default_run_profiles",
+    "create_qwen35_cfg",
+    "create_server_config_from_profile",
+    "create_smoke_config",
+    "create_summary_balanced_cfg",
+    "create_summary_fast_cfg",
+    "merge_config_overrides",
+    "resolve_profile_config",
+    "resolve_run_group_configs",
+]

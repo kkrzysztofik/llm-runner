@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llama_manager.profile_cache import (
+from llama_manager.config.profile_cache import (
     ProfileFlavor,
     ProfileMetrics,
     ProfileRecord,
@@ -260,7 +260,7 @@ class TestGetProfilePath:
         # This tests the traversal protection in get_profile_path
         with (
             patch(
-                "llama_manager.profile_cache._sanitize_filename_component",
+                "llama_manager.config.profile_cache._sanitize_filename_component",
                 side_effect=lambda s: "../../../etc" if s == "gpu" else s,
             ),
             pytest.raises(ValueError, match="escapes profiles_dir"),
@@ -397,7 +397,7 @@ class TestWriteProfile:
         """write_profile should create file."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             compute_driver_version_hash,
             write_profile,
         )
@@ -426,7 +426,7 @@ class TestWriteProfile:
         """Should return Path to written file."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             compute_driver_version_hash,
             write_profile,
         )
@@ -456,7 +456,7 @@ class TestWriteProfile:
         """write_profile creates profiles_dir if it doesn't exist."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             compute_driver_version_hash,
             write_profile,
         )
@@ -490,7 +490,7 @@ class TestWriteProfile:
         import stat
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             compute_driver_version_hash,
             write_profile,
         )
@@ -520,7 +520,7 @@ class TestWriteProfile:
         """write_profile works with SYCL backend."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             compute_driver_version_hash,
             write_profile,
         )
@@ -557,7 +557,7 @@ class TestReadProfile:
 
     def test_file_not_found_returns_none(self, tmp_path: Path) -> None:
         """Returns None when profile file does not exist."""
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             read_profile,
         )
 
@@ -571,7 +571,7 @@ class TestReadProfile:
 
     def test_corrupt_json_returns_none(self, tmp_path: Path) -> None:
         """Returns None when JSON file is corrupted."""
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             read_profile,
         )
 
@@ -588,7 +588,7 @@ class TestReadProfile:
 
     def test_missing_required_field_returns_none(self, tmp_path: Path) -> None:
         """Returns None when required fields are missing."""
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             read_profile,
         )
 
@@ -608,7 +608,7 @@ class TestReadProfile:
 
     def test_unsupported_schema_version_returns_none(self, tmp_path: Path) -> None:
         """Returns None when schema version is not current."""
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             read_profile,
         )
 
@@ -646,7 +646,7 @@ class TestReadProfile:
         """Returns a ProfileRecord when the file is valid."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             compute_driver_version_hash,
             read_profile,
             write_profile,
@@ -684,7 +684,7 @@ class TestReadProfile:
 
     def test_non_dict_json_returns_none(self, tmp_path: Path) -> None:
         """Returns None when JSON is not a dict (e.g. a list)."""
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             read_profile,
         )
 
@@ -701,7 +701,7 @@ class TestReadProfile:
 
     def test_invalid_metrics_returns_none(self, tmp_path: Path) -> None:
         """Returns None when metrics dict is malformed."""
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             read_profile,
         )
 
@@ -744,7 +744,7 @@ class TestCheckStaleness:
         """Fresh profile with matching driver and binary is not stale."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             check_staleness,
             compute_driver_version_hash,
         )
@@ -781,7 +781,7 @@ class TestCheckStaleness:
         """Profile is stale when driver version changed."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             StalenessReason,
             check_staleness,
             compute_driver_version_hash,
@@ -818,7 +818,7 @@ class TestCheckStaleness:
         """Profile is stale when binary version changed."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             StalenessReason,
             check_staleness,
             compute_driver_version_hash,
@@ -855,7 +855,7 @@ class TestCheckStaleness:
         """Profile is stale when age exceeds staleness_days."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             StalenessReason,
             check_staleness,
             compute_driver_version_hash,
@@ -892,7 +892,7 @@ class TestCheckStaleness:
         """Profile is stale when all three conditions fail."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             StalenessReason,
             check_staleness,
             compute_driver_version_hash,
@@ -931,7 +931,7 @@ class TestCheckStaleness:
         """Naive datetime strings are treated as UTC."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             check_staleness,
             compute_driver_version_hash,
         )
@@ -963,7 +963,7 @@ class TestCheckStaleness:
 
     def test_invalid_profiled_at_treated_as_stale(self) -> None:
         """Invalid profiled_at timestamp is treated as stale."""
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             StalenessReason,
             check_staleness,
             compute_driver_version_hash,
@@ -996,7 +996,7 @@ class TestCheckStaleness:
 
     def test_warning_message_format(self) -> None:
         """StalenessResult.warning_message formats reasons correctly."""
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             StalenessReason,
             StalenessResult,
         )
@@ -1016,7 +1016,7 @@ class TestCheckStaleness:
 
     def test_non_stale_warning_message_empty(self) -> None:
         """Non-stale result has empty warning message."""
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             StalenessResult,
         )
 
@@ -1027,7 +1027,7 @@ class TestCheckStaleness:
         """When staleness_days is 0, age is never considered exceeded."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             check_staleness,
             compute_driver_version_hash,
         )
@@ -1068,7 +1068,7 @@ class TestLoadProfileWithStaleness:
 
     def test_no_file_returns_none_tuple(self, tmp_path: Path) -> None:
         """Returns (None, None) when profile file does not exist."""
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             load_profile_with_staleness,
         )
 
@@ -1088,7 +1088,7 @@ class TestLoadProfileWithStaleness:
         """Returns (record, staleness) when profile exists and is valid."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             compute_driver_version_hash,
             load_profile_with_staleness,
             write_profile,
@@ -1130,7 +1130,7 @@ class TestLoadProfileWithStaleness:
         """Returns staleness result with reasons when profile is stale."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             compute_driver_version_hash,
             load_profile_with_staleness,
             write_profile,
@@ -1181,7 +1181,7 @@ class TestProfileToOverrideDict:
         """Only whitelisted fields are included in the result."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             compute_driver_version_hash,
             profile_to_override_dict,
         )
@@ -1229,7 +1229,7 @@ class TestProfileToOverrideDict:
         """Returns empty dict when parameters is empty."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             compute_driver_version_hash,
             profile_to_override_dict,
         )
@@ -1259,7 +1259,7 @@ class TestProfileToOverrideDict:
         """Returns empty dict when all parameters are non-whitelisted."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             compute_driver_version_hash,
             profile_to_override_dict,
         )
@@ -1292,7 +1292,7 @@ class TestProfileToOverrideDict:
         """Parameter values are preserved without modification."""
         from datetime import datetime, timedelta
 
-        from llama_manager.profile_cache import (
+        from llama_manager.config.profile_cache import (
             compute_driver_version_hash,
             profile_to_override_dict,
         )

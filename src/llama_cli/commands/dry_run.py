@@ -18,7 +18,7 @@ from llama_manager import (
     validate_server_config,
     write_artifact,
 )
-from llama_manager.config_builder import create_default_profile_registry, resolve_run_group_configs
+from llama_manager.config import create_default_profile_registry, resolve_run_group_configs
 from llama_manager.server import detect_risky_operations
 
 RISK_ACK_LABEL = "warning_bypass"

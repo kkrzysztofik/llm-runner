@@ -514,8 +514,7 @@ class TestParseArgsNonePath:
 
     def test_create_smoke_config_defaults(self) -> None:
         """create_smoke_config should create config with defaults from Config."""
-        from llama_manager.config import Config
-        from llama_manager.config_builder import create_smoke_config
+        from llama_manager.config import Config, create_smoke_config
 
         config = Config()
         smoke_cfg = create_smoke_config(config)
@@ -531,8 +530,7 @@ class TestParseArgsNonePath:
 
     def test_create_smoke_config_with_api_key(self) -> None:
         """create_smoke_config should use provided api_key."""
-        from llama_manager.config import Config
-        from llama_manager.config_builder import create_smoke_config
+        from llama_manager.config import Config, create_smoke_config
 
         config = Config()
         smoke_cfg = create_smoke_config(config, api_key="sk-test-key")
@@ -541,8 +539,7 @@ class TestParseArgsNonePath:
 
     def test_create_smoke_config_with_model_id_override(self) -> None:
         """create_smoke_config should pass through model_id_override."""
-        from llama_manager.config import Config
-        from llama_manager.config_builder import create_smoke_config
+        from llama_manager.config import Config, create_smoke_config
 
         config = Config()
         smoke_cfg = create_smoke_config(config, model_id_override="Qwen3.5-2B")
@@ -551,8 +548,7 @@ class TestParseArgsNonePath:
 
     def test_create_smoke_config_cli_key_overrides_config(self) -> None:
         """CLI api_key should take precedence over Config.smoke_api_key."""
-        from llama_manager.config import Config
-        from llama_manager.config_builder import create_smoke_config
+        from llama_manager.config import Config, create_smoke_config
 
         config = Config()
         config.smoke_api_key = "from-config"
@@ -562,8 +558,7 @@ class TestParseArgsNonePath:
 
     def test_create_smoke_config_empty_cli_key_uses_config(self) -> None:
         """Empty CLI api_key should fall back to Config.smoke_api_key."""
-        from llama_manager.config import Config
-        from llama_manager.config_builder import create_smoke_config
+        from llama_manager.config import Config, create_smoke_config
 
         config = Config()
         config.smoke_api_key = "from-config"
