@@ -17,7 +17,7 @@ import contextlib
 from unittest.mock import patch
 
 from llama_manager.server import DryRunSlotPayload, VllmEligibility
-from tests.helpers import make_server_config
+from tests.support.factories import make_server_config
 
 _make_minimal_server_config = make_server_config
 

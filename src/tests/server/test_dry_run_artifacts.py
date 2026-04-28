@@ -31,6 +31,7 @@ from llama_manager.server import (
     ValidationResults,
     build_dry_run_slot_payload,
 )
+from tests.support.runtime import valid_artifact_data
 
 
 class TestFR007ArtifactRequiredFields:
@@ -38,14 +39,7 @@ class TestFR007ArtifactRequiredFields:
 
     def _valid_artifact_data(self) -> dict:
         """Create valid artifact data with all required fields."""
-        return {
-            "timestamp": "2026-04-12T00:00:00Z",
-            "slot_scope": ["slot1"],
-            "resolved_command": {"cmd": ["echo", "test"]},
-            "validation_results": {"passed": True, "checks": []},
-            "warnings": [],
-            "environment_redacted": {},
-        }
+        return valid_artifact_data()
 
     def test_artifact_contains_model_path_field(self) -> None:
         """FR-007: Artifact should contain model_path field."""

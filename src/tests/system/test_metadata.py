@@ -25,12 +25,7 @@ from llama_manager.metadata import (
     extract_gguf_metadata,
     normalize_filename,
 )
-
-# ---------------------------------------------------------------------------
-# Path to test fixtures (relative to this file's directory)
-# ---------------------------------------------------------------------------
-_FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
-
+from tests.support.runtime import fixture_path
 
 # ---------------------------------------------------------------------------
 # T045 — Valid GGUF v3 metadata extraction
@@ -41,7 +36,7 @@ class TestValidMetadataExtraction:
     """T045: Verify metadata extraction from a valid GGUF v3 file."""
 
     def _fixture_path(self, name: str) -> Path:
-        return _FIXTURES_DIR / name
+        return fixture_path(name)
 
     def test_extract_all_fields_from_valid_v3(self) -> None:
         """extract_gguf_metadata should return a complete record for a valid GGUF v3 file."""
@@ -103,7 +98,7 @@ class TestMissingGeneralName:
     """T046: Verify fallback behavior when general.name is absent."""
 
     def _fixture_path(self, name: str) -> Path:
-        return _FIXTURES_DIR / name
+        return fixture_path(name)
 
     def test_general_name_none_when_missing(self) -> None:
         """general_name should be None when not present in GGUF file."""
@@ -135,7 +130,7 @@ class TestCorruptFile:
     """T047: Verify error handling for corrupt GGUF files."""
 
     def _fixture_path(self, name: str) -> Path:
-        return _FIXTURES_DIR / name
+        return fixture_path(name)
 
     def test_bad_magic_raises_value_error(self) -> None:
         """extract_gguf_metadata should raise ValueError for bad magic bytes."""
@@ -179,7 +174,7 @@ class TestTruncatedFile:
     """T048: Verify handling of truncated GGUF files with valid header."""
 
     def _fixture_path(self, name: str) -> Path:
-        return _FIXTURES_DIR / name
+        return fixture_path(name)
 
     def test_truncated_file_succeeds_with_partial_data(self) -> None:
         """Truncated file with valid header and 0 KV pairs should succeed."""
@@ -215,7 +210,7 @@ class TestGGUFv4Unsupported:
     """T049: Verify that GGUF v4 files produce an unsupported error."""
 
     def _fixture_path(self, name: str) -> Path:
-        return _FIXTURES_DIR / name
+        return fixture_path(name)
 
     def test_v4_file_raises_unsupported_error(self) -> None:
         """extract_gguf_metadata should raise ValueError for GGUF v4 files."""
@@ -296,7 +291,7 @@ class TestParseTimeout:
 
     def test_timeout_does_not_affect_fast_files(self) -> None:
         """Fast files should not trigger timeout."""
-        path = str(_FIXTURES_DIR / "gguf_v3_valid.gguf")
+        path = str(fixture_path("gguf_v3_valid.gguf"))
         # Very short timeout but file is tiny — should still succeed
         record = extract_gguf_metadata(path, prefix_cap_bytes=65536, parse_timeout_s=0.5)
         assert record.architecture == "llama"
@@ -709,7 +704,7 @@ class TestExtractGgufMetadataValidation:
     def test_valid_parameters_accepted(self) -> None:
         """Valid positive parameters should not raise."""
         # Use a fixture that exists
-        path = str(_FIXTURES_DIR / "gguf_v3_valid.gguf")
+        path = str(fixture_path("gguf_v3_valid.gguf"))
         # Should succeed without raising
         record = extract_gguf_metadata(path, prefix_cap_bytes=1024, parse_timeout_s=1.0)
         assert record is not None

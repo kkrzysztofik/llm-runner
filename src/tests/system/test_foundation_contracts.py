@@ -40,6 +40,7 @@ from llama_manager.process_manager import (
 from llama_manager.server import (
     validate_slots,
 )
+from tests.support.runtime import valid_artifact_data
 
 
 class TestNormalizeSlotId:
@@ -502,14 +503,7 @@ class TestWriteArtifact:
 
     def _valid_artifact_data(self) -> dict:
         """Create valid artifact data with all FR-007 required fields."""
-        return {
-            "timestamp": "2026-04-12T00:00:00Z",
-            "slot_scope": ["slot1"],
-            "resolved_command": {"cmd": ["echo", "test"]},
-            "validation_results": {"passed": True, "checks": []},
-            "warnings": [],
-            "environment_redacted": {"model_path": "/path/to/model"},
-        }
+        return valid_artifact_data(environment_redacted={"model_path": "/path/to/model"})
 
     def test_writes_artifact(self, tmp_path: Path) -> None:
         """Should write artifact with JSON serialization."""

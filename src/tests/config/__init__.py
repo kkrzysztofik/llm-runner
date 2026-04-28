@@ -1,0 +1,2 @@
+"""Config-domain tests."""
+

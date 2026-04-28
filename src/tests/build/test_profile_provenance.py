@@ -9,12 +9,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest  # noqa: F401
 
-from llama_manager.build_pipeline import BuildBackend, BuildConfig
+from llama_manager.build_pipeline import BuildBackend, BuildConfig, BuildProgress
 from llama_manager.build_pipeline._context import _BuildContext
 from llama_manager.build_pipeline.stages.clone import run_clone
+from tests.support.factories import make_build_config
 
 
-def _run_clone(config: BuildConfig, *, dry_run: bool = False):
+def _run_clone(config: BuildConfig, *, dry_run: bool = False) -> BuildProgress:
     return run_clone(_BuildContext(config=config, dry_run=dry_run))
 
 
@@ -27,14 +28,7 @@ class TestOfflineContinue:
         This simulates offline-continue: when network is unavailable but local
         clone exists, the build can continue with existing sources.
         """
-        config = BuildConfig(
-            backend=BuildBackend.CUDA,
-            source_dir=tmp_path / "llama.cpp",
-            build_dir=tmp_path / "build",
-            output_dir=tmp_path / "output",
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-        )
+        config = make_build_config(tmp_path, backend=BuildBackend.CUDA)
 
         # Create source directory with existing files (simulating previous clone)
         config.source_dir.mkdir(parents=True)
@@ -54,14 +48,7 @@ class TestOfflineContinue:
 
         An empty directory is not a valid clone, so it should attempt to clone.
         """
-        config = BuildConfig(
-            backend=BuildBackend.CUDA,
-            source_dir=tmp_path / "llama.cpp",
-            build_dir=tmp_path / "build",
-            output_dir=tmp_path / "output",
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-        )
+        config = make_build_config(tmp_path, backend=BuildBackend.CUDA)
 
         # Create empty source directory
         config.source_dir.mkdir(parents=True)
@@ -80,14 +67,7 @@ class TestOfflineContinue:
         When a partial clone exists (some files present), the build should
         be able to continue if enough files are present for CMake.
         """
-        config = BuildConfig(
-            backend=BuildBackend.SYCL,
-            source_dir=tmp_path / "llama.cpp",
-            build_dir=tmp_path / "build",
-            output_dir=tmp_path / "output",
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-        )
+        config = make_build_config(tmp_path, backend=BuildBackend.SYCL)
 
         # Create source directory with partial files (simulating shallow clone)
         config.source_dir.mkdir(parents=True)
@@ -108,14 +88,7 @@ class TestOfflineContinue:
         This tests the offline-continue pattern: if network fails but local
         sources exist, the build should continue with existing sources.
         """
-        config = BuildConfig(
-            backend=BuildBackend.CUDA,
-            source_dir=tmp_path / "llama.cpp",
-            build_dir=tmp_path / "build",
-            output_dir=tmp_path / "output",
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-        )
+        config = make_build_config(tmp_path, backend=BuildBackend.CUDA)
 
         # Create source directory with files
         config.source_dir.mkdir(parents=True)
@@ -140,14 +113,7 @@ class TestOfflineContinue:
         This tests the error handling path: if network fails and no local
         sources exist, the build should report a clear error.
         """
-        config = BuildConfig(
-            backend=BuildBackend.CUDA,
-            source_dir=tmp_path / "llama.cpp",
-            build_dir=tmp_path / "build",
-            output_dir=tmp_path / "output",
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-        )
+        config = make_build_config(tmp_path, backend=BuildBackend.CUDA)
 
         # Source directory does not exist
         assert not config.source_dir.exists()
@@ -168,14 +134,7 @@ class TestOfflineContinue:
 
         Dry-run mode should show what would be executed without making network calls.
         """
-        config = BuildConfig(
-            backend=BuildBackend.SYCL,
-            source_dir=tmp_path / "llama.cpp",
-            build_dir=tmp_path / "build",
-            output_dir=tmp_path / "output",
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-        )
+        config = make_build_config(tmp_path, backend=BuildBackend.SYCL)
 
         # Source directory does not exist
         assert not config.source_dir.exists()
@@ -193,15 +152,7 @@ class TestOfflineContinue:
 
         Shallow cloning is the default for faster builds.
         """
-        config = BuildConfig(
-            backend=BuildBackend.CUDA,
-            source_dir=tmp_path / "llama.cpp",
-            build_dir=tmp_path / "build",
-            output_dir=tmp_path / "output",
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-            shallow_clone=True,
-        )
+        config = make_build_config(tmp_path, backend=BuildBackend.CUDA, shallow_clone=True)
 
         # Mock subprocess.run to capture the command
         mock_result = MagicMock()
@@ -229,15 +180,7 @@ class TestOfflineContinue:
 
         Full clone is useful for debugging or when full history is needed.
         """
-        config = BuildConfig(
-            backend=BuildBackend.SYCL,
-            source_dir=tmp_path / "llama.cpp",
-            build_dir=tmp_path / "build",
-            output_dir=tmp_path / "output",
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-            shallow_clone=False,
-        )
+        config = make_build_config(tmp_path, backend=BuildBackend.SYCL, shallow_clone=False)
 
         # Run clone stage
         progress = _run_clone(config, dry_run=True)

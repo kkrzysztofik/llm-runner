@@ -40,6 +40,17 @@ from llama_manager.server import (
     validate_backend_eligibility,
     validate_server_config,
 )
+from tests.support.factories import make_server_config
+
+
+def _contract_cfg(**kwargs: object) -> ServerConfig:
+    defaults = {
+        "alias": "test",
+        "server_bin": "/usr/bin/llama-server",
+        "backend": "llama_cpp",
+    }
+    defaults.update(kwargs)
+    return make_server_config(**defaults)
 
 
 class TestFR003DryRunPayloadContract:
@@ -47,19 +58,7 @@ class TestFR003DryRunPayloadContract:
 
     def _minimal_cfg(self, **kwargs: object) -> ServerConfig:
         """Create minimal ServerConfig for testing."""
-        defaults = {
-            "model": "/models/test.gguf",
-            "alias": "test",
-            "device": "SYCL0",
-            "port": 8080,
-            "ctx_size": 4096,
-            "ubatch_size": 512,
-            "threads": 4,
-            "server_bin": "/usr/bin/llama-server",
-            "backend": "llama_cpp",
-        }
-        defaults.update(kwargs)
-        return ServerConfig(**defaults)  # type: ignore[arg-type]
+        return _contract_cfg(**kwargs)
 
     def test_slot_id_field_present_and_type(self) -> None:
         """FR-003: slot_id should be present and be a string."""
@@ -691,19 +690,7 @@ class TestFR003OpenAIBundleDeterminism:
 
     def _minimal_cfg(self, **kwargs: object) -> ServerConfig:
         """Create minimal ServerConfig for testing."""
-        defaults = {
-            "model": "/models/test.gguf",
-            "alias": "test",
-            "device": "SYCL0",
-            "port": 8080,
-            "ctx_size": 4096,
-            "ubatch_size": 512,
-            "threads": 4,
-            "server_bin": "/usr/bin/llama-server",
-            "backend": "llama_cpp",
-        }
-        defaults.update(kwargs)
-        return ServerConfig(**defaults)  # type: ignore[arg-type]
+        return _contract_cfg(**kwargs)
 
     def test_openai_bundle_keys_are_sorted(self) -> None:
         """FR-003: openai_flag_bundle keys should be deterministically sorted."""

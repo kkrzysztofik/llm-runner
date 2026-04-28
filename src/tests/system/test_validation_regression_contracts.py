@@ -17,6 +17,17 @@ from llama_manager.server import (
     build_dry_run_slot_payload,
     validate_slots,
 )
+from tests.support.factories import make_server_config
+
+
+def _regression_cfg(**kwargs: Any) -> ServerConfig:
+    defaults = {
+        "alias": "test",
+        "server_bin": "/usr/bin/llama-server",
+        "backend": "llama_cpp",
+    }
+    defaults.update(kwargs)
+    return make_server_config(**defaults)
 
 
 @pytest.fixture
@@ -264,19 +275,7 @@ class TestFR003SlotConfigurationSequenceConsistency:
 
     def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
         """Create ServerConfig for testing."""
-        defaults = {
-            "model": "/models/test.gguf",
-            "alias": "test",
-            "device": "SYCL0",
-            "port": 8080,
-            "ctx_size": 4096,
-            "ubatch_size": 512,
-            "threads": 4,
-            "server_bin": "/usr/bin/llama-server",
-            "backend": "llama_cpp",
-        }
-        defaults.update(kwargs)
-        return ServerConfig(**defaults)  # type: ignore[arg-type]
+        return _regression_cfg(**kwargs)
 
     def test_error_slot_order_matches_dry_run_slot_order(self) -> None:
         """FR-003: Error slot sequence order must match dry-run payload slot order."""
@@ -385,19 +384,7 @@ class TestFR003FailedCheckAscendingTieBreak:
 
     def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
         """Create ServerConfig for testing."""
-        defaults = {
-            "model": "/models/test.gguf",
-            "alias": "test",
-            "device": "SYCL0",
-            "port": 8080,
-            "ctx_size": 4096,
-            "ubatch_size": 512,
-            "threads": 4,
-            "server_bin": "/usr/bin/llama-server",
-            "backend": "llama_cpp",
-        }
-        defaults.update(kwargs)
-        return ServerConfig(**defaults)  # type: ignore[arg-type]
+        return _regression_cfg(**kwargs)
 
     def test_failed_check_ascending_tiebreak_within_slot(self) -> None:
         """FR-003: failed_check should be sorted ascending within each slot."""
@@ -459,19 +446,7 @@ class TestFR003NewArtifactShapeAssertions:
 
     def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
         """Create ServerConfig for testing."""
-        defaults = {
-            "model": "/models/test.gguf",
-            "alias": "test",
-            "device": "SYCL0",
-            "port": 8080,
-            "ctx_size": 4096,
-            "ubatch_size": 512,
-            "threads": 4,
-            "server_bin": "/usr/bin/llama-server",
-            "backend": "llama_cpp",
-        }
-        defaults.update(kwargs)
-        return ServerConfig(**defaults)  # type: ignore[arg-type]
+        return _regression_cfg(**kwargs)
 
     def test_slot_scope_is_list_of_strings(self) -> None:
         """FR-003: slot_scope must be a list of strings (slot IDs)."""

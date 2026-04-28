@@ -17,7 +17,7 @@ import pytest
 from llama_cli.tui import TUIApp
 from llama_manager.build_pipeline import BuildBackend, BuildProgress, BuildResult
 from llama_manager.config import ServerConfig
-from tests.helpers import make_server_config
+from tests.support.factories import make_server_config
 
 
 def _make_config(

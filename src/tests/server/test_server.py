@@ -13,6 +13,7 @@ from llama_manager.server import (
     validate_ports,
     validate_threads,
 )
+from tests.support.factories import make_server_config
 
 
 class TestValidatePort:
@@ -103,18 +104,9 @@ class TestValidateThreads:
 
 class TestBuildServerCmd:
     def _minimal_cfg(self, **kwargs: object) -> ServerConfig:
-        defaults = {
-            "model": "/models/test.gguf",
-            "alias": "test",
-            "device": "SYCL0",
-            "port": 8080,
-            "ctx_size": 4096,
-            "ubatch_size": 512,
-            "threads": 4,
-            "server_bin": "/usr/bin/llama-server",
-        }
+        defaults = {"alias": "test", "server_bin": "/usr/bin/llama-server"}
         defaults.update(kwargs)
-        return ServerConfig(**defaults)  # type: ignore[arg-type]
+        return make_server_config(**defaults)
 
     def test_required_flags_present(self) -> None:
         cmd = build_server_cmd(self._minimal_cfg())

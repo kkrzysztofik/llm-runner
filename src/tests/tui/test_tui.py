@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from llama_manager.config import SlotState
-from tests.helpers import make_server_config
+from tests.support.factories import make_server_config
 
 _make_minimal_config = make_server_config
 

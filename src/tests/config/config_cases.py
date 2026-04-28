@@ -31,6 +31,7 @@ from llama_manager.config import (
 )
 from llama_manager.log_buffer import LogBuffer
 from llama_manager.process_manager import ServerManager, write_artifact
+from tests.support.runtime import valid_artifact_data
 
 
 class TestConfig:
@@ -517,14 +518,7 @@ class TestArtifactFilenameUniqueness:
 
     def _valid_artifact_data(self) -> dict:
         """Create valid artifact data with all FR-007 required fields."""
-        return {
-            "timestamp": "2026-04-12T00:00:00Z",
-            "slot_scope": ["slot1"],
-            "resolved_command": {"cmd": ["echo", "test"]},
-            "validation_results": {"passed": True, "checks": []},
-            "warnings": [],
-            "environment_redacted": {},
-        }
+        return valid_artifact_data()
 
     def test_artifact_filename_contains_uuid(self, tmp_path) -> None:
         """FR-007: write_artifact should NOT include UUID in filename (per contract)."""
