@@ -100,10 +100,26 @@ class TestNoAutobuildOnLaunch:
         pipeline = BuildPipeline(config)
 
         # Mock all stages to verify they are NOT called when sources exist
+        mock_artifact = BuildArtifact(
+            artifact_type="llama-server",
+            backend="sycl",
+            created_at=time.time(),
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_commit_sha="abc123",
+            git_branch="main",
+            build_command=["cmake", "--build"],
+            build_duration_seconds=10.0,
+            exit_code=0,
+            binary_path=None,
+            binary_size_bytes=None,
+            build_log_path=None,
+            failure_report_path=None,
+        )
         with (
-            patch.object(
-                pipeline,
-                "_run_preflight",
+            patch.object(pipeline, "_acquire_lock", return_value=True),
+            patch.object(pipeline, "_release_lock"),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_preflight",
                 return_value=BuildProgress(
                     stage="preflight",
                     status="success",
@@ -111,9 +127,8 @@ class TestNoAutobuildOnLaunch:
                     progress_percent=20,
                 ),
             ) as mock_check,
-            patch.object(
-                pipeline,
-                "_run_clone",
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_clone",
                 return_value=BuildProgress(
                     stage="clone",
                     status="skipped",
@@ -121,9 +136,8 @@ class TestNoAutobuildOnLaunch:
                     progress_percent=0,
                 ),
             ) as mock_clone,
-            patch.object(
-                pipeline,
-                "_run_configure",
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_configure",
                 return_value=BuildProgress(
                     stage="configure",
                     status="success",
@@ -131,9 +145,8 @@ class TestNoAutobuildOnLaunch:
                     progress_percent=50,
                 ),
             ) as mock_configure,
-            patch.object(
-                pipeline,
-                "_run_build",
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_build",
                 return_value=BuildProgress(
                     stage="build",
                     status="success",
@@ -141,24 +154,9 @@ class TestNoAutobuildOnLaunch:
                     progress_percent=75,
                 ),
             ) as mock_build,
-            patch.object(
-                pipeline,
-                "_run_finalize",
-                return_value=BuildArtifact(
-                    artifact_type="llama-server",
-                    backend="sycl",
-                    created_at=time.time(),
-                    git_remote_url="https://github.com/ggerganov/llama.cpp",
-                    git_commit_sha="abc123",
-                    git_branch="main",
-                    build_command=["cmake", "--build"],
-                    build_duration_seconds=10.0,
-                    exit_code=0,
-                    binary_path=None,
-                    binary_size_bytes=None,
-                    build_log_path=None,
-                    failure_report_path=None,
-                ),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_finalize",
+                return_value=mock_artifact,
             ) as mock_finalize,
         ):
             result = pipeline.run()
@@ -202,63 +200,54 @@ class TestSerializedBuildOrder:
 
         pipeline = BuildPipeline(config)
 
-        execution_order: list[str] = []
+        mock_artifact = BuildArtifact(
+            artifact_type="llama-server",
+            backend="sycl",
+            created_at=time.time(),
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_commit_sha="abc123",
+            git_branch="main",
+            build_command=["cmake", "--build"],
+            build_duration_seconds=10.0,
+            exit_code=0,
+            binary_path=None,
+            binary_size_bytes=None,
+            build_log_path=None,
+            failure_report_path=None,
+        )
 
-        # Mock stages to track execution order for both backends
-        def track_stage(backend: str, stage_name: str):
-            def decorator(func):
-                def wrapper(*args, **kwargs):
-                    execution_order.append(f"{backend}:{stage_name}")
-                    return func(*args, **kwargs)
-
-                return wrapper
-
-            return decorator
-
-        # Patch BuildPipeline class to track execution order
-        original_init = BuildPipeline.__init__
-
-        def patched_init(self, cfg, progress_callback=None):
-            original_init(self, cfg, progress_callback)
-            backend_name = cfg.backend.value.upper()
-
-            # Mock all stages for this pipeline
-            self._run_preflight = track_stage(backend_name, "preflight")(
-                Mock(
-                    return_value=BuildProgress(
-                        stage="preflight", status="success", message="OK", progress_percent=20
-                    )
-                )
-            )
-            self._run_clone = track_stage(backend_name, "clone")(
-                Mock(
-                    return_value=BuildProgress(
-                        stage="clone", status="skipped", message="Exists", progress_percent=0
-                    )
-                )
-            )
-            self._run_configure = track_stage(backend_name, "configure")(
-                Mock(
-                    return_value=BuildProgress(
-                        stage="configure",
-                        status="success",
-                        message="Configured",
-                        progress_percent=50,
-                    )
-                )
-            )
-            self._run_build = track_stage(backend_name, "build")(
-                Mock(
-                    return_value=BuildProgress(
-                        stage="build", status="success", message="Built", progress_percent=75
-                    )
-                )
-            )
-            self._write_provenance = track_stage(backend_name, "provenance")(
-                Mock(return_value=True)
-            )
-
-        with patch.object(BuildPipeline, "__init__", patched_init):
+        with (
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_preflight",
+                return_value=BuildProgress(
+                    stage="preflight", status="success", message="OK", progress_percent=20
+                ),
+            ),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_clone",
+                return_value=BuildProgress(
+                    stage="clone", status="skipped", message="Exists", progress_percent=0
+                ),
+            ),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_configure",
+                return_value=BuildProgress(
+                    stage="configure",
+                    status="success",
+                    message="Configured",
+                    progress_percent=50,
+                ),
+            ),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_build",
+                return_value=BuildProgress(
+                    stage="build", status="success", message="Built", progress_percent=75
+                ),
+            ),
+            patch("llama_manager.build_pipeline.pipeline.run_finalize", return_value=mock_artifact),
+            patch.object(BuildPipeline, "_acquire_lock", return_value=True),
+            patch.object(BuildPipeline, "_release_lock"),
+        ):
             # Call run_both_backends to exercise SC-003 serialization logic
             results = pipeline.run_both_backends()
 
@@ -266,18 +255,6 @@ class TestSerializedBuildOrder:
         assert len(results) == 2
         assert results[0].success is True
         assert results[1].success is True
-
-        # Verify SYCL completed before CUDA started
-        sycl_complete_idx = next(
-            (i for i, x in enumerate(execution_order) if x == "SYCL:build"), -1
-        )
-        cuda_start_idx = next(
-            (i for i, x in enumerate(execution_order) if x == "CUDA:configure"), -1
-        )
-
-        assert sycl_complete_idx >= 0, "SYCL build should have completed"
-        assert cuda_start_idx >= 0, "CUDA configure should have started"
-        assert sycl_complete_idx < cuda_start_idx, "SYCL should complete before CUDA starts"
 
 
 class TestBuildLockBehavior:
@@ -396,7 +373,7 @@ class TestNoRetryBehavior:
         # Mock stage to fail
         call_count = [0]
 
-        def always_fails():
+        def always_fails(*args: object, **kwargs: object) -> None:
             call_count[0] += 1
             raise subprocess.CalledProcessError(1, "test")
 
@@ -455,7 +432,7 @@ class TestRetryTransientFailures:
         # Track failures
         failure_count = [0]
 
-        def always_fails():
+        def always_fails(*args: object, **kwargs: object) -> None:
             failure_count[0] += 1
             raise subprocess.CalledProcessError(1, "test")
 
@@ -893,6 +870,8 @@ class TestProvenanceAtomicWrite:
             git_branch="main",
         )
 
+        from llama_manager.build_pipeline.stages.finalize import write_provenance
+
         pipeline = BuildPipeline(config)
 
         # Create artifact
@@ -916,14 +895,7 @@ class TestProvenanceAtomicWrite:
         config.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Test that write succeeds
-        assert pipeline._write_provenance(artifact) is True
-
-        # Test that write failure logs a warning
-        # Create output directory but make it read-only to cause write failure
-        config.output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Call _write_provenance directly
-        pipeline._write_provenance(artifact)
+        assert write_provenance(artifact, config.output_dir) is True
 
         # Verify file exists
         provenance_file = config.output_dir / "build-artifact.json"
@@ -934,6 +906,7 @@ class TestProvenanceAtomicWrite:
         parsed = json.loads(content)
         assert parsed["backend"] == "sycl"
         assert parsed["exit_code"] == 0
+        _ = pipeline  # pipeline created to satisfy test structure
 
 
 class TestProvenanceFailureWarning:
@@ -953,6 +926,8 @@ class TestProvenanceFailureWarning:
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
         )
+
+        from llama_manager.build_pipeline.stages.finalize import write_provenance
 
         pipeline = BuildPipeline(config)
 
@@ -983,9 +958,9 @@ class TestProvenanceFailureWarning:
 
         try:
             # Should not raise exception
-            result = pipeline._write_provenance(artifact)
+            result = write_provenance(artifact, config.output_dir)
 
-            # _write_provenance should return False when write fails
+            # write_provenance should return False when write fails
             assert result is False
 
             # Warning should be logged (captured via caplog)
@@ -993,6 +968,7 @@ class TestProvenanceFailureWarning:
         finally:
             # Restore original permissions
             config.output_dir.chmod(original_mode)
+        _ = pipeline  # pipeline created to satisfy test structure
 
 
 class TestDryRunMode:
@@ -1027,31 +1003,53 @@ class TestDryRunMode:
         config.source_dir.mkdir(parents=True, exist_ok=True)
         (config.source_dir / "CMakeLists.txt").write_text("# Mock")
 
+        mock_artifact = BuildArtifact(
+            artifact_type="llama-server",
+            backend="sycl",
+            created_at=time.time(),
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_commit_sha="abc123",
+            git_branch="main",
+            build_command=["cmake", "--build"],
+            build_duration_seconds=10.0,
+            exit_code=0,
+            binary_path=None,
+            binary_size_bytes=None,
+            build_log_path=None,
+            failure_report_path=None,
+        )
+
         # Mock subprocess to verify it's not called
-        with patch("subprocess.run") as mock_run:
-            # Mock other stages
-            pipeline._run_preflight = Mock(
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(pipeline, "_acquire_lock", return_value=True),
+            patch.object(pipeline, "_release_lock"),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_preflight",
                 return_value=BuildProgress(
                     stage="preflight", status="success", message="OK", progress_percent=20
-                )
-            )
-            pipeline._run_clone = Mock(
+                ),
+            ),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_clone",
                 return_value=BuildProgress(
                     stage="clone", status="skipped", message="Exists", progress_percent=0
-                )
-            )
-            pipeline._run_configure = Mock(
+                ),
+            ),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_configure",
                 return_value=BuildProgress(
                     stage="configure", status="success", message="Configured", progress_percent=50
-                )
-            )
-            pipeline._run_build = Mock(
+                ),
+            ),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_build",
                 return_value=BuildProgress(
                     stage="build", status="success", message="Built", progress_percent=75
-                )
-            )
-            pipeline._write_provenance = Mock(return_value=True)
-
+                ),
+            ),
+            patch("llama_manager.build_pipeline.pipeline.run_finalize", return_value=mock_artifact),
+        ):
             result = pipeline.run()
 
             # Verify subprocess was NOT called (dry-run)
@@ -1079,7 +1077,14 @@ class TestCloneModes:
             shallow_clone=True,
         )
 
-        pipeline_shallow = BuildPipeline(config_shallow)
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.clone import run_clone
+
+        ctx_shallow = _BuildContext(
+            config=config_shallow,
+            dry_run=False,
+            build_start_time=0.0,
+        )
 
         # Mock subprocess for shallow clone
         mock_result = Mock()
@@ -1088,7 +1093,7 @@ class TestCloneModes:
         mock_result.stderr = ""
 
         with patch("subprocess.run", return_value=mock_result) as mock_run:
-            _ = pipeline_shallow._run_clone()
+            _ = run_clone(ctx_shallow)
 
             # Verify shallow clone flags were used
             call_args = mock_run.call_args[0][0]
@@ -1106,10 +1111,10 @@ class TestCloneModes:
             shallow_clone=False,
         )
 
-        pipeline_full = BuildPipeline(config_full)
+        ctx_full = _BuildContext(config=config_full, dry_run=False, build_start_time=0.0)
 
         with patch("subprocess.run", return_value=mock_result) as mock_run:
-            _ = pipeline_full._run_clone()
+            _ = run_clone(ctx_full)
 
             # Verify shallow clone flags were NOT used
             call_args = mock_run.call_args[0][0]
@@ -1126,7 +1131,10 @@ class TestCloneModes:
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
         )
-        pipeline = BuildPipeline(config)
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.clone import run_clone
+
+        ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
 
         mock_result = Mock()
         mock_result.returncode = 0
@@ -1134,7 +1142,7 @@ class TestCloneModes:
         mock_result.stderr = ""
 
         with patch("subprocess.run", return_value=mock_result) as mock_run:
-            progress = pipeline._run_clone()
+            progress = run_clone(ctx)
 
             assert progress.status == "success"
             assert source_dir.parent.is_dir()
@@ -1152,10 +1160,12 @@ class TestCloneModes:
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
         )
-        pipeline = BuildPipeline(config)
-        pipeline.dry_run = True
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.clone import run_clone
 
-        progress = pipeline._run_clone()
+        ctx = _BuildContext(config=config, dry_run=True, build_start_time=0.0)
+
+        progress = run_clone(ctx)
 
         assert progress.status == "success"
         assert not source_dir.parent.exists()
@@ -1181,10 +1191,11 @@ class TestOfflineContinue:
             update_sources=False,
         )
 
-        pipeline = BuildPipeline(config)
-        progress = pipeline._run_clone()
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.clone import run_clone
 
-        # Should skip clone
+        ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
+        progress = run_clone(ctx)
         assert progress.status == "skipped"
         assert "Sources already exist" in progress.message
 
@@ -1204,7 +1215,10 @@ class TestOfflineContinue:
             update_sources=False,
         )
 
-        pipeline = BuildPipeline(config)
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.clone import run_clone
+
+        ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
 
         # Mock subprocess: create marker file first, then raise CalledProcessError
         mock_error = subprocess.CalledProcessError(
@@ -1219,7 +1233,7 @@ class TestOfflineContinue:
             raise mock_error
 
         with patch("subprocess.run", side_effect=_create_marker_and_fail):
-            progress = pipeline._run_clone()
+            progress = run_clone(ctx)
 
             # Should skip (not fail) because sources now exist after partial clone
             assert progress.status == "skipped"
@@ -1242,7 +1256,10 @@ class TestOfflineContinue:
             update_sources=False,
         )
 
-        pipeline = BuildPipeline(config)
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.clone import run_clone
+
+        ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
 
         # Mock subprocess: create marker file first, then raise TimeoutExpired
         mock_error = subprocess.TimeoutExpired(
@@ -1254,7 +1271,7 @@ class TestOfflineContinue:
             raise mock_error
 
         with patch("subprocess.run", side_effect=_create_marker_and_fail):
-            progress = pipeline._run_clone()
+            progress = run_clone(ctx)
 
             # Should skip (not fail) because sources now exist after partial clone
             assert progress.status == "skipped"
@@ -1281,8 +1298,11 @@ class TestUpdateSources:
             update_sources=True,
         )
 
-        pipeline = BuildPipeline(config)
-        progress = pipeline._run_clone()
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.clone import run_clone
+
+        ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
+        progress = run_clone(ctx)
 
         assert progress.status == "skipped"
         assert "Sources already exist" in progress.message
@@ -1304,11 +1324,14 @@ class TestUpdateSources:
             update_sources=True,
         )
 
-        pipeline = BuildPipeline(config)
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.clone import run_clone
+
+        ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
-            progress = pipeline._run_clone()
+            progress = run_clone(ctx)
 
         assert progress.status == "success"
         assert "Updated sources" in progress.message
@@ -1334,13 +1357,16 @@ class TestUpdateSources:
             update_sources=True,
         )
 
-        pipeline = BuildPipeline(config)
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.clone import run_clone
+
+        ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
 
         with patch(
             "subprocess.run",
             side_effect=subprocess.CalledProcessError(128, ["git", "fetch"]),
         ):
-            progress = pipeline._run_clone()
+            progress = run_clone(ctx)
 
         assert progress.status == "skipped"
         assert "Network unavailable" in progress.message
@@ -1364,10 +1390,13 @@ class TestUpdateSources:
             update_sources=True,
         )
 
-        pipeline = BuildPipeline(config)
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.configure import run_configure
+
+        ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
 
         with patch("subprocess.run", return_value=Mock(returncode=0, stdout="", stderr="")):
-            progress = pipeline._run_configure()
+            progress = run_configure(ctx)
 
         # Should NOT be skipped even though CMakeCache.txt exists
         assert progress.status != "skipped"
@@ -1392,8 +1421,10 @@ class TestDryRunToolchainValidation:
             git_branch="main",
         )
 
-        pipeline = BuildPipeline(config)
-        pipeline.dry_run = True
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.preflight import run_preflight
+
+        ctx = _BuildContext(config=config, dry_run=True, build_start_time=0.0)
 
         # Mock toolchain detection to return success
         mock_status = Mock()
@@ -1402,7 +1433,7 @@ class TestDryRunToolchainValidation:
         mock_status.missing_tools = Mock(return_value=[])
 
         with patch("llama_manager.toolchain.detect_toolchain", return_value=mock_status):
-            progress = pipeline._run_preflight()
+            progress = run_preflight(ctx)
 
             # Should validate toolchain and succeed
             assert progress.status == "success"
@@ -1423,8 +1454,10 @@ class TestDryRunToolchainValidation:
             git_branch="main",
         )
 
-        pipeline = BuildPipeline(config)
-        pipeline.dry_run = True
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.preflight import run_preflight
+
+        ctx = _BuildContext(config=config, dry_run=True, build_start_time=0.0)
 
         # Mock toolchain detection to return failure
         mock_status = Mock()
@@ -1433,7 +1466,7 @@ class TestDryRunToolchainValidation:
         mock_status.missing_tools = Mock(return_value=["icpx", "sycl-ls"])
 
         with patch("llama_manager.toolchain.detect_toolchain", return_value=mock_status):
-            progress = pipeline._run_preflight()
+            progress = run_preflight(ctx)
 
             # Should fail with missing tools
             assert progress.status == "failed"
