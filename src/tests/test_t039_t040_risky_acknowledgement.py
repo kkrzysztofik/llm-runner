@@ -8,13 +8,6 @@ from llama_cli import server_runner
 from llama_cli.cli_parser import parse_args, parse_tui_args
 from llama_cli.commands.dry_run import dry_run
 from llama_cli.commands.tui import TUIApp
-from llama_cli.server_runner import (
-    run_both,
-    run_qwen35,
-    run_summary_balanced,
-    run_summary_fast,
-    verify_risks,
-)
 from llama_manager import LaunchResult, ServerConfig, ServerManager
 from llama_manager.config import ErrorCode, ErrorDetail, MultiValidationError
 
@@ -41,9 +34,10 @@ def _risky_cfg() -> ServerConfig:
     )
 
 
-def test_parse_args_supports_acknowledge_risky_flag() -> None:
-    parsed = parse_args(["summary-balanced", "8080", "--acknowledge-risky"])
-    assert parsed.mode == "summary-balanced"
+def test_parse_args_tui_supports_acknowledge_risky_flag() -> None:
+    parsed = parse_args(["tui", "summary-balanced", "--acknowledge-risky"])
+    assert parsed.mode == "tui"
+    assert parsed.tui_mode == "summary-balanced"
     assert parsed.acknowledge_risky is True
 
 
@@ -56,56 +50,6 @@ def test_parse_tui_args_supports_acknowledge_risky_flag(monkeypatch: pytest.Monk
     parsed = parse_tui_args()
     assert parsed.mode == "summary-balanced"
     assert parsed.acknowledge_risky is True
-
-
-def test_verify_risks_prompts_and_exits_with_actionable_acknowledgement_required(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    manager = ServerManager()
-    cfg = _risky_cfg()
-
-    with patch("builtins.input", return_value="n") as mock_input, pytest.raises(SystemExit) as exc:
-        verify_risks(manager, [cfg], acknowledged=False)
-
-    assert exc.value.code == 1
-    mock_input.assert_called_once_with("Confirm risky operation [y/N]: ")
-    captured = capsys.readouterr()
-    assert "error: acknowledgement_required" in captured.err
-    assert "failed_check: acknowledgement_required" in captured.err
-    assert "why_blocked: risky operation detected and not acknowledged" in captured.err
-    assert "how_to_fix: use --acknowledge-risky flag or confirm with 'y'" in captured.err
-
-
-def test_verify_risks_acknowledges_without_prompt_when_flag_is_set() -> None:
-    manager = ServerManager()
-    cfg = _risky_cfg()
-
-    with patch("builtins.input") as mock_input:
-        verify_risks(manager, [cfg], acknowledged=True)
-
-    mock_input.assert_not_called()
-    assert manager.is_risk_acknowledged(
-        cfg.alias,
-        "privileged_port",
-        manager._current_launch_attempt_id,
-    )
-
-
-def test_verify_risks_uses_attempt_scoped_ack_token_for_prompted_confirmation() -> None:
-    manager = ServerManager()
-    cfg = _risky_cfg()
-
-    with (
-        patch("builtins.input", return_value="y") as mock_input,
-        patch.object(manager, "acknowledge_risk", wraps=manager.acknowledge_risk) as mock_ack,
-    ):
-        verify_risks(manager, [cfg], acknowledged=False)
-
-    mock_input.assert_called_once_with("Confirm risky operation [y/N]: ")
-    assert mock_ack.call_count == 1
-    call_kwargs = mock_ack.call_args.kwargs
-    assert call_kwargs["launch_attempt_id"] == manager._current_launch_attempt_id
-    assert call_kwargs["ack_token"] == f"ack:{manager._current_launch_attempt_id}"
 
 
 def test_ack_token_validation_is_attempt_scoped() -> None:
@@ -279,8 +223,6 @@ def test_server_runner_main_dispatches_dry_run_mode() -> None:
     )
     with (
         patch("llama_cli.server_runner.parse_args", return_value=parsed),
-        patch("llama_cli.server_runner.check_prereqs"),
-        patch("llama_cli.server_runner.ServerManager"),
         patch("llama_cli.colors.Colors.is_enabled"),
         patch("llama_cli.server_runner._run_dry_run_mode", return_value=0) as mock_run,
     ):
@@ -294,83 +236,3 @@ def test_server_runner_main_dry_run_without_target_mode_returns_one() -> None:
     parsed = Namespace(mode="dry-run", dry_run_mode=None, ports=[], acknowledge_risky=False)
     code = server_runner._run_dry_run_mode(parsed, acknowledged=False)
     assert code == 1
-
-
-def test_server_runner_main_returns_one_on_value_error() -> None:
-    parsed = Namespace(mode="summary-fast", ports=[], acknowledge_risky=False)
-    with (
-        patch("llama_cli.server_runner.parse_args", return_value=parsed),
-        patch("llama_cli.server_runner.check_prereqs"),
-        patch("llama_cli.server_runner.ServerManager") as mock_manager_cls,
-        patch("llama_cli.colors.Colors.is_enabled"),
-        patch("llama_cli.server_runner.verify_risks"),
-        patch("llama_cli.server_runner.run_summary_fast", side_effect=ValueError),
-    ):
-        code = server_runner.main(["summary-fast"])
-
-    assert code == 1
-    mock_manager_cls.assert_called_once()
-
-
-def test_run_summary_balanced_success_calls_foreground_manager() -> None:
-    manager = ServerManager()
-    with (
-        patch("llama_cli.server_runner.require_model", return_value=None),
-        patch("llama_cli.server_runner.validate_server_config", return_value=None),
-        patch("llama_cli.server_runner.build_server_cmd", return_value=["bin", "--x"]),
-        patch.object(manager, "run_server_foreground", return_value=0) as run_fg,
-    ):
-        code = run_summary_balanced(8080, manager)
-
-    assert code == 0
-    run_fg.assert_called_once_with("summary-balanced", ["bin", "--x"])
-
-
-def test_run_summary_fast_exits_on_backend_validation_error() -> None:
-    manager = ServerManager()
-    backend_error = ErrorDetail(
-        error_code=ErrorCode.BACKEND_NOT_ELIGIBLE,
-        failed_check="vllm_launch_eligibility",
-        why_blocked="backend blocked",
-        how_to_fix="switch backend",
-    )
-    with (
-        patch("llama_cli.server_runner.require_model"),
-        patch("llama_cli.server_runner.validate_server_config", return_value=backend_error),
-        pytest.raises(SystemExit) as exc,
-    ):
-        run_summary_fast(8082, manager)
-
-    assert exc.value.code == 1
-
-
-def test_run_qwen35_success_calls_foreground_manager() -> None:
-    manager = ServerManager()
-    with (
-        patch("llama_cli.server_runner.require_model", return_value=None),
-        patch("llama_cli.server_runner.require_executable", return_value=None),
-        patch("llama_cli.server_runner.validate_server_config", return_value=None),
-        patch("llama_cli.server_runner.build_server_cmd", return_value=["bin", "--y"]),
-        patch.object(manager, "run_server_foreground", return_value=0) as run_fg,
-    ):
-        code = run_qwen35(8081, manager)
-
-    assert code == 0
-    run_fg.assert_called_once_with("qwen35-coding", ["bin", "--y"])
-
-
-def test_run_both_success_starts_waits_and_cleans() -> None:
-    manager = ServerManager()
-    with (
-        patch("llama_cli.server_runner.require_model"),
-        patch("llama_cli.server_runner.require_executable"),
-        patch("llama_cli.server_runner.validate_slots", return_value=None),
-        patch.object(manager, "start_servers") as start_servers,
-        patch.object(manager, "wait_for_any", return_value=0),
-        patch.object(manager, "cleanup_servers") as cleanup,
-    ):
-        code = run_both(8080, 8081, manager)
-
-    assert code == 0
-    start_servers.assert_called_once()
-    cleanup.assert_called_once()

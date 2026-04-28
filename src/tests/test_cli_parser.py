@@ -651,9 +651,10 @@ class TestCliParserDynamicRegistryIntegration:
                 (*custom_registry.run_group_ids, *cli_parser.COMMAND_MODES),
             ),
         ):
-            args = parse_args(["custom-group"])
+            args = parse_args(["tui", "custom-group"])
 
-        assert args.mode == "custom-group"
+        assert args.mode == "tui"
+        assert args.tui_mode == "custom-group"
 
     def test_removed_profile_not_in_valid_modes(self) -> None:
         """VALID_MODES should not include profiles removed from registry."""
@@ -683,7 +684,7 @@ class TestCliParserDynamicRegistryIntegration:
         """Parser should reject modes not in VALID_MODES."""
         with pytest.raises(SystemExit) as exc_info:
             parse_args(["totally-invalid-mode"])
-        assert exc_info.value.code == 2
+        assert exc_info.value.code == 1
 
     def test_command_modes_not_in_runnable_tui_modes(self) -> None:
         """Command modes (build/setup/doctor) should not be in runnable TUI modes."""

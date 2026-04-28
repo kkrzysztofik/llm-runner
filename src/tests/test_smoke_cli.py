@@ -78,21 +78,17 @@ class TestSmokeCliParsing:
             parse_args(["smoke"])
 
     def test_valid_modes_accepted(self) -> None:
-        """parse_args should accept all valid modes."""
+        """parse_args should accept all valid command modes."""
         valid_modes = [
-            "summary-balanced",
-            "summary-fast",
-            "qwen35",
-            "both",
             "dry-run",
             "build",
             "setup",
             "doctor",
             "smoke",
+            "tui",
         ]
         for mode in valid_modes:
             if mode == "dry-run":
-                # dry-run requires a second argument
                 result = parse_args(["dry-run", "both"])
             elif mode == "build":
                 result = parse_args(["build", "sycl"])
@@ -101,8 +97,9 @@ class TestSmokeCliParsing:
             elif mode == "doctor":
                 result = parse_args(["doctor", "check"])
             elif mode == "smoke":
-                # smoke requires a sub-mode argument
                 result = parse_args(["smoke", "both"])
+            elif mode == "tui":
+                result = parse_args(["tui", "summary-balanced"])
             else:
                 result = parse_args([mode])
             assert result.mode == mode, f"Mode '{mode}' should be accepted"
@@ -113,18 +110,19 @@ class TestSmokeCliParsing:
             parse_args(["invalid-mode"])
 
     def test_ports_passed_through(self) -> None:
-        """parse_args should pass port numbers through to result.ports."""
-        result = parse_args(["summary-balanced", "8080"])
-        assert result.ports == [8080]
+        """parse_args tui mode should pass port through to result."""
+        result = parse_args(["tui", "summary-balanced", "--port", "8080"])
+        assert result.port == 8080
 
     def test_multiple_ports_passed_through(self) -> None:
-        """parse_args should pass multiple port numbers through."""
-        result = parse_args(["both", "8080", "8081"])
-        assert result.ports == [8080, 8081]
+        """parse_args tui mode should pass multiple ports through."""
+        result = parse_args(["tui", "both", "--port", "8080", "--port2", "8081"])
+        assert result.port == 8080
+        assert result.port2 == 8081
 
     def test_acknowledge_risky_flag(self) -> None:
-        """parse_args should handle --acknowledge-risky flag."""
-        result = parse_args(["summary-balanced", "--acknowledge-risky"])
+        """parse_args tui mode should handle --acknowledge-risky flag."""
+        result = parse_args(["tui", "summary-balanced", "--acknowledge-risky"])
         assert result.acknowledge_risky is True
 
     def test_tui_args_both(self) -> None:
@@ -173,14 +171,12 @@ class TestSmokeCliParsing:
         """parse_args(None) should use sys.argv[1:] (not tested directly, but structure verified)."""
         import sys
 
-        # Temporarily set sys.argv to a known value, call parse_args(None),
-        # and verify the result reflects sys.argv[1:]
         original_argv = sys.argv
         try:
-            sys.argv = ["test-script", "summary-balanced", "8080"]
+            sys.argv = ["test-script", "tui", "summary-balanced", "--port", "8080"]
             result = parse_args(None)
-            assert result.mode == "summary-balanced"
-            assert result.ports == [8080]
+            assert result.mode == "tui"
+            assert result.port == 8080
         finally:
             sys.argv = original_argv
 

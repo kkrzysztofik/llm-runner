@@ -23,7 +23,7 @@ from llama_cli.server_runner import (
     _resolve_port,
     _run_dry_run_mode,
 )
-from llama_manager import Config, ErrorCode, ErrorDetail, ServerConfig
+from llama_manager import Config, ErrorCode, ErrorDetail
 
 # =============================================================================
 # _resolve_port
