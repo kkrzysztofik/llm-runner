@@ -16,36 +16,10 @@ from __future__ import annotations
 import contextlib
 from unittest.mock import patch
 
-from llama_manager.config import ServerConfig
 from llama_manager.server import DryRunSlotPayload, VllmEligibility
+from tests.helpers import make_server_config
 
-
-def _make_minimal_server_config(
-    alias: str = "test-slot",
-    model: str = "/models/test.gguf",
-    port: int = 8080,
-    device: str = "SYCL0",
-    ctx_size: int = 4096,
-    ubatch_size: int = 512,
-    threads: int = 4,
-    n_gpu_layers: int = 0,
-    cache_type_k: str = "q8_0",
-    cache_type_v: str = "q8_0",
-) -> ServerConfig:
-    """Create a minimal ServerConfig for dry-run testing."""
-    cfg = ServerConfig(
-        model=model,
-        alias=alias,
-        device=device,
-        port=port,
-        ctx_size=ctx_size,
-        ubatch_size=ubatch_size,
-        threads=threads,
-        n_gpu_layers=n_gpu_layers,
-        cache_type_k=cache_type_k,
-        cache_type_v=cache_type_v,
-    )
-    return cfg
+_make_minimal_server_config = make_server_config
 
 
 class TestDryRunFlagBundlesParity:

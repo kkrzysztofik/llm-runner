@@ -61,7 +61,7 @@ class TestDegradedOneSlot:
         assert block2 is None
 
         # Slot1 would be blocked if we mock psutil to show live process
-        # This is tested in test_us1_lock_integrity.py
+        # This is tested in test_lock_integrity.py
 
     def test_degraded_launch_with_warnings(self, tmp_path) -> None:
         """Degraded launch should include warnings about blocked slots.

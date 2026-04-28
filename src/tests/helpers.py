@@ -1,12 +1,31 @@
-"""Helper functions for deterministic test assertions.
+"""Shared test helpers.
 
-Provides utilities for T005 deterministic behavior testing:
+Provides utilities for common test setup and deterministic assertions:
+- make_server_config: Create a minimal ServerConfig with optional overrides
 - assert_dicts_equal: Compare dicts with optional key ordering
 - assert_sorted_identically: Compare sorted lists for equality
 - normalize_output_for_diff: Normalize output strings for consistent diffing
 """
 
 from typing import Any
+
+from llama_manager.config import ServerConfig
+
+
+def make_server_config(**overrides: object) -> ServerConfig:
+    """Create a minimal ServerConfig for tests."""
+    defaults: dict[str, object] = {
+        "model": "/models/test.gguf",
+        "alias": "test-slot",
+        "device": "SYCL0",
+        "port": 8080,
+        "ctx_size": 4096,
+        "ubatch_size": 512,
+        "threads": 4,
+        "server_bin": "dummy-llama-server",
+    }
+    defaults.update(overrides)
+    return ServerConfig(**defaults)  # type: ignore[arg-type]
 
 
 def assert_dicts_equal(

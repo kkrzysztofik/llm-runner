@@ -194,7 +194,11 @@ class TestServerManagerLaunchAllSlots:
 
                 # This will fail until T017-T019 implement launch_all_slots
                 # and return a LaunchResult object
-                result = manager.launch_all_slots([])
+                with patch(
+                    "llama_manager.process_manager.resolve_runtime_dir",
+                    return_value=tmp_path,
+                ):
+                    result = manager.launch_all_slots([])
 
                 # Assert LaunchResult exists and has expected structure
                 from llama_manager.process_manager import LaunchResult

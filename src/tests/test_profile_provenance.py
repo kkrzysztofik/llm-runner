@@ -9,7 +9,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest  # noqa: F401
 
-from llama_manager.build_pipeline import BuildBackend, BuildConfig, BuildPipeline
+from llama_manager.build_pipeline import BuildBackend, BuildConfig
+from llama_manager.build_pipeline._context import _BuildContext
+from llama_manager.build_pipeline.stages.clone import run_clone
+
+
+def _run_clone(config: BuildConfig, *, dry_run: bool = False):
+    return run_clone(_BuildContext(config=config, dry_run=dry_run))
 
 
 class TestOfflineContinue:
@@ -35,11 +41,8 @@ class TestOfflineContinue:
         (config.source_dir / "CMakeLists.txt").write_text("# CMakeLists.txt")
         (config.source_dir / "README.md").write_text("# README")
 
-        pipeline = BuildPipeline(config)
-        pipeline.dry_run = False
-
         # Run clone stage
-        progress = pipeline._run_clone()
+        progress = _run_clone(config)
 
         # Should skip clone
         assert progress.status == "skipped"
@@ -63,11 +66,8 @@ class TestOfflineContinue:
         # Create empty source directory
         config.source_dir.mkdir(parents=True)
 
-        pipeline = BuildPipeline(config)
-        pipeline.dry_run = True  # Use dry_run to avoid actual git clone
-
         # Run clone stage
-        progress = pipeline._run_clone()
+        progress = _run_clone(config, dry_run=True)
 
         # Should attempt to clone (not skip)
         assert progress.status == "success"
@@ -95,11 +95,8 @@ class TestOfflineContinue:
         (config.source_dir / "cmake").mkdir()
         (config.source_dir / "cmake" / "build.cmake").write_text("# build config")
 
-        pipeline = BuildPipeline(config)
-        pipeline.dry_run = False
-
         # Run clone stage
-        progress = pipeline._run_clone()
+        progress = _run_clone(config)
 
         # Should skip clone since source exists and has content
         assert progress.status == "skipped"
@@ -124,15 +121,12 @@ class TestOfflineContinue:
         config.source_dir.mkdir(parents=True)
         (config.source_dir / "CMakeLists.txt").write_text("# CMakeLists.txt")
 
-        pipeline = BuildPipeline(config)
-        pipeline.dry_run = False
-
         # Mock subprocess.run to simulate network failure
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = OSError("Network timeout")
 
             # Run clone stage - should skip because source exists
-            progress = pipeline._run_clone()
+            progress = _run_clone(config)
 
             # Should skip clone (not attempt network call)
             assert progress.status == "skipped"
@@ -158,15 +152,12 @@ class TestOfflineContinue:
         # Source directory does not exist
         assert not config.source_dir.exists()
 
-        pipeline = BuildPipeline(config)
-        pipeline.dry_run = False
-
         # Mock subprocess.run to simulate network failure
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = OSError("Network timeout")
 
             # Run clone stage
-            progress = pipeline._run_clone()
+            progress = _run_clone(config)
 
             # Should fail with network error
             assert progress.status == "failed"
@@ -189,11 +180,8 @@ class TestOfflineContinue:
         # Source directory does not exist
         assert not config.source_dir.exists()
 
-        pipeline = BuildPipeline(config)
-        pipeline.dry_run = True
-
         # Run clone stage
-        progress = pipeline._run_clone()
+        progress = _run_clone(config, dry_run=True)
 
         # Should succeed in dry-run mode
         assert progress.status == "success"
@@ -215,9 +203,6 @@ class TestOfflineContinue:
             shallow_clone=True,
         )
 
-        pipeline = BuildPipeline(config)
-        pipeline.dry_run = False  # Not dry-run so it will call subprocess
-
         # Mock subprocess.run to capture the command
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -226,7 +211,7 @@ class TestOfflineContinue:
 
         with patch("subprocess.run", return_value=mock_result) as mock_run:
             # Run clone stage
-            progress = pipeline._run_clone()
+            progress = _run_clone(config)
 
             # Should succeed
             assert progress.status == "success"
@@ -254,11 +239,8 @@ class TestOfflineContinue:
             shallow_clone=False,
         )
 
-        pipeline = BuildPipeline(config)
-        pipeline.dry_run = True
-
         # Run clone stage
-        progress = pipeline._run_clone()
+        progress = _run_clone(config, dry_run=True)
 
         # Should not mention shallow clone
         assert progress.status == "success"
