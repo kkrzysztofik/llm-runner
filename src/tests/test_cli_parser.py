@@ -20,24 +20,17 @@ class TestParseArgsBasic:
         args = parse_args([])
         assert args.mode is None
 
-    def test_parse_single_mode(self) -> None:
-        """parse_args with single mode should work."""
-        args = parse_args(["summary-balanced"])
-        assert args.mode == "summary-balanced"
-        assert args.dry_run_mode is None
-        assert args.ports == []
+    def test_parse_direct_mode_exits(self) -> None:
+        """parse_args with a bare runnable mode (no 'tui') should exit with code 1."""
+        with pytest.raises(SystemExit) as exc_info:
+            parse_args(["summary-balanced"])
+        assert exc_info.value.code == 1
 
-    def test_parse_port_argument(self) -> None:
-        """parse_args with port should capture it."""
-        args = parse_args(["summary-balanced", "8080"])
-        assert args.mode == "summary-balanced"
-        assert args.ports == [8080]
-
-    def test_parse_two_ports(self) -> None:
-        """parse_args with two ports should capture both."""
-        args = parse_args(["both", "8080", "8081"])
-        assert args.mode == "both"
-        assert args.ports == [8080, 8081]
+    def test_parse_direct_mode_with_port_exits(self) -> None:
+        """parse_args with a bare mode + port should exit with code 1."""
+        with pytest.raises(SystemExit) as exc_info:
+            parse_args(["summary-balanced", "8080"])
+        assert exc_info.value.code == 1
 
 
 class TestParseArgsDryRun:
@@ -71,14 +64,6 @@ class TestParseArgsValidModes:
     """Test all valid mode combinations."""
 
     @pytest.mark.parametrize("mode", ["summary-balanced", "summary-fast", "qwen35", "both"])
-    def test_all_non_dryrun_modes(self, mode: str) -> None:
-        """All non-dry-run modes should work."""
-        args = parse_args([mode])
-        assert args.mode == mode
-        assert args.dry_run_mode is None
-        assert args.ports == []
-
-    @pytest.mark.parametrize("mode", ["summary-balanced", "summary-fast", "qwen35", "both"])
     def test_dry_run_all_modes(self, mode: str) -> None:
         """dry-run with all valid sub-modes should work."""
         args = parse_args(["dry-run", mode])
@@ -86,7 +71,7 @@ class TestParseArgsValidModes:
         assert args.dry_run_mode == mode
 
     def test_modes_are_loaded_from_profile_registry(self) -> None:
-        """CLI mode choices should come from the dynamic profile registry."""
+        """dry-run mode choices should come from the dynamic profile registry."""
         from llama_cli import cli_parser
         from llama_manager.config import RunGroupSpec, RunProfileRegistry, RunProfileSpec
 
@@ -108,9 +93,10 @@ class TestParseArgsValidModes:
         with patch.object(
             cli_parser, "VALID_MODES", (*registry.run_group_ids, *cli_parser.COMMAND_MODES)
         ):
-            args = parse_args(["custom-group"])
+            args = parse_args(["dry-run", "custom-group"])
 
-        assert args.mode == "custom-group"
+        assert args.mode == "dry-run"
+        assert args.dry_run_mode == "custom-group"
 
 
 class TestParseArgsInvalidModes:
@@ -128,11 +114,11 @@ class TestParseArgsInvalidModes:
             parse_args(["dry-run", "invalid-mode"])
         assert exc_info.value.code == 1
 
-    def test_port_without_mode(self) -> None:
-        """Port without mode should fail with exit code 2 (argparse error)."""
+    def test_unknown_token_exits_code_1(self) -> None:
+        """Unknown token should fail with exit code 1."""
         with pytest.raises(SystemExit) as exc_info:
             parse_args(["8080"])
-        assert exc_info.value.code == 2
+        assert exc_info.value.code == 1
 
 
 class TestParseArgsAcknowledgeRisk:

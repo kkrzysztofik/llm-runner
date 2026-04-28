@@ -1,30 +1,29 @@
 """TUI application for llm-runner.
 
-This module provides a Rich-based live terminal interface for managing
+This module provides a Textual terminal interface for managing
 multiple llama-server instances with real-time log streaming, GPU stats,
 and configuration display.
 """
 
-import os
 import queue
-import select
 import signal
 import sys
 import threading
-import time
-import tty
 from collections.abc import Callable
-from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from types import FrameType
 from typing import Any
 
 import psutil
-from rich.console import ConsoleDimensions, Group
-from rich.layout import Layout
-from rich.live import Live
+from rich.console import Group
 from rich.panel import Panel
 from rich.text import Text
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Container, Horizontal
+from textual.events import Key, Resize
+from textual.widgets import Footer, Header, Static
 
 from llama_cli.colors import Colors
 from llama_cli.gpu_collectors import collect_nvtop_stats
@@ -58,26 +57,173 @@ STYLE_BOLD_RED = "bold red"
 STYLE_BOLD_YELLOW = "bold yellow"
 
 
-@contextmanager
-def _cbreak_stdin() -> Any:
-    if os.name == "nt" or not sys.stdin.isatty():
-        yield
-        return
+@dataclass(frozen=True)
+class TextualLayoutSpec:
+    """Responsive layout metadata consumed by tests and the Textual app."""
 
-    try:
-        import termios
+    content_orientation: str
 
-        fd = sys.stdin.fileno()
-        original = termios.tcgetattr(fd)
-        tty.setcbreak(fd)
-    except (ImportError, OSError, ValueError):
-        yield
-        return
 
-    try:
-        yield
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, original)
+@dataclass(frozen=True)
+class DashboardSnapshot:
+    """Current dashboard renderables for Textual widgets."""
+
+    alerts: Panel
+    left: Panel | None
+    right: Panel
+    menu: Text
+
+
+class TextualDashboardApp(App[None]):
+    """Textual shell for the llm-runner dashboard."""
+
+    TITLE = "llm-runner"
+    CSS = """
+    Screen {
+        layout: vertical;
+    }
+
+    #dashboard {
+        height: 1fr;
+        layout: vertical;
+    }
+
+    #alerts {
+        height: auto;
+        max-height: 35%;
+    }
+
+    #content {
+        height: 1fr;
+    }
+
+    #content.horizontal {
+        layout: horizontal;
+    }
+
+    #content.vertical {
+        layout: vertical;
+    }
+
+    .column {
+        width: 1fr;
+        height: 1fr;
+    }
+
+    #menu {
+        height: 1;
+    }
+    """
+    BINDINGS = [
+        Binding("q", "quit_dashboard", "Quit", priority=True),
+        Binding("ctrl+c", "interrupt_dashboard", "Stop", priority=True),
+        Binding("r", "refresh_dashboard", "Refresh"),
+        Binding("a", "add_slot", "Add slot"),
+        Binding("p", "profile", "Profile"),
+        Binding("y", "confirm", "Confirm"),
+        Binding("n", "reject", "Abort"),
+        Binding("1", "select_flavor('1')", "Balanced"),
+        Binding("2", "select_flavor('2')", "Fast"),
+        Binding("3", "select_flavor('3')", "Quality"),
+    ]
+
+    def __init__(self, controller: "TUIApp") -> None:
+        super().__init__()
+        self.controller = controller
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with Container(id="dashboard"):
+            yield Static(id="alerts")
+            with Horizontal(id="content", classes="horizontal"):
+                yield Static(id="left", classes="column")
+                yield Static(id="right", classes="column")
+            yield Static(id="menu")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.refresh_dashboard()
+        self.set_interval(0.25, self.refresh_dashboard)
+
+    def on_resize(self, event: Resize) -> None:
+        self.controller.width = event.size.width
+        self.controller.height = event.size.height
+        self.refresh_dashboard()
+
+    def on_key(self, event: Key) -> None:
+        key = self._textual_key_to_controller_key(event)
+        if key is None:
+            return
+        self.controller.handle_keypress(key)
+        self.refresh_dashboard()
+        event.stop()
+
+    def action_quit_dashboard(self) -> None:
+        self.controller.handle_keypress("q")
+        self.exit()
+
+    def action_interrupt_dashboard(self) -> None:
+        self.controller.handle_keypress("^C")
+        if not self.controller.running:
+            self.exit()
+
+    def action_refresh_dashboard(self) -> None:
+        self.controller.handle_keypress("r")
+        self.refresh_dashboard()
+
+    def action_add_slot(self) -> None:
+        self.controller.handle_keypress("a")
+        self.refresh_dashboard()
+
+    def action_profile(self) -> None:
+        self.controller.handle_keypress("P")
+        self.refresh_dashboard()
+
+    def action_confirm(self) -> None:
+        self.controller.handle_keypress("y")
+        self.refresh_dashboard()
+
+    def action_reject(self) -> None:
+        self.controller.handle_keypress("n")
+        if not self.controller.running:
+            self.exit()
+        self.refresh_dashboard()
+
+    def action_select_flavor(self, key: str) -> None:
+        self.controller.handle_keypress(key)
+        self.refresh_dashboard()
+
+    def refresh_dashboard(self) -> None:
+        if not self.controller.running:
+            self.exit()
+            return
+
+        snapshot = self.controller.render()
+        content = self.query_one("#content", Container)
+        content_orientation = self.controller.build_layout().content_orientation
+        content.set_classes(content_orientation)
+
+        self.query_one("#alerts", Static).update(snapshot.alerts)
+        if snapshot.left is not None:
+            self.query_one("#left", Static).display = True
+            self.query_one("#left", Static).update(snapshot.left)
+        else:
+            self.query_one("#left", Static).display = False
+        self.query_one("#right", Static).update(snapshot.right)
+        self.query_one("#menu", Static).update(snapshot.menu)
+
+    def _textual_key_to_controller_key(self, event: Key) -> str | None:
+        if event.key == "enter":
+            return "\n"
+        if event.key == "escape":
+            return "\x1b"
+        if event.key in {"backspace", "delete_left"}:
+            return "\x7f"
+        if event.key == "ctrl+c":
+            return "^C"
+        if event.character is not None and len(event.character) == 1:
+            return event.character
+        return None
 
 
 class TUIApp:
@@ -105,9 +251,8 @@ class TUIApp:
         self.risks_acknowledged: bool = False
         self.active_risk_kind: str | None = None
 
-        # Keypress input polling infrastructure
+        # Textual keypress dispatch queue used by unit tests and app actions.
         self._keypress_queue: queue.Queue[str] = queue.Queue()
-        self._input_thread: threading.Thread | None = None
 
         # Profile state
         self._profile_status: dict[str, str] = {}  # alias -> "idle" | "running" | "done" | "failed"
@@ -115,7 +260,7 @@ class TUIApp:
         self._profile_cancel_events: dict[str, threading.Event] = {}
         self._profile_lock = threading.Lock()
 
-        # TUI-safe status message buffer (avoids print() inside Live context)
+        # TUI-safe status message buffer.
         self._status_messages: list[str] = []
         self._status_lock = threading.Lock()
 
@@ -178,7 +323,7 @@ class TUIApp:
 
         return collector
 
-    def on_resize(self, event: ConsoleDimensions) -> None:
+    def on_resize(self, event: Any) -> None:
         self.width = event.width
         self.height = event.height
 
@@ -186,29 +331,12 @@ class TUIApp:
         """Stop the TUI loop gracefully."""
         self.running = False
 
-    def build_layout(self) -> Layout:
-        layout = Layout(name="main")
-        layout.split_column(
-            Layout(name="alerts", size=8),
-            Layout(name="content", ratio=1),
-            Layout(name="menu", size=1),
-        )
+    def build_layout(self) -> TextualLayoutSpec:
+        orientation = "horizontal" if self.width >= 80 else "vertical"
+        return TextualLayoutSpec(content_orientation=orientation)
 
-        if self.width >= 80:
-            layout["content"].split_row(
-                Layout(name="left", ratio=1),
-                Layout(name="right", ratio=1),
-            )
-        else:
-            layout["content"].split_column(
-                Layout(name="left", ratio=1),
-                Layout(name="right", ratio=1),
-            )
-        return layout
-
-    def render(self) -> Layout:
+    def render(self) -> DashboardSnapshot:
         self._update_gpu_telemetry()
-        layout = self.build_layout()
 
         alerts: list[Panel] = []
         if self.risk_panel is not None:
@@ -236,30 +364,31 @@ class TUIApp:
             alerts.append(status_msgs_panel)
 
         if alerts:
-            layout["alerts"].update(
-                Panel(Group(*alerts), title="System Alerts", border_style="yellow")
-            )
+            alerts_panel = Panel(Group(*alerts), title="System Alerts", border_style="yellow")
         else:
-            layout["alerts"].update(
-                Panel(Text("No active alerts", style="dim"), border_style="dim")
-            )
+            alerts_panel = Panel(Text("No active alerts", style="dim"), border_style="dim")
 
+        left_panel: Panel | None = None
         if self.configs:
             cfg1 = self.configs[0]
             buffer1 = self.log_buffers[cfg1.alias]
             gpu1 = self.gpu_stats[0] if self.gpu_stats else None
-            layout["left"].update(self._build_column_panel(cfg1, buffer1, gpu1))
+            left_panel = self._build_column_panel(cfg1, buffer1, gpu1)
 
         if len(self.configs) > 1:
             cfg2 = self.configs[1]
             buffer2 = self.log_buffers[cfg2.alias]
             gpu2 = self.gpu_stats[1] if len(self.gpu_stats) > 1 else None
-            layout["right"].update(self._build_column_panel(cfg2, buffer2, gpu2))
+            right_panel = self._build_column_panel(cfg2, buffer2, gpu2)
         else:
-            layout["right"].update(self._build_placeholder_panel())
+            right_panel = self._build_placeholder_panel()
 
-        layout["menu"].update(self._build_command_menu())
-        return layout
+        return DashboardSnapshot(
+            alerts=alerts_panel,
+            left=left_panel,
+            right=right_panel,
+            menu=self._build_command_menu(),
+        )
 
     def _build_status_panel(self, launch_result: LaunchResult) -> None:
         if launch_result.is_success():
@@ -375,60 +504,11 @@ class TUIApp:
 
     def _cleanup(self) -> None:
         self.server_manager.cleanup_servers()
-        self._stop_input_polling()
 
-    # ------------------------------------------------------------------
-    # Input polling infrastructure
-    # ------------------------------------------------------------------
-
-    def _start_input_polling(self) -> None:
-        """Start a daemon thread that polls stdin for keypresses."""
-        if self._input_thread is not None and self._input_thread.is_alive():
-            return
-        self._input_thread = threading.Thread(
-            target=self._input_poller,
-            name="tui-input-poller",
-            daemon=True,
-        )
-        self._input_thread.start()
-
-    def _stop_input_polling(self) -> None:
-        """Stop the input polling thread."""
-        if self._input_thread is not None:
-            self._input_thread.join(timeout=1.0)
-            self._input_thread = None
-
-    def _poll_windows_keypress(self) -> None:
-        """Poll for a single keypress on Windows via msvcrt."""
-        import msvcrt  # type: ignore[import-not-found]
-
-        if msvcrt.kbhit():  # type: ignore[attr-defined]
-            ch = msvcrt.getch()  # type: ignore[attr-defined]
-            # Handle Ctrl+C (0x03)
-            if ch == b"\x03":
-                self._keypress_queue.put("^C")
-            elif ch and len(ch) == 1:
-                self._keypress_queue.put(ch.decode("utf-8", errors="replace"))
-
-    def _poll_posix_keypress(self) -> None:
-        """Poll for a single keypress on POSIX systems via select."""
-        ready, _, _ = select.select([sys.stdin], [], [], 0.05)
-        if ready:
-            ch = sys.stdin.read(1)
-            if ch:
-                self._keypress_queue.put(ch)
-
-    def _input_poller(self) -> None:
-        """Daemon thread: poll stdin for single-character keypresses."""
-        is_windows = os.name == "nt"
-        poll_fn = self._poll_windows_keypress if is_windows else self._poll_posix_keypress
-        with _cbreak_stdin():
-            while self.running:
-                try:
-                    poll_fn()
-                except Exception:
-                    # Don't crash the TUI if stdin polling fails
-                    time.sleep(0.1)
+    def handle_keypress(self, key: str) -> None:
+        """Handle a Textual key event through the existing state machine."""
+        self._keypress_queue.put(key)
+        self._process_keypresses()
 
     def _handle_profile_key(self, key: str) -> bool:
         """Handle profile-related keys. Returns True if key was consumed."""
@@ -499,7 +579,7 @@ class TUIApp:
         """Queue a non-blocking profile flavor request for the given alias.
 
         The actual prompt is processed by _process_keypresses via the keypress
-        queue so the TUI Live context is never blocked.
+        queue so the Textual event loop is never blocked.
         """
         # Check if already profiling
         with self._profile_lock:
@@ -518,7 +598,7 @@ class TUIApp:
 
         Called from _process_keypresses; does NOT sleep or block.
         If the user hasn't pressed a valid key yet, the request stays queued
-        and _process_keypresses will try again on the next TUI render cycle.
+        and _process_keypresses will try again on the next dashboard refresh.
         """
         flavor_map = {"1": "balanced", "2": "fast", "3": "quality"}
 
@@ -545,8 +625,8 @@ class TUIApp:
     def _push_status_message(self, message: str) -> None:
         """Push a message to the TUI-safe status buffer and trigger a refresh.
 
-        This method is safe to call inside the Live context — it does NOT
-        call print() or console.print().
+        This method is safe to call from TUI handlers — it only mutates the
+        status buffer and leaves rendering to Textual.
         """
         with self._status_lock:
             self._status_messages.append(message)
@@ -662,7 +742,9 @@ class TUIApp:
             if current_idx + 1 < len(fields):
                 next_field = fields[current_idx + 1]
                 self._slot_config_state[slot_id] = next_field
-                self._push_status_message(f"Adding {slot_id}: {self.SLOT_CONFIG_PROMPTS[next_field]}")
+                self._push_status_message(
+                    f"Adding {slot_id}: {self.SLOT_CONFIG_PROMPTS[next_field]}"
+                )
             else:
                 # All fields complete - create the slot
                 self._finalize_slot_config(slot_id)
@@ -1439,49 +1521,17 @@ class TUIApp:
         for cfg in launched_configs:
             self.handle_slot_transition(cfg.alias, SlotState.RUNNING)
 
-        # Start input polling for keypresses
-        self._start_input_polling()
-
         try:
-            with Live(
-                self.render(),
-                screen=True,
-                refresh_per_second=10,
-                auto_refresh=False,
-                vertical_overflow="ellipsis",
-            ) as live:
-                while self.running:
-                    # Process any pending keypresses
-                    self._process_keypresses()
-                    time.sleep(0.1)
-                    live.update(self.render(), refresh=True)
+            TextualDashboardApp(self).run()
         finally:
-            self._stop_input_polling()
-
-        self._cleanup()
+            self._cleanup()
 
     def _run_tui_loop_without_servers(self) -> None:
         """Run the TUI loop without any server processes.
 
         Used when no slots are configured - allows user to add slots interactively.
         """
-        # Start input polling for keypresses
-        self._start_input_polling()
-
         try:
-            with Live(
-                self.render(),
-                screen=True,
-                refresh_per_second=10,
-                auto_refresh=False,
-                vertical_overflow="ellipsis",
-            ) as live:
-                while self.running:
-                    # Process any pending keypresses
-                    self._process_keypresses()
-                    time.sleep(0.1)
-                    live.update(self.render(), refresh=True)
+            TextualDashboardApp(self).run()
         finally:
-            self._stop_input_polling()
-
-        self._cleanup()
+            self._cleanup()

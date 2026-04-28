@@ -19,29 +19,14 @@ from llama_manager import LaunchResult, ServerConfig, ServerManager
 from llama_manager.config import ErrorCode, ErrorDetail, MultiValidationError
 
 
-class _FakeLive:
-    """Fake Rich Live context for TUI tests.
+class _FakeTextualDashboardApp:
+    """Fake Textual app for TUI tests without terminal rendering."""
 
-    This class mocks Rich's Live context manager to allow testing
-    TUI components without actually rendering to the terminal.
-    """
+    def __init__(self, controller: TUIApp) -> None:
+        self.controller = controller
 
-    def __init__(self, *args, **kwargs) -> None:
-        """Initialize fake Live context."""
-        self.args = args
-        self.kwargs = kwargs
-
-    def __enter__(self) -> "_FakeLive":
-        """Enter context manager."""
-        return self
-
-    def __exit__(self, *args) -> None:
-        """Exit context manager."""
-        pass
-
-    def update(self, *args, **kwargs) -> None:
-        """Update the live display (no-op for tests)."""
-        pass
+    def run(self) -> None:
+        self.controller.render()
 
 
 def _risky_cfg() -> ServerConfig:
@@ -166,7 +151,7 @@ def test_tui_run_keeps_acknowledged_risk_panel_visible() -> None:
     app.running = False
 
     with (
-        patch("llama_cli.commands.tui.Live", _FakeLive),
+        patch("llama_cli.commands.tui.TextualDashboardApp", _FakeTextualDashboardApp),
         patch("llama_cli.commands.tui.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,
@@ -234,7 +219,7 @@ def test_tui_run_exits_when_launch_is_blocked(capsys: pytest.CaptureFixture[str]
     )
 
     with (
-        patch("llama_cli.commands.tui.Live", _FakeLive),
+        patch("llama_cli.commands.tui.TextualDashboardApp", _FakeTextualDashboardApp),
         patch.object(
             app.server_manager,
             "launch_all_slots",
@@ -260,7 +245,7 @@ def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) ->
     app.running = False
 
     with (
-        patch("llama_cli.commands.tui.Live", _FakeLive),
+        patch("llama_cli.commands.tui.TextualDashboardApp", _FakeTextualDashboardApp),
         patch("llama_cli.commands.tui.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,

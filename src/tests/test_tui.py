@@ -375,23 +375,13 @@ class TestGracefulShutdownKeyHandler:
         app._cleanup()
         assert cleanup_called is True
 
-    def test_cleanup_stops_input_polling(self) -> None:
-        """TUIApp._cleanup() should stop input polling thread."""
+    def test_cleanup_does_not_require_input_polling_thread(self) -> None:
+        """TUIApp._cleanup() should not depend on legacy input polling."""
         from llama_cli.commands.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
-
-        # Start input polling
-        app._start_input_polling()
-        input_thread = app._input_thread
-
-        assert input_thread is not None
-        assert input_thread.is_alive()
-
-        # Cleanup should stop it
         app._cleanup()
-        # Thread may still be alive briefly after join, but should be marked as stopped
-        assert app._input_thread is None or not app._input_thread.is_alive()
+        assert app.running is True
 
     def test_on_interrupt_calls_cleanup_and_exits(self) -> None:
         """ServerManager.on_interrupt should call cleanup_servers and exit with code 130."""
@@ -509,23 +499,14 @@ class TestGracefulShutdownKeyHandler:
         panel = app._build_status_messages_panel()
         assert panel is None
 
-    def test_input_polling_thread_stops_on_running_false(self) -> None:
-        """Input poller should stop when running is False."""
+    def test_handle_keypress_dispatches_through_queue(self) -> None:
+        """Textual key dispatch should reuse the queue-based state machine."""
         from llama_cli.commands.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
-
-        # Start polling
-        app._start_input_polling()
-        thread = app._input_thread
-
-        assert thread is not None
-        thread.join(timeout=2.0)
-
-        # Stop the app
-        app.running = False
-        app._stop_input_polling()
-        assert app._input_thread is None
+        app.handle_keypress("r")
+        assert app._keypress_queue.empty()
+        assert any("refreshed" in msg.lower() for msg in app._status_messages)
 
     def test_abort_profile(self) -> None:
         """_abort_profile should cancel any running profile."""

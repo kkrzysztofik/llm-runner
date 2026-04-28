@@ -400,26 +400,31 @@ class TestNoRetryBehavior:
             call_count[0] += 1
             raise subprocess.CalledProcessError(1, "test")
 
-        pipeline._run_build = Mock(side_effect=always_fails)
-        pipeline._run_preflight = Mock(
-            return_value=BuildProgress(
-                stage="preflight", status="success", message="OK", progress_percent=20
-            )
-        )
-        pipeline._run_clone = Mock(
-            return_value=BuildProgress(
-                stage="clone", status="skipped", message="Exists", progress_percent=0
-            )
-        )
-        pipeline._run_configure = Mock(
-            return_value=BuildProgress(
-                stage="configure", status="success", message="Configured", progress_percent=50
-            )
-        )
-        pipeline._write_provenance = Mock(return_value=True)
-
-        # Run pipeline - should fail on first attempt (no retry logic in run method)
-        result = pipeline.run()
+        with (
+            patch("llama_manager.build_pipeline.pipeline.run_build", side_effect=always_fails),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_preflight",
+                return_value=BuildProgress(
+                    stage="preflight", status="success", message="OK", progress_percent=20
+                ),
+            ),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_clone",
+                return_value=BuildProgress(
+                    stage="clone", status="skipped", message="Exists", progress_percent=0
+                ),
+            ),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_configure",
+                return_value=BuildProgress(
+                    stage="configure", status="success", message="Configured", progress_percent=50
+                ),
+            ),
+            patch.object(pipeline, "_acquire_lock", return_value=True),
+            patch.object(pipeline, "_release_lock"),
+        ):
+            # Run pipeline - should fail on first attempt (no retry logic in run method)
+            result = pipeline.run()
 
         # Verify only one attempt was made (no retry)
         assert call_count[0] == 1, f"Expected 1 attempt, got {call_count[0]}"
@@ -454,26 +459,31 @@ class TestRetryTransientFailures:
             failure_count[0] += 1
             raise subprocess.CalledProcessError(1, "test")
 
-        pipeline._run_build = Mock(side_effect=always_fails)
-        pipeline._run_preflight = Mock(
-            return_value=BuildProgress(
-                stage="preflight", status="success", message="OK", progress_percent=20
-            )
-        )
-        pipeline._run_clone = Mock(
-            return_value=BuildProgress(
-                stage="clone", status="skipped", message="Exists", progress_percent=0
-            )
-        )
-        pipeline._run_configure = Mock(
-            return_value=BuildProgress(
-                stage="configure", status="success", message="Configured", progress_percent=50
-            )
-        )
-        pipeline._write_provenance = Mock(return_value=True)
-
-        # Run pipeline - should fail on first attempt (no retry logic in run method)
-        result = pipeline.run()
+        with (
+            patch("llama_manager.build_pipeline.pipeline.run_build", side_effect=always_fails),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_preflight",
+                return_value=BuildProgress(
+                    stage="preflight", status="success", message="OK", progress_percent=20
+                ),
+            ),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_clone",
+                return_value=BuildProgress(
+                    stage="clone", status="skipped", message="Exists", progress_percent=0
+                ),
+            ),
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_configure",
+                return_value=BuildProgress(
+                    stage="configure", status="success", message="Configured", progress_percent=50
+                ),
+            ),
+            patch.object(pipeline, "_acquire_lock", return_value=True),
+            patch.object(pipeline, "_release_lock"),
+        ):
+            # Run pipeline - should fail on first attempt (no retry logic in run method)
+            result = pipeline.run()
 
         # Verify only one attempt was made (no retry)
         assert failure_count[0] == 1, f"Expected 1 attempt, got {failure_count[0]}"
@@ -522,38 +532,16 @@ class TestConfigureStageCmakeFlags:
         SYCL backend should use -DGGML_SYCL=ON
         CUDA backend should use -DGGML_CUDA=ON
         """
-        config = BuildConfig(
-            backend=BuildBackend.SYCL,
-            source_dir=tmp_path / "source",
-            build_dir=tmp_path / "build",
-            output_dir=tmp_path / "output",
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-        )
-
-        pipeline = BuildPipeline(config)
-
-        # Mock source directory with CMakeLists.txt
-        config.source_dir.mkdir(parents=True, exist_ok=True)
-        (config.source_dir / "CMakeLists.txt").write_text("# Mock CMakeLists")
+        from llama_manager.build_pipeline.stages.configure import get_cmake_flags
 
         # Test SYCL backend
-        cmake_args = pipeline._get_cmake_flags(backend=BuildBackend.SYCL)
+        cmake_args = get_cmake_flags(BuildBackend.SYCL)
         assert "-DGGML_SYCL=ON" in cmake_args
         assert "-DCMAKE_C_COMPILER=icx" in cmake_args
         assert "-DCMAKE_CXX_COMPILER=icpx" in cmake_args
 
         # Test CUDA backend
-        config_cuda = BuildConfig(
-            backend=BuildBackend.CUDA,
-            source_dir=tmp_path / "source",
-            build_dir=tmp_path / "build",
-            output_dir=tmp_path / "output",
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-        )
-        pipeline_cuda = BuildPipeline(config_cuda)
-        cmake_args_cuda = pipeline_cuda._get_cmake_flags(backend=BuildBackend.CUDA)
+        cmake_args_cuda = get_cmake_flags(BuildBackend.CUDA)
         assert "-DGGML_CUDA=ON" in cmake_args_cuda
 
     def test_configure_stage_failure_includes_cmake_diagnostics(self, tmp_path: Path) -> None:
@@ -566,7 +554,14 @@ class TestConfigureStageCmakeFlags:
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
         )
-        pipeline = BuildPipeline(config)
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.configure import run_configure
+
+        ctx = _BuildContext(
+            config=config,
+            dry_run=False,
+            build_start_time=0.0,
+        )
 
         mock_result = Mock()
         mock_result.returncode = 1
@@ -575,16 +570,19 @@ class TestConfigureStageCmakeFlags:
 
         with (
             patch("subprocess.run", return_value=mock_result),
-            patch.object(pipeline, "_get_build_env_cmd", side_effect=lambda cmd: cmd),
+            patch(
+                "llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH",
+                config.build_dir / "nonexistent",
+            ),
         ):
-            result = pipeline._run_configure()
+            result = run_configure(ctx)
 
         assert result.status == "failed"
         assert "CMake configure command failed with exit code 1" in result.message
         assert "cmake -S" in result.message
         assert "CMake Error: icpx compiler not found" in result.message
         assert "stdout tail:" in result.message
-        assert "COMMAND: cmake -S" in pipeline._build_output
+        assert "COMMAND: cmake -S" in ctx.build_output
 
 
 class TestBuildStageExecution:
@@ -608,7 +606,14 @@ class TestBuildStageExecution:
             jobs=4,
         )
 
-        pipeline = BuildPipeline(config)
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.build import run_build
+
+        ctx = _BuildContext(
+            config=config,
+            dry_run=False,
+            build_start_time=0.0,
+        )
 
         # Mock the subprocess call
         mock_popen = _MockPopen(
@@ -620,13 +625,12 @@ class TestBuildStageExecution:
 
         with (
             patch("subprocess.Popen", return_value=mock_popen) as mock_popen_factory,
-            patch.object(
-                pipeline,
-                "_get_build_env_cmd",
-                side_effect=lambda cmd: cmd,
+            patch(
+                "llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH",
+                config.build_dir / "nonexistent",
             ),
         ):
-            result = pipeline._run_build()
+            result = run_build(ctx)
 
             # Verify subprocess was called with correct arguments
             assert mock_popen_factory.called
@@ -638,8 +642,8 @@ class TestBuildStageExecution:
             # Verify success
             assert result.status == "success"
             assert "Build completed for sycl" in result.message
-            assert "COMMAND: cmake --build" in pipeline._build_output
-            assert "EXIT_CODE: 0" in pipeline._build_output
+            assert "COMMAND: cmake --build" in ctx.build_output
+            assert "EXIT_CODE: 0" in ctx.build_output
 
     def test_build_stage_failure_includes_command_and_output_tail(self, tmp_path: Path) -> None:
         """Build failure messages should explain command, exit code, and output tail."""
@@ -652,7 +656,14 @@ class TestBuildStageExecution:
             git_branch="main",
             jobs=2,
         )
-        pipeline = BuildPipeline(config)
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.build import run_build
+
+        ctx = _BuildContext(
+            config=config,
+            dry_run=False,
+            build_start_time=0.0,
+        )
 
         mock_popen = _MockPopen(
             cmd=[],
@@ -663,19 +674,24 @@ class TestBuildStageExecution:
 
         with (
             patch("subprocess.Popen", return_value=mock_popen),
-            patch.object(pipeline, "_get_build_env_cmd", side_effect=lambda cmd: cmd),
+            patch(
+                "llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH",
+                config.build_dir / "nonexistent",
+            ),
         ):
-            result = pipeline._run_build()
+            result = run_build(ctx)
 
         assert result.status == "failed"
         assert "Build command failed with exit code 2" in result.message
         assert "cmake --build" in result.message
         assert "fatal error: cuda headers missing" in result.message
         assert "stdout tail:" in result.message
-        assert "EXIT_CODE: 2" in pipeline._build_output
+        assert "EXIT_CODE: 2" in ctx.build_output
 
     def test_command_output_redacts_secrets(self, tmp_path: Path) -> None:
         """Captured command output should redact credentials and secret-looking values."""
+        from llama_manager.build_pipeline._context import _BuildContext
+
         config = BuildConfig(
             backend=BuildBackend.CUDA,
             source_dir=tmp_path / "source",
@@ -684,9 +700,9 @@ class TestBuildStageExecution:
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
         )
-        pipeline = BuildPipeline(config)
+        ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
 
-        pipeline._append_command_output(
+        ctx.append_command_output(
             stage="build",
             command=["git", "clone", "https://user:pass@example.com/repo.git"],
             returncode=1,
@@ -694,11 +710,11 @@ class TestBuildStageExecution:
             stderr="PASSWORD=hunter2 TOKEN=abc123",
         )
 
-        assert "super-secret-key" not in pipeline._build_output
-        assert "hunter2" not in pipeline._build_output
-        assert "abc123" not in pipeline._build_output
-        assert "user:pass" not in pipeline._build_output
-        assert "[REDACTED]" in pipeline._build_output
+        assert "super-secret-key" not in ctx.build_output
+        assert "hunter2" not in ctx.build_output
+        assert "abc123" not in ctx.build_output
+        assert "user:pass" not in ctx.build_output
+        assert "[REDACTED]" in ctx.build_output
 
     def test_build_failure_run_writes_redacted_log_and_report(self, tmp_path: Path) -> None:
         """Full run should persist failure diagnostics and surface their paths."""
@@ -727,23 +743,23 @@ class TestBuildStageExecution:
         with (
             patch.object(pipeline, "_acquire_lock", return_value=True),
             patch.object(pipeline, "_release_lock"),
-            patch.object(
-                pipeline,
-                "_run_preflight",
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_preflight",
                 return_value=BuildProgress("preflight", "success", "ok", 20),
             ),
-            patch.object(
-                pipeline,
-                "_run_clone",
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_clone",
                 return_value=BuildProgress("clone", "skipped", "exists", 30),
             ),
-            patch.object(
-                pipeline,
-                "_run_configure",
+            patch(
+                "llama_manager.build_pipeline.pipeline.run_configure",
                 return_value=BuildProgress("configure", "success", "configured", 50),
             ),
             patch("subprocess.Popen", return_value=mock_popen),
-            patch.object(pipeline, "_get_build_env_cmd", side_effect=lambda cmd: cmd),
+            patch(
+                "llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH",
+                pipeline.config.build_dir / "nonexistent",
+            ),
         ):
             result = pipeline.run()
 
@@ -766,10 +782,12 @@ class TestBuildStageExecution:
 
 
 class TestBuildEnvCmd:
-    """Tests for _get_build_env_cmd SYCL wrapping."""
+    """Tests for get_build_env_cmd SYCL wrapping."""
 
     def test_get_build_env_cmd_wraps_sycl_when_setvars_exists(self, tmp_path: Path) -> None:
-        """_get_build_env_cmd should wrap cmake for SYCL when setvars.sh exists."""
+        """get_build_env_cmd should wrap cmake for SYCL when setvars.sh exists."""
+        from llama_manager.build_pipeline.stages.configure import get_build_env_cmd
+
         config = BuildConfig(
             backend=BuildBackend.SYCL,
             source_dir=tmp_path / "source",
@@ -778,15 +796,14 @@ class TestBuildEnvCmd:
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
         )
-        pipeline = BuildPipeline(config)
 
         # Mock setvars.sh existing
         fake_setvars = tmp_path / "setvars.sh"
         fake_setvars.write_text("# mock")
 
-        with patch("llama_manager.build_pipeline._INTEL_SETVARS_SH", fake_setvars):
+        with patch("llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH", fake_setvars):
             cmd = ["cmake", "--build", str(config.build_dir)]
-            wrapped = pipeline._get_build_env_cmd(cmd)
+            wrapped = get_build_env_cmd(cmd, config.backend)
             assert wrapped[0] == "bash"
             assert wrapped[1] == "-c"
             assert f'source "{fake_setvars}"' in wrapped[2]
@@ -794,6 +811,8 @@ class TestBuildEnvCmd:
 
     def test_get_build_env_cmd_shell_quotes_user_paths(self, tmp_path: Path) -> None:
         """SYCL environment wrapper should quote command args for bash -c safely."""
+        from llama_manager.build_pipeline.stages.configure import get_build_env_cmd
+
         config = BuildConfig(
             backend=BuildBackend.SYCL,
             source_dir=tmp_path / "source",
@@ -802,18 +821,19 @@ class TestBuildEnvCmd:
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
         )
-        pipeline = BuildPipeline(config)
         fake_setvars = tmp_path / "setvars.sh"
         fake_setvars.write_text("# mock")
 
-        with patch("llama_manager.build_pipeline._INTEL_SETVARS_SH", fake_setvars):
-            wrapped = pipeline._get_build_env_cmd(["cmake", "--build", str(config.build_dir)])
+        with patch("llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH", fake_setvars):
+            wrapped = get_build_env_cmd(["cmake", "--build", str(config.build_dir)], config.backend)
 
         assert f"'{config.build_dir}'" in wrapped[2]
         assert "; touch injected" in wrapped[2]
 
     def test_get_build_env_cmd_no_wrap_for_cuda(self, tmp_path: Path) -> None:
-        """_get_build_env_cmd should not wrap commands for CUDA backend."""
+        """get_build_env_cmd should not wrap commands for CUDA backend."""
+        from llama_manager.build_pipeline.stages.configure import get_build_env_cmd
+
         config = BuildConfig(
             backend=BuildBackend.CUDA,
             source_dir=tmp_path / "source",
@@ -822,18 +842,19 @@ class TestBuildEnvCmd:
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
         )
-        pipeline = BuildPipeline(config)
 
         fake_setvars = tmp_path / "setvars.sh"
         fake_setvars.write_text("# mock")
 
-        with patch("llama_manager.build_pipeline._INTEL_SETVARS_SH", fake_setvars):
+        with patch("llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH", fake_setvars):
             cmd = ["cmake", "--build", str(config.build_dir)]
-            wrapped = pipeline._get_build_env_cmd(cmd)
+            wrapped = get_build_env_cmd(cmd, config.backend)
             assert wrapped == cmd
 
     def test_get_build_env_cmd_no_wrap_when_setvars_missing(self, tmp_path: Path) -> None:
-        """_get_build_env_cmd should not wrap when setvars.sh is missing."""
+        """get_build_env_cmd should not wrap when setvars.sh is missing."""
+        from llama_manager.build_pipeline.stages.configure import get_build_env_cmd
+
         config = BuildConfig(
             backend=BuildBackend.SYCL,
             source_dir=tmp_path / "source",
@@ -842,14 +863,13 @@ class TestBuildEnvCmd:
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
         )
-        pipeline = BuildPipeline(config)
 
         with patch(
-            "llama_manager.build_pipeline._INTEL_SETVARS_SH",
+            "llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH",
             tmp_path / "nonexistent",
         ):
             cmd = ["cmake", "--build", str(config.build_dir)]
-            wrapped = pipeline._get_build_env_cmd(cmd)
+            wrapped = get_build_env_cmd(cmd, config.backend)
             assert wrapped == cmd
 
 

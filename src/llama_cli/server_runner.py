@@ -1,49 +1,27 @@
 """Server execution logic for CLI.
 
-This module provides the main entry point for running llama-server instances
-via command-line interface, including signal handling, process management,
-and risk acknowledgment workflows.
+This module provides the main entry point for running llama-server instances.
+Models are launched exclusively via the TUI subcommand.
 """
 
 import argparse
-import atexit
 import os
-import signal
 import sys
-from collections.abc import Callable
 from typing import NoReturn
 
 from llama_cli.cli_parser import parse_args
-from llama_cli.colors import Colors
 from llama_cli.commands.setup import main as setup_main
 from llama_manager import (
     Config,
     ErrorCode,
     ErrorDetail,
-    ModelSlot,
     ServerConfig,
-    ServerManager,
-    build_server_cmd,
-    create_qwen35_cfg,
-    create_summary_balanced_cfg,
-    create_summary_fast_cfg,
     require_executable,
     require_model,
     validate_port,
     validate_ports,
-    validate_server_config,
-    validate_slots,
 )
 from llama_manager.config_builder import create_default_profile_registry, resolve_run_group_configs
-from llama_manager.server import detect_risky_operations
-
-RISK_ACK_LABEL = "warning_bypass"
-RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
-
-# Port labels for validation error messages
-PORT_SUMMARY_BALANCED = "summary-balanced port"
-PORT_SUMMARY_FAST = "summary-fast port"
-PORT_QWEN35 = "qwen35 port"
 
 # Server backend display names
 INTEL_SERVER_NAME = "Intel llama-server"
@@ -52,21 +30,26 @@ NVIDIA_SERVER_NAME = "NVIDIA llama-server"
 
 def usage() -> None:
     print("""Usage:
-  src/run_opencode_models.py summary-balanced [port]
-  src/run_opencode_models.py summary-fast [port]
-  src/run_opencode_models.py qwen35 [port]
-  src/run_opencode_models.py both [summary_balanced_port qwen35_port]
-  src/run_opencode_models.py dry-run <mode> [ports...]
-  src/run_opencode_models.py smoke <mode> [slot_id] [--json]
-  src/run_opencode_models.py profile <slot_id> <flavor> [--json]
-  src/run_opencode_models.py setup <subcommand>\n  src/run_opencode_models.py tui <mode> [--port PORT] [--port2 PORT2]\n\nModes:
+  llm-runner tui <mode> [--port PORT] [--port2 PORT2]
+  llm-runner dry-run <mode> [ports...]
+  llm-runner smoke <mode> [slot_id] [--json]
+  llm-runner profile <slot_id> <flavor> [--json]
+  llm-runner setup <subcommand>
+  llm-runner build <backend>
+  llm-runner doctor <subcommand>
+
+Modes (via tui):
   summary-balanced  Run summary-balanced model (Intel SYCL)
   summary-fast      Run summary-fast model (Intel SYCL)
   qwen35           Run qwen35-coding model (NVIDIA CUDA)
   both             Run summary-balanced and qwen35 side-by-side
-  dry-run          Preview commands without executing
-  smoke            Run smoke health probes (both|slot)
-  setup            Toolchain diagnostics and venv management\n  profile          Run benchmark profile\n  tui              Launch interactive TUI\n\nSmoke Subcommands:
+
+TUI Options:
+  --port          Port for primary model
+  --port2         Port for secondary model
+  --acknowledge-risky  Acknowledge risky operations
+
+Smoke Subcommands:
   both             Probe all servers
   slot <id>        Probe a specific slot
 
@@ -80,44 +63,23 @@ Smoke Options:
   --json           Output in JSON format
 
 Setup Subcommands:
-  check           Check toolchain availability (FR-005.1)
-  venv            Create or reuse virtual environment (FR-005.2)
-  clean-venv      Remove virtual environment (FR-005.3)
+  check           Check toolchain availability
+  venv            Create or reuse virtual environment
+  clean-venv      Remove virtual environment
 
-TUI Options:
-  --port          Port for primary model
-  --port2         Port for secondary model
-  --acknowledge-risky  Acknowledge risky operations
+Doctor Subcommands:
+  check           Check system health
+  repair          Repair detected issues
 
 Examples:
-  src/run_opencode_models.py summary-balanced
-  src/run_opencode_models.py summary-fast 8082
-  src/run_opencode_models.py qwen35 8080
-  src/run_opencode_models.py both 8080 8081
-  src/run_opencode_models.py dry-run summary-balanced
-  src/run_opencode_models.py dry-run both 8080 8081
-  src/run_opencode_models.py smoke both
-  src/run_opencode_models.py smoke slot summary-balanced --json
-  src/run_opencode_models.py profile slot0 balanced --json
-  src/run_opencode_models.py setup --check
-  src/run_opencode_models.py setup venv
-  src/run_opencode_models.py setup clean-venv --yes
-  src/run_opencode_models.py tui both
-  src/run_opencode_models.py tui summary-balanced --port 8080""")
-
-
-def _print_backend_error_and_exit() -> NoReturn:
-    """Print backend error details and exit with code 1."""
-    print("error: acknowledgement_required", file=sys.stderr)
-    print("  failed_check: acknowledgement_required", file=sys.stderr)
-    print("  why_blocked: risky operation detected and not acknowledged", file=sys.stderr)
-    print("  how_to_fix: use --acknowledge-risky flag or confirm with 'y'", file=sys.stderr)
-    raise SystemExit(1)
-
-
-def check_prereqs() -> None:
-    cfg = Config()
-    require_executable(cfg.llama_server_bin_intel, INTEL_SERVER_NAME)
+  llm-runner tui summary-balanced
+  llm-runner tui both --port 8080 --port2 8081
+  llm-runner dry-run summary-balanced
+  llm-runner dry-run both 8080 8081
+  llm-runner smoke both
+  llm-runner profile slot0 balanced --json
+  llm-runner setup check
+  llm-runner build sycl""")
 
 
 def _print_validation_error(error_detail: ErrorDetail) -> NoReturn:
@@ -132,147 +94,6 @@ def _print_validation_error(error_detail: ErrorDetail) -> NoReturn:
     print(f"  why_blocked: {error_detail.why_blocked}", file=sys.stderr)
     print(f"  how_to_fix: {error_detail.how_to_fix}", file=sys.stderr)
     raise SystemExit(1)
-
-
-def run_summary_balanced(port: int, manager: ServerManager) -> int:
-    cfg = Config()
-    port_error = validate_port(port, PORT_SUMMARY_BALANCED)
-    if port_error is not None:
-        _print_validation_error(port_error)
-    model_error = require_model(cfg.model_summary_balanced)
-    if model_error is not None:
-        _print_validation_error(model_error)
-    print(f"Starting summary-balanced at http://{cfg.host}:{port}/v1")
-    server_cfg = create_summary_balanced_cfg(port)
-    backend_error = validate_server_config(server_cfg)
-    if backend_error is not None:
-        _print_validation_error(backend_error)
-    cmd = build_server_cmd(server_cfg)
-    return manager.run_server_foreground("summary-balanced", cmd)
-
-
-def run_summary_fast(port: int, manager: ServerManager) -> int:
-    cfg = Config()
-    port_error = validate_port(port, PORT_SUMMARY_FAST)
-    if port_error is not None:
-        _print_validation_error(port_error)
-    model_error = require_model(cfg.model_summary_fast)
-    if model_error is not None:
-        _print_validation_error(model_error)
-    print(f"Starting summary-fast at http://{cfg.host}:{port}/v1")
-    server_cfg = create_summary_fast_cfg(port)
-    backend_error = validate_server_config(server_cfg)
-    if backend_error is not None:
-        _print_validation_error(backend_error)
-    cmd = build_server_cmd(server_cfg)
-    return manager.run_server_foreground("summary-fast", cmd)
-
-
-def run_qwen35(port: int, manager: ServerManager) -> int:
-    cfg = Config()
-    port_error = validate_port(port, PORT_QWEN35)
-    if port_error is not None:
-        _print_validation_error(port_error)
-    model_error = require_model(cfg.model_qwen35)
-    if model_error is not None:
-        _print_validation_error(model_error)
-    exec_error = require_executable(cfg.llama_server_bin_nvidia, NVIDIA_SERVER_NAME)
-    if exec_error is not None:
-        _print_validation_error(exec_error)
-    print(f"Starting qwen35-coding at http://{cfg.host}:{port}/v1 (NVIDIA CUDA)")
-    server_cfg = create_qwen35_cfg(port)
-    backend_error = validate_server_config(server_cfg)
-    if backend_error is not None:
-        _print_validation_error(backend_error)
-    cmd = build_server_cmd(server_cfg)
-    return manager.run_server_foreground("qwen35-coding", cmd)
-
-
-def run_both(port32: int, port35: int, manager: ServerManager) -> int:
-    cfg = Config()
-    validate_port(port32, PORT_SUMMARY_BALANCED)
-    validate_port(port35, PORT_QWEN35)
-    validate_ports(port32, port35, PORT_SUMMARY_BALANCED, PORT_QWEN35)
-    require_model(cfg.model_summary_balanced)
-    require_model(cfg.model_qwen35_both)
-    require_executable(cfg.llama_server_bin_nvidia, NVIDIA_SERVER_NAME)
-
-    slots: list[ModelSlot] = [
-        ModelSlot(slot_id="summary-balanced", model_path=cfg.model_summary_balanced, port=port32),
-        ModelSlot(slot_id="qwen35-coding", model_path=cfg.model_qwen35_both, port=port35),
-    ]
-
-    validation_error = validate_slots(slots)
-    if validation_error is not None:
-        for error_detail in validation_error.errors:
-            print(f"error: {error_detail.error_code}", file=sys.stderr)
-            print(f"  failed_check: {error_detail.failed_check}", file=sys.stderr)
-            print(f"  why_blocked: {error_detail.why_blocked}", file=sys.stderr)
-            print(f"  how_to_fix: {error_detail.how_to_fix}", file=sys.stderr)
-        raise SystemExit(1)
-
-    server_configs = [create_summary_balanced_cfg(port32), create_qwen35_cfg(port35)]
-    print(f"Launching {len(server_configs)} server(s)...")
-    for cfg_instance in server_configs:
-        print(f"  {cfg_instance.alias}: http://{cfg.host}:{cfg_instance.port}/v1")
-
-    log_handlers: dict[str, Callable[[str], None]] = {}
-    for cfg_instance in server_configs:
-        log_handlers[cfg_instance.alias] = lambda line, name=cfg_instance.alias: print(
-            f"[{name}] {line}", flush=True
-        )
-
-    manager.start_servers(server_configs, log_handlers)
-    code = manager.wait_for_any()
-    manager.cleanup_servers()
-    return code
-
-
-def verify_risks(manager: ServerManager, configs: list[ServerConfig], acknowledged: bool) -> None:
-    """Verify that risky operations are acknowledged before launch."""
-    launch_attempt_id = manager.begin_launch_attempt()
-    ack_token = manager.issue_ack_token(launch_attempt_id)
-
-    for cfg in configs:
-        if acknowledged and RISK_ACK_LABEL not in cfg.risky_acknowledged:
-            cfg.risky_acknowledged.append(RISK_ACK_LABEL)
-        for risk in detect_risky_operations(cfg):
-            _acknowledge_risk_if_required(
-                manager,
-                cfg,
-                risk,
-                launch_attempt_id,
-                ack_token,
-                acknowledged,
-            )
-
-
-def _acknowledge_risk_if_required(
-    manager: ServerManager,
-    cfg: ServerConfig,
-    risk: str,
-    launch_attempt_id: str,
-    ack_token: str,
-    acknowledged: bool,
-) -> None:
-    if manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
-        return
-
-    if not acknowledged:
-        print(f"warning: risky operation detected in {cfg.alias}: {risk}")
-        try:
-            response = input(RISK_CONFIRM_PROMPT).strip().lower()
-        except EOFError:
-            _print_backend_error_and_exit()
-        if response != "y":
-            _print_backend_error_and_exit()
-
-    manager.acknowledge_risk(
-        cfg.alias,
-        risk,
-        launch_attempt_id=launch_attempt_id,
-        ack_token=ack_token,
-    )
 
 
 def _run_dry_run_mode(parsed: argparse.Namespace, acknowledged: bool) -> int:
@@ -416,64 +237,6 @@ def _run_tui(parsed: argparse.Namespace) -> int:
     return 0
 
 
-def _run_mode(parsed_mode: str, ports: list[int], manager: ServerManager, cfg: Config) -> int:
-    configs = _build_target_configs(parsed_mode, ports, cfg)
-    if configs:
-        return _run_server_configs(configs, manager, cfg)
-    usage()
-    return 1
-
-
-def _run_server_configs(configs: list[ServerConfig], manager: ServerManager, cfg: Config) -> int:
-    """Launch resolved server configs through the appropriate manager path."""
-    _validate_launch_configs(configs)
-    if len(configs) == 1:
-        server_cfg = configs[0]
-        print(f"Starting {server_cfg.alias} at http://{cfg.host}:{server_cfg.port}/v1")
-        return manager.run_server_foreground(server_cfg.alias, build_server_cmd(server_cfg))
-
-    print(f"Launching {len(configs)} server(s)...")
-    for server_cfg in configs:
-        print(f"  {server_cfg.alias}: http://{cfg.host}:{server_cfg.port}/v1")
-
-    log_handlers: dict[str, Callable[[str], None]] = {}
-    for server_cfg in configs:
-        log_handlers[server_cfg.alias] = lambda line, name=server_cfg.alias: print(
-            f"[{name}] {line}", flush=True
-        )
-
-    manager.start_servers(configs, log_handlers)
-    code = manager.wait_for_any()
-    manager.cleanup_servers()
-    return code
-
-
-def _validate_launch_configs(configs: list[ServerConfig]) -> None:
-    """Validate ports, models, executables, and backend eligibility before launch."""
-    slots = [
-        ModelSlot(slot_id=server_cfg.alias, model_path=server_cfg.model, port=server_cfg.port)
-        for server_cfg in configs
-    ]
-    validation_error = validate_slots(slots)
-    if validation_error is not None:
-        for error_detail in validation_error.errors:
-            _print_validation_error(error_detail)
-
-    for server_cfg in configs:
-        model_error = require_model(server_cfg.model)
-        if model_error is not None:
-            _print_validation_error(model_error)
-        if server_cfg.server_bin:
-            exec_error = require_executable(
-                server_cfg.server_bin, _server_name_for_config(server_cfg)
-            )
-            if exec_error is not None:
-                _print_validation_error(exec_error)
-        backend_error = validate_server_config(server_cfg)
-        if backend_error is not None:
-            _print_validation_error(backend_error)
-
-
 def _normalize_main_args(args: list[str] | None) -> list[str]:
     if args is None:
         return sys.argv[1:]
@@ -481,10 +244,6 @@ def _normalize_main_args(args: list[str] | None) -> list[str]:
         return []
 
     modes = {
-        "summary-balanced",
-        "summary-fast",
-        "qwen35",
-        "both",
         "dry-run",
         "doctor",
         "build",
@@ -569,34 +328,11 @@ def main(args: list[str] | None = None) -> int:
     if parsed.mode == "tui":
         return _run_tui(parsed)
 
-    manager = ServerManager()
-    signal.signal(signal.SIGINT, manager.on_interrupt)
-    signal.signal(signal.SIGTERM, manager.on_terminate)
-    atexit.register(manager.cleanup_servers)
-
-    Colors.is_enabled()
-    check_prereqs()
-
     if parsed.mode == "dry-run":
         return _run_dry_run_mode(parsed, parsed.acknowledge_risky)
 
-    cfg = Config()
-    verify_risks(
-        manager,
-        _build_target_configs(parsed.mode, parsed.ports, cfg),
-        parsed.acknowledge_risky,
-    )
-
-    try:
-        return _run_mode(parsed.mode, parsed.ports, manager, cfg)
-    except SystemExit as e:
-        return e.code if isinstance(e.code, int) else 1
-    except ValueError as e:
-        print(f"error: invalid arguments: {e}", file=sys.stderr)
-        return 1
-    except IndexError as e:
-        print(f"error: index error: {e}", file=sys.stderr)
-        return 1
+    usage()
+    return 1
 
 
 def cli_main() -> None:

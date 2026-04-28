@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llama_cli.commands.tui import TUIApp, _cbreak_stdin
+from llama_cli.commands.tui import TUIApp
 from llama_manager import ServerConfig
 from llama_manager.build_pipeline import BuildBackend, BuildProgress, BuildResult
 
@@ -131,47 +131,35 @@ class TestTUIAppBuildLayout:
     """Tests for TUIApp.build_layout."""
 
     def test_build_layout_structure(self) -> None:
-        """build_layout should create a Layout with expected structure."""
+        """build_layout should describe the responsive Textual content layout."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         app.width = 120
         layout = app.build_layout()
 
-        # Verify layout has the expected structure by checking it's a Layout
-        assert layout is not None
-        # The layout should have split methods that were called
-        # Verify that we can access layout["alerts"] without error
-        assert layout["alerts"] is not None
+        assert layout.content_orientation == "horizontal"
 
     def test_build_layout_row_split(self) -> None:
-        """build_layout should split content into row when width >= 80."""
+        """build_layout should use horizontal content when width >= 80."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         app.width = 120
         layout = app.build_layout()
 
-        # Verify content has left and right children (row split)
-        content = layout["content"]
-        assert content is not None
+        assert layout.content_orientation == "horizontal"
 
     def test_build_layout_column_split(self) -> None:
-        """build_layout should split content into column when width < 80."""
+        """build_layout should use vertical content when width < 80."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         app.width = 60
         layout = app.build_layout()
 
-        content = layout["content"]
-        assert content is not None
+        assert layout.content_orientation == "vertical"
 
-    def test_build_layout_includes_menu(self) -> None:
-        """build_layout should include a menu layout area."""
+    def test_build_layout_boundary_width_is_horizontal(self) -> None:
+        """build_layout should switch to horizontal at the 80-column boundary."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        app.width = 80
         layout = app.build_layout()
-        assert layout["menu"] is not None
-
-    def test_build_layout_menu_size_one(self) -> None:
-        """menu layout should have size=1."""
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        layout = app.build_layout()
-        assert layout["menu"].size == 1
+        assert layout.content_orientation == "horizontal"
 
 
 # =============================================================================
@@ -209,10 +197,10 @@ class TestTUIAppRender:
         assert layout is not None
 
     def test_render_populates_menu(self) -> None:
-        """render should populate the menu layout."""
+        """render should populate the dashboard snapshot menu."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        layout = app.render()
-        assert layout["menu"] is not None
+        snapshot = app.render()
+        assert snapshot.menu is not None
 
 
 # =============================================================================
@@ -664,36 +652,3 @@ class TestBuildCommandMenu:
         menu = app._build_command_menu()
         text = menu.plain
         assert "Quit" not in text
-
-
-class TestCbreakStdin:
-    """Tests for POSIX cbreak input helper context manager."""
-
-    def test_cbreak_stdin_noop_when_not_tty(self) -> None:
-        fake_stdin = MagicMock()
-        fake_stdin.isatty.return_value = False
-
-        with patch("llama_cli.commands.tui.sys.stdin", fake_stdin), _cbreak_stdin():
-            pass
-
-        fake_stdin.isatty.assert_called_once()
-
-    def test_cbreak_stdin_restores_termios_on_exit(self) -> None:
-        fake_stdin = MagicMock()
-        fake_stdin.isatty.return_value = True
-        fake_stdin.fileno.return_value = 0
-        original_attrs = [1, 2, 3, 4]
-
-        with (
-            patch("llama_cli.commands.tui.os.name", "posix"),
-            patch("llama_cli.commands.tui.sys.stdin", fake_stdin),
-            patch("termios.tcgetattr", return_value=original_attrs) as mock_getattr,
-            patch("tty.setcbreak") as mock_setcbreak,
-            patch("termios.tcsetattr") as mock_setattr,
-            _cbreak_stdin(),
-        ):
-            pass
-
-        mock_getattr.assert_called_once_with(0)
-        mock_setcbreak.assert_called_once_with(0)
-        mock_setattr.assert_called_once()

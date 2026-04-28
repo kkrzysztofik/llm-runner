@@ -102,76 +102,6 @@ def _parse_dry_run_args(args: list[str]) -> argparse.Namespace:
     )
 
 
-def _parse_normal_mode_args(args: list[str]) -> argparse.Namespace:
-    """Parse arguments for normal modes.
-
-    Args:
-        args: List of command-line arguments.
-
-    Returns:
-        Parsed arguments namespace.
-    """
-    parser = argparse.ArgumentParser(
-        description="Manage multiple llama-server instances",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-    Modes:
-      summary-balanced  Run summary-balanced model (Intel SYCL)
-      summary-fast      Run summary-fast model (Intel SYCL)
-      qwen35           Run qwen35-coding model (NVIDIA CUDA)
-      both             Run summary-balanced and qwen35 side-by-side
-      dry-run          Preview commands without executing
-      doctor           Run doctor diagnostics (use subcommands: check, repair)
-      build            Run build pipeline
-      setup            Run setup commands (use subcommands: check, venv, clean-venv)
-      tui              Launch interactive TUI
-
-    Exit codes:
-      0    Success
-      1-9  Doctor check failures
-      10-19 Smoke test failures
-      130  Interrupted (Ctrl+C)
-
-    Examples:
-      %(prog)s summary-balanced
-      %(prog)s summary-fast 8082
-      %(prog)s qwen35 8080
-      %(prog)s both 8080 8081
-      %(prog)s dry-run summary-balanced
-      %(prog)s dry-run both 8080 8081
-      %(prog)s doctor check
-      %(prog)s doctor repair
-      %(prog)s build sycl
-      %(prog)s setup check
-      %(prog)s tui both
-      %(prog)s tui summary-balanced --port 8080
-            """,
-    )
-
-    parser.add_argument(
-        "mode",
-        nargs="?",
-        choices=VALID_MODES,
-        help="Mode to run",
-    )
-    parser.add_argument(
-        "ports",
-        nargs="*",
-        type=int,
-        help="Port(s) for models (1st port, 2nd port for 'both')",
-    )
-
-    parser.add_argument(
-        "--acknowledge-risky",
-        action="store_true",
-        help="Acknowledge risky operations (privileged ports, etc.)",
-    )
-
-    parsed = parser.parse_args(args)
-    parsed.dry_run_mode = None
-    return parsed
-
-
 def _handle_build_case(args: list[str]) -> argparse.Namespace | None:
     """Handle build command special case.
 
@@ -499,7 +429,11 @@ def _handle_tui_case(args: list[str]) -> argparse.Namespace | None:
         return None
 
     # Mode is now optional - if not provided, TUI starts in standalone mode
-    mode = args[1] if len(args) >= 2 and args[1] not in ("--port", "--port2", "--acknowledge-risky") else None
+    mode = (
+        args[1]
+        if len(args) >= 2 and args[1] not in ("--port", "--port2", "--acknowledge-risky")
+        else None
+    )
 
     if mode is not None and mode not in RUNNABLE_TUI_MODES:
         print(
@@ -736,8 +670,8 @@ def _try_special_case_handlers(args: list[str]) -> argparse.Namespace | None:
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments.
 
-    Handles the special case of 'dry-run' mode which requires a second argument
-    specifying the mode to preview (e.g., 'dry-run both').
+    Handles special subcommands (tui, dry-run, build, setup, doctor, profile,
+    smoke) via dedicated handlers. Unknown tokens cause a usage error.
 
     Args:
         args: Optional list of command-line arguments. If None, uses sys.argv[1:].
@@ -751,7 +685,15 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     result = _try_special_case_handlers(args)
     if result is not None:
         return result
-    return _parse_normal_mode_args(args)
+
+    if not args:
+        return argparse.Namespace(mode=None)
+
+    print(
+        f"error: unknown command '{args[0]}'. Use 'tui' to launch model servers.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def parse_tui_args(args: list[str] | None = None) -> argparse.Namespace:

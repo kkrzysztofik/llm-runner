@@ -171,9 +171,9 @@ This section maps PRD requirements to spec.md sections and implementation tasks.
 - **Deliverables**: `setup_venv.py`, `setup_cli.py` (complete), `test_setup_venv.py`
 
 ### Phase 5: TUI Build Wizard (Week 4–5)
-- **Goal**: Rich-based TUI with per-stage progress (SC-007)
+- **Goal**: Textual TUI with per-stage progress (SC-007)
 - **Tasks**:
-  - Update `tui_app.py` with Live progress panel (canonical TUI module)
+  - Update `tui_app.py` with Textual progress widgets (canonical TUI module)
   - Wire `BuildProgress` events to TUI updates
   - Add retry feedback, failure report link
   - Add CLI fallback (`build_cli.py` for `llm-runner build`)

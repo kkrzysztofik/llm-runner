@@ -5,7 +5,7 @@ and probing `llama.cpp` server instances on a mixed Intel SYCL + NVIDIA CUDA
 workstation.
 
 It ships a CLI for launch, dry-run, build, setup, doctor, smoke, and profile
-flows, plus a Rich-based TUI for live logs and GPU telemetry.
+flows, plus a Textual TUI for live logs and GPU telemetry.
 
 ## Features
 
@@ -161,7 +161,7 @@ uv run llm-runner profile qwen35 quality --json
 
 ## TUI
 
-The Rich TUI launcher:
+The Textual TUI launcher:
 
 ```bash
 llm-runner tui both
@@ -169,8 +169,7 @@ llm-runner tui summary-balanced --port 8080
 ```
 
 It shows live logs, configuration, and GPU stats for the configured slots.
-
-Legacy/internal fallback (requires source tree):
+The source-tree entry point remains available for local development:
 
 ```bash
 uv run python src/run_models_tui.py both

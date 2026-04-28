@@ -79,7 +79,7 @@ WHY THIS MATTERS:
 ### Phase 2 — Isolate the Layer
 
 - **llama_manager/**: Pure library — no I/O. Check config dataclass values, validator logic, command building.
-- **llama_cli/**: I/O layer — check Rich `Live` context, subprocess start/stop, argument parsing in `cli_parser.py`.
+- **llama_cli/**: I/O layer — check Textual app handlers, subprocess start/stop, argument parsing in `cli_parser.py`.
 - **Entry points**: Check `server_runner.py` wiring between CLI args and `ServerConfig`.
 
 ### Phase 3 — Fix
@@ -107,7 +107,7 @@ uv run pyright
 <tier level="2" desc="Core Workflow">
 - Document expected vs actual behavior
 - Check process lifecycle (start, stop, signals)
-- Verify TUI rendering (Live context, layout updates)
+- Verify TUI rendering (Textual app/widgets, controller snapshots)
 - Validate with full CI pipeline
 </tier>
 
@@ -174,15 +174,14 @@ def cleanup_servers(self) -> None:
 #### Panel Not Updating
 
 ```python
-# WRONG: Using console.print() inside Live context
-with Live(renderable) as live:
-    console.print("This won't work!")  # Breaks Live
-    live.update(new_renderable)
+# WRONG: Blocking the Textual app thread during a UI update
+def on_mount(self) -> None:
+    line = proc.stdout.readline()  # Freezes the UI
+    self.query_one("#logs").update(line)
 
-# CORRECT: Use layout updates
-with Live(renderable) as live:
-    layout["panel"].update(new_panel)
-    live.refresh()
+# CORRECT: hand blocking work to a worker and update on the app thread
+def on_log_line(self, message: LogLine) -> None:
+    self.query_one("#logs").update(message.text)
 ```
 
 #### Log Buffer Not Showing
@@ -299,17 +298,17 @@ result = subprocess.run(
 )
 ```
 
-### Rich Live Refresh Rate
+### Textual Refresh Cadence
 
 ```python
 # Too fast: wastes CPU
-Live(renderable, refresh_per_second=60)
+self.set_interval(1 / 60, self.refresh_dashboard)
 
 # Too slow: feels laggy
-Live(renderable, refresh_per_second=1)
+self.set_interval(1, self.refresh_dashboard)
 
-# Just right:
-Live(renderable, refresh_per_second=10)
+# Prefer targeted widget/reactive updates; use a modest dashboard snapshot interval
+self.set_interval(0.25, self.refresh_dashboard)
 ```
 
 ---
@@ -319,7 +318,7 @@ Live(renderable, refresh_per_second=10)
 - [ ] Verify subprocess started: `ps aux | grep llama-server`
 - [ ] Check process exit code: `proc.wait()`
 - [ ] Verify log threads running: `threading.enumerate()`
-- [ ] Check Rich console state: `console.is_terminal()`
+- [ ] Check Textual app/widget state with `run_test()` when possible
 - [ ] Verify file paths exist: `os.path.isfile(model_path)`
 - [ ] Check port conflicts: `validate_ports(port1, port2)`
 - [ ] Verify signal handlers registered: `signal.getsignal(signal.SIGINT)`

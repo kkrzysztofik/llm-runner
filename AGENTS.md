@@ -62,7 +62,7 @@ We do not care about backwards compatibility—we're in early development with n
 
 ## Project Overview
 
-**llm-runner** is a Python TUI application for managing multiple [llama.cpp](https://github.com/ggerganov/llama.cpp) inference server instances across heterogeneous GPU hardware (Intel Arc SYCL + NVIDIA CUDA). It provides a live Rich-based terminal dashboard for real-time log streaming, GPU stats, and configuration display.
+**llm-runner** is a Python TUI application for managing multiple [llama.cpp](https://github.com/ggerganov/llama.cpp) inference server instances across heterogeneous GPU hardware (Intel Arc SYCL + NVIDIA CUDA). It provides a live Textual terminal dashboard for real-time log streaming, GPU stats, and configuration display.
 
 ### Hardware Targets
 
@@ -81,7 +81,7 @@ llm-runner/
 │   ├── llama_cli/              # CLI layer (entry points, argument parsing, TUI)
 │   │   ├── cli_parser.py       # argparse modes: both, summary-balanced, summary-fast, qwen35, dry-run
 │   │   ├── server_runner.py    # main() + cli_main() entry point
-│   │   ├── tui_app.py          # Rich Live TUI (signal handling, layout)
+│   │   ├── tui_app.py          # Textual TUI (signal handling, layout)
 │   │   └── dry_run.py          # Print resolved commands without launching
 │   ├── llama_manager/          # Core library (no I/O except sys.stderr)
 │   │   ├── config.py           # Config + ServerConfig dataclasses
@@ -371,7 +371,7 @@ ignoring comments/strings, and can **safely rewrite** code.
 - `ServerConfig.server_bin` defaults to `""` — `build_server_cmd` falls back to `Config().llama_server_bin_intel`. Provide an explicit path in tests to avoid needing the binary on disk.
 - `n_gpu_layers` is typed as `Union[int, str]` to support `"all"` for CUDA. Keep it that way.
 - Do not import from `llama_cli` inside `llama_manager` — the dependency is one-way.
-- The TUI uses `Rich` `Live` context manager; never call `console.print()` while `Live` is active — use `layout` updates or `log` panel instead.
+- The TUI uses Textual for rendering and key handling; keep blocking subprocess/log work off the app thread and route UI output through widgets or controller state.
 
 ---
 
@@ -381,13 +381,13 @@ ignoring comments/strings, and can **safely rewrite** code.
 - GPU driver setup, SYCL environment variables (`ONEAPI_DEVICE_SELECTOR`), and CUDA library paths are handled by shell wrapper scripts (`run_opencode_models.sh`), not Python.
 
 ## Active Technologies
-- Python 3.12+ + rich, psutil, pytest, ruff, pyright (001-prd-mvp-spec)
+- Python 3.12+ + textual, rich renderables, psutil, pytest, ruff, pyright (001-prd-mvp-spec)
 - Local runtime files under resolved runtime dir (`LLM_RUNNER_RUNTIME_DIR` else `$XDG_RUNTIME_DIR/llm-runner`) for lockfiles + JSON artifacts (001-prd-mvp-spec)
-- Python 3.12+ + stdlib (`subprocess`, `pathlib`, `venv`, `json`, `dataclasses`, `threading`), rich, psutil (002-build-setup)
+- Python 3.12+ + stdlib (`subprocess`, `pathlib`, `venv`, `json`, `dataclasses`, `threading`), textual, rich renderables, psutil (002-build-setup)
 - Local filesystem only (source tree + XDG cache/state/data directories) (002-build-setup)
 
 ## Recent Changes
-- 001-prd-mvp-spec: Added Python 3.12+ + rich, psutil, pytest, ruff, pyright
+- 001-prd-mvp-spec: Added Python 3.12+ + textual, rich renderables, psutil, pytest, ruff, pyright
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,

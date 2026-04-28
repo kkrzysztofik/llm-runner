@@ -91,7 +91,7 @@ Project context:
 | ------------------------ | --------------------- | ----------------------------------------------------- |
 | Architect                | Planning              | Explore codebase, design impl plan                    |
 | Python Backend           | `llama_manager/`      | Config, validators, cmd builders, GPU stats           |
-| TUI Developer            | `llama_cli/`          | Rich TUI, argparse, process mgmt, signals             |
+| TUI Developer            | `llama_cli/`          | Textual TUI, argparse, process mgmt, signals          |
 | Python QA                | `tests/`              | Write/fix unit tests, mock patterns                   |
 | Python Reviewer          | All files             | Ruff, pyright, code quality                           |
 | DevOps / GitHub Actions  | `.github/workflows/`  | CI/CD design, hardening, automation strategy          |
