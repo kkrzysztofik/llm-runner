@@ -3,6 +3,7 @@
 import time
 
 import psutil
+from rich import box
 from rich.panel import Panel
 from rich.text import Text
 
@@ -153,55 +154,102 @@ def build_gpu_telemetry_panel(lines: list[str]) -> Panel | None:
 def build_system_status_panel(
     gpu_lines: list[str],
     notices: list[str] | None = None,
+    panel_width: int | None = None,
 ) -> Panel:
     """Build a single htop-style system status panel for the top area."""
     notices = notices or []
+    content_width = max(72, (panel_width or 120) - 4)
+    right_block_width = min(44, max(36, content_width // 3))
+    left_block_width = max(28, content_width - right_block_width - 3)
 
     cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
-    total_cpu = psutil.cpu_percent(interval=None)
     mem = psutil.virtual_memory()
     swap = psutil.swap_memory()
     uptime_s = int(time.time() - psutil.boot_time())
+    tasks, threads, running = _get_task_stats()
 
     try:
         load_1, load_5, load_15 = psutil.getloadavg()
-        load_text = f"{load_1:.2f} {load_5:.2f} {load_15:.2f}"
     except (AttributeError, OSError):
-        load_text = "n/a"
+        load_1 = load_5 = load_15 = -1.0
 
     text = Text()
-    text.append(
-        f"CPU: {total_cpu:4.1f}%  |  Mem: {mem.percent:4.1f}%  |  Swap: {swap.percent:4.1f}%\n",
-        style="cyan",
-    )
-    text.append(
-        f"Tasks: {len(psutil.pids())}  |  Load avg: {load_text}  |  Uptime: {_format_uptime(uptime_s)}\n",
-        style="bright_cyan",
-    )
-    text.append("Cores: ", style="cyan")
-    for idx, value in enumerate(cpu_per_core):
-        text.append(f"{idx}[", style="bright_blue")
-        text.append(_usage_bar(value, width=6), style=_usage_color(value))
-        text.append("] ", style="dim")
-    text.append("\n")
-
-    if gpu_lines:
-        text.append("GPU: ", style="bold yellow")
-        for i, line in enumerate(gpu_lines):
-            if i > 0:
-                text.append(" | ", style="dim")
-            text.append(line.replace("\n", " ").strip(), style="yellow")
+    for line in _build_core_grid_lines(cpu_per_core, left_width=left_block_width):
+        text.append(line)
         text.append("\n")
 
-    for notice in notices[-3:]:
+    mem_bar_width = max(20, left_block_width - 6)
+    mem_left = Text()
+    mem_left.append("Mem", style="bright_cyan")
+    mem_left.append("[", style="bright_cyan")
+    _append_segmented_bar(mem_left, mem.percent, mem_bar_width)
+    mem_left.append("]", style="bright_cyan")
+
+    mem_right = Text()
+    _append_aligned_value(
+        mem_right,
+        f"{_format_bytes(mem.used)}/{_format_bytes(mem.total)}",
+        width=14,
+        style="bright_white",
+    )
+    mem_right.append("  Tasks:", style="bright_cyan")
+    mem_right.append(f" {tasks:>3}", style="bright_white")
+    mem_right.append("  Thr:", style="cyan")
+    mem_right.append(f" {threads:>4}", style="bright_white")
+    mem_right.append("  Run:", style="green")
+    mem_right.append(f" {running:>2}", style="bright_white")
+    _append_two_column_line(text, mem_left, mem_right, left_width=left_block_width)
+
+    swp_left = Text()
+    swp_left.append("Swp", style="bright_cyan")
+    swp_left.append("[", style="bright_cyan")
+    _append_segmented_bar(swp_left, swap.percent, mem_bar_width)
+    swp_left.append("]", style="bright_cyan")
+
+    swp_right = Text()
+    _append_aligned_value(
+        swp_right,
+        f"{_format_bytes(swap.used)}/{_format_bytes(swap.total)}",
+        width=14,
+        style="dim",
+    )
+    if load_1 >= 0:
+        swp_right.append("  Load:", style="bright_cyan")
+        swp_right.append(f" {load_1:.2f}", style="bright_white")
+        swp_right.append(f" {load_5:.2f}", style="cyan")
+        swp_right.append(f" {load_15:.2f}", style="bright_blue")
+    else:
+        swp_right.append("  Load: n/a", style="dim")
+    _append_two_column_line(text, swp_left, swp_right, left_width=left_block_width)
+
+    uptime_left = Text()
+    uptime_right = Text()
+    _append_aligned_value(uptime_right, "", width=14, style="dim")
+    uptime_right.append("  Uptime:", style="bright_cyan")
+    uptime_right.append(f" {_format_uptime(uptime_s)}", style="bright_white")
+    _append_two_column_line(text, uptime_left, uptime_right, left_width=left_block_width)
+
+    if gpu_lines:
+        text.append("\n")
+        text.append("GPU ", style="bold yellow")
+        text.append(" | ".join(line.replace("\n", " ").strip() for line in gpu_lines), style="yellow")
+        text.append("\n")
+
+    for notice in notices[-2:]:
         text.append(f"! {notice}\n", style="bold yellow")
 
-    return Panel(text, title="System Status", border_style="yellow")
+    return Panel(
+        text,
+        title="",
+        box=box.SQUARE,
+        border_style="black",
+        padding=(0, 0),
+    )
 
 
 def _usage_bar(percent: float, width: int = 10) -> str:
     filled = int(round((max(0.0, min(100.0, percent)) / 100.0) * width))
-    return "|" * filled + "." * (width - filled)
+    return "|" * filled + " " * (width - filled)
 
 
 def _usage_color(percent: float) -> str:
@@ -212,7 +260,84 @@ def _usage_color(percent: float) -> str:
     return "green"
 
 
+def _append_segmented_bar(text: Text, percent: float, width: int) -> None:
+    """Append an htop-like multi-color bar segment to ``text``."""
+    filled = int(round((max(0.0, min(100.0, percent)) / 100.0) * width))
+    if filled <= 0:
+        text.append(" " * width, style="dim")
+        return
+
+    palette = ["green", "green", "green", "green", "cyan", "magenta", "yellow", "yellow"]
+    for i in range(filled):
+        text.append("|", style=palette[i % len(palette)])
+    if filled < width:
+        text.append(" " * (width - filled), style="dim")
+
+
 def _format_uptime(seconds: int) -> str:
     hours, rem = divmod(seconds, 3600)
     minutes, secs = divmod(rem, 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _build_core_grid_lines(cpu_per_core: list[float], left_width: int) -> list[Text]:
+    if not cpu_per_core:
+        return [Text("No CPU data", style="dim")]
+
+    rows = 3
+    cols = (len(cpu_per_core) + rows - 1) // rows
+    cell_width = max(14, left_width // max(1, cols))
+    bar_width = 5
+    lines: list[Text] = []
+    for row in range(rows):
+        line = Text()
+        for col in range(cols):
+            idx = col * rows + row
+            if idx >= len(cpu_per_core):
+                continue
+            pct = cpu_per_core[idx]
+            cell = Text()
+            cell.append(f"{idx:>2}", style="bright_blue")
+            cell.append("[", style="bright_white")
+            cell.append(_usage_bar(pct, width=bar_width), style=_usage_color(pct))
+            cell.append("]", style="bright_white")
+            cell.append(" ")
+            cell.append(f"{pct:5.1f}%", style="bright_white" if pct > 0 else "dim")
+            line.append_text(cell)
+            pad = max(1, cell_width - len(cell.plain))
+            line.append(" " * pad)
+        lines.append(line)
+    return lines
+
+
+def _append_two_column_line(text: Text, left: Text, right: Text, left_width: int = 66) -> None:
+    left_plain = left.plain
+    pad = max(3, left_width - len(left_plain))
+    text.append_text(left)
+    text.append(" " * pad)
+    text.append_text(right)
+    text.append("\n")
+
+
+def _append_aligned_value(text: Text, value: str, width: int, style: str) -> None:
+    text.append(value.rjust(width), style=style)
+
+
+def _format_bytes(num_bytes: int) -> str:
+    gib = num_bytes / (1024**3)
+    if gib >= 10:
+        return f"{gib:,.1f}G"
+    return f"{gib:,.2f}G"
+
+
+def _get_task_stats() -> tuple[int, int, int]:
+    task_count = 0
+    thread_count = 0
+    running_count = 0
+    for proc in psutil.process_iter(attrs=["status", "num_threads"]):
+        task_count += 1
+        info = proc.info
+        thread_count += int(info.get("num_threads") or 0)
+        if info.get("status") == psutil.STATUS_RUNNING:
+            running_count += 1
+    return task_count, thread_count, running_count

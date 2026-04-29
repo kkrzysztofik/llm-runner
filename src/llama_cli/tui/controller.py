@@ -178,6 +178,7 @@ class TUIApp:
         alerts_panel = build_system_status_panel(
             gpu_lines=self._telemetry_lines,
             notices=self._build_system_notices(),
+            panel_width=self.width,
         )
 
         left_panel: Panel | None = None
