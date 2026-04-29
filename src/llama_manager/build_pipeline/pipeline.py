@@ -142,6 +142,9 @@ class BuildPipeline:
 
         try:
             # Stages 1–2: no failure artifact on error (no build output yet)
+            progress = BuildProgress(
+                stage="pipeline", status="pending", message="", progress_percent=0
+            )
             for stage_name, stage_fn in [
                 ("preflight", lambda: run_preflight(ctx)),
                 ("clone", lambda: run_clone(ctx)),
