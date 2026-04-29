@@ -78,6 +78,7 @@ def build_slot_section(
     server_processes: dict[str, Any],
     log_buffers: dict[str, LogBuffer],
     host: str,
+    is_unsaved: bool = False,
 ) -> Text:
     """Build the status Text for a single slot."""
     alias = cfg.alias
@@ -100,6 +101,8 @@ def build_slot_section(
 
     header = Text()
     header.append(f"[{alias}] ", style="bold")
+    if is_unsaved:
+        header.append("UNSAVED ", style="bold yellow")
     header.append(f"{status.upper()} ", style=color)
     header.append(f"| {backend_label} ", style="cyan")
     header.append(f"| http://{host}:{cfg.port}", style="dim")
@@ -120,10 +123,20 @@ def build_slot_status_panel(
     server_processes: dict[str, Any],
     log_buffers: dict[str, LogBuffer],
     host: str,
+    unsaved_slots: set[str] | None = None,
 ) -> Panel:
     """Build a panel showing per-slot status (health, logs, GPU stats, backend label)."""
+    unsaved_slots = unsaved_slots or set()
     sections: list[Any] = [
-        build_slot_section(cfg, slot_states, server_processes, log_buffers, host) for cfg in configs
+        build_slot_section(
+            cfg,
+            slot_states,
+            server_processes,
+            log_buffers,
+            host,
+            is_unsaved=cfg.alias in unsaved_slots,
+        )
+        for cfg in configs
     ]
 
     if not sections:

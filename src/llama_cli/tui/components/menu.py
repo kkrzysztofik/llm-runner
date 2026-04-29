@@ -38,6 +38,8 @@ def build_command_menu(
         _add_item("q", "Quit")
         _add_item("r", "Refresh")
         _add_item("a", "Add slot")
+        _add_item("b", "Build")
+        _add_item("s", "Smoke")
         _add_item("P", "Profile")
         _add_item("^C", "Stop")
 

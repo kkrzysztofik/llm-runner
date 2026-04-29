@@ -61,12 +61,22 @@ def build_status_panel(launch_result: LaunchResult) -> Panel | None:
     )
 
 
-def build_risk_panel_required() -> Panel:
+def build_risk_panel_required(kind: str = "hardware") -> Panel:
     """Build the risk acknowledgement-required panel."""
     text = Text()
     text.append("RISK STATUS: ", style="bold")
     text.append(" ACKNOWLEDGEMENT REQUIRED ", style="bold red reverse")
-    text.append("\nLaunch is blocked until you acknowledge risky operations.")
+    if kind == "vram":
+        text.append("\nVRAM heuristics indicate a high risk of Out-Of-Memory errors.")
+    else:
+        text.append("\nHardware validation warnings detected. Launch is blocked.")
+
+    text.append("\n\nPress ", style="dim")
+    text.append("[y]", style="bold green")
+    text.append(" to acknowledge and continue, or ", style="dim")
+    text.append("[n]", style="bold red")
+    text.append(" to abort.", style="dim")
+
     return Panel(text, title="Risk Management", border_style="red")
 
 

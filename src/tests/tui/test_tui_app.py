@@ -270,7 +270,7 @@ class TestRiskPanels:
         """_update_risk_panel_state should set acknowledged panel when has_risks."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         app._update_risk_panel_state(has_risks=True)
-        assert app.risks_acknowledged is True
+        assert app.risks_acknowledged is False
 
     def test_update_risk_panel_state_without_risks(self) -> None:
         """_update_risk_panel_state should clear risk_panel when no risks."""

@@ -61,6 +61,8 @@ class TextualDashboardApp(App[None]):
         Binding("r", "refresh_dashboard", "Refresh"),
         Binding("a", "add_slot", "Add slot"),
         Binding("p", "profile", "Profile"),
+        Binding("b", "build", "Build"),
+        Binding("s", "smoke", "Smoke"),
         Binding("y", "confirm", "Confirm"),
         Binding("n", "reject", "Abort"),
         Binding("1", "select_flavor('1')", "Balanced"),
@@ -101,7 +103,8 @@ class TextualDashboardApp(App[None]):
 
     def action_quit_dashboard(self) -> None:
         self.controller.handle_keypress("q")
-        self.exit()
+        if not self.controller.running:
+            self.exit()
 
     def action_interrupt_dashboard(self) -> None:
         self.controller.handle_keypress("^C")
@@ -114,6 +117,14 @@ class TextualDashboardApp(App[None]):
 
     def action_add_slot(self) -> None:
         self.controller.handle_keypress("a")
+        self.refresh_dashboard()
+
+    def action_build(self) -> None:
+        self.controller.handle_keypress("b")
+        self.refresh_dashboard()
+
+    def action_smoke(self) -> None:
+        self.controller.handle_keypress("s")
         self.refresh_dashboard()
 
     def action_profile(self) -> None:
@@ -154,11 +165,11 @@ class TextualDashboardApp(App[None]):
         self.query_one("#menu", Static).update(snapshot.menu)
 
     def _textual_key_to_controller_key(self, event: Key) -> str | None:
-        if event.key == "enter":
+        if event.key in {"enter", "return"}:
             return "\n"
         if event.key == "escape":
             return "\x1b"
-        if event.key in {"backspace", "delete_left"}:
+        if event.key in {"backspace", "delete_left", "delete"}:
             return "\x7f"
         if event.key == "ctrl+c":
             return "^C"

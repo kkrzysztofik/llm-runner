@@ -4,6 +4,7 @@ import queue
 import signal
 import sys
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from types import FrameType
@@ -90,16 +91,19 @@ class TUIApp:
         self._profile_cancel_events: dict[str, threading.Event] = {}
         self._profile_lock = threading.Lock()
 
-        # TUI-safe status message buffer.
-        self._status_messages: list[str] = []
+        # TUI-safe status message buffer. Each entry is (timestamp, message).
+        self._status_messages: list[tuple[float, str]] = []
         self._status_lock = threading.Lock()
 
         # Non-blocking profile flavor request queue
         self._profile_request: str | None = None
+        self._build_request: bool = False
+        self._smoke_request: bool = False
 
         # Slot configuration mode (for adding new slots)
         self._slot_config_state: dict[str, str] = {}  # slot_id -> current prompt field
         self._slot_config_values: dict[str, dict[str, str]] = {}  # slot_id -> {field: value}
+        self._unsaved_slots: set[str] = set()
 
         self.server_manager = ServerManager()
 
@@ -228,7 +232,7 @@ class TUIApp:
         self.status_panel = build_status_panel(launch_result)
 
     def _build_risk_panel_required(self, kind: str = "hardware") -> None:
-        self.risk_panel = build_risk_panel_required()
+        self.risk_panel = build_risk_panel_required(kind=kind)
         self.risks_acknowledged = False
         self.active_risk_kind = kind
 
@@ -253,6 +257,7 @@ class TUIApp:
             self._server_processes,
             self.log_buffers,
             self.config.host,
+            unsaved_slots=self._unsaved_slots,
         )
 
     def _build_profile_status_panel(self) -> Panel | None:
@@ -260,13 +265,28 @@ class TUIApp:
             active = {a: s for a, s in self._profile_status.items() if s != "idle"}
         return build_profile_status_panel(active, self._profile_flavor)
 
+    # How long (seconds) a status message remains visible across renders.
+    _STATUS_MESSAGE_LIFETIME_S: float = 30.0
+
     def _build_status_messages_panel(self) -> Panel | None:
         with self._status_lock:
             if not self._status_messages:
                 return None
-            messages = list(self._status_messages)
-            self._status_messages.clear()
+            now = time.monotonic()
+            messages = [
+                msg
+                for ts, msg in self._status_messages
+                if now - ts < self._STATUS_MESSAGE_LIFETIME_S
+            ]
+        if not messages:
+            return None
         return build_status_messages_panel(messages)
+
+    def prune_expired_status_messages(self) -> None:
+        """Remove status messages older than ``_STATUS_MESSAGE_LIFETIME_S``."""
+        cutoff = time.monotonic() - self._STATUS_MESSAGE_LIFETIME_S
+        with self._status_lock:
+            self._status_messages = [(ts, msg) for ts, msg in self._status_messages if ts >= cutoff]
 
     def _build_command_menu(self) -> Text:
         return build_command_menu(
@@ -346,6 +366,49 @@ class TUIApp:
 
         return False
 
+    def _handle_build_key(self, key: str) -> bool:
+        """Handle build-related keys. Returns True if consumed."""
+        if self._build_request and key in {"1", "2", "3"}:
+            self._build_request = False
+            # Map choice to target (1=sycl, 2=cuda, 3=both)
+            target = {"1": "sycl", "2": "cuda", "3": "both"}.get(key, "both")
+            self._push_status_message(f"Feature not fully hooked up in TUI yet: Build {target}")
+            # Placeholder: trigger actual build logic in background thread
+            return True
+
+        if self._build_request and key in {"^C", "\x1b"}:
+            self._build_request = False
+            self._push_status_message("Build selection cancelled.")
+            return True
+
+        if key == "b":
+            self._build_request = True
+            self._push_status_message("Select build target: [1] SYCL  [2] CUDA  [3] Both")
+            return True
+
+        return False
+
+    def _handle_smoke_key(self, key: str) -> bool:
+        """Handle smoke test-related keys. Returns True if consumed."""
+        if self._smoke_request and key in {"1", "2"}:
+            self._smoke_request = False
+            target = "both" if key == "1" else "slot"
+            self._push_status_message(f"Feature not fully hooked up in TUI yet: Smoke {target}")
+            # Placeholder: trigger smoke logic
+            return True
+
+        if self._smoke_request and key in {"^C", "\x1b"}:
+            self._smoke_request = False
+            self._push_status_message("Smoke selection cancelled.")
+            return True
+
+        if key == "s":
+            self._smoke_request = True
+            self._push_status_message("Select smoke scope: [1] Both  [2] Active Slot")
+            return True
+
+        return False
+
     def _handle_risk_key(self, key: str) -> None:
         """Handle hardware warning and VRAM risk keys."""
         if key in ("y", "n"):
@@ -374,6 +437,12 @@ class TUIApp:
                 continue
 
             if self._handle_profile_key(key):
+                continue
+
+            if self._handle_build_key(key):
+                continue
+
+            if self._handle_smoke_key(key):
                 continue
 
             if self.risk_panel is not None:
@@ -442,7 +511,7 @@ class TUIApp:
         status buffer and leaves rendering to Textual.
         """
         with self._status_lock:
-            self._status_messages.append(message)
+            self._status_messages.append((time.monotonic(), message))
             # Keep at most 5 messages
             if len(self._status_messages) > 5:
                 self._status_messages.pop(0)
@@ -619,12 +688,22 @@ class TUIApp:
 
         self.configs.append(new_cfg)
         self.log_buffers[slot_id] = LogBuffer(redact_sensitive=True)
+        self._unsaved_slots.add(slot_id)
 
         # Determine GPU index: SYCL runs on Intel Arc (slot 1 by convention),
         # CUDA runs on NVIDIA (slot 0 by convention). Adjust via gpu_indices if needed.
         gpu_idx = 1 if backend == "sycl" else 0
         self.gpu_indices.append(gpu_idx)
         self.gpu_stats.append(GPUStats(gpu_idx, collector=self._make_collector(gpu_idx)))
+
+        # Register the slot and start the server process so the new slot becomes live.
+        new_slot = ModelSlot(slot_id=slot_id, model_path=values["model"], port=port)
+        self.slots.append(new_slot)
+        log_handler = lambda line, buf=self.log_buffers[slot_id]: buf.add_line(line)  # noqa: E731
+        procs = self.server_manager.start_servers([new_cfg], {slot_id: log_handler})
+        if procs:
+            self._server_processes[slot_id] = procs[0]
+        self.handle_slot_transition(slot_id, SlotState.RUNNING)
 
         self._push_status_message(f"Added {slot_id}: {values['model']} on {backend}:{port}")
 
@@ -777,7 +856,10 @@ class TUIApp:
 
     def _update_risk_panel_state(self, has_risks: bool) -> None:
         if has_risks:
-            self._build_risk_panel_acknowledged()
+            if self.risks_acknowledged:
+                self._build_risk_panel_acknowledged()
+            else:
+                self._build_risk_panel_required()
             return
         self.risk_panel = None
         self.risks_acknowledged = False
