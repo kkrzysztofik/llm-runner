@@ -10,7 +10,7 @@ from pathlib import Path
 from types import FrameType
 from typing import Any
 
-from rich.console import Group, RenderableType
+from rich.console import RenderableType
 from rich.panel import Panel
 from rich.text import Text
 
@@ -43,12 +43,12 @@ from llama_manager.config import (
 from llama_manager.server import detect_risky_operations
 
 from .components.alerts import (
-    build_gpu_telemetry_panel,
     build_profile_status_panel,
     build_risk_panel_acknowledged,
     build_risk_panel_required,
     build_status_messages_panel,
     build_status_panel,
+    build_system_status_panel,
 )
 from .components.menu import build_command_menu
 from .components.panels import (
@@ -80,7 +80,7 @@ class TUIApp:
         self.height = 24
         self.launch_result: LaunchResult | None = None
         self.status_panel: Panel | None = None
-        self.telemetry_panel: Panel | None = None
+        self._telemetry_lines: list[str] = []
         self.risk_panel: Panel | None = None
         self.risks_acknowledged: bool = False
         self.active_risk_kind: str | None = None
@@ -175,25 +175,10 @@ class TUIApp:
     def render(self) -> DashboardSnapshot:
         self._update_gpu_telemetry()
 
-        alerts: list[RenderableType] = []
-        if self.risk_panel is not None:
-            alerts.append(self.risk_panel)
-        if self.status_panel is not None:
-            alerts.append(self.status_panel)
-
-        # Add GPU telemetry panel
-        if self.telemetry_panel is not None:
-            alerts.append(self.telemetry_panel)
-
-        # Add profile status panel
-        profile_panel = self._build_profile_status_panel()
-        if profile_panel is not None:
-            alerts.append(profile_panel)
-
-        if alerts:
-            alerts_panel = Panel(Group(*alerts), title="System Alerts", border_style="yellow")
-        else:
-            alerts_panel = Panel(Text("No active alerts", style="dim"), border_style="dim")
+        alerts_panel = build_system_status_panel(
+            gpu_lines=self._telemetry_lines,
+            notices=self._build_system_notices(),
+        )
 
         left_panel: Panel | None = None
         if self.configs:
@@ -257,6 +242,37 @@ class TUIApp:
             active = {a: s for a, s in self._profile_status.items() if s != "idle"}
         return build_profile_status_panel(active, self._profile_flavor)
 
+    def _build_system_notices(self) -> list[str]:
+        """Build concise status notices shown in the top system panel."""
+        notices: list[str] = []
+
+        if self.status_panel is not None and self.launch_result is not None:
+            if self.launch_result.is_blocked():
+                notices.append("Launch blocked: no slots could be launched")
+            elif self.launch_result.is_degraded():
+                notices.append("Launch degraded: some slots blocked")
+
+        if self._build_in_progress and self._build_progress is not None:
+            notices.append(
+                f"Build {self._build_progress.stage}: {self._build_progress.status} "
+                f"({self._build_progress.progress_percent}%)"
+            )
+
+        if self.risk_panel is not None:
+            if self.active_risk_kind == "vram":
+                notices.append("VRAM risk acknowledgement required [y/n]")
+            elif self.risks_acknowledged:
+                notices.append("Risky operation acknowledged")
+            else:
+                notices.append("Hardware risk acknowledgement required [y/n]")
+
+        with self._profile_lock:
+            running_profiles = [a for a, s in self._profile_status.items() if s == "running"]
+        if running_profiles:
+            notices.append(f"Profiling running: {', '.join(running_profiles)}")
+
+        return notices
+
     # How long (seconds) a status message remains visible across renders.
     _STATUS_MESSAGE_LIFETIME_S: float = 30.0
 
@@ -296,7 +312,7 @@ class TUIApp:
     def _update_gpu_telemetry(self) -> None:
         """Update GPU telemetry panel with latest stats."""
         if not self.gpu_stats:
-            self.telemetry_panel = None
+            self._telemetry_lines = []
             return
 
         lines: list[str] = []
@@ -304,7 +320,7 @@ class TUIApp:
             gpu.update()  # Refresh stats from collector
             lines.append(gpu.format_stats_text())
 
-        self.telemetry_panel = build_gpu_telemetry_panel(lines)
+        self._telemetry_lines = lines
 
     # ------------------------------------------------------------------
     # Print helpers

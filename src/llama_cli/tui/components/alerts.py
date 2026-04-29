@@ -1,5 +1,8 @@
 """Pure alert/status panel builders for the TUI."""
 
+import time
+
+import psutil
 from rich.panel import Panel
 from rich.text import Text
 
@@ -145,3 +148,71 @@ def build_gpu_telemetry_panel(lines: list[str]) -> Panel | None:
 
     text = Text("\n".join(lines))
     return Panel(text, title="GPU Telemetry", border_style="yellow")
+
+
+def build_system_status_panel(
+    gpu_lines: list[str],
+    notices: list[str] | None = None,
+) -> Panel:
+    """Build a single htop-style system status panel for the top area."""
+    notices = notices or []
+
+    cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
+    total_cpu = psutil.cpu_percent(interval=None)
+    mem = psutil.virtual_memory()
+    swap = psutil.swap_memory()
+    uptime_s = int(time.time() - psutil.boot_time())
+
+    try:
+        load_1, load_5, load_15 = psutil.getloadavg()
+        load_text = f"{load_1:.2f} {load_5:.2f} {load_15:.2f}"
+    except (AttributeError, OSError):
+        load_text = "n/a"
+
+    text = Text()
+    text.append(
+        f"CPU: {total_cpu:4.1f}%  |  Mem: {mem.percent:4.1f}%  |  Swap: {swap.percent:4.1f}%\n",
+        style="cyan",
+    )
+    text.append(
+        f"Tasks: {len(psutil.pids())}  |  Load avg: {load_text}  |  Uptime: {_format_uptime(uptime_s)}\n",
+        style="bright_cyan",
+    )
+    text.append("Cores: ", style="cyan")
+    for idx, value in enumerate(cpu_per_core):
+        text.append(f"{idx}[", style="bright_blue")
+        text.append(_usage_bar(value, width=6), style=_usage_color(value))
+        text.append("] ", style="dim")
+    text.append("\n")
+
+    if gpu_lines:
+        text.append("GPU: ", style="bold yellow")
+        for i, line in enumerate(gpu_lines):
+            if i > 0:
+                text.append(" | ", style="dim")
+            text.append(line.replace("\n", " ").strip(), style="yellow")
+        text.append("\n")
+
+    for notice in notices[-3:]:
+        text.append(f"! {notice}\n", style="bold yellow")
+
+    return Panel(text, title="System Status", border_style="yellow")
+
+
+def _usage_bar(percent: float, width: int = 10) -> str:
+    filled = int(round((max(0.0, min(100.0, percent)) / 100.0) * width))
+    return "|" * filled + "." * (width - filled)
+
+
+def _usage_color(percent: float) -> str:
+    if percent >= 85:
+        return "red"
+    if percent >= 60:
+        return "yellow"
+    return "green"
+
+
+def _format_uptime(seconds: int) -> str:
+    hours, rem = divmod(seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
