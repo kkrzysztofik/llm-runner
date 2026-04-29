@@ -29,7 +29,10 @@ uv run llm-runner dry-run both
 ```
 
 You should see the resolved argv, ports, model paths, redacted environment,
-and validation output for both slots.
+and validation output for both slots. Dry-run is the recommended way to
+validate profile resolution before launching — it shows exactly what
+`llama-server` commands will be executed, with all tuning parameters resolved
+from the built-in profile registry.
 
 ## 4) Launch a model pair
 
@@ -41,6 +44,11 @@ Default mapping:
 
 - `summary-balanced` → Intel SYCL / GPU 1 / port `8080`
 - `qwen35` → NVIDIA CUDA / GPU 0 / port `8081`
+
+Launch modes are data-driven: profiles and run groups are defined in
+`config_builder.py` and resolved at runtime. The `both` group launches two
+profiles simultaneously; single-profile modes (`summary-balanced`,
+`summary-fast`, `qwen35`) launch one server in the foreground.
 
 ## 5) Check the running servers
 

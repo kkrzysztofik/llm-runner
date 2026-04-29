@@ -86,7 +86,7 @@ Project context: llm-runner/
 - **Core library**: `llama_manager/` - Pure Python library (no I/O, no Rich, no subprocess at module level)
 - **CLI layer**: `llama_cli/` - User-facing I/O (argument parsing, TUI rendering, signal handling)
 - **Entry points**: `run_models_tui.py`, `run_opencode_models.py`, `llm-runner` CLI script
-- **Dependencies**: Python 3.12+, Rich (TUI), psutil (hardware stats), pytest (testing)
+- **Dependencies**: Python 3.12+, Textual (TUI), Rich renderables, psutil (hardware stats), pytest (testing)
 
 ### Hardware Targets
 
@@ -219,7 +219,7 @@ path/to/
 - `ServerConfig.server_bin` defaults to `""` — `build_server_cmd` falls back to `Config().llama_server_bin_intel`
 - `n_gpu_layers` is typed as `Union[int, str]` to support `"all"` for CUDA
 - Do not import from `llama_cli` inside `llama_manager` — dependency is one-way
-- The TUI uses Rich `Live` context manager; never call `console.print()` while `Live` is active
+- The TUI uses Textual; keep blocking subprocess/log work off the app thread and route UI updates through widgets or controller state
 
 ## CI Quality Gates
 

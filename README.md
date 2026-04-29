@@ -5,7 +5,7 @@ and probing `llama.cpp` server instances on a mixed Intel SYCL + NVIDIA CUDA
 workstation.
 
 It ships a CLI for launch, dry-run, build, setup, doctor, smoke, and profile
-flows, plus a Rich-based TUI for live logs and GPU telemetry.
+flows, plus a Textual TUI for live logs and GPU telemetry.
 
 ## Features
 
@@ -65,6 +65,32 @@ Defaults place:
 
 ## Usage
 
+### Profiles and run groups
+
+Launch modes are driven by a **profile registry** — `RunProfileRegistry` defined in
+`llama_manager/config/profiles.py` — that holds individual server profiles and groups them
+into launch modes. The registry is instantiated via `create_default_profile_registry()` in
+`llama_manager/config/builder.py`. Every mode resolves through the same pipeline:
+profile lookup → port override → validation → launch.
+
+**Built-in profiles** (single-server):
+
+| Profile ID       | Model                    | Backend        | Default Port |
+| ---------------- | ------------------------ | -------------- | ------------ |
+| `summary-balanced` | Qwen 3.5 2B (IQ4_XS)   | Intel SYCL     | 8080         |
+| `summary-fast`     | Qwen 3.5 0.8B (Q4_K_M) | Intel SYCL     | 8082         |
+| `qwen35`           | Qwen 3.5 35B-A3B (UD)  | NVIDIA CUDA    | 8081         |
+
+**Built-in run groups** (multi-server):
+
+| Group ID | Profiles                        | Description                          |
+| -------- | ------------------------------- | ------------------------------------ |
+| `both`   | `summary-balanced` + `qwen35`   | Summary on SYCL, coding on CUDA      |
+
+The registry is extensible — new profiles and groups are added in
+`llama_manager/config/builder.py` and automatically appear in CLI help, dry-run output,
+and the TUI.
+
 ### Launch modes
 
 ```bash
@@ -82,10 +108,17 @@ Default ports:
 
 ### Dry-run
 
+Preview the exact resolved command before launching:
+
 ```bash
 uv run llm-runner dry-run both
 uv run llm-runner dry-run summary-balanced 8080
+uv run llm-runner dry-run both 8080 8081
 ```
+
+Dry-run output shows resolved ports, model paths, GPU device assignments,
+tuning parameters, and the full `llama-server` command line. Use it to
+validate profile resolution and port mapping before starting servers.
 
 ### Build
 
@@ -129,7 +162,7 @@ uv run llm-runner profile qwen35 quality --json
 
 ## TUI
 
-The Rich TUI launcher:
+The Textual TUI launcher:
 
 ```bash
 llm-runner tui both
@@ -137,8 +170,7 @@ llm-runner tui summary-balanced --port 8080
 ```
 
 It shows live logs, configuration, and GPU stats for the configured slots.
-
-Legacy/internal fallback (requires source tree):
+The source-tree entry point remains available for local development:
 
 ```bash
 uv run python src/run_models_tui.py both

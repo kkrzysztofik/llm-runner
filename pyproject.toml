@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "rich>=15.0.0",
+    "textual>=6.6,<7",
     "psutil>=7.2.2",
     "httpx>=0.28.1",
     "gguf>=0.18.0",
@@ -67,10 +68,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/tests/*" = ["S101"]  # assert is fine in tests
+"src/tests/**/*.py" = ["S101"]  # assert is fine in tests
 
 [tool.ruff.lint.isort]
-known-first-party = ["llama_cli", "llama_manager"]
+known-first-party = ["llama_cli", "llama_manager", "tests"]
 
 # ---------------------------------------------------------------------------
 # Pyright — type checker
@@ -90,6 +91,7 @@ reportMissingModuleSource = false
 testpaths = ["src/tests"]
 pythonpath = ["src"]
 addopts = "-v --tb=short"
+norecursedirs = [".*", ".venv", "dist", "node_modules", "venv"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
@@ -100,7 +102,7 @@ markers = [
 [tool.coverage.run]
 source = ["src"]
 relative_files = true
-omit = ["src/tests/*"]
+omit = ["src/tests/**"]
 
 [tool.coverage.report]
 show_missing = true

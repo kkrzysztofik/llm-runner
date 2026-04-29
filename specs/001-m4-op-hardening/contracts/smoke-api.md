@@ -530,7 +530,7 @@ Highest to lowest:
 | Provenance resolution (SHA, version) | `llama_manager/smoke.py` | Pure library — calls `subprocess` only within a function, not at module level |
 | CLI argument parsing for `smoke` command | `llama_cli/cli_parser.py` | I/O layer — owns argparse |
 | Smoke CLI orchestrator (entry point, JSON output, human-readable output) | `llama_cli/smoke_cli.py` | I/O layer — owns stdout/stderr |
-| TUI smoke integration (future) | `llama_cli/tui_app.py` | I/O layer — owns Rich Live rendering |
+| TUI smoke integration (future) | `llama_cli/tui/` | I/O layer — owns Textual rendering |
 | Config dataclasses (SmokeProbeConfiguration) | `llama_manager/config.py` | Pure library — data definitions |
 | Smoke config factory functions | `llama_manager/config_builder.py` | Pure library — factory pattern |
 

@@ -95,15 +95,16 @@ The existing implementation in `process_manager.py` already uses production-read
 
 ---
 
-## 4. Rich Live Key Polling for Hardware Warnings
+## 4. Textual Key Handling for Hardware Warnings
 
-### Decision: Extend Existing `_input_poller` Daemon Thread + `_keypress_queue` Pattern with Warning State Machine
-Reuse the existing `_cbreak_stdin()` context manager + `_input_poller()` pattern, extended with a state machine (`_WarningState.NONE/WAITING/RESOLVED`). Zero blocking: the poller thread does all I/O; the main thread only drains a queue with `get_nowait()`.
+### Decision: Route Textual bindings through the warning state machine
+
+Use Textual key events and controller-level dispatch (`handle_keypress` + `_keypress_queue`) to drive the warning state machine (`_WarningState.NONE/WAITING/RESOLVED`). Zero blocking: Textual owns terminal input and the controller only drains queued keys without blocking the app thread.
 
 **Rationale**:
-- The existing pattern already handles POSIX (`select.select()` + `tty.setcbreak()`) and Windows (`msvcrt.kbhit()` + `msvcrt.getch()`).
-- Non-TTY environments fall through without cbreak mode.
-- Monotonic deadline (`time.monotonic() + 30`) checked on each render cycle (~10Hz). No extra threads needed.
+- Textual owns cross-platform terminal input, bindings, and terminal restoration.
+- Non-interactive tests call controller key dispatch directly.
+- Monotonic deadline (`time.monotonic() + 30`) checked on dashboard refresh. No extra threads needed.
 - Safe default on timeout: **abort** (`n`).
 - Update `self.risk_panel` in-place — it's already part of the alerts section in `render()`.
 - Ctrl+C during warning = abort (consistent with existing profile abort behavior).
@@ -127,5 +128,5 @@ Reuse the existing `_cbreak_stdin()` context manager + `_input_poller()` pattern
 | 5 | gguf version detection | `GGUFReader` raises `ValueError` for v4+ | Clear error per FR-007 |
 | 6 | Lockfile creation | `O_CREAT` + `O_EXCL` atomic creation | Zero TOCTOU window |
 | 7 | Lockfile stale detection | PID check + 300s age threshold | Handles crashes and PID reuse |
-| 8 | Rich Live input | Extend existing `_input_poller` daemon thread | Zero blocking, cross-platform |
-| 9 | Rich Live timeout | Monotonic deadline on render cycle | No extra threads needed |
+| 8 | Textual input | Route Textual key events through controller queue | Zero blocking, cross-platform |
+| 9 | Textual timeout | Monotonic deadline on dashboard refresh | No extra threads needed |

@@ -195,7 +195,7 @@ server_cfg = create_qwen35_cfg(
 <tier level="2" desc="Core Workflow">
 - Monitor GPU stats with nvtop or psutil fallback
 - Configure SYCL/CUDA device strings appropriately
-- Build GPU stats display for Rich TUI
+- Build GPU stats display for Textual TUI
 - Diagnose hardware issues (nvtop, SYCL, CUDA)
 </tier>
 

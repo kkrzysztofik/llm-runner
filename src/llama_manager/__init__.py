@@ -30,6 +30,7 @@ from .build_pipeline import (
     BuildLock,
     BuildProgress,
 )
+from .common.security import is_sensitive_key, redact_env_value
 from .config import (
     Config,
     DoctorCheckStatus,
@@ -45,16 +46,32 @@ from .config import (
     SmokeProbeConfiguration,
     SmokeProbeStatus,
     VRamRecommendation,
+    create_qwen35_cfg,
+    create_smoke_config,
+    create_summary_balanced_cfg,
+    create_summary_fast_cfg,
     detect_duplicate_slots,
     normalize_slot_id,
     validate_slot_id,
     validate_slot_port,
 )
-from .config_builder import (
-    create_qwen35_cfg,
-    create_smoke_config,
-    create_summary_balanced_cfg,
-    create_summary_fast_cfg,
+from .config.profile_cache import (
+    CURRENT_SCHEMA_VERSION,
+    PROFILE_OVERRIDE_FIELDS,
+    ProfileFlavor,
+    ProfileMetrics,
+    ProfileRecord,
+    StalenessReason,
+    StalenessResult,
+    check_staleness,
+    compute_driver_version_hash,
+    compute_gpu_identifier,
+    ensure_profiles_dir,
+    get_profile_path,
+    load_profile_with_staleness,
+    profile_to_override_dict,
+    read_profile,
+    write_profile,
 )
 from .gpu_stats import GPUStats, get_gpu_identifier
 from .log_buffer import LogBuffer
@@ -76,24 +93,6 @@ from .process_manager import (
     resolve_runtime_dir,
     update_lock,
     write_artifact,
-)
-from .profile_cache import (
-    CURRENT_SCHEMA_VERSION,
-    PROFILE_OVERRIDE_FIELDS,
-    ProfileFlavor,
-    ProfileMetrics,
-    ProfileRecord,
-    StalenessReason,
-    StalenessResult,
-    check_staleness,
-    compute_driver_version_hash,
-    compute_gpu_identifier,
-    ensure_profiles_dir,
-    get_profile_path,
-    load_profile_with_staleness,
-    profile_to_override_dict,
-    read_profile,
-    write_profile,
 )
 from .reports import (
     FailureReport,
@@ -199,6 +198,9 @@ __all__ = [
     "require_model",
     "require_executable",
     "redact_sensitive",
+    # Security helpers
+    "redact_env_value",
+    "is_sensitive_key",
     # Config builders
     "create_summary_balanced_cfg",
     "create_summary_fast_cfg",

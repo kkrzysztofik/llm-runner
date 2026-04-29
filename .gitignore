@@ -9,6 +9,10 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+!src/tests/build/
+!src/tests/build/**
+src/tests/build/**/__pycache__/
+src/tests/build/**/*.py[codz]
 develop-eggs/
 dist/
 downloads/

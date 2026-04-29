@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .common.security import REDACTED_VALUE
+
 if TYPE_CHECKING:
     from .config import Config
 
@@ -19,14 +21,15 @@ if TYPE_CHECKING:
 def redact_sensitive(text: str) -> str:
     """Redact sensitive information from text.
 
-    Replaces values for KEY|TOKEN|SECRET|PASSWORD|AUTH with [REDACTED].
+    Replaces values for KEY|TOKEN|SECRET|PASSWORD|AUTH with ``[REDACTED]``.
+    The key name is preserved for readability; only the value is replaced.
     Uses case-insensitive regex matching.
 
     Args:
-        text: Input text to redact
+        text: Input text to redact.
 
     Returns:
-        Text with sensitive values replaced by [REDACTED]
+        Text with sensitive values replaced by ``[REDACTED]``.
 
     Examples:
         >>> redact_sensitive("API_KEY=abc123")
@@ -34,37 +37,21 @@ def redact_sensitive(text: str) -> str:
         >>> redact_sensitive("password: secret123")
         'password: [REDACTED]'
     """
-    # Pattern matches KEY, TOKEN, SECRET, PASSWORD, AUTH (case-insensitive)
-    # followed by optional characters, then : or = or space, then the value
-    # This captures the key and the value separately
 
     def replace_key_value(match: re.Match) -> str:
-        # group(1) is the full key including prefix and suffix (e.g., API_KEY, AUTH_HEADER)
-        # group(2) is the base word (KEY, TOKEN, etc.)
-        # group(3) is the value
         full_key = match.group(1)
-        return f"{full_key}: [REDACTED]"
+        return f"{full_key}: {REDACTED_VALUE}"
 
-    # First pass: replace key=value, key: value, key value patterns
-    # This captures the full key (KEY, TOKEN, SECRET, PASSWORD, AUTH with optional suffix)
-    # and the value separately
-    # Match KEY|TOKEN|SECRET|PASSWORD|AUTH followed by optional chars, then = or : or space,
-    # then capture the value (non-whitespace, non-comma, non-newline)
-    # Use negative lookbehind to avoid matching partial words but allow matching after non-alpha
-    # Capture the entire word including any prefix
+    # First pass: replace key=value and key: value constructs.
     pattern = r"(?<!\w)(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)([=:]\s*\S+)"
     result = re.sub(pattern, replace_key_value, text, flags=re.IGNORECASE)
 
-    # Second pass: replace standalone sensitive words (no value after them)
-    # Match KEY|TOKEN|SECRET|PASSWORD|AUTH as complete words (with optional suffix)
-    # but only when there's no = or : followed by a value
-    # Use negative lookbehind/lookahead to ensure standalone words
-    # Match from the start of the word (after non-alpha) to the end
-    # Also check that it's not already followed by ': [REDACTED]'
-    # And ensure we're at the end of the word (not followed by more word chars)
+    # Second pass: replace standalone sensitive words that have no value after them.
     result = re.sub(
-        r"(?<!\w)(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)(?![=:]\s*\S+)(?![:\s]*\[REDACTED\])(?!\w)",
-        "[REDACTED]",
+        r"(?<!\w)(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)(?![=:]\s*\S+)(?![:\s]*"
+        + re.escape(REDACTED_VALUE)
+        + r")(?!\w)",
+        REDACTED_VALUE,
         result,
         flags=re.IGNORECASE,
     )

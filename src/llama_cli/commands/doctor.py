@@ -19,7 +19,7 @@ from typing import Any
 from llama_cli.colors import Colors
 from llama_manager.build_pipeline import BuildBackend, BuildLock
 from llama_manager.config import Config
-from llama_manager.profile_cache import (
+from llama_manager.config.profile_cache import (
     ProfileRecord,
     StalenessReason,
     StalenessResult,

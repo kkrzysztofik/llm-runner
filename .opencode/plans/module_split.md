@@ -17,7 +17,7 @@
 
 ### run_models_tui.py
 
-- **TUIApp class** - Main Rich-based TUI with dynamic 2-column layout
+- **TUIApp class** - Main Textual TUI controller with dynamic 2-column layout
 - **LogBuffer class** - Thread-safe log buffer with autoscroll
 - **GPUStats class** - GPU monitoring via nvtop/psutil
 
@@ -41,7 +41,7 @@ llm-runner/
 │   │
 │   ├── config_builder.py      # create_*_cfg functions
 │   │
-│   ├── colors.py              # Color class (Rich version)
+│   ├── colors.py              # Terminal color mapping utilities
 │   │
 │   ├── log_buffer.py          # LogBuffer class
 │   │
@@ -71,7 +71,7 @@ llm-runner/
 - **config.py**: Configuration constants and dataclasses
 - **server.py**: Server command building and validation
 - **config_builder.py**: ServerConfig creation helpers
-- **colors.py**: Color utilities (Rich-based)
+- **colors.py**: Terminal color mapping utilities
 - **log_buffer.py**: Log buffering for TUI
 - **gpu_stats.py**: GPU statistics collection
 - **process_manager.py**: Process lifecycle management

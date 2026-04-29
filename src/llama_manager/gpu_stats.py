@@ -135,7 +135,7 @@ def get_gpu_identifier(
         IndexError: If the collector returns an empty list.
 
     """
-    from .profile_cache import compute_gpu_identifier
+    from .config.profile_cache import compute_gpu_identifier
 
     if backend not in ("cuda", "sycl"):
         raise ValueError(

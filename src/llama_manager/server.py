@@ -4,10 +4,10 @@
 import hashlib
 import json
 import os
-import re
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
+from .common.security import redact_env_value
 from .config import (
     Config,
     ErrorCode,
@@ -18,9 +18,6 @@ from .config import (
     ValidationResult,
     VRamRecommendation,
 )
-
-# Precompiled regex pattern for sensitive key detection (Finding 172)
-_SENSITIVE_KEY_PATTERN = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|AUTH)", re.IGNORECASE)
 
 # ---------------------------------------------------------------------------
 # Doctor diagnostics (T069)
@@ -238,31 +235,6 @@ def sort_validation_errors(
         return (slot_idx, failed_check)
 
     return sorted(results, key=sort_key)
-
-
-def redact_sensitive(env_value: str, env_key: str) -> str:
-    """FR-007: Redact sensitive environment variable values.
-
-    Matches environment variable key names (not values) containing KEY|TOKEN|SECRET|PASSWORD|AUTH
-    (case-insensitive) and replaces the value with "[REDACTED]".
-
-    Args:
-        env_value: The environment variable value to potentially redact
-        env_key: The environment variable key/name to check for sensitive patterns
-
-    Returns:
-        "[REDACTED]" if the key matches a sensitive pattern, otherwise the original value
-
-    Example:
-        >>> redact_sensitive("my_secret_value", "API_KEY")
-        "[REDACTED]"
-        >>> redact_sensitive("/path/to/model", "MODEL_PATH")
-        "/path/to/model"
-
-    """
-    if _SENSITIVE_KEY_PATTERN.search(env_key):
-        return "[REDACTED]"
-    return env_value
 
 
 def validate_backend_eligibility(backend: str) -> ErrorDetail | None:
@@ -685,13 +657,13 @@ def _build_environment_redacted() -> dict[str, str]:
     # First add the standard environment variables
     for key in env_vars_to_check:
         value = os.environ.get(key, "")
-        result[key] = redact_sensitive(value, key)
+        result[key] = redact_env_value(value, key)
 
     # Also include any additional environment variables from os.environ
     # that aren't already in the result, with sensitive values redacted
     for key, value in os.environ.items():
         if key not in result:
-            result[key] = redact_sensitive(value, key)
+            result[key] = redact_env_value(value, key)
 
     return result
 

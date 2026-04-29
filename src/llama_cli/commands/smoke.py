@@ -24,7 +24,7 @@ from llama_manager import (
     SmokeProbeConfiguration,
     resolve_runtime_dir,
 )
-from llama_manager.config_builder import create_smoke_config
+from llama_manager.config import create_smoke_config
 from llama_manager.smoke import (
     SmokeProbeResult,
     _ensure_report_dir,

@@ -21,6 +21,14 @@ from typing import Any, Final, TextIO, TypedDict, cast
 
 import psutil
 
+from .common.constants import DIR_MODE_OWNER_ONLY, FILE_MODE_OWNER_ONLY
+from .common.file_ops import atomic_exclusive_create_json, atomic_write_json
+from .common.security import (
+    REDACTED_VALUE,
+    SENSITIVE_KEY_NAME_PATTERN,
+    SENSITIVE_WORD_PATTERN,
+    is_sensitive_key,
+)
 from .config import (
     Config,
     ErrorCode,
@@ -32,29 +40,10 @@ from .config import (
 )
 from .gpu_stats import GPUStats
 from .log_buffer import LogBuffer
-from .server import _SENSITIVE_KEY_PATTERN
 
-# Compiled pattern for redacting sensitive key=value pairs in log text.
-# AUTH_HEADER must come before AUTH in alternation to avoid partial match.
-# \b[A-Z_]* matches optional underscore-prefixed prefix (e.g. MY_ in MY_AUTH).
-# \b after the keyword group ensures word-boundary so "AUTH" doesn't match
-# inside "AUTHORIZE" and similar words.
-_SENSITIVE_WORD_PATTERN: re.Pattern[str] = re.compile(
-    r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\b\s*=\s*\S+",
-)
-
-# Compiled pattern for redacting sensitive key names (no value).
-# Used as fallback for cases where the key appears without an assignment.
-_SENSITIVE_KEY_NAME_PATTERN: re.Pattern[str] = re.compile(
-    r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH|AUTH_HEADER)\b",
-)
-
-# File permission constants (owner-only access)
-FILE_MODE_OWNER_ONLY: Final[int] = 0o600
-DIR_MODE_OWNER_ONLY: Final[int] = 0o700
+# Module-local string constants (process_manager-specific).
 LOCKFILE_CHECK_NAME: Final[str] = "lockfile_integrity"
 ARTIFACT_CHECK_NAME: Final[str] = "artifact_persistence"
-REDACTED_VALUE: Final[str] = "[REDACTED]"
 OWNER_ONLY_PERMISSIONS_FAILURE: Final[str] = (
     "artifact persistence failed to enforce required owner-only permissions"
 )
@@ -70,6 +59,7 @@ INDETERMINATE_OWNER_MESSAGE: Final[str] = (
 INDETERMINATE_OWNER_FIX: Final[str] = (
     "verify owning process and clear lock only after confirmed stale ownership"
 )
+MAX_COLLISION_RETRIES: Final[int] = 10
 
 
 @dataclass
@@ -140,6 +130,36 @@ class ValidationException(Exception):
             )
         else:
             super().__init__(f"Validation failed with {len(multi_error.errors)} error(s)")
+
+
+def _make_validation_error(
+    error_code: ErrorCode,
+    failed_check: str,
+    why_blocked: str,
+    how_to_fix: str,
+) -> ValidationException:
+    """Build a single-error ValidationException from raw fields."""
+    detail = ErrorDetail(
+        error_code=error_code,
+        failed_check=failed_check,
+        why_blocked=why_blocked,
+        how_to_fix=how_to_fix,
+    )
+    return ValidationException(MultiValidationError(errors=[detail]))
+
+
+def _lockfile_error(why_blocked: str, how_to_fix: str) -> ValidationException:
+    return _make_validation_error(
+        ErrorCode.LOCKFILE_INTEGRITY_FAILURE, LOCKFILE_CHECK_NAME, why_blocked, how_to_fix
+    )
+
+
+def _artifact_error(
+    why_blocked: str, how_to_fix: str, check: str = ARTIFACT_CHECK_NAME
+) -> ValidationException:
+    return _make_validation_error(
+        ErrorCode.ARTIFACT_PERSISTENCE_FAILURE, check, why_blocked, how_to_fix
+    )
 
 
 @dataclass
@@ -240,73 +260,6 @@ class DryRunArtifactPayload(TypedDict):
     environment_redacted: dict[str, Any]
 
 
-def _fsync_directory(dir_path: Path) -> None:
-    """fsync a directory to ensure metadata durability.
-
-    Args:
-        dir_path: Directory path to fsync
-
-    """
-    if not dir_path.exists():
-        return
-    try:
-        fd = os.open(str(dir_path), os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-    except OSError:
-        # Directory fsync is best-effort
-        pass
-
-
-def _atomic_write_json(path: Path, data: dict, mode: int = FILE_MODE_OWNER_ONLY) -> None:
-    """Truly atomic JSON write with fsync.
-
-    Implements atomic write via:
-    1. Write to temp file in same directory
-    2. Flush and fsync temp file
-    3. os.replace() for atomic rename
-    4. fsync directory for metadata durability
-
-    Args:
-        path: Path to write to
-        data: Dictionary to serialize as JSON
-        mode: File permissions (default 0o600)
-
-    Raises:
-        OSError: If file creation, write, or sync fails
-        TypeError: If data is not JSON-serializable
-
-    """
-    # Serialize JSON first (fail before writing file)
-    json_text = json.dumps(data, indent=2)
-
-    # Create temp file in same directory for atomic rename
-    temp_path = path.with_suffix(".tmp")
-    try:
-        # Open with O_CREAT|O_TRUNC to set mode at creation time
-        fd = os.open(str(temp_path), os.O_CREAT | os.O_TRUNC | os.O_WRONLY, mode)
-        try:
-            # Write content
-            os.write(fd, json_text.encode("utf-8"))
-            # Flush to OS buffer
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-
-        # Atomic rename
-        os.replace(str(temp_path), str(path))
-
-        # fsync directory to ensure directory entry is durable
-        _fsync_directory(path.parent)
-    except OSError:
-        # Clean up temp file if it exists
-        with contextlib.suppress(OSError):
-            temp_path.unlink()
-        raise
-
-
 def resolve_runtime_dir() -> Path:
     """FR-009: Resolve runtime directory for lockfiles and artifacts.
 
@@ -343,13 +296,12 @@ def resolve_runtime_dir() -> Path:
             pass
 
     # Neither candidate usable - raise FR-005 actionable error
-    error_detail = ErrorDetail(
-        error_code=ErrorCode.RUNTIME_DIR_UNAVAILABLE,
-        failed_check="runtime_dir_resolution",
-        why_blocked="neither LLM_RUNNER_RUNTIME_DIR env var nor XDG_RUNTIME_DIR/llm-runner directory exists and directory creation required",
-        how_to_fix="set LLM_RUNNER_RUNTIME_DIR to writable path or create directory structure",
+    raise _make_validation_error(
+        ErrorCode.RUNTIME_DIR_UNAVAILABLE,
+        "runtime_dir_resolution",
+        "neither LLM_RUNNER_RUNTIME_DIR env var nor XDG_RUNTIME_DIR/llm-runner directory exists and directory creation required",
+        "set LLM_RUNNER_RUNTIME_DIR to writable path or create directory structure",
     )
-    raise ValidationException(MultiValidationError(errors=[error_detail]))
 
 
 def _get_lock_path(runtime_dir: Path, slot_id: str) -> Path:
@@ -402,49 +354,35 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
     try:
         # Atomic write with O_EXCL flag for exclusive creation (TOCTOU fix)
         # O_EXCL ensures the call fails if file exists, with no race window
-        fd = os.open(
-            str(lock_path),
-            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-            FILE_MODE_OWNER_ONLY,
-        )
-        try:
-            json_text = json.dumps(lock_data, indent=2)
-            os.write(fd, json_text.encode("utf-8"))
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        atomic_exclusive_create_json(lock_path, lock_data)
 
         # Verify permissions were set correctly
         mode = stat.S_IMODE(os.stat(lock_path).st_mode)
         if mode != FILE_MODE_OWNER_ONLY:
-            error_detail = ErrorDetail(
-                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-                failed_check=LOCKFILE_CHECK_NAME,
-                why_blocked="lockfile persistence failed to enforce required owner-only permissions",
-                how_to_fix=PERMISSION_WRITABILITY_HINT,
+            # Clean up the just-created file before raising to avoid a stale lockfile
+            try:
+                os.remove(lock_path)
+            except OSError:
+                pass
+            raise _lockfile_error(
+                "lockfile persistence failed to enforce required owner-only permissions",
+                PERMISSION_WRITABILITY_HINT,
             )
-            raise ValidationException(MultiValidationError(errors=[error_detail]))
 
         return lock_path
     except PermissionError as e:
-        error_detail = ErrorDetail(
-            error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-            failed_check=LOCKFILE_CHECK_NAME,
-            why_blocked="lockfile creation failed due to permission denied",
-            how_to_fix="ensure runtime directory is writable and supports chmod",
-        )
-        raise ValidationException(MultiValidationError(errors=[error_detail])) from e
+        raise _lockfile_error(
+            "lockfile creation failed due to permission denied",
+            "ensure runtime directory is writable and supports chmod",
+        ) from e
     except FileExistsError as e:
         # O_EXCL failed because file exists - this is expected for concurrent attempts
         raise FileExistsError(f"Lockfile already exists: {lock_path}") from e
     except OSError as e:
-        error_detail = ErrorDetail(
-            error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-            failed_check=LOCKFILE_CHECK_NAME,
-            why_blocked=f"lockfile persistence failed: {e}",
-            how_to_fix="verify runtime path and filesystem permission support/chmod limitations before retry",
-        )
-        raise ValidationException(MultiValidationError(errors=[error_detail])) from e
+        raise _lockfile_error(
+            f"lockfile persistence failed: {e}",
+            "verify runtime path and filesystem permission support/chmod limitations before retry",
+        ) from e
 
 
 def read_lock(
@@ -520,15 +458,12 @@ def update_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> None:
 
     try:
         # Atomic write with mode set at file creation (TOCTOU fix)
-        _atomic_write_json(lock_path, lock_data, FILE_MODE_OWNER_ONLY)
+        atomic_write_json(lock_path, lock_data, FILE_MODE_OWNER_ONLY)
     except OSError as e:
-        error_detail = ErrorDetail(
-            error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-            failed_check=LOCKFILE_CHECK_NAME,
-            why_blocked=f"lockfile update failed: {e}",
-            how_to_fix="verify runtime path and permission support/chmod limitations before retry",
-        )
-        raise ValidationException(MultiValidationError(errors=[error_detail])) from e
+        raise _lockfile_error(
+            f"lockfile update failed: {e}",
+            "verify runtime path and permission support/chmod limitations before retry",
+        ) from e
 
 
 def release_lock(runtime_dir: Path, slot_id: str) -> None:
@@ -670,71 +605,48 @@ def write_artifact(runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload
     # Verify directory permissions
     dir_mode = stat.S_IMODE(os.stat(artifact_dir).st_mode)
     if dir_mode != DIR_MODE_OWNER_ONLY:
-        error_detail = ErrorDetail(
-            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
-            failed_check=ARTIFACT_CHECK_NAME,
-            why_blocked=OWNER_ONLY_PERMISSIONS_FAILURE,
-            how_to_fix=PERMISSION_WRITABILITY_HINT,
-        )
-        raise ValidationException(MultiValidationError(errors=[error_detail]))
+        raise _artifact_error(OWNER_ONLY_PERMISSIONS_FAILURE, PERMISSION_WRITABILITY_HINT)
 
     # FR-007: Artifact filename format: artifact-{timestamp}.json (no UUID suffix)
     timestamp_filename = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    artifact_filename = f"artifact-{timestamp_filename}.json"
-    artifact_path = artifact_dir / artifact_filename
 
-    # Handle collision for same-second writes - append numeric suffix if path exists
-    collision_counter = 1
-    while artifact_path.exists():
-        base_name = f"artifact-{timestamp_filename}"
-        artifact_filename = f"{base_name}-{collision_counter}.json"
-        artifact_path = artifact_dir / artifact_filename
-        collision_counter += 1
-
+    # Redact sensitive environment variables in the data
+    # TypedDict is not recognized as dict by pyright, so we cast explicitly
     try:
-        # Redact sensitive environment variables in the data
-        # TypedDict is not recognized as dict by pyright, so we cast explicitly
         redacted_data = _redact_sensitive_in_dict(cast(dict, data))
-
-        # Atomic write with mode set at file creation (TOCTOU fix)
-        _atomic_write_json(artifact_path, redacted_data, FILE_MODE_OWNER_ONLY)
-
-        # Verify file permissions
-        file_mode = stat.S_IMODE(os.stat(artifact_path).st_mode)
-        if file_mode != FILE_MODE_OWNER_ONLY:
-            error_detail = ErrorDetail(
-                error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
-                failed_check=ARTIFACT_CHECK_NAME,
-                why_blocked=OWNER_ONLY_PERMISSIONS_FAILURE,
-                how_to_fix=PERMISSION_WRITABILITY_HINT,
-            )
-            raise ValidationException(MultiValidationError(errors=[error_detail]))
-
-        return artifact_path
-    except PermissionError as e:
-        error_detail = ErrorDetail(
-            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
-            failed_check=ARTIFACT_CHECK_NAME,
-            why_blocked="artifact persistence failed due to permission denied",
-            how_to_fix=PERMISSION_SUPPORT_HINT,
-        )
-        raise ValidationException(MultiValidationError(errors=[error_detail])) from e
-    except OSError as e:
-        error_detail = ErrorDetail(
-            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
-            failed_check=ARTIFACT_CHECK_NAME,
-            why_blocked=f"artifact persistence failed: {e}",
-            how_to_fix=PERMISSION_SUPPORT_HINT,
-        )
-        raise ValidationException(MultiValidationError(errors=[error_detail])) from e
     except TypeError as e:
-        error_detail = ErrorDetail(
-            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
-            failed_check=ARTIFACT_CHECK_NAME,
-            why_blocked=f"artifact serialization failed: {e}",
-            how_to_fix="ensure artifact data is JSON-serializable",
-        )
-        raise ValidationException(MultiValidationError(errors=[error_detail])) from e
+        raise _artifact_error(
+            f"artifact serialization failed: {e}", "ensure artifact data is JSON-serializable"
+        ) from e
+
+    # Use O_EXCL exclusive-create to avoid TOCTOU race: two concurrent writers
+    # would each try to claim the same path; the loser gets FileExistsError and
+    # increments the suffix counter until it wins.
+    for attempt in range(MAX_COLLISION_RETRIES):
+        suffix = f"-{attempt}" if attempt > 0 else ""
+        artifact_path = artifact_dir / f"artifact-{timestamp_filename}{suffix}.json"
+        try:
+            atomic_exclusive_create_json(artifact_path, redacted_data, FILE_MODE_OWNER_ONLY)
+            return artifact_path
+        except FileExistsError:
+            continue
+        except TypeError as e:
+            raise _artifact_error(
+                f"artifact serialization failed: {e}", "ensure artifact data is JSON-serializable"
+            ) from e
+        except PermissionError as e:
+            raise _artifact_error(
+                "artifact persistence failed due to permission denied", PERMISSION_SUPPORT_HINT
+            ) from e
+        except OSError as e:
+            raise _artifact_error(
+                f"artifact persistence failed: {e}", PERMISSION_SUPPORT_HINT
+            ) from e
+
+    raise _artifact_error(
+        f"artifact: failed to create unique file after {MAX_COLLISION_RETRIES} attempts",
+        PERMISSION_SUPPORT_HINT,
+    )
 
 
 def _validate_artifact_fields(data: DryRunArtifactPayload | dict) -> None:
@@ -767,33 +679,27 @@ def _validate_artifact_fields(data: DryRunArtifactPayload | dict) -> None:
     missing_fields = [field for field in required_fields if field not in data]
 
     if missing_fields:
-        error_detail = ErrorDetail(
-            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
-            failed_check="artifact_validation",
-            why_blocked=f"artifact missing required fields: {', '.join(missing_fields)}",
-            how_to_fix="ensure artifact data contains all required FR-007 fields",
+        raise _artifact_error(
+            f"artifact missing required fields: {', '.join(missing_fields)}",
+            "ensure artifact data contains all required FR-007 fields",
+            check="artifact_validation",
         )
-        raise ValidationException(MultiValidationError(errors=[error_detail]))
 
     slot_scope = data.get("slot_scope")
     if not isinstance(slot_scope, list) or not all(isinstance(item, str) for item in slot_scope):
-        error_detail = ErrorDetail(
-            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
-            failed_check="artifact_validation",
-            why_blocked="slot_scope must be list[str]",
-            how_to_fix="provide slot_scope as a list of slot IDs",
+        raise _artifact_error(
+            "slot_scope must be list[str]",
+            "provide slot_scope as a list of slot IDs",
+            check="artifact_validation",
         )
-        raise ValidationException(MultiValidationError(errors=[error_detail]))
 
     resolved_command = data.get("resolved_command")
     if not isinstance(resolved_command, dict):
-        error_detail = ErrorDetail(
-            error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,
-            failed_check="artifact_validation",
-            why_blocked="resolved_command must be an object mapping",
-            how_to_fix="provide resolved_command as a mapping keyed by slot ID",
+        raise _artifact_error(
+            "resolved_command must be an object mapping",
+            "provide resolved_command as a mapping keyed by slot ID",
+            check="artifact_validation",
         )
-        raise ValidationException(MultiValidationError(errors=[error_detail]))
 
 
 def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
@@ -814,7 +720,7 @@ def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
         full_key = f"{env_key_prefix}_{key}" if env_key_prefix else key
         if isinstance(value, dict):
             result[key] = _redact_sensitive_in_dict(value, full_key)
-        elif isinstance(value, str) and _SENSITIVE_KEY_PATTERN.search(key):
+        elif isinstance(value, str) and is_sensitive_key(key):
             result[key] = REDACTED_VALUE
         else:
             result[key] = value
@@ -889,8 +795,8 @@ def _redact_sensitive(text: str) -> str:
         Text with sensitive patterns (key + value) replaced by ``[REDACTED]``.
 
     """
-    # Redact key=value patterns (unquoted values) — module-level compiled
-    text = _SENSITIVE_WORD_PATTERN.sub(REDACTED_VALUE, text)
+    # Redact key=value patterns (unquoted values) — shared compiled pattern
+    text = SENSITIVE_WORD_PATTERN.sub(REDACTED_VALUE, text)
     # Redact quoted values: KEY="secret" or KEY='secret'
     text = re.sub(
         r'(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\s*=\s*"[^"]*"',
@@ -909,7 +815,7 @@ def _redact_sensitive(text: str) -> str:
         text,
     )
     # Fall back to word-boundary key-name-only pattern for any remaining cases
-    text = _SENSITIVE_KEY_NAME_PATTERN.sub(REDACTED_VALUE, text)
+    text = SENSITIVE_KEY_NAME_PATTERN.sub(REDACTED_VALUE, text)
     return text
 
 
@@ -1521,13 +1427,10 @@ class ServerManager:
         if lock_path.exists():
             integrity = check_lockfile_integrity(runtime_dir, slot_id)
             if integrity is not None:
-                error_detail = ErrorDetail(
-                    error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-                    failed_check=LOCKFILE_CHECK_NAME,
-                    why_blocked=integrity.why_blocked,
-                    how_to_fix="verify the owning process or clear the lockfile",
+                raise _lockfile_error(
+                    integrity.why_blocked,
+                    "verify the owning process or clear the lockfile",
                 )
-                raise ValidationException(MultiValidationError(errors=[error_detail]))
 
         # Create the lockfile atomically with the server process PID
         pid = server_pid if server_pid is not None else os.getpid()
