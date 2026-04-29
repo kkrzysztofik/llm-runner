@@ -60,6 +60,8 @@ class BuildConfig:
             raise ValueError("retry_delay must be >= 0")
         if self.jobs is not None and self.jobs < 1:
             raise ValueError("jobs must be >= 1")
+        if self.build_timeout_seconds <= 0:
+            raise ValueError("build_timeout_seconds must be > 0")
 
 
 @dataclass
@@ -72,7 +74,7 @@ class BuildArtifact:
     """
 
     artifact_type: Literal["llama-server"]
-    backend: BuildBackend | Literal["sycl", "cuda", "both"]
+    backend: BuildBackend
     created_at: float
     git_remote_url: str
     git_commit_sha: str

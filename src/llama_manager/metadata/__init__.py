@@ -31,6 +31,49 @@ __all__ = [
 ]
 
 
+def _parse_gguf_in_thread(
+    model_path: str,
+    prefix_cap_bytes: int,
+    parse_timeout_s: float,
+    result_queue: "Queue[GGUFMetadataRecord | BaseException]",
+    cancel_event: Event,
+) -> None:
+    """Run GGUF parse logic inside a worker thread.
+
+    Puts the resulting ``GGUFMetadataRecord`` (or an exception) into
+    *result_queue*.  Aborts silently if *cancel_event* is set before the
+    result is ready.
+    """
+    try:
+        reader_result = _try_gguf_reader(model_path, prefix_cap_bytes)
+
+        if cancel_event.is_set():
+            return
+
+        if reader_result is not None:
+            fields, version = reader_result
+            if version == 4:
+                raise ValueError("GGUF v4 format not yet supported")
+            record = _extract_from_gguf_reader(
+                model_path,
+                fields,
+                parse_timeout_s,
+                prefix_cap_bytes,
+            )
+        else:
+            record = _extract_from_raw_bytes(
+                model_path,
+                prefix_cap_bytes,
+                parse_timeout_s,
+            )
+
+        if not cancel_event.is_set():
+            result_queue.put(record, block=False)
+    except Exception as exc:
+        if not cancel_event.is_set():
+            result_queue.put(exc, block=False)
+
+
 def extract_gguf_metadata(
     model_path: str,
     prefix_cap_bytes: int = 32 * 1024 * 1024,
@@ -76,43 +119,12 @@ def extract_gguf_metadata(
     result_queue: Queue[GGUFMetadataRecord | BaseException] = Queue(maxsize=1)
     cancel_event = Event()
 
-    def _parse() -> None:
-        try:
-            # Attempt GGUFReader first
-            reader_result = _try_gguf_reader(model_path, prefix_cap_bytes)
-
-            if cancel_event.is_set():
-                return
-
-            if reader_result is not None:
-                fields, version = reader_result
-
-                # Check version
-                if version == 4:
-                    raise ValueError("GGUF v4 format not yet supported")
-
-                record = _extract_from_gguf_reader(
-                    model_path,
-                    fields,
-                    parse_timeout_s,
-                    prefix_cap_bytes,
-                )
-            else:
-                # Fall back to raw bytes parsing
-                record = _extract_from_raw_bytes(
-                    model_path,
-                    prefix_cap_bytes,
-                    parse_timeout_s,
-                )
-
-            if not cancel_event.is_set():
-                result_queue.put(record, block=False)
-        except Exception as exc:
-            if not cancel_event.is_set():
-                result_queue.put(exc, block=False)
-
     # Run parse in a thread with timeout
-    thread = Thread(target=_parse, daemon=True)
+    thread = Thread(
+        target=_parse_gguf_in_thread,
+        args=(model_path, prefix_cap_bytes, parse_timeout_s, result_queue, cancel_event),
+        daemon=True,
+    )
     thread.start()
     thread.join(timeout=parse_timeout_s)
 

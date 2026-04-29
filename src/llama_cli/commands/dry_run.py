@@ -173,10 +173,14 @@ def _print_dry_run_header(mode: str, cfg: Config) -> None:
 def _parse_port_overrides(primary_port: str | None, secondary_port: str | None) -> tuple[int, ...]:
     """Return positional port overrides for a dry-run group."""
     overrides: list[int] = []
-    if primary_port:
-        overrides.append(int(primary_port))
-    if secondary_port:
-        overrides.append(int(secondary_port))
+    for name, raw in (("primary", primary_port), ("secondary", secondary_port)):
+        if raw:
+            if not raw.isdigit():
+                raise ValueError(f"{name} port {raw!r} is not a valid integer")
+            port = int(raw)
+            if not (1 <= port <= 65535):
+                raise ValueError(f"{name} port {port} is out of range (1–65535)")
+            overrides.append(port)
     return tuple(overrides)
 
 
@@ -214,10 +218,7 @@ def _print_resolved_slot(
     """Print a dry-run slot from canonical ServerConfig data."""
     print(f"{slot_id}:")
     print(f"  Port: {payload.port}")
-    if server_cfg.device.startswith("SYCL"):
-        print(f"  Device: {server_cfg.device}")
-    else:
-        print(f"  Device: {server_cfg.device}")
+    print(f"  Device: {server_cfg.device}")
     print(f"  Context: {server_cfg.ctx_size}")
     print(f"  Threads: {server_cfg.threads}")
     print(f"  UBatch: {server_cfg.ubatch_size}")

@@ -57,12 +57,11 @@ def acquire_lock(lock_path: Path, backend: str, *, dry_run: bool = False) -> boo
         logger.info("[lock] acquired for backend=%s pid=%s", backend, os.getpid())
         return True
 
-    except FileExistsError:
-        # Another process holds the lock
-        logger.error("[lock] already held by another process: %s", lock_path)
-        return False
     except OSError as e:
-        logger.error("[lock] failed to acquire: %s", e)
+        if isinstance(e, FileExistsError):
+            logger.error("[lock] already held by another process: %s", lock_path)
+        else:
+            logger.error("[lock] failed to acquire: %s", e)
         return False
 
 
@@ -74,7 +73,7 @@ def release_lock(lock_file: Path | None) -> None:
     """
     if lock_file and lock_file.exists():
         logger.info("[lock] releasing %s", lock_file)
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(OSError):
             lock_file.unlink()
     else:
         logger.debug("[lock] no active lock to release")
@@ -112,7 +111,7 @@ def is_lock_stale(lock_path: Path) -> bool:
         # Lock is stale if PID is invalid or timeout exceeded
         return not pid_valid or lock.is_stale()
 
-    except (json.JSONDecodeError, FileNotFoundError, KeyError):
+    except (json.JSONDecodeError, FileNotFoundError, ValueError, TypeError):
         return True
 
 

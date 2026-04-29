@@ -61,7 +61,7 @@ def build_status_panel(launch_result: LaunchResult) -> Panel | None:
     )
 
 
-def build_risk_panel_required(kind: str = "hardware") -> Panel:
+def build_risk_panel_required() -> Panel:
     """Build the risk acknowledgement-required panel."""
     text = Text()
     text.append("RISK STATUS: ", style="bold")
@@ -70,7 +70,7 @@ def build_risk_panel_required(kind: str = "hardware") -> Panel:
     return Panel(text, title="Risk Management", border_style="red")
 
 
-def build_risk_panel_acknowledged(kind: str = "hardware") -> Panel:
+def build_risk_panel_acknowledged() -> Panel:
     """Build the risk acknowledged panel."""
     text = Text()
     text.append("RISK STATUS: ", style="bold")

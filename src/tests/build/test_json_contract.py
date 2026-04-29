@@ -12,6 +12,7 @@ import pytest
 
 from llama_manager.build_pipeline import (
     BuildArtifact,
+    BuildBackend,
 )
 
 
@@ -30,7 +31,7 @@ class TestBuildArtifactContract:
         """
         artifact = BuildArtifact(
             artifact_type="llama-server",
-            backend="sycl",
+            backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123def456",
