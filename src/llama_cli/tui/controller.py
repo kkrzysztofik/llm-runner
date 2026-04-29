@@ -35,7 +35,11 @@ from llama_manager.build_pipeline import (
     BuildPipeline,
     BuildProgress,
 )
-from llama_manager.config import merge_config_overrides
+from llama_manager.config import (
+    create_default_profile_registry,
+    merge_config_overrides,
+    resolve_profile_config,
+)
 from llama_manager.server import detect_risky_operations
 
 from .components.alerts import (
@@ -536,6 +540,107 @@ class TUIApp:
         self._slot_config_values[slot_id] = {}
         self._push_status_message(f"Adding {slot_id}: {self.SLOT_CONFIG_PROMPTS['model']}")
 
+    def add_slot_from_form(self, values: dict[str, str]) -> bool:
+        """Create or replace a slot from modal profile selection."""
+        profile_id = values.get("profile", "").strip()
+        if not profile_id:
+            self._push_status_message("Profile is required")
+            return False
+
+        registry = create_default_profile_registry(self.config)
+
+        override_config: dict[str, int] | None = None
+        port_value = values.get("port", "").strip()
+        if port_value:
+            normalized_port = {"port": port_value}
+            self._normalize_slot_port(normalized_port)
+            override_config = {"port": int(normalized_port["port"])}
+
+        try:
+            new_cfg = resolve_profile_config(registry, profile_id, override_config=override_config)
+        except ValueError:
+            allowed = ", ".join(registry.profile_ids)
+            self._push_status_message(f"Unknown profile '{profile_id}'. Choose one of: {allowed}")
+            return False
+
+        return self._upsert_profile_slot(new_cfg, profile_id)
+
+    def cancel_add_slot_form(self) -> None:
+        """Emit a status message when the add-slot modal is cancelled."""
+        self._push_status_message("Slot configuration cancelled")
+
+    def _device_class_for_config(self, cfg: ServerConfig) -> str:
+        """Return normalized device class name used for replacement logic."""
+        return "sycl" if cfg.device.upper().startswith("SYCL") else "cuda"
+
+    def _gpu_index_for_config(self, cfg: ServerConfig) -> int:
+        """Return dashboard GPU index for config."""
+        return 1 if self._device_class_for_config(cfg) == "sycl" else 0
+
+    def _remove_slot_runtime_state(self, alias: str) -> None:
+        """Remove runtime state for one slot alias."""
+        self.log_buffers.pop(alias, None)
+        self._server_processes.pop(alias, None)
+        self._slot_states.pop(alias, None)
+        self._unsaved_slots.discard(alias)
+        self.slots = [slot for slot in self.slots if slot.slot_id != alias]
+
+    def _register_and_start_slot(self, cfg: ServerConfig) -> None:
+        """Register and start one slot using the current config."""
+        alias = cfg.alias
+        self.log_buffers[alias] = LogBuffer(redact_sensitive=True)
+        self._unsaved_slots.add(alias)
+        self.slots.append(ModelSlot(slot_id=alias, model_path=cfg.model, port=cfg.port))
+
+        log_handler = lambda line, buf=self.log_buffers[alias]: buf.add_line(line)  # noqa: E731
+        procs = self.server_manager.start_servers([cfg], {alias: log_handler})
+        if procs:
+            self._server_processes[alias] = procs[0]
+        self.handle_slot_transition(alias, SlotState.RUNNING)
+
+    def _upsert_profile_slot(self, cfg: ServerConfig, profile_id: str) -> bool:
+        """Add profile slot or replace existing slot on same device."""
+        target_device = self._device_class_for_config(cfg)
+        existing_index = next(
+            (
+                idx
+                for idx, existing_cfg in enumerate(self.configs)
+                if self._device_class_for_config(existing_cfg) == target_device
+            ),
+            None,
+        )
+
+        if existing_index is None:
+            self.configs.append(cfg)
+            gpu_idx = self._gpu_index_for_config(cfg)
+            self.gpu_indices.append(gpu_idx)
+            self.gpu_stats.append(GPUStats(gpu_idx, collector=self._make_collector(gpu_idx)))
+            self._register_and_start_slot(cfg)
+            self._push_status_message(
+                f"Added profile '{profile_id}' as '{cfg.alias}' on {target_device}:{cfg.port}"
+            )
+            return True
+
+        old_cfg = self.configs[existing_index]
+        old_alias = old_cfg.alias
+        if not self.server_manager.shutdown_slot(old_alias):
+            self._push_status_message(
+                f"Unable to replace '{old_alias}' on {target_device}: shutdown verification failed"
+            )
+            return False
+
+        self._remove_slot_runtime_state(old_alias)
+        self.configs[existing_index] = cfg
+        gpu_idx = self._gpu_index_for_config(cfg)
+        self.gpu_indices[existing_index] = gpu_idx
+        self.gpu_stats[existing_index] = GPUStats(gpu_idx, collector=self._make_collector(gpu_idx))
+
+        self._register_and_start_slot(cfg)
+        self._push_status_message(
+            f"Replaced '{old_alias}' with profile '{profile_id}' as '{cfg.alias}' on {target_device}:{cfg.port}"
+        )
+        return True
+
     def _process_slot_config_input(self, key: str) -> None:
         """Process input during slot configuration mode.
 
@@ -667,6 +772,14 @@ class TUIApp:
             self._slot_config_values.pop(slot_id, None)
             return
 
+        self._add_slot_from_values(slot_id, values)
+
+        # Clean up config state
+        self._slot_config_state.pop(slot_id, None)
+        self._slot_config_values.pop(slot_id, None)
+
+    def _add_slot_from_values(self, slot_id: str, values: dict[str, str]) -> None:
+        """Add a configured slot and start its server process."""
         # Create ServerConfig for the new slot
         backend = values.get("backend", "sycl")
         port = int(values.get("port", "8080"))
@@ -706,10 +819,6 @@ class TUIApp:
         self.handle_slot_transition(slot_id, SlotState.RUNNING)
 
         self._push_status_message(f"Added {slot_id}: {values['model']} on {backend}:{port}")
-
-        # Clean up config state
-        self._slot_config_state.pop(slot_id, None)
-        self._slot_config_values.pop(slot_id, None)
 
     def _cancel_slot_config(self, slot_id: str) -> None:
         """Cancel slot configuration."""

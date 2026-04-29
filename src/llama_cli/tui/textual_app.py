@@ -8,7 +8,8 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.events import Key, Resize
-from textual.widgets import Footer, Header, Static
+from textual.screen import ModalScreen
+from textual.widgets import Button, Input, Label, Static
 
 if TYPE_CHECKING:
     from .controller import TUIApp
@@ -59,7 +60,6 @@ class TextualDashboardApp(App[None]):
         Binding("q", "quit_dashboard", "Quit", priority=True),
         Binding("ctrl+c", "interrupt_dashboard", "Stop", priority=True),
         Binding("r", "refresh_dashboard", "Refresh"),
-        Binding("a", "add_slot", "Add slot"),
         Binding("p", "profile", "Profile"),
         Binding("b", "build", "Build"),
         Binding("s", "smoke", "Smoke"),
@@ -75,14 +75,12 @@ class TextualDashboardApp(App[None]):
         self.controller = controller
 
     def compose(self) -> ComposeResult:
-        yield Header()
         with Container(id="dashboard"):
             yield Static(id="alerts")
             with Horizontal(id="content", classes="horizontal"):
                 yield Static(id="left", classes="column")
                 yield Static(id="right", classes="column")
             yield Static(id="menu")
-        yield Footer()
 
     def on_mount(self) -> None:
         self.refresh_dashboard()
@@ -94,6 +92,11 @@ class TextualDashboardApp(App[None]):
         self.refresh_dashboard()
 
     def on_key(self, event: Key) -> None:
+        if event.key.lower() == "a":
+            self.action_add_slot()
+            event.stop()
+            return
+
         key = self._textual_key_to_controller_key(event)
         if key is None:
             return
@@ -116,7 +119,13 @@ class TextualDashboardApp(App[None]):
         self.refresh_dashboard()
 
     def action_add_slot(self) -> None:
-        self.controller.handle_keypress("a")
+        self.push_screen(AddSlotModal(), self._handle_add_slot_modal_result)
+
+    def _handle_add_slot_modal_result(self, result: dict[str, str] | None) -> None:
+        if result is None:
+            self.controller.cancel_add_slot_form()
+        else:
+            self.controller.add_slot_from_form(result)
         self.refresh_dashboard()
 
     def action_build(self) -> None:
@@ -176,3 +185,116 @@ class TextualDashboardApp(App[None]):
         if event.character is not None and len(event.character) == 1:
             return event.character
         return None
+
+
+class AddSlotModal(ModalScreen[dict[str, str] | None]):
+    """Modal form for adding a new slot."""
+
+    CSS = """
+    AddSlotModal {
+        align: center middle;
+    }
+
+    #add-slot-dialog {
+        width: 80;
+        max-width: 95%;
+        height: auto;
+        padding: 1 2;
+        border: round $accent;
+        background: $surface;
+    }
+
+    #add-slot-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    .add-slot-row {
+        height: 3;
+    }
+
+    .add-slot-label {
+        width: 18;
+        content-align: left middle;
+    }
+
+    .add-slot-input {
+        width: 1fr;
+    }
+
+    #add-slot-actions {
+        height: 3;
+        align-horizontal: right;
+        margin-top: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("ctrl+c", "cancel", "Cancel"),
+    ]
+
+    _FIELD_ORDER = (
+        "slot-profile",
+        "slot-port",
+    )
+
+    def compose(self) -> ComposeResult:
+        with Container(id="add-slot-dialog"):
+            yield Label("Add Slot", id="add-slot-title")
+
+            with Horizontal(classes="add-slot-row"):
+                yield Label("Profile", classes="add-slot-label")
+                yield Input(
+                    value="summary-balanced",
+                    placeholder="summary-balanced | summary-fast | qwen35",
+                    id="slot-profile",
+                    classes="add-slot-input",
+                )
+
+            with Horizontal(classes="add-slot-row"):
+                yield Label("Port override", classes="add-slot-label")
+                yield Input(
+                    value="",
+                    placeholder="optional; leave blank for profile default",
+                    id="slot-port",
+                    classes="add-slot-input",
+                )
+
+            with Horizontal(id="add-slot-actions"):
+                yield Button("Cancel", id="cancel-slot", variant="default")
+                yield Button("Add Slot", id="submit-slot", variant="success")
+
+    def on_mount(self) -> None:
+        self.query_one("#slot-profile", Input).focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel-slot":
+            self.dismiss(None)
+            return
+        if event.button.id == "submit-slot":
+            self.dismiss(self._collect_values())
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        input_id = event.input.id
+        if input_id is None:
+            return
+        try:
+            idx = self._FIELD_ORDER.index(input_id)
+        except ValueError:
+            return
+
+        next_idx = idx + 1
+        if next_idx < len(self._FIELD_ORDER):
+            self.query_one(f"#{self._FIELD_ORDER[next_idx]}", Input).focus()
+            return
+        self.dismiss(self._collect_values())
+
+    def _collect_values(self) -> dict[str, str]:
+        return {
+            "profile": self.query_one("#slot-profile", Input).value,
+            "port": self.query_one("#slot-port", Input).value,
+        }

@@ -694,6 +694,65 @@ class TestNormalizeSlotPort:
         assert values["port"] == "8080"
 
 
+class TestAddSlotFromForm:
+    """Tests for modal-backed slot creation."""
+
+    def test_add_slot_from_form_creates_slot_from_profile(self) -> None:
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        form_values = {
+            "profile": "summary-fast",
+            "port": "8090",
+        }
+
+        with patch.object(app.server_manager, "start_servers", return_value=[]):
+            ok = app.add_slot_from_form(form_values)
+
+        assert ok is True
+        assert any(cfg.alias == "summary-fast" for cfg in app.configs)
+        assert "summary-fast" in app.log_buffers
+        assert "summary-fast" in app._unsaved_slots
+
+    def test_add_slot_from_form_rejects_empty_profile(self) -> None:
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        initial_count = len(app.configs)
+
+        ok = app.add_slot_from_form(
+            {
+                "profile": "   ",
+                "port": "8091",
+            }
+        )
+
+        assert ok is False
+        assert len(app.configs) == initial_count
+
+    def test_add_slot_from_form_replaces_existing_device_slot(self) -> None:
+        existing = _make_config(alias="summary-balanced", port=8080, device="SYCL0")
+        app = TUIApp(configs=[existing], gpu_indices=[1])
+
+        with (
+            patch.object(app.server_manager, "shutdown_slot", return_value=True),
+            patch.object(app.server_manager, "start_servers", return_value=[]),
+        ):
+            ok = app.add_slot_from_form({"profile": "summary-fast", "port": "8092"})
+
+        assert ok is True
+        assert len(app.configs) == 1
+        assert app.configs[0].alias == "summary-fast"
+        assert app.configs[0].port == 8092
+
+    def test_add_slot_from_form_replacement_aborts_when_shutdown_fails(self) -> None:
+        existing = _make_config(alias="summary-balanced", port=8080, device="SYCL0")
+        app = TUIApp(configs=[existing], gpu_indices=[1])
+
+        with patch.object(app.server_manager, "shutdown_slot", return_value=False):
+            ok = app.add_slot_from_form({"profile": "summary-fast", "port": "8092"})
+
+        assert ok is False
+        assert len(app.configs) == 1
+        assert app.configs[0].alias == "summary-balanced"
+
+
 class TestNormalizeSlotThreads:
     """Tests for TUIApp._normalize_slot_threads."""
 
