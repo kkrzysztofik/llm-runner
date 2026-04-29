@@ -120,8 +120,8 @@ def build_profile_status_panel(
     return Panel(text, title="Profile Status", border_style="yellow")
 
 
-def build_status_messages_panel(messages: list[str]) -> Panel | None:
-    """Build a panel from a list of status messages.
+def build_status_messages_panel(messages: list[str]) -> Text | None:
+    """Build inline alert text from a list of status messages.
 
     Returns None if the list is empty.
     """
@@ -129,9 +129,10 @@ def build_status_messages_panel(messages: list[str]) -> Panel | None:
         return None
 
     text = Text()
+    text.append("ALERTS\n", style="bold yellow")
     for msg in messages:
-        text.append(msg + "\n", style="green")
-    return Panel(text, title="Status", border_style="green")
+        text.append(f"• {msg}\n", style="green")
+    return text
 
 
 def build_gpu_telemetry_panel(lines: list[str]) -> Panel | None:

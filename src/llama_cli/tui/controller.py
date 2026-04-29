@@ -10,7 +10,7 @@ from pathlib import Path
 from types import FrameType
 from typing import Any
 
-from rich.console import Group
+from rich.console import Group, RenderableType
 from rich.panel import Panel
 from rich.text import Text
 
@@ -176,7 +176,7 @@ class TUIApp:
     def render(self) -> DashboardSnapshot:
         self._update_gpu_telemetry()
 
-        alerts: list[Panel] = []
+        alerts: list[RenderableType] = []
         if self.risk_panel is not None:
             alerts.append(self.risk_panel)
         if self.status_panel is not None:
@@ -195,11 +195,6 @@ class TUIApp:
         profile_panel = self._build_profile_status_panel()
         if profile_panel is not None:
             alerts.append(profile_panel)
-
-        # Add status messages panel
-        status_msgs_panel = self._build_status_messages_panel()
-        if status_msgs_panel is not None:
-            alerts.append(status_msgs_panel)
 
         if alerts:
             alerts_panel = Panel(Group(*alerts), title="System Alerts", border_style="yellow")
@@ -272,7 +267,7 @@ class TUIApp:
     # How long (seconds) a status message remains visible across renders.
     _STATUS_MESSAGE_LIFETIME_S: float = 30.0
 
-    def _build_status_messages_panel(self) -> Panel | None:
+    def _build_status_messages_panel(self) -> RenderableType | None:
         with self._status_lock:
             if not self._status_messages:
                 return None
@@ -285,6 +280,11 @@ class TUIApp:
         if not messages:
             return None
         return build_status_messages_panel(messages)
+
+    def get_status_messages_since(self, since_ts: float) -> list[tuple[float, str]]:
+        """Return status messages newer than ``since_ts``."""
+        with self._status_lock:
+            return [(ts, msg) for ts, msg in self._status_messages if ts > since_ts]
 
     def prune_expired_status_messages(self) -> None:
         """Remove status messages older than ``_STATUS_MESSAGE_LIFETIME_S``."""

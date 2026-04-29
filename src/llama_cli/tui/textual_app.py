@@ -9,7 +9,9 @@ from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.events import Key, Resize
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Static
+from textual.widgets import Button, Input, Label, Select, Static
+
+from llama_manager.config import create_default_profile_registry
 
 if TYPE_CHECKING:
     from .controller import TUIApp
@@ -73,6 +75,7 @@ class TextualDashboardApp(App[None]):
     def __init__(self, controller: TUIApp) -> None:
         super().__init__()
         self.controller = controller
+        self._last_notified_status_ts: float = 0.0
 
     def compose(self) -> ComposeResult:
         with Container(id="dashboard"):
@@ -119,7 +122,10 @@ class TextualDashboardApp(App[None]):
         self.refresh_dashboard()
 
     def action_add_slot(self) -> None:
-        self.push_screen(AddSlotModal(), self._handle_add_slot_modal_result)
+        self.push_screen(
+            AddSlotModal(profile_options=self._build_profile_options()),
+            self._handle_add_slot_modal_result,
+        )
 
     def _handle_add_slot_modal_result(self, result: dict[str, str] | None) -> None:
         if result is None:
@@ -127,6 +133,16 @@ class TextualDashboardApp(App[None]):
         else:
             self.controller.add_slot_from_form(result)
         self.refresh_dashboard()
+
+    def _build_profile_options(self) -> list[tuple[str, str]]:
+        registry = create_default_profile_registry(self.controller.config)
+        return [
+            (
+                f"{profile.profile_id} - {profile.description}",
+                profile.profile_id,
+            )
+            for profile in registry.profiles
+        ]
 
     def action_build(self) -> None:
         self.controller.handle_keypress("b")
@@ -159,6 +175,8 @@ class TextualDashboardApp(App[None]):
             self.exit()
             return
 
+        self._emit_status_toasts()
+
         snapshot = self.controller.render()
         content = self.query_one("#content", Horizontal)
         content_orientation = self.controller.build_layout().content_orientation
@@ -172,6 +190,15 @@ class TextualDashboardApp(App[None]):
             self.query_one(self._LEFT_PANEL_ID, Static).display = False
         self.query_one("#right", Static).update(snapshot.right)
         self.query_one("#menu", Static).update(snapshot.menu)
+
+    def _emit_status_toasts(self) -> None:
+        updates = self.controller.get_status_messages_since(self._last_notified_status_ts)
+        if not updates:
+            return
+
+        for ts, message in updates:
+            self.notify(message, title="Status", severity="information")
+            self._last_notified_status_ts = max(self._last_notified_status_ts, ts)
 
     def _textual_key_to_controller_key(self, event: Key) -> str | None:
         if event.key in {"enter", "return"}:
@@ -189,6 +216,10 @@ class TextualDashboardApp(App[None]):
 
 class AddSlotModal(ModalScreen[dict[str, str] | None]):
     """Modal form for adding a new slot."""
+
+    def __init__(self, profile_options: list[tuple[str, str]]) -> None:
+        super().__init__()
+        self._profile_options = profile_options
 
     CSS = """
     AddSlotModal {
@@ -235,7 +266,6 @@ class AddSlotModal(ModalScreen[dict[str, str] | None]):
     ]
 
     _FIELD_ORDER = (
-        "slot-profile",
         "slot-port",
     )
 
@@ -245,9 +275,11 @@ class AddSlotModal(ModalScreen[dict[str, str] | None]):
 
             with Horizontal(classes="add-slot-row"):
                 yield Label("Profile", classes="add-slot-label")
-                yield Input(
-                    value="summary-balanced",
-                    placeholder="summary-balanced | summary-fast | qwen35",
+                yield Select(
+                    options=self._profile_options,
+                    allow_blank=False,
+                    value=self._profile_options[0][1],
+                    prompt="Choose a profile",
                     id="slot-profile",
                     classes="add-slot-input",
                 )
@@ -266,7 +298,7 @@ class AddSlotModal(ModalScreen[dict[str, str] | None]):
                 yield Button("Add Slot", id="submit-slot", variant="success")
 
     def on_mount(self) -> None:
-        self.query_one("#slot-profile", Input).focus()
+        self.query_one("#slot-profile", Select).focus()
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -280,21 +312,13 @@ class AddSlotModal(ModalScreen[dict[str, str] | None]):
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         input_id = event.input.id
-        if input_id is None:
-            return
-        try:
-            idx = self._FIELD_ORDER.index(input_id)
-        except ValueError:
-            return
-
-        next_idx = idx + 1
-        if next_idx < len(self._FIELD_ORDER):
-            self.query_one(f"#{self._FIELD_ORDER[next_idx]}", Input).focus()
+        if input_id != "slot-port":
             return
         self.dismiss(self._collect_values())
 
     def _collect_values(self) -> dict[str, str]:
+        selected_profile = self.query_one("#slot-profile", Select).value
         return {
-            "profile": self.query_one("#slot-profile", Input).value,
+            "profile": "" if selected_profile == Select.BLANK else str(selected_profile),
             "port": self.query_one("#slot-port", Input).value,
         }
