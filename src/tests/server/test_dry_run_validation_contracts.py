@@ -44,7 +44,7 @@ from tests.support.factories import make_server_config
 
 
 def _contract_cfg(**kwargs: object) -> ServerConfig:
-    defaults = {
+    defaults: dict[str, object] = {
         "alias": "test",
         "server_bin": "/usr/bin/llama-server",
         "backend": "llama_cpp",

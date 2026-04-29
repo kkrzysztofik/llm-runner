@@ -1,11 +1,10 @@
 """Finalize stage — binary discovery, provenance recording."""
 
-import json
 import logging
-import os
 import subprocess
 from pathlib import Path
 
+from ...common.file_ops import atomic_write_json
 from .._context import _BuildContext
 from ..models import BuildArtifact, BuildProgress
 
@@ -97,14 +96,8 @@ def write_provenance(artifact: BuildArtifact, output_dir: Path) -> bool:
             else None,
         }
 
-        temp_file = output_dir / f".build-artifact-{os.getpid()}.json.tmp"
         final_file = output_dir / "build-artifact.json"
-
-        with open(temp_file, "w") as f:
-            json.dump(artifact_data, f, indent=2)
-
-        os.chmod(temp_file, 0o600)
-        temp_file.rename(final_file)
+        atomic_write_json(final_file, artifact_data, verify_permissions=True)
 
         logger.debug("[provenance] atomically wrote %s", final_file)
         return True

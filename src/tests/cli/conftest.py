@@ -14,4 +14,3 @@ def disable_colors() -> Generator[None, None, None]:
     Colors.enabled = False
     yield
     Colors.enabled = original
-

@@ -68,7 +68,7 @@ Defaults place:
 ### Profiles and run groups
 
 Launch modes are driven by a **profile registry** — a data structure in
-`config_builder.py` that defines individual server profiles and groups them
+`llama_manager/config/builder.py` that defines individual server profiles and groups them
 into launch modes. This means every mode resolves through the same pipeline:
 profile lookup → port override → validation → launch.
 

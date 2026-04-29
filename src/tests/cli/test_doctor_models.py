@@ -5,4 +5,3 @@ from .doctor_cli_cases import (  # noqa: F401
     TestDoctorRepairResult,
     TestRepairAction,
 )
-

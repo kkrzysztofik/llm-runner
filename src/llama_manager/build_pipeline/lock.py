@@ -33,11 +33,15 @@ def acquire_lock(lock_path: Path, backend: str, *, dry_run: bool = False) -> boo
     logger.info("[lock] acquiring lock at %s", lock_path)
 
     try:
-        # First, check if there's a stale lock and remove it safely
-        if lock_path.exists() and is_lock_stale(lock_path):
-            logger.warning("[lock] removing stale lock at %s", lock_path)
-            with contextlib.suppress(Exception):
+        # Check for stale lock and attempt cleanup (race-tolerant)
+        if is_lock_stale(lock_path):
+            logger.warning("[lock] attempting to remove stale lock at %s", lock_path)
+            try:
                 lock_path.unlink()
+            except FileNotFoundError:
+                pass  # Another process already removed it
+            except OSError as e:
+                logger.debug("[lock] stale lock cleanup failed: %s", e)
 
         # Ensure parent directory exists
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -58,9 +62,6 @@ def acquire_lock(lock_path: Path, backend: str, *, dry_run: bool = False) -> boo
         logger.error("[lock] already held by another process: %s", lock_path)
         return False
     except OSError as e:
-        logger.error("[lock] failed to acquire: %s", e)
-        return False
-    except Exception as e:
         logger.error("[lock] failed to acquire: %s", e)
         return False
 

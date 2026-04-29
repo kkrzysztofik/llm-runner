@@ -10,7 +10,7 @@ set -euo pipefail
 # For new workflows, prefer:
 #   uv run llm-runner dry-run <mode>   # validate before launch
 #   uv run llm-runner <mode> [ports]   # launch servers
-#   llm-runner tui <mode>              # Rich TUI dashboard
+#   llm-runner tui <mode>              # Textual TUI dashboard
 #
 # This script remains useful for direct activation without the
 # Python dependency chain, but its profiles are NOT synchronized

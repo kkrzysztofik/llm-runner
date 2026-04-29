@@ -6,4 +6,3 @@ from .config_cases import (  # noqa: F401
     TestRunProfileRegistry,
     TestRunProfileSpec,
 )
-

@@ -28,4 +28,3 @@ def build_command_args(tmp_path: Path, **overrides: object) -> Namespace:
 def namespace(**overrides: Any) -> Namespace:
     """Create a generic argparse Namespace."""
     return Namespace(**overrides)
-

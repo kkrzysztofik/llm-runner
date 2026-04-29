@@ -7,4 +7,3 @@ from .smoke_cli_cases import (  # noqa: F401
     TestRunSmoke,
     TestValidateSmokeArgs,
 )
-

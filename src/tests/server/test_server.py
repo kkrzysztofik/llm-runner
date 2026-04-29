@@ -104,7 +104,7 @@ class TestValidateThreads:
 
 class TestBuildServerCmd:
     def _minimal_cfg(self, **kwargs: object) -> ServerConfig:
-        defaults = {"alias": "test", "server_bin": "/usr/bin/llama-server"}
+        defaults: dict[str, object] = {"alias": "test", "server_bin": "/usr/bin/llama-server"}
         defaults.update(kwargs)
         return make_server_config(**defaults)
 

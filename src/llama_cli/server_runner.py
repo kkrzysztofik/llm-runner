@@ -22,6 +22,7 @@ from llama_manager import (
     validate_ports,
 )
 from llama_manager.config import create_default_profile_registry, resolve_run_group_configs
+from llama_manager.config.profiles import RunProfileRegistry
 
 # Server backend display names
 INTEL_SERVER_NAME = "Intel llama-server"
@@ -137,7 +138,7 @@ def _build_tui_mode_configs(cfg: Config, parsed: argparse.Namespace) -> dict:
     for group in registry.run_groups:
         if not group.tui_enabled:
             continue
-        configs = _resolve_tui_group_configs(group.group_id, cfg, parsed)
+        configs = _resolve_tui_group_configs(group.group_id, cfg, parsed, registry)
         mode_configs[group.group_id] = (
             [server_cfg.server_bin for server_cfg in configs],
             [_server_name_for_config(server_cfg) for server_cfg in configs],
@@ -151,9 +152,11 @@ def _resolve_tui_group_configs(
     group_id: str,
     cfg: Config,
     parsed: argparse.Namespace,
+    registry: RunProfileRegistry | None = None,
 ) -> list[ServerConfig]:
     """Resolve TUI configs while preserving positional port override semantics."""
-    registry = create_default_profile_registry(cfg)
+    if registry is None:
+        registry = create_default_profile_registry(cfg)
     default_configs = resolve_run_group_configs(registry, group_id)
     port_overrides: list[int] = []
 

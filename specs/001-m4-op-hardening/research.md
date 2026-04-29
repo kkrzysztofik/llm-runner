@@ -98,6 +98,7 @@ The existing implementation in `process_manager.py` already uses production-read
 ## 4. Textual Key Handling for Hardware Warnings
 
 ### Decision: Route Textual bindings through the warning state machine
+
 Use Textual key events and controller-level dispatch (`handle_keypress` + `_keypress_queue`) to drive the warning state machine (`_WarningState.NONE/WAITING/RESOLVED`). Zero blocking: Textual owns terminal input and the controller only drains queued keys without blocking the app thread.
 
 **Rationale**:

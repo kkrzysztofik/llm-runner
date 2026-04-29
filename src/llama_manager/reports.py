@@ -48,7 +48,9 @@ def redact_sensitive(text: str) -> str:
 
     # Second pass: replace standalone sensitive words that have no value after them.
     result = re.sub(
-        r"(?<!\w)(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)(?![=:]\s*\S+)(?![:\s]*\[REDACTED\])(?!\w)",
+        r"(?<!\w)(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)(?![=:]\s*\S+)(?![:\s]*"
+        + re.escape(REDACTED_VALUE)
+        + r")(?!\w)",
         REDACTED_VALUE,
         result,
         flags=re.IGNORECASE,

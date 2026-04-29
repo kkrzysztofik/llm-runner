@@ -70,4 +70,3 @@ def assert_json_has_keys(data: dict[str, Any], required_keys: set[str]) -> None:
     missing = required_keys - set(data)
     if missing:
         raise AssertionError(f"Missing required JSON keys: {sorted(missing)}")
-

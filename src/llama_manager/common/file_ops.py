@@ -48,7 +48,7 @@ def atomic_exclusive_create_json(
     """
     fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, mode)
     try:
-        os.write(fd, json.dumps(data, indent=2).encode("utf-8"))
+        os.write(fd, (json.dumps(data, indent=2) + "\n").encode("utf-8"))
         if fsync_after:
             os.fsync(fd)
     finally:

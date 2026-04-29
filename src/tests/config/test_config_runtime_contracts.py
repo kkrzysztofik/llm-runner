@@ -9,4 +9,3 @@ from .config_cases import (  # noqa: F401
     TestProcessOwnershipVerification,
     TestTUILifecycle,
 )
-

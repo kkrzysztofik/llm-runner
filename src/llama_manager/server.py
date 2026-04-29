@@ -240,7 +240,7 @@ def sort_validation_errors(
 def redact_sensitive(env_value: str, env_key: str) -> str:
     """FR-007: Redact sensitive environment variable values.
 
-    Delegates to :func:`llama_manager.security.redact_env_value`.
+    Delegates to :func:`llama_manager.common.security.redact_env_value`.
 
     Args:
         env_value: The environment variable value to potentially redact.

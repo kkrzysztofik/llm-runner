@@ -2,7 +2,6 @@
 
 import logging
 import subprocess
-import sys
 import threading
 import time
 
@@ -75,13 +74,13 @@ def _run_build_subprocess(
             if proc.stdout:
                 for line in proc.stdout:
                     stdout_lines.append(line.rstrip("\n"))
-                    print(line.rstrip("\n"), file=sys.stderr)
+                    logger.debug("[build] stdout: %s", line.rstrip("\n"))
 
         def read_stderr() -> None:
             if proc.stderr:
                 for line in proc.stderr:
                     stderr_lines.append(line.rstrip("\n"))
-                    print(line.rstrip("\n"), file=sys.stderr)
+                    logger.debug("[build] stderr: %s", line.rstrip("\n"))
 
         stdout_t = threading.Thread(target=read_stdout)
         stderr_t = threading.Thread(target=read_stderr)
