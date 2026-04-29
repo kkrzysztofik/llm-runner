@@ -9,6 +9,10 @@ from ..reports import redact_sensitive
 
 # Message constants used across pipeline stages
 MSG_SOURCES_ALREADY_EXIST = "Sources already exist"
+MSG_SOURCES_NOT_GIT_REPO = (
+    "Source directory exists but is not a git repository; "
+    "remove it or point source_dir at an empty/nonexistent path"
+)
 
 # Intel oneAPI environment setup script (default install location)
 _INTEL_SETVARS_SH = Path("/opt/intel/oneapi/setvars.sh")

@@ -6,7 +6,13 @@ from pathlib import Path
 
 from .._context import _BuildContext
 from ..models import BuildProgress
-from ..utils import MSG_SOURCES_ALREADY_EXIST, _format_command, _redact_build_text, _tail_lines
+from ..utils import (
+    MSG_SOURCES_ALREADY_EXIST,
+    MSG_SOURCES_NOT_GIT_REPO,
+    _format_command,
+    _redact_build_text,
+    _tail_lines,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +48,8 @@ def run_clone(ctx: _BuildContext) -> BuildProgress:
         ctx.config.shallow_clone,
         ctx.config.source_dir,
     )
-    return _execute_clone(ctx, progress, source_existed_before_clone=False)
+    source_existed_before_clone = source_exists(ctx.config.source_dir)
+    return _execute_clone(ctx, progress, source_existed_before_clone=source_existed_before_clone)
 
 
 def is_git_repo(source_dir: Path) -> bool:
@@ -60,15 +67,16 @@ def source_exists(source_dir: Path) -> bool:
 
 def _handle_existing_source(ctx: _BuildContext, progress: BuildProgress) -> BuildProgress | None:
     """Return a BuildProgress to skip clone, or None to proceed with cloning."""
-    if ctx.config.update_sources and is_git_repo(ctx.config.source_dir):
-        logger.info("[clone] source exists and update_sources=True; updating existing clone")
-        return _update_sources(ctx, progress)
-    if ctx.config.git_commit and is_git_repo(ctx.config.source_dir):
-        logger.info(
-            "[clone] source exists; checking out configured git_commit=%s",
-            ctx.config.git_commit,
-        )
-        return _checkout_commit(ctx, progress)
+    if is_git_repo(ctx.config.source_dir):
+        if ctx.config.update_sources:
+            logger.info("[clone] source exists and update_sources=True; updating existing clone")
+            return _update_sources(ctx, progress)
+        if ctx.config.git_commit:
+            logger.info(
+                "[clone] source exists; checking out configured git_commit=%s",
+                ctx.config.git_commit,
+            )
+            return _checkout_commit(ctx, progress)
     logger.info("[clone] source exists; skipping clone")
     progress.status = "skipped"
     progress.message = MSG_SOURCES_ALREADY_EXIST
@@ -137,8 +145,8 @@ def _handle_clone_error(
     source_existed_before_clone: bool = False,
 ) -> BuildProgress:
     """Handle clone failure with offline-continue support."""
-    if source_exists(ctx.config.source_dir):
-        logger.warning("[clone] error but source exists; continuing offline: %s", str(error))
+    if source_existed_before_clone or source_exists(ctx.config.source_dir):
+        logger.warning("[clone] error but source available; continuing offline: %s", str(error))
         progress.status = "skipped"
         progress.message = MSG_SOURCES_ALREADY_EXIST
         progress.progress_percent = 30
@@ -248,7 +256,8 @@ def _update_sources(ctx: _BuildContext, progress: BuildProgress) -> BuildProgres
                 "temporary failure",
             )
             if any(kw in err_msg for kw in _NETWORK_KEYWORDS):
-                logger.warning("[update-sources] network error during fetch: %s", err_msg)
+                redacted_err_msg = _redact_build_text(err_msg)
+                logger.warning("[update-sources] network error during fetch: %s", redacted_err_msg)
                 progress.status = "skipped"
                 progress.message = "Network unavailable; continuing with existing sources"
                 progress.progress_percent = 30

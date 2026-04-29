@@ -359,6 +359,11 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
         # Verify permissions were set correctly
         mode = stat.S_IMODE(os.stat(lock_path).st_mode)
         if mode != FILE_MODE_OWNER_ONLY:
+            # Clean up the just-created file before raising to avoid a stale lockfile
+            try:
+                os.remove(lock_path)
+            except OSError:
+                pass
             raise _lockfile_error(
                 "lockfile persistence failed to enforce required owner-only permissions",
                 PERMISSION_WRITABILITY_HINT,

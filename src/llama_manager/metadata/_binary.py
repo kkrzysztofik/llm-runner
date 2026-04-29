@@ -1,6 +1,9 @@
 """Raw binary GGUF header parsing — fallback path when GGUFReader is unavailable."""
 
 from pathlib import Path
+from threading import Event
+
+from gguf.constants import Keys
 
 from ._types import (
     _GENERAL_NAME_PATTERN,
@@ -158,6 +161,14 @@ def _read_int32(data: bytes, offset: int) -> int | None:
     return val - 4294967296 if val > 2147483647 else val
 
 
+def _read_int64(data: bytes, offset: int) -> int | None:
+    """Read int64 from data at offset."""
+    if offset + 8 > len(data):
+        return None
+    val = int.from_bytes(data[offset : offset + 8], "little")
+    return val - (1 << 64) if val >= (1 << 63) else val
+
+
 def _skip_non_integer_type(data: bytes, offset: int, type_tag: int) -> int:
     """Skip non-integer GGUF types, return new offset."""
     # GGUF type tags: 7=BOOL (1 byte), 8=STRING (8-byte length + data), 9=ARRAY (complex)
@@ -168,17 +179,21 @@ def _skip_non_integer_type(data: bytes, offset: int, type_tag: int) -> int:
             return offset
         str_len = int.from_bytes(data[offset : offset + 8], "little")
         return offset + 8 + str_len
-    if type_tag == 9:  # ARRAY: 1-byte elem type + 8-byte count + elements
-        if offset + 9 > len(data):
+    if type_tag == 9:  # ARRAY: 4-byte elem type + 8-byte count + elements
+        if offset + 12 > len(data):
             return offset
-        elem_type = data[offset]
-        elem_count = int.from_bytes(data[offset + 1 : offset + 9], "little")
-        offset += 9
+        elem_type = int.from_bytes(data[offset : offset + 4], "little")
+        elem_count = int.from_bytes(data[offset + 4 : offset + 12], "little")
+        offset += 12
         for _ in range(elem_count):
-            if elem_type in (1, 2, 3, 4, 5, 6):
-                # Integer types: advance by fixed sizes
-                int_sizes = {1: 1, 2: 1, 3: 2, 4: 2, 5: 4, 6: 4}
-                offset += int_sizes.get(elem_type, 0)
+            if elem_type in (0, 1):  # UINT8, INT8
+                offset += 1
+            elif elem_type in (2, 3):  # UINT16, INT16
+                offset += 2
+            elif elem_type in (4, 5, 6):  # UINT32, INT32, FLOAT32
+                offset += 4
+            elif elem_type in (10, 11, 12):  # UINT64, INT64, FLOAT64
+                offset += 8
             else:
                 offset = _skip_non_integer_type(data, offset, elem_type)
         return offset
@@ -188,10 +203,10 @@ def _skip_non_integer_type(data: bytes, offset: int, type_tag: int) -> int:
 
 def _read_key(data: bytes, offset: int) -> tuple[int, str | None]:
     """Read key from GGUF record, return (new_offset, key_string)."""
-    if offset + 4 > len(data):
+    if offset + 8 > len(data):
         return offset, None
-    key_length = int.from_bytes(data[offset : offset + 4], "little")
-    offset += 4
+    key_length = int.from_bytes(data[offset : offset + 8], "little")
+    offset += 8
     if offset + key_length > len(data):
         return offset, None
     record_key = data[offset : offset + key_length].decode("utf-8", errors="replace")
@@ -211,31 +226,39 @@ def _skip_record(data: bytes, offset: int) -> int:
     if type_tag is None:
         return offset
     offset += 4
-    if type_tag in (1, 2):
+    if type_tag in (0, 1, 7):  # UINT8, INT8, BOOL
         return offset + 1
-    if type_tag in (3, 4):
+    if type_tag in (2, 3):  # UINT16, INT16
         return offset + 2
-    if type_tag in (5, 6):
+    if type_tag in (4, 5, 6):  # UINT32, INT32, FLOAT32
         return offset + 4
+    if type_tag in (10, 11, 12):  # UINT64, INT64, FLOAT64
+        return offset + 8
     if type_tag == 8:  # string (GGUF_TYPE_STRING)
-        if offset + 4 > len(data):
+        if offset + 8 > len(data):
             return offset
-        str_len = int.from_bytes(data[offset : offset + 4], "little")
-        return offset + 4 + str_len
+        str_len = int.from_bytes(data[offset : offset + 8], "little")
+        return offset + 8 + str_len
+    if type_tag == 9:  # array — delegate to non-integer skip
+        return _skip_non_integer_type(data, offset, type_tag)
     return offset
 
 
 def _read_integer_value(data: bytes, offset: int, type_tag: int) -> int | None:
     """Read integer value if type is integer, else None."""
-    if type_tag not in (1, 2, 3, 4, 5, 6):
+    # GGUF integer types: 0=UINT8, 1=INT8, 2=UINT16, 3=INT16, 4=UINT32, 5=INT32,
+    #                     10=UINT64, 11=INT64
+    if type_tag not in (0, 1, 2, 3, 4, 5, 10, 11):
         return None
     readers = {
+        0: _read_int8,
         1: _read_int8,
-        2: _read_int8,
+        2: _read_int16,
         3: _read_int16,
-        4: _read_int16,
+        4: _read_int32,
         5: _read_int32,
-        6: _read_int32,
+        10: _read_int64,
+        11: _read_int64,
     }
     reader = readers.get(type_tag)
     return reader(data, offset) if reader else None
@@ -261,8 +284,8 @@ def _parse_numeric_field(data: bytes, key: bytes | str) -> int | None:
     key_bytes = key.encode() if isinstance(key, str) else key
     target_key = key_bytes.decode("utf-8", errors="replace")
 
-    # GGUF v2/v3: 8 magic + 4 version + 8 num_tensors + 8 num_kv = 28 bytes
-    kv_start = 28
+    # GGUF v2/v3 header: 4 magic + 4 version + 8 num_tensors + 8 num_kv = 24 bytes
+    kv_start = 24
     if len(data) < kv_start:
         return None
 
@@ -289,6 +312,7 @@ def _extract_from_raw_bytes(
     model_path: str,
     prefix_cap_bytes: int,
     parse_timeout_s: float,
+    cancel_event: Event | None = None,
 ) -> GGUFMetadataRecord:
     """Extract metadata by parsing raw header bytes.
 
@@ -306,14 +330,34 @@ def _extract_from_raw_bytes(
     if version == 4:
         raise ValueError("GGUF v4 format not yet supported")
 
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError("parse cancelled")
+
     general_name = _parse_general_name(data)
     architecture = _parse_architecture(data)
     tokenizer_type = _parse_tokenizer_type(data)
-    embedding_length = _parse_numeric_field(data, b"embedding_length")
-    block_count = _parse_numeric_field(data, b"block_count")
-    context_length = _parse_numeric_field(data, b"context_length")
-    attention_head_count = _parse_numeric_field(data, b"attention_head_count")
-    attention_head_count_kv = _parse_numeric_field(data, b"attention_head_count_kv")
+    if architecture:
+        embedding_length = _parse_numeric_field(
+            data, Keys.LLM.EMBEDDING_LENGTH.format(arch=architecture)
+        )
+        block_count = _parse_numeric_field(
+            data, Keys.LLM.BLOCK_COUNT.format(arch=architecture)
+        )
+        context_length = _parse_numeric_field(
+            data, Keys.LLM.CONTEXT_LENGTH.format(arch=architecture)
+        )
+        attention_head_count = _parse_numeric_field(
+            data, Keys.Attention.HEAD_COUNT.format(arch=architecture)
+        )
+        attention_head_count_kv = _parse_numeric_field(
+            data, Keys.Attention.HEAD_COUNT_KV.format(arch=architecture)
+        )
+    else:
+        embedding_length = None
+        block_count = None
+        context_length = None
+        attention_head_count = None
+        attention_head_count_kv = None
 
     stem = Path(model_path).stem
     normalized_stem = normalize_filename(stem)

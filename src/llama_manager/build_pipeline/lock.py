@@ -7,7 +7,7 @@ import os
 import time
 from pathlib import Path
 
-from ..common.file_ops import atomic_exclusive_create_json
+from ..common.file_ops import atomic_exclusive_create_json, atomic_write_json
 from .models import BuildLock
 
 logger = logging.getLogger(__name__)
@@ -32,36 +32,36 @@ def acquire_lock(lock_path: Path, backend: str, *, dry_run: bool = False) -> boo
 
     logger.info("[lock] acquiring lock at %s", lock_path)
 
+    # Ensure parent directory exists
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    lock_data = {
+        "pid": os.getpid(),
+        "started_at": time.time(),
+        "backend": backend,
+    }
+
     try:
-        # Check for stale lock and attempt cleanup (race-tolerant)
-        if is_lock_stale(lock_path):
-            logger.warning("[lock] attempting to remove stale lock at %s", lock_path)
-            try:
-                lock_path.unlink()
-            except FileNotFoundError:
-                pass  # Another process already removed it
-            except OSError as e:
-                logger.debug("[lock] stale lock cleanup failed: %s", e)
-
-        # Ensure parent directory exists
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Atomic lock acquisition using O_EXCL — fails if file already exists.
-        lock_data = {
-            "pid": os.getpid(),
-            "started_at": time.time(),
-            "backend": backend,
-        }
+        # Primary path: atomic exclusive create — fails immediately if file exists.
         atomic_exclusive_create_json(lock_path, lock_data)
-
         logger.info("[lock] acquired for backend=%s pid=%s", backend, os.getpid())
         return True
+    except FileExistsError:
+        pass
 
+    # Lock file exists; check whether it is stale.
+    if not is_lock_stale(lock_path):
+        logger.error("[lock] already held by another process: %s", lock_path)
+        return False
+
+    # Stale lock: replace atomically so we never delete-then-create (TOCTOU fix).
+    logger.warning("[lock] replacing stale lock at %s", lock_path)
+    try:
+        atomic_write_json(lock_path, lock_data)
+        logger.info("[lock] acquired (replaced stale) for backend=%s pid=%s", backend, os.getpid())
+        return True
     except OSError as e:
-        if isinstance(e, FileExistsError):
-            logger.error("[lock] already held by another process: %s", lock_path)
-        else:
-            logger.error("[lock] failed to acquire: %s", e)
+        logger.error("[lock] failed to replace stale lock: %s", e)
         return False
 
 

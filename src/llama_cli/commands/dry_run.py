@@ -18,7 +18,11 @@ from llama_manager import (
     validate_server_config,
     write_artifact,
 )
-from llama_manager.config import create_default_profile_registry, resolve_run_group_configs
+from llama_manager.config import (
+    RunProfileRegistry,
+    create_default_profile_registry,
+    resolve_run_group_configs,
+)
 from llama_manager.server import detect_risky_operations
 
 RISK_ACK_LABEL = "warning_bypass"
@@ -152,14 +156,14 @@ def _build_payload(
     return False
 
 
-def _print_dry_run_header(mode: str, cfg: Config) -> None:
+def _print_dry_run_header(mode: str, cfg: Config, registry: RunProfileRegistry) -> None:
     """Print dry-run mode header information.
 
     Args:
         mode: The dry-run mode being executed.
         cfg: Config instance with model paths and binary locations.
+        registry: Pre-built profile registry.
     """
-    registry = create_default_profile_registry(cfg)
     print("=== DRY RUN MODE ===")
     print(f"Mode: {mode}")
     print(f"llama-server (Intel): {cfg.llama_server_bin_intel}")
@@ -184,20 +188,18 @@ def _parse_port_overrides(primary_port: str | None, secondary_port: str | None) 
     return tuple(overrides)
 
 
-def _slot_ids_for_group(mode: str, cfg: Config) -> tuple[str, ...]:
+def _slot_ids_for_group(mode: str, registry: RunProfileRegistry) -> tuple[str, ...]:
     """Return profile identifiers for the dry-run group in launch order."""
-    registry = create_default_profile_registry(cfg)
     return registry.get_run_group(mode).profile_ids
 
 
 def _resolve_dry_run_configs(
     mode: str,
-    cfg: Config,
+    registry: RunProfileRegistry,
     primary_port: str | None,
     secondary_port: str | None,
 ) -> list[ServerConfig]:
     """Resolve dry-run configs through the profile registry."""
-    registry = create_default_profile_registry(cfg)
     if mode not in registry.run_group_ids:
         allowed_modes = ", ".join(registry.run_group_ids)
         print(
@@ -243,10 +245,11 @@ def _run_registry_mode(
     secondary_port: str | None,
     acknowledged: bool,
     slot_payloads: list[DryRunSlotPayload],
+    registry: RunProfileRegistry,
 ) -> bool:
     """Resolve and print any run group through the profile registry."""
-    configs = _resolve_dry_run_configs(mode, cfg, primary_port, secondary_port)
-    slot_ids = _slot_ids_for_group(mode, cfg)
+    configs = _resolve_dry_run_configs(mode, registry, primary_port, secondary_port)
+    slot_ids = _slot_ids_for_group(mode, registry)
     _verify_dry_run_risks(manager, configs, acknowledged)
 
     has_error = False
@@ -308,8 +311,9 @@ def dry_run(
 ) -> None:
     """Print command without executing."""
     cfg = Config()
+    registry = create_default_profile_registry(cfg)
 
-    _print_dry_run_header(mode, cfg)
+    _print_dry_run_header(mode, cfg, registry)
 
     slot_payloads: list[DryRunSlotPayload] = []
     manager = ServerManager()
@@ -323,6 +327,7 @@ def dry_run(
             secondary_port,
             acknowledged,
             slot_payloads,
+            registry,
         )
 
         if not has_error:

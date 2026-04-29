@@ -453,8 +453,8 @@ class TestGracefulShutdownKeyHandler:
 
         # Messages should be in the buffer
         assert len(app._status_messages) == 2
-        assert "test message 1" in app._status_messages
-        assert "test message 2" in app._status_messages
+        assert any(msg == "test message 1" for _, msg in app._status_messages)
+        assert any(msg == "test message 2" for _, msg in app._status_messages)
 
     def test_push_status_message_limited_to_five(self) -> None:
         """_push_status_message should keep at most 5 messages."""
@@ -493,7 +493,7 @@ class TestGracefulShutdownKeyHandler:
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         app.handle_keypress("r")
         assert app._keypress_queue.empty()
-        assert any("refreshed" in msg.lower() for msg in app._status_messages)
+        assert any("refreshed" in msg.lower() for _, msg in app._status_messages)
 
     def test_abort_profile(self) -> None:
         """_abort_profile should cancel any running profile."""
@@ -650,7 +650,7 @@ class TestProcessKeypressesDispatch:
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
         app._keypress_queue.put("r")
         app._process_keypresses()
-        assert any("refreshed" in msg.lower() for msg in app._status_messages)
+        assert any("refreshed" in msg.lower() for _, msg in app._status_messages)
 
     def test_risk_panel_blocks_normal_keys(self) -> None:
         """_process_keypresses should not dispatch normal keys when risk panel is active."""
@@ -662,4 +662,4 @@ class TestProcessKeypressesDispatch:
         app._process_keypresses()
         # 'r' is not a risk action key; with risk panel active it should be
         # consumed without triggering a refresh.
-        assert not any("refreshed" in msg.lower() for msg in app._status_messages)
+        assert not any("refreshed" in msg.lower() for _, msg in app._status_messages)

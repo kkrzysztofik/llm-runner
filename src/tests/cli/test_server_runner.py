@@ -20,6 +20,7 @@ import pytest
 from llama_cli.server_runner import (
     _build_target_configs,
     _normalize_main_args,
+    _print_validation_error,
     _resolve_port,
     _run_dry_run_mode,
 )
@@ -244,8 +245,6 @@ class TestPrintValidationError:
             how_to_fix="use port between 1 and 65535",
         )
         with pytest.raises(SystemExit) as exc_info:
-            from llama_cli.server_runner import _print_validation_error
-
             _print_validation_error(error)
         assert exc_info.value.code == 1
 
@@ -260,8 +259,6 @@ class TestPrintValidationError:
             how_to_fix="download model to specified path",
         )
         with pytest.raises(SystemExit):
-            from llama_cli.server_runner import _print_validation_error
-
             _print_validation_error(error)
 
         captured = capsys.readouterr()
@@ -305,8 +302,6 @@ class TestPrintValidationError:
             how_to_fix="download model",
         )
         with pytest.raises(SystemExit):
-            from llama_cli.server_runner import _print_validation_error
-
             _print_validation_error(error)
 
         captured = capsys.readouterr()
@@ -323,8 +318,6 @@ class TestPrintValidationError:
             how_to_fix="use valid port",
         )
         with pytest.raises(SystemExit):
-            from llama_cli.server_runner import _print_validation_error
-
             _print_validation_error(error)
 
         captured = capsys.readouterr()
@@ -341,8 +334,6 @@ class TestPrintValidationError:
             how_to_fix="use port between 1 and 65535",
         )
         with pytest.raises(SystemExit):
-            from llama_cli.server_runner import _print_validation_error
-
             _print_validation_error(error)
 
         captured = capsys.readouterr()

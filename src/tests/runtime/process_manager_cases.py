@@ -1732,16 +1732,14 @@ class TestRedactSensitiveValues:
         assert result == "normal text with no secrets"
 
     def test_safe_text_with_word_containing_key(self) -> None:
-        """Text containing a word that has KEY as substring — fallback pattern
-        matches KEY as a standalone word inside it (pre-existing behavior)."""
+        """Words that contain KEY as a substring but are not standalone key identifiers
+        should not be redacted — e.g. 'nokey' is a plain word, not a secret."""
         from llama_manager.process_manager import _redact_sensitive
 
-        # The fallback key-name-only pattern uses \bKEY\b which matches
-        # KEY at the end of "nokey" (word boundary between 'e' and space).
-        # This is pre-existing behavior — the key=value pattern would not
-        # match "nokey" since there's no '=' sign.
+        # "nokey" contains KEY but is not an uppercase identifier with KEY as a
+        # boundary-aligned keyword — the tightened pattern no longer redacts it.
         result = _redact_sensitive("nokey is a word")
-        assert result == "[REDACTED] is a word"
+        assert result == "nokey is a word"
 
     def test_safe_text_with_word_containing_secret(self) -> None:
         """Text containing a word that has SECRET as substring should not match."""

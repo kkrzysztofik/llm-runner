@@ -3,6 +3,7 @@
 import os
 from contextlib import suppress
 from pathlib import Path
+from threading import Event
 
 from gguf.constants import Keys
 from gguf.gguf_reader import ReaderField
@@ -107,6 +108,7 @@ def _detect_tokenizer_type_from_reader(
 def _try_gguf_reader(
     model_path: str,
     prefix_cap_bytes: int,
+    cancel_event: Event | None = None,
 ) -> tuple[dict[str, ReaderField], int] | None:
     """Try to read GGUF file using the gguf library's GGUFReader.
 
@@ -145,6 +147,9 @@ def _try_gguf_reader(
                 capped_fd = None
             return None
 
+        if cancel_event is not None and cancel_event.is_set():
+            return None
+
         reader = gguf.GGUFReader(capped_path, mode="r")
         fields = dict(reader.fields)
 
@@ -173,6 +178,7 @@ def _extract_from_gguf_reader(
     fields: dict[str, ReaderField],
     parse_timeout_s: float,
     prefix_cap_bytes: int,
+    cancel_event: Event | None = None,
 ) -> GGUFMetadataRecord:
     """Extract metadata using GGUFReader fields dict.
 
@@ -188,6 +194,10 @@ def _extract_from_gguf_reader(
     """
     general_name = _extract_field_from_reader(fields, Keys.General.NAME)
     architecture = _extract_architecture_from_reader(fields)
+
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError("parse cancelled")
+
     tokenizer_type = _detect_tokenizer_type_from_reader(fields)
 
     if architecture:

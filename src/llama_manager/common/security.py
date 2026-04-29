@@ -21,8 +21,11 @@ REDACTED_VALUE: Final[str] = "[REDACTED]"
 
 # Matches a sensitive keyword appearing anywhere inside a key *name*.
 # Used for per-variable checks (is the key itself sensitive?).
+# Requires the keyword to be at a word boundary that is not preceded or
+# followed by an uppercase letter or digit, so "MONKEY" (which contains "KEY"
+# as a trailing substring) is not matched while "OPENAI_API_KEY_1" is.
 SENSITIVE_KEY_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"KEY|TOKEN|SECRET|PASSWORD|AUTH",
+    r"(?<![A-Z0-9])(?:KEY|TOKEN|SECRET|PASSWORD|AUTH(?:_HEADER)?)(?:_[0-9A-Z]+)*(?![A-Z0-9])",
     re.IGNORECASE,
 )
 
@@ -31,21 +34,22 @@ SENSITIVE_KEY_PATTERN: Final[re.Pattern[str]] = re.compile(
 # in process_manager for the fuller quoted-value and bearer-token handling.
 # AUTH_HEADER is listed before AUTH so the longer token wins in alternation.
 SENSITIVE_WORD_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\b\s*=\s*\S+",
+    r"(?i)\b[A-Z0-9_]*(?<![A-Z0-9])(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)(?:_[0-9A-Z]+)*(?![A-Z0-9])\s*=\s*\S+",
 )
 
 # Fallback: matches bare sensitive key names even without an assignment.
 # Used as a second pass after ``SENSITIVE_WORD_PATTERN`` to catch residual hits.
 SENSITIVE_KEY_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH|AUTH_HEADER)\b",
+    r"(?i)\b[A-Z0-9_]*(?<![A-Z0-9])(?:KEY|TOKEN|SECRET|PASSWORD|AUTH|AUTH_HEADER)(?:_[0-9A-Z]+)*(?![A-Z0-9])",
 )
 
 # Pattern for ``KEY=value`` pairs in log-stream lines.
 # Preserves the key name; only the value is replaced.
 # Handles both quoted values (e.g. API_KEY="ab c") and unquoted values (e.g. API_KEY=abc123).
+# Quoted branches accept backslash-escaped characters so e.g. "val\"ue" is fully captured.
 # Example: ``API_KEY=abc123`` → ``API_KEY=[REDACTED]``
 _LOG_SENSITIVE_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r'(\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH)[A-Z0-9_]*)=("[^"]*"|\'[^\']*\'|\S+)',
+    r'(\b[A-Z0-9_]*(?<![A-Z0-9])(?:KEY|TOKEN|SECRET|PASSWORD|AUTH)[A-Z0-9_]*)=("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|\S+)',
     re.IGNORECASE,
 )
 

@@ -88,7 +88,7 @@ profile lookup → port override → validation → launch.
 | `both`   | `summary-balanced` + `qwen35`   | Summary on SYCL, coding on CUDA      |
 
 The registry is extensible — new profiles and groups are added in
-`config_builder.py` and automatically appear in CLI help, dry-run output,
+`llama_manager/config/builder.py` and automatically appear in CLI help, dry-run output,
 and the TUI.
 
 ### Launch modes
