@@ -237,22 +237,6 @@ def sort_validation_errors(
     return sorted(results, key=sort_key)
 
 
-def redact_sensitive(env_value: str, env_key: str) -> str:
-    """FR-007: Redact sensitive environment variable values.
-
-    Delegates to :func:`llama_manager.common.security.redact_env_value`.
-
-    Args:
-        env_value: The environment variable value to potentially redact.
-        env_key: The environment variable key/name to check.
-
-    Returns:
-        ``"[REDACTED]"`` if the key matches a sensitive pattern, otherwise
-        *env_value* unchanged.
-    """
-    return redact_env_value(env_value, env_key)
-
-
 def validate_backend_eligibility(backend: str) -> ErrorDetail | None:
     """FR-011: Validate backend eligibility for M1 launch.
 
@@ -673,13 +657,13 @@ def _build_environment_redacted() -> dict[str, str]:
     # First add the standard environment variables
     for key in env_vars_to_check:
         value = os.environ.get(key, "")
-        result[key] = redact_sensitive(value, key)
+        result[key] = redact_env_value(value, key)
 
     # Also include any additional environment variables from os.environ
     # that aren't already in the result, with sensitive values redacted
     for key, value in os.environ.items():
         if key not in result:
-            result[key] = redact_sensitive(value, key)
+            result[key] = redact_env_value(value, key)
 
     return result
 

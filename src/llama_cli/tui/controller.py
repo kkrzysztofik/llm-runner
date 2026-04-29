@@ -228,12 +228,12 @@ class TUIApp:
         self.status_panel = build_status_panel(launch_result)
 
     def _build_risk_panel_required(self, kind: str = "hardware") -> None:
-        self.risk_panel = build_risk_panel_required(kind)
+        self.risk_panel = build_risk_panel_required()
         self.risks_acknowledged = False
         self.active_risk_kind = kind
 
     def _build_risk_panel_acknowledged(self, kind: str = "hardware") -> None:
-        self.risk_panel = build_risk_panel_acknowledged(kind)
+        self.risk_panel = build_risk_panel_acknowledged()
         self.risks_acknowledged = True
         self.active_risk_kind = kind
 
@@ -311,7 +311,16 @@ class TUIApp:
 
     def handle_keypress(self, key: str) -> None:
         """Handle a Textual key event through the existing state machine."""
-        self._keypress_queue.put(key)
+        _KEY_MAP = {
+            "return": "\n",
+            "escape": "\x1b",
+            "backspace": "\x7f",
+            "ctrl+c": "^C",
+            "ctrl+C": "^C",
+            "ctrl_c": "^C",
+            "tab": "\t",
+        }
+        self._keypress_queue.put(_KEY_MAP.get(key, key))
         self._process_keypresses()
 
     def _handle_profile_key(self, key: str) -> bool:
@@ -481,7 +490,7 @@ class TUIApp:
                 continue
 
             # Handle backspace
-            if key == "\x7f" or key == "\b":
+            if key in {"\x7f", "\b"}:
                 current_value = self._slot_config_values.get(slot_id, {}).get(current_field, "")
                 if current_value:
                     self._slot_config_values[slot_id][current_field] = current_value[:-1]
@@ -500,43 +509,7 @@ class TUIApp:
         if current_field is None:
             return
 
-        # Validate current field before advancing
-        if current_field == "port":
-            try:
-                port = int(values.get("port", ""))
-                if port < 1024 or port > 65535:
-                    self._push_status_message(f"Invalid port {port}, using 8080")
-                    values["port"] = "8080"
-            except ValueError:
-                self._push_status_message("Invalid port, using 8080")
-                values["port"] = "8080"
-        elif current_field == "threads":
-            try:
-                threads = int(values.get("threads", ""))
-                if threads < 1:
-                    self._push_status_message("Invalid threads, using 4")
-                    values["threads"] = "4"
-            except ValueError:
-                self._push_status_message("Invalid threads, using 4")
-                values["threads"] = "4"
-        elif current_field == "ctx_size":
-            try:
-                ctx_size = int(values.get("ctx_size", ""))
-                if ctx_size < 512:
-                    self._push_status_message("Invalid ctx_size, using 2048")
-                    values["ctx_size"] = "2048"
-            except ValueError:
-                self._push_status_message("Invalid ctx_size, using 2048")
-                values["ctx_size"] = "2048"
-        elif current_field == "backend":
-            backend = values.get("backend", "").lower()
-            if backend not in ("cuda", "sycl"):
-                self._push_status_message("Invalid backend, using sycl")
-                values["backend"] = "sycl"
-            else:
-                values["backend"] = backend
-        elif current_field == "model" and not values.get("model", "").strip():
-            self._push_status_message("Model path required")
+        if not self._validate_slot_field(current_field, values):
             return
 
         # Find next field
@@ -554,6 +527,67 @@ class TUIApp:
                 self._finalize_slot_config(slot_id)
         except ValueError:
             self._cancel_slot_config(slot_id)
+
+    def _validate_slot_field(self, current_field: str, values: dict[str, str]) -> bool:
+        """Validate and normalise the current slot config field.
+
+        Returns ``False`` if the caller should abort advancing (e.g. model
+        path is empty).
+        """
+        if current_field == "port":
+            self._normalize_slot_port(values)
+        elif current_field == "threads":
+            self._normalize_slot_threads(values)
+        elif current_field == "ctx_size":
+            self._normalize_slot_ctx_size(values)
+        elif current_field == "backend":
+            self._normalize_slot_backend(values)
+        elif current_field == "model" and not values.get("model", "").strip():
+            self._push_status_message("Model path required")
+            return False
+        return True
+
+    def _normalize_slot_port(self, values: dict[str, str]) -> None:
+        """Validate and normalise the port field, falling back to 8080."""
+        try:
+            port = int(values.get("port", ""))
+            if port < 1024 or port > 65535:
+                self._push_status_message(f"Invalid port {port}, using 8080")
+                values["port"] = "8080"
+        except ValueError:
+            self._push_status_message("Invalid port, using 8080")
+            values["port"] = "8080"
+
+    def _normalize_slot_threads(self, values: dict[str, str]) -> None:
+        """Validate and normalise the threads field, falling back to 4."""
+        try:
+            threads = int(values.get("threads", ""))
+            if threads < 1:
+                self._push_status_message("Invalid threads, using 4")
+                values["threads"] = "4"
+        except ValueError:
+            self._push_status_message("Invalid threads, using 4")
+            values["threads"] = "4"
+
+    def _normalize_slot_ctx_size(self, values: dict[str, str]) -> None:
+        """Validate and normalise the ctx_size field, falling back to 2048."""
+        try:
+            ctx_size = int(values.get("ctx_size", ""))
+            if ctx_size < 512:
+                self._push_status_message("Invalid ctx_size, using 2048")
+                values["ctx_size"] = "2048"
+        except ValueError:
+            self._push_status_message("Invalid ctx_size, using 2048")
+            values["ctx_size"] = "2048"
+
+    def _normalize_slot_backend(self, values: dict[str, str]) -> None:
+        """Validate and normalise the backend field, falling back to sycl."""
+        backend = values.get("backend", "").lower()
+        if backend not in ("cuda", "sycl"):
+            self._push_status_message("Invalid backend, using sycl")
+            values["backend"] = "sycl"
+        else:
+            values["backend"] = backend
 
     def _finalize_slot_config(self, slot_id: str) -> None:
         """Create the slot from collected configuration values."""
@@ -1009,17 +1043,10 @@ class TUIApp:
                 continue
 
             # Apply profile overrides via merge_config_overrides.
-            # override_dict captures the current slot's runtime settings so they
-            # take precedence over profile_overrides — i.e. user-visible params
-            # (threads, ctx_size, ubatch_size, cache types) come from the slot,
-            # while profile_config can fill in any values not present in override_dict.
-            override_dict = {
-                "threads": cfg.threads,
-                "ctx_size": cfg.ctx_size,
-                "ubatch_size": cfg.ubatch_size,
-                "cache_type_k": cfg.cache_type_k,
-                "cache_type_v": cfg.cache_type_v,
-            }
+            # Pass an empty override_dict so profile_overrides take full effect;
+            # identity fields (model, alias, device, port, backend, etc.) are
+            # restored explicitly below.
+            override_dict: dict[str, object] = {}
 
             merged = merge_config_overrides(
                 defaults=self.config,

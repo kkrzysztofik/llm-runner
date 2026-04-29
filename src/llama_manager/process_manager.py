@@ -59,6 +59,7 @@ INDETERMINATE_OWNER_MESSAGE: Final[str] = (
 INDETERMINATE_OWNER_FIX: Final[str] = (
     "verify owning process and clear lock only after confirmed stale ownership"
 )
+MAX_COLLISION_RETRIES: Final[int] = 10
 
 
 @dataclass
@@ -616,8 +617,7 @@ def write_artifact(runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload
     # Use O_EXCL exclusive-create to avoid TOCTOU race: two concurrent writers
     # would each try to claim the same path; the loser gets FileExistsError and
     # increments the suffix counter until it wins.
-    _MAX_COLLISION_RETRIES = 10
-    for attempt in range(_MAX_COLLISION_RETRIES):
+    for attempt in range(MAX_COLLISION_RETRIES):
         suffix = f"-{attempt}" if attempt > 0 else ""
         artifact_path = artifact_dir / f"artifact-{timestamp_filename}{suffix}.json"
         try:
@@ -639,7 +639,7 @@ def write_artifact(runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload
             ) from e
 
     raise _artifact_error(
-        f"artifact: failed to create unique file after {_MAX_COLLISION_RETRIES} attempts",
+        f"artifact: failed to create unique file after {MAX_COLLISION_RETRIES} attempts",
         PERMISSION_SUPPORT_HINT,
     )
 

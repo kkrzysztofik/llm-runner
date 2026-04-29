@@ -22,7 +22,11 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, Mock, patch
+
+if TYPE_CHECKING:
+    from llama_manager.build_pipeline._context import _BuildContext
 
 from llama_manager.build_pipeline import (
     BuildArtifact,
@@ -102,7 +106,7 @@ class TestNoAutobuildOnLaunch:
         # Mock all stages to verify they are NOT called when sources exist
         mock_artifact = BuildArtifact(
             artifact_type="llama-server",
-            backend="sycl",
+            backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123",
@@ -202,7 +206,7 @@ class TestSerializedBuildOrder:
 
         mock_artifact = BuildArtifact(
             artifact_type="llama-server",
-            backend="sycl",
+            backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123",
@@ -326,7 +330,7 @@ class TestBuildLockPIDValidation:
         lock_data = BuildLock(
             pid=stale_pid,
             started_at=time.time(),
-            backend="sycl",
+            backend=BuildBackend.SYCL,
         )
         lock_file.write_text(
             json.dumps(
@@ -877,7 +881,7 @@ class TestProvenanceAtomicWrite:
         # Create artifact
         artifact = BuildArtifact(
             artifact_type="llama-server",
-            backend="sycl",
+            backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url=config.git_remote_url,
             git_commit_sha="abc123",
@@ -934,7 +938,7 @@ class TestProvenanceFailureWarning:
         # Create artifact
         artifact = BuildArtifact(
             artifact_type="llama-server",
-            backend="sycl",
+            backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url=config.git_remote_url,
             git_commit_sha="abc123",
@@ -1005,7 +1009,7 @@ class TestDryRunMode:
 
         mock_artifact = BuildArtifact(
             artifact_type="llama-server",
-            backend="sycl",
+            backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123",
@@ -1472,3 +1476,133 @@ class TestDryRunToolchainValidation:
             assert progress.status == "failed"
             assert "Missing SYCL tools" in progress.message
             assert "icpx" in progress.message
+
+
+class TestRunFinalize:
+    """Tests for the run_finalize stage function."""
+
+    def _make_ctx(self, tmp_path: Path, dry_run: bool = False) -> "_BuildContext":
+        from llama_manager.build_pipeline._context import _BuildContext
+
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+        )
+        return _BuildContext(config=config, dry_run=dry_run, build_start_time=0.0)
+
+    def _make_success_progress(self) -> BuildProgress:
+        return BuildProgress(stage="build", status="success", message="build ok", progress_percent=100.0)
+
+    def test_returns_none_when_build_incomplete(self, tmp_path: Path) -> None:
+        from llama_manager.build_pipeline.stages.finalize import run_finalize
+
+        ctx = self._make_ctx(tmp_path)
+        # "running" status makes is_complete False
+        progress = BuildProgress(stage="build", status="running", message="ok", progress_percent=50.0)
+        result = run_finalize(ctx, progress)
+        assert result is None
+
+    def test_returns_none_when_status_not_success(self, tmp_path: Path) -> None:
+        from llama_manager.build_pipeline.stages.finalize import run_finalize
+
+        ctx = self._make_ctx(tmp_path)
+        progress = BuildProgress(stage="build", status="failed", message="error", progress_percent=0.0)
+        result = run_finalize(ctx, progress)
+        assert result is None
+
+    def test_returns_artifact_with_dry_run_skips_git(self, tmp_path: Path) -> None:
+        from llama_manager.build_pipeline.stages.finalize import run_finalize
+
+        ctx = self._make_ctx(tmp_path, dry_run=True)
+        progress = self._make_success_progress()
+        ctx.config.output_dir.mkdir(parents=True, exist_ok=True)
+
+        result = run_finalize(ctx, progress)
+
+        assert result is not None
+        assert result.exit_code == 0
+        assert result.git_commit_sha == "unknown"
+
+    def test_returns_artifact_when_binary_found(self, tmp_path: Path) -> None:
+        from llama_manager.build_pipeline.stages.finalize import run_finalize
+
+        ctx = self._make_ctx(tmp_path, dry_run=True)
+        progress = self._make_success_progress()
+
+        # Create fake binary
+        bin_dir = ctx.config.build_dir / "bin"
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        binary = bin_dir / "llama-server"
+        binary.write_bytes(b"fake binary")
+
+        ctx.config.output_dir.mkdir(parents=True, exist_ok=True)
+        result = run_finalize(ctx, progress)
+
+        assert result is not None
+        assert result.binary_path == binary
+        assert result.binary_size_bytes == len(b"fake binary")
+
+    def test_returns_artifact_when_bin_dir_missing(self, tmp_path: Path) -> None:
+        from llama_manager.build_pipeline.stages.finalize import run_finalize
+
+        ctx = self._make_ctx(tmp_path, dry_run=True)
+        progress = self._make_success_progress()
+        ctx.config.output_dir.mkdir(parents=True, exist_ok=True)
+
+        result = run_finalize(ctx, progress)
+
+        assert result is not None
+        assert result.binary_path is None
+
+    def test_returns_artifact_when_binary_missing_from_bin_dir(self, tmp_path: Path) -> None:
+        from llama_manager.build_pipeline.stages.finalize import run_finalize
+
+        ctx = self._make_ctx(tmp_path, dry_run=True)
+        progress = self._make_success_progress()
+
+        # Create bin dir but no binary
+        bin_dir = ctx.config.build_dir / "bin"
+        bin_dir.mkdir(parents=True, exist_ok=True)
+
+        ctx.config.output_dir.mkdir(parents=True, exist_ok=True)
+        result = run_finalize(ctx, progress)
+
+        assert result is not None
+        assert result.binary_path is None
+
+    def test_git_commit_extracted_when_available(self, tmp_path: Path) -> None:
+        from llama_manager.build_pipeline.stages.finalize import run_finalize
+
+        ctx = self._make_ctx(tmp_path, dry_run=False)
+        progress = self._make_success_progress()
+        ctx.config.output_dir.mkdir(parents=True, exist_ok=True)
+
+        fake_sha = "abc123def456"
+        mock_result = MagicMock()
+        mock_result.stdout = f"{fake_sha}\n"
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = run_finalize(ctx, progress)
+
+        assert result is not None
+        assert result.git_commit_sha == fake_sha
+
+    def test_returns_none_when_provenance_write_fails(self, tmp_path: Path) -> None:
+        from llama_manager.build_pipeline.stages.finalize import run_finalize
+
+        ctx = self._make_ctx(tmp_path, dry_run=True)
+        progress = self._make_success_progress()
+        ctx.config.output_dir.mkdir(parents=True, exist_ok=True)
+
+        with patch(
+            "llama_manager.build_pipeline.stages.finalize.write_provenance",
+            return_value=False,
+        ):
+            result = run_finalize(ctx, progress)
+
+        assert result is None

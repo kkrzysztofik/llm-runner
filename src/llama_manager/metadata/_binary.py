@@ -158,10 +158,32 @@ def _read_int32(data: bytes, offset: int) -> int | None:
     return val - 4294967296 if val > 2147483647 else val
 
 
-def _skip_non_integer_type(_data: bytes, offset: int, type_tag: int) -> int:
+def _skip_non_integer_type(data: bytes, offset: int, type_tag: int) -> int:
     """Skip non-integer GGUF types, return new offset."""
-    skip_sizes = {7: 2, 8: 4, 9: 8}  # f16, f32, f64
-    return offset + skip_sizes.get(type_tag, 0)
+    # GGUF type tags: 7=BOOL (1 byte), 8=STRING (8-byte length + data), 9=ARRAY (complex)
+    if type_tag == 7:  # BOOL
+        return offset + 1
+    if type_tag == 8:  # STRING: 8-byte little-endian length prefix + data
+        if offset + 8 > len(data):
+            return offset
+        str_len = int.from_bytes(data[offset : offset + 8], "little")
+        return offset + 8 + str_len
+    if type_tag == 9:  # ARRAY: 1-byte elem type + 8-byte count + elements
+        if offset + 9 > len(data):
+            return offset
+        elem_type = data[offset]
+        elem_count = int.from_bytes(data[offset + 1 : offset + 9], "little")
+        offset += 9
+        for _ in range(elem_count):
+            if elem_type in (1, 2, 3, 4, 5, 6):
+                # Integer types: advance by fixed sizes
+                int_sizes = {1: 1, 2: 1, 3: 2, 4: 2, 5: 4, 6: 4}
+                offset += int_sizes.get(elem_type, 0)
+            else:
+                offset = _skip_non_integer_type(data, offset, elem_type)
+        return offset
+    # Unknown type — cannot safely skip
+    return offset
 
 
 def _read_key(data: bytes, offset: int) -> tuple[int, str | None]:
@@ -195,7 +217,7 @@ def _skip_record(data: bytes, offset: int) -> int:
         return offset + 2
     if type_tag in (5, 6):
         return offset + 4
-    if type_tag == 6:  # string
+    if type_tag == 8:  # string (GGUF_TYPE_STRING)
         if offset + 4 > len(data):
             return offset
         str_len = int.from_bytes(data[offset : offset + 4], "little")

@@ -18,6 +18,7 @@ class TextualDashboardApp(App[None]):
     """Textual shell for the llm-runner dashboard."""
 
     TITLE = "llm-runner"
+    _LEFT_PANEL_ID = "#left"
     CSS = """
     Screen {
         layout: vertical;
@@ -145,10 +146,10 @@ class TextualDashboardApp(App[None]):
 
         self.query_one("#alerts", Static).update(snapshot.alerts)
         if snapshot.left is not None:
-            self.query_one("#left", Static).display = True
-            self.query_one("#left", Static).update(snapshot.left)
+            self.query_one(self._LEFT_PANEL_ID, Static).display = True
+            self.query_one(self._LEFT_PANEL_ID, Static).update(snapshot.left)
         else:
-            self.query_one("#left", Static).display = False
+            self.query_one(self._LEFT_PANEL_ID, Static).display = False
         self.query_one("#right", Static).update(snapshot.right)
         self.query_one("#menu", Static).update(snapshot.menu)
 

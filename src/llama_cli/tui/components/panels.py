@@ -86,7 +86,13 @@ def build_slot_section(
     status = state
     if state == SlotState.RUNNING.value:
         proc = server_processes.get(alias)
-        if not proc or not (proc.pid and psutil.pid_exists(proc.pid)):
+        if not proc:
+            status = SlotState.CRASHED.value
+        elif hasattr(proc, "poll"):
+            # subprocess.Popen — poll() returns None while running
+            if proc.poll() is not None:
+                status = SlotState.CRASHED.value
+        elif not (proc.pid and psutil.pid_exists(proc.pid)):
             status = SlotState.CRASHED.value
 
     backend_label = BACKEND_LABELS.get(cfg.backend, BACKEND_LABELS["llama_cpp"])

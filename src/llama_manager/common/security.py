@@ -45,7 +45,7 @@ SENSITIVE_KEY_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(
 # Handles both quoted values (e.g. API_KEY="ab c") and unquoted values (e.g. API_KEY=abc123).
 # Example: ``API_KEY=abc123`` → ``API_KEY=[REDACTED]``
 _LOG_SENSITIVE_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r'(\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH)[A-Z0-9_]*)=("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|\S+)',
+    r'(\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH)[A-Z0-9_]*)=("[^"]*"|\'[^\']*\'|\S+)',
     re.IGNORECASE,
 )
 

@@ -276,7 +276,7 @@ class TestFR003SlotConfigurationSequenceConsistency:
 
     def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
         """Create ServerConfig for testing."""
-        return _regression_cfg(**kwargs)
+        return _regression_cfg(**{"alias": slot_id, **kwargs})
 
     def test_error_slot_order_matches_dry_run_slot_order(self) -> None:
         """FR-003: Error slot sequence order must match dry-run payload slot order."""
@@ -385,7 +385,7 @@ class TestFR003FailedCheckAscendingTieBreak:
 
     def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
         """Create ServerConfig for testing."""
-        return _regression_cfg(**kwargs)
+        return _regression_cfg(**{"alias": slot_id, **kwargs})
 
     def test_failed_check_ascending_tiebreak_within_slot(self) -> None:
         """FR-003: failed_check should be sorted ascending within each slot."""
@@ -447,7 +447,7 @@ class TestFR003NewArtifactShapeAssertions:
 
     def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
         """Create ServerConfig for testing."""
-        return _regression_cfg(**kwargs)
+        return _regression_cfg(**{"alias": slot_id, **kwargs})
 
     def test_slot_scope_is_list_of_strings(self) -> None:
         """FR-003: slot_scope must be a list of strings (slot IDs)."""

@@ -756,17 +756,39 @@ class TestBuildTuiModeConfigs:
     def test_build_tui_mode_configs_skips_disabled_groups(self) -> None:
         """_build_tui_mode_configs should skip groups with tui_enabled=False."""
         from llama_cli.server_runner import _build_tui_mode_configs
-        from llama_manager.config import Config
+        from llama_manager.config import Config, RunGroupSpec, RunProfileRegistry, RunProfileSpec
 
         cfg = Config()
-        parsed = argparse.Namespace(mode="both", port=None, port2=None)
-        result = _build_tui_mode_configs(cfg, parsed)
+        profile = RunProfileSpec(
+            profile_id="enabled",
+            model="/models/enabled.gguf",
+            alias="enabled-alias",
+            device="SYCL0",
+            port=8090,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+        )
+        registry = RunProfileRegistry(
+            profiles=(profile,),
+            run_groups=(
+                RunGroupSpec(group_id="enabled-group", profile_ids=("enabled",), tui_enabled=True),
+                RunGroupSpec(
+                    group_id="disabled-group", profile_ids=("enabled",), tui_enabled=False
+                ),
+            ),
+        )
+        parsed = argparse.Namespace(mode="enabled-group", port=None, port2=None)
 
-        # "disabled-group" is not a registered group — only real groups with
-        # tui_enabled=True should appear in the result.
+        with patch(
+            "llama_cli.server_runner.create_default_profile_registry", return_value=registry
+        ):
+            result = _build_tui_mode_configs(cfg, parsed)
+
+        # Groups with tui_enabled=False must be excluded
         assert "disabled-group" not in result
-        # Standard groups are present
-        assert "both" in result
+        # Groups with tui_enabled=True must be included
+        assert "enabled-group" in result
 
     def test_build_tui_mode_configs_with_port_overrides(self) -> None:
         """_build_tui_mode_configs should apply port overrides from parsed args."""

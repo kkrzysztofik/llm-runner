@@ -650,3 +650,264 @@ class TestBuildCommandMenu:
         menu = app._build_command_menu()
         text = menu.plain
         assert "Quit" not in text
+
+
+# =============================================================================
+# Slot config normalizer helpers
+# =============================================================================
+
+
+class TestNormalizeSlotPort:
+    """Tests for TUIApp._normalize_slot_port."""
+
+    def _make_app(self) -> TUIApp:
+        return TUIApp(configs=[_make_config()], gpu_indices=[0])
+
+    def test_valid_port_unchanged(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"port": "8080"}
+        app._normalize_slot_port(values)
+        assert values["port"] == "8080"
+
+    def test_port_below_range_resets_to_default(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"port": "80"}
+        app._normalize_slot_port(values)
+        assert values["port"] == "8080"
+
+    def test_port_above_range_resets_to_default(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"port": "99999"}
+        app._normalize_slot_port(values)
+        assert values["port"] == "8080"
+
+    def test_non_numeric_port_resets_to_default(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"port": "abc"}
+        app._normalize_slot_port(values)
+        assert values["port"] == "8080"
+
+    def test_empty_port_resets_to_default(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"port": ""}
+        app._normalize_slot_port(values)
+        assert values["port"] == "8080"
+
+
+class TestNormalizeSlotThreads:
+    """Tests for TUIApp._normalize_slot_threads."""
+
+    def _make_app(self) -> TUIApp:
+        return TUIApp(configs=[_make_config()], gpu_indices=[0])
+
+    def test_valid_threads_unchanged(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"threads": "4"}
+        app._normalize_slot_threads(values)
+        assert values["threads"] == "4"
+
+    def test_zero_threads_resets_to_default(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"threads": "0"}
+        app._normalize_slot_threads(values)
+        assert values["threads"] == "4"
+
+    def test_non_numeric_threads_resets_to_default(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"threads": "xyz"}
+        app._normalize_slot_threads(values)
+        assert values["threads"] == "4"
+
+
+class TestNormalizeSlotCtxSize:
+    """Tests for TUIApp._normalize_slot_ctx_size."""
+
+    def _make_app(self) -> TUIApp:
+        return TUIApp(configs=[_make_config()], gpu_indices=[0])
+
+    def test_valid_ctx_size_unchanged(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"ctx_size": "2048"}
+        app._normalize_slot_ctx_size(values)
+        assert values["ctx_size"] == "2048"
+
+    def test_small_ctx_size_resets_to_default(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"ctx_size": "256"}
+        app._normalize_slot_ctx_size(values)
+        assert values["ctx_size"] == "2048"
+
+    def test_non_numeric_ctx_size_resets_to_default(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"ctx_size": "big"}
+        app._normalize_slot_ctx_size(values)
+        assert values["ctx_size"] == "2048"
+
+
+class TestNormalizeSlotBackend:
+    """Tests for TUIApp._normalize_slot_backend."""
+
+    def _make_app(self) -> TUIApp:
+        return TUIApp(configs=[_make_config()], gpu_indices=[0])
+
+    def test_cuda_backend_accepted(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"backend": "CUDA"}
+        app._normalize_slot_backend(values)
+        assert values["backend"] == "cuda"
+
+    def test_sycl_backend_accepted(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"backend": "SYCL"}
+        app._normalize_slot_backend(values)
+        assert values["backend"] == "sycl"
+
+    def test_invalid_backend_resets_to_sycl(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"backend": "metal"}
+        app._normalize_slot_backend(values)
+        assert values["backend"] == "sycl"
+
+    def test_empty_backend_resets_to_sycl(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"backend": ""}
+        app._normalize_slot_backend(values)
+        assert values["backend"] == "sycl"
+
+
+class TestValidateSlotField:
+    """Tests for TUIApp._validate_slot_field."""
+
+    def _make_app(self) -> TUIApp:
+        return TUIApp(configs=[_make_config()], gpu_indices=[0])
+
+    def test_returns_true_for_valid_port(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"port": "8080"}
+        assert app._validate_slot_field("port", values) is True
+
+    def test_returns_true_for_valid_threads(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"threads": "4"}
+        assert app._validate_slot_field("threads", values) is True
+
+    def test_returns_true_for_valid_ctx_size(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"ctx_size": "2048"}
+        assert app._validate_slot_field("ctx_size", values) is True
+
+    def test_returns_true_for_valid_backend(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"backend": "cuda"}
+        assert app._validate_slot_field("backend", values) is True
+
+    def test_returns_false_for_empty_model(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"model": "  "}
+        assert app._validate_slot_field("model", values) is False
+
+    def test_returns_true_for_non_empty_model(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {"model": "/path/to/model.gguf"}
+        assert app._validate_slot_field("model", values) is True
+
+    def test_returns_true_for_unknown_field(self) -> None:
+        app = self._make_app()
+        values: dict[str, str] = {}
+        assert app._validate_slot_field("other_field", values) is True
+
+
+class TestAdvanceSlotConfigField:
+    """Tests for TUIApp._advance_slot_config_field."""
+
+    def _make_app(self) -> TUIApp:
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        app._slot_config_state["slot1"] = "model"
+        app._slot_config_values["slot1"] = {"model": "/path/to/model.gguf"}
+        return app
+
+    def test_advances_from_model_to_port(self) -> None:
+        app = self._make_app()
+        app._advance_slot_config_field("slot1")
+        assert app._slot_config_state.get("slot1") == "port"
+
+    def test_aborts_when_model_is_empty(self) -> None:
+        app = self._make_app()
+        app._slot_config_values["slot1"]["model"] = ""
+        app._advance_slot_config_field("slot1")
+        # State should not advance (still "model" since we can't continue)
+        assert app._slot_config_state.get("slot1") == "model"
+
+    def test_returns_early_when_field_is_none(self) -> None:
+        app = self._make_app()
+        app._slot_config_state["slot1"] = None  # type: ignore[assignment]
+        app._advance_slot_config_field("slot1")
+        # Should not crash
+
+    def test_finalizes_when_all_fields_complete(self) -> None:
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        app._slot_config_state["slot1"] = "ctx_size"
+        app._slot_config_values["slot1"] = {
+            "model": "/path/to/model.gguf",
+            "port": "8081",
+            "backend": "cuda",
+            "threads": "4",
+            "ctx_size": "2048",
+        }
+        app._advance_slot_config_field("slot1")
+        # slot1 should be removed from state (finalized)
+        assert "slot1" not in app._slot_config_state
+
+    def test_cancels_on_unknown_field(self) -> None:
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        app._slot_config_state["slot1"] = "nonexistent_field"
+        app._slot_config_values["slot1"] = {}
+        app._advance_slot_config_field("slot1")
+        # Should cancel (slot cleaned up)
+        assert "slot1" not in app._slot_config_state
+
+
+class TestProcessSlotConfigInput:
+    """Tests for TUIApp._process_slot_config_input."""
+
+    def _make_app_in_slot_config(self) -> TUIApp:
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        app._slot_config_state["slot1"] = "model"
+        app._slot_config_values["slot1"] = {}
+        return app
+
+    def test_enter_key_advances_field(self) -> None:
+        app = self._make_app_in_slot_config()
+        app._slot_config_values["slot1"]["model"] = "/path/to/model.gguf"
+        app._process_slot_config_input("\n")
+        assert app._slot_config_state.get("slot1") == "port"
+
+    def test_escape_key_cancels(self) -> None:
+        app = self._make_app_in_slot_config()
+        app._process_slot_config_input("\x1b")
+        assert "slot1" not in app._slot_config_state
+
+    def test_backspace_removes_last_char(self) -> None:
+        app = self._make_app_in_slot_config()
+        app._slot_config_values["slot1"]["model"] = "/path/to/model"
+        app._process_slot_config_input("\x7f")
+        assert app._slot_config_values["slot1"]["model"] == "/path/to/mode"
+
+    def test_backspace_on_empty_value_is_noop(self) -> None:
+        app = self._make_app_in_slot_config()
+        app._slot_config_values["slot1"]["model"] = ""
+        app._process_slot_config_input("\x7f")
+        assert app._slot_config_values["slot1"]["model"] == ""
+
+    def test_regular_char_appends_to_field(self) -> None:
+        app = self._make_app_in_slot_config()
+        app._process_slot_config_input("/")
+        app._process_slot_config_input("p")
+        assert app._slot_config_values["slot1"].get("model", "") == "/p"
+
+    def test_skips_slot_with_none_field(self) -> None:
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        app._slot_config_state["slot1"] = None  # type: ignore[assignment]
+        app._slot_config_values["slot1"] = {}
+        # Should not crash
+        app._process_slot_config_input("x")

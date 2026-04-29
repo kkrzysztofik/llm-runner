@@ -20,6 +20,7 @@ from llama_cli.commands.build import (
 )
 from llama_manager.build_pipeline import (
     BuildArtifact,
+    BuildBackend,
     BuildPipeline,
     BuildProgress,
     BuildResult,
@@ -146,7 +147,7 @@ class TestRunBuildCommand:
             success=success,
             artifact=BuildArtifact(
                 artifact_type="llama-server",
-                backend="sycl",
+                backend=BuildBackend.SYCL,
                 created_at=0.0,
                 git_remote_url="https://github.com/ggerganov/llama.cpp",
                 git_commit_sha="abc123",
@@ -231,7 +232,7 @@ class TestRunBuildCommand:
                 success=False,
                 artifact=BuildArtifact(
                     artifact_type="llama-server",
-                    backend="sycl",
+                    backend=BuildBackend.SYCL,
                     created_at=0.0,
                     git_remote_url="https://github.com/ggerganov/llama.cpp",
                     git_commit_sha="unknown",
@@ -311,7 +312,7 @@ class TestRunBuildCommand:
                 success=False,
                 artifact=BuildArtifact(
                     artifact_type="llama-server",
-                    backend="sycl",
+                    backend=BuildBackend.SYCL,
                     created_at=0.0,
                     git_remote_url="https://github.com/ggerganov/llama.cpp",
                     git_commit_sha="unknown",

@@ -116,7 +116,7 @@ class TestBuildArtifact:
         """BuildArtifact should have all fields settable and retrievable."""
         artifact = BuildArtifact(
             artifact_type="llama-server",
-            backend="sycl",
+            backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123def456",
@@ -147,7 +147,7 @@ class TestBuildArtifact:
         """BuildArtifact.is_success should return True when exit_code == 0."""
         artifact = BuildArtifact(
             artifact_type="llama-server",
-            backend="sycl",
+            backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123",
@@ -166,7 +166,7 @@ class TestBuildArtifact:
         """BuildArtifact.is_success should return False when exit_code != 0."""
         artifact = BuildArtifact(
             artifact_type="llama-server",
-            backend="sycl",
+            backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123",
@@ -185,7 +185,7 @@ class TestBuildArtifact:
         """BuildArtifact.binary_size_mb should calculate correctly (bytes to MB)."""
         artifact = BuildArtifact(
             artifact_type="llama-server",
-            backend="sycl",
+            backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123",
@@ -204,7 +204,7 @@ class TestBuildArtifact:
         """BuildArtifact.binary_size_mb should return None when binary_size_bytes is None."""
         artifact = BuildArtifact(
             artifact_type="llama-server",
-            backend="sycl",
+            backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123",
@@ -224,7 +224,7 @@ class TestBuildArtifact:
         now = time.time()
         artifact = BuildArtifact(
             artifact_type="llama-server",
-            backend="sycl",
+            backend=BuildBackend.SYCL,
             created_at=now,
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_commit_sha="abc123",
@@ -389,7 +389,7 @@ class TestBuildLock:
         lock = BuildLock(
             pid=12345,
             started_at=now,
-            backend="sycl",
+            backend=BuildBackend.SYCL,
         )
         assert lock.pid == 12345
         assert lock.started_at == now
@@ -400,7 +400,7 @@ class TestBuildLock:
         lock = BuildLock(
             pid=12345,
             started_at=time.time(),
-            backend="cuda",
+            backend=BuildBackend.CUDA,
         )
         assert isinstance(lock.pid, int)
 
@@ -411,7 +411,7 @@ class TestBuildLock:
         lock = BuildLock(
             pid=12345,
             started_at=thirty_seconds_ago,
-            backend="sycl",
+            backend=BuildBackend.SYCL,
         )
         elapsed = lock.elapsed_seconds
         # Allow small tolerance for execution time
@@ -422,7 +422,7 @@ class TestBuildLock:
         lock = BuildLock(
             pid=12345,
             started_at=time.time(),
-            backend="sycl",
+            backend=BuildBackend.SYCL,
         )
         elapsed = lock.elapsed_seconds
         assert elapsed < 0.1  # Should be nearly zero
@@ -434,7 +434,7 @@ class TestBuildLock:
         lock = BuildLock(
             pid=12345,
             started_at=two_hours_ago,
-            backend="sycl",
+            backend=BuildBackend.SYCL,
         )
         assert lock.is_stale() is True
 
@@ -445,7 +445,7 @@ class TestBuildLock:
         lock = BuildLock(
             pid=12345,
             started_at=thirty_minutes_ago,
-            backend="sycl",
+            backend=BuildBackend.SYCL,
         )
         assert lock.is_stale() is False
 
@@ -456,7 +456,7 @@ class TestBuildLock:
         lock = BuildLock(
             pid=12345,
             started_at=thirty_seconds_ago,
-            backend="sycl",
+            backend=BuildBackend.SYCL,
         )
         # Should not be stale with default 1 hour timeout
         assert lock.is_stale(3600) is False
@@ -479,7 +479,7 @@ class TestBuildLock:
         lock = BuildLock(
             pid=12345,
             started_at=time.time(),
-            backend="sycl",
+            backend=BuildBackend.SYCL,
         )
         # Should be able to create string representation
         lock_str = str(lock)

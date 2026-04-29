@@ -42,7 +42,7 @@ def run_clone(ctx: _BuildContext) -> BuildProgress:
         ctx.config.shallow_clone,
         ctx.config.source_dir,
     )
-    return _execute_clone(ctx, progress)
+    return _execute_clone(ctx, progress, source_existed_before_clone=False)
 
 
 def is_git_repo(source_dir: Path) -> bool:
@@ -76,7 +76,9 @@ def _handle_existing_source(ctx: _BuildContext, progress: BuildProgress) -> Buil
     return progress
 
 
-def _execute_clone(ctx: _BuildContext, progress: BuildProgress) -> BuildProgress:
+def _execute_clone(
+    ctx: _BuildContext, progress: BuildProgress, source_existed_before_clone: bool = False
+) -> BuildProgress:
     """Execute the git clone operation."""
     try:
         if ctx.dry_run:
@@ -121,15 +123,18 @@ def _execute_clone(ctx: _BuildContext, progress: BuildProgress) -> BuildProgress
                 return progress
 
     except subprocess.SubprocessError as e:
-        return _handle_clone_error(ctx, progress, e)
+        return _handle_clone_error(ctx, progress, e, source_existed_before_clone)
     except Exception as e:
-        return _handle_clone_error(ctx, progress, e)
+        return _handle_clone_error(ctx, progress, e, source_existed_before_clone)
 
     return progress
 
 
 def _handle_clone_error(
-    ctx: _BuildContext, progress: BuildProgress, error: Exception
+    ctx: _BuildContext,
+    progress: BuildProgress,
+    error: Exception,
+    source_existed_before_clone: bool = False,
 ) -> BuildProgress:
     """Handle clone failure with offline-continue support."""
     if source_exists(ctx.config.source_dir):
@@ -223,8 +228,39 @@ def _update_sources(ctx: _BuildContext, progress: BuildProgress) -> BuildProgres
             cwd=ctx.config.source_dir,
             capture_output=True,
             text=True,
-            check=True,
+            check=False,
         )
+        ctx.append_command_output(
+            stage="clone (fetch)",
+            command=fetch_cmd,
+            returncode=fetch_result.returncode,
+            stdout=fetch_result.stdout,
+            stderr=fetch_result.stderr,
+        )
+        if fetch_result.returncode != 0:
+            err_msg = (fetch_result.stderr or fetch_result.stdout or "").lower()
+            _NETWORK_KEYWORDS = (
+                "network",
+                "connect",
+                "resolve",
+                "timeout",
+                "unreachable",
+                "temporary failure",
+            )
+            if any(kw in err_msg for kw in _NETWORK_KEYWORDS):
+                logger.warning("[update-sources] network error during fetch: %s", err_msg)
+                progress.status = "skipped"
+                progress.message = "Network unavailable; continuing with existing sources"
+                progress.progress_percent = 30
+                return progress
+            redacted_err = _redact_build_text(_tail_lines(fetch_result.stderr))
+            logger.error(
+                "[update-sources] fetch failed (rc=%s): %s", fetch_result.returncode, redacted_err
+            )
+            progress.status = "failed"
+            progress.message = f"Fetch failed: {redacted_err}"
+            progress.progress_percent = 30
+            return progress
         logger.info("[update-sources] fetch completed")
         logger.debug("[update-sources] fetch stdout: %s", fetch_result.stdout.strip() or "(empty)")
 
@@ -273,31 +309,10 @@ def _update_sources(ctx: _BuildContext, progress: BuildProgress) -> BuildProgres
         if ctx.config.git_commit:
             progress = _checkout_commit(ctx, progress)
 
-    except subprocess.CalledProcessError as e:
-        # git fetch failures are treated as network/connectivity issues — fall back
-        # to existing sources rather than failing the build entirely.
-        logger.warning("[update-sources] network error during fetch: %s", str(e))
+    except subprocess.SubprocessError as e:
+        logger.warning("[update-sources] network error during update: %s", str(e))
         progress.status = "skipped"
         progress.message = "Network unavailable; continuing with existing sources"
-        progress.progress_percent = 30
-    except subprocess.SubprocessError as e:
-        err_msg = str(e).lower()
-        _NETWORK_KEYWORDS = (
-            "network",
-            "connect",
-            "resolve",
-            "timeout",
-            "unreachable",
-            "temporary failure",
-        )
-        if any(kw in err_msg for kw in _NETWORK_KEYWORDS):
-            logger.warning("[update-sources] network error during update: %s", str(e))
-            progress.status = "skipped"
-            progress.message = "Network unavailable; continuing with existing sources"
-        else:
-            logger.error("[update-sources] source update failed (auth/config?): %s", str(e))
-            progress.status = "failed"
-            progress.message = f"Source update failed: {_redact_build_text(str(e))}"
         progress.progress_percent = 30
 
     return progress
