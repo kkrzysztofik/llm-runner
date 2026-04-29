@@ -23,7 +23,11 @@ import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, Mock, patch
+
+if TYPE_CHECKING:
+    from llama_manager.build_pipeline._context import _BuildContext
 
 if TYPE_CHECKING:
     from llama_manager.build_pipeline._context import _BuildContext
@@ -106,6 +110,7 @@ class TestNoAutobuildOnLaunch:
         # Mock all stages to verify they are NOT called when sources exist
         mock_artifact = BuildArtifact(
             artifact_type="llama-server",
+            backend=BuildBackend.SYCL,
             backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
@@ -206,6 +211,7 @@ class TestSerializedBuildOrder:
 
         mock_artifact = BuildArtifact(
             artifact_type="llama-server",
+            backend=BuildBackend.SYCL,
             backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
@@ -330,6 +336,7 @@ class TestBuildLockPIDValidation:
         lock_data = BuildLock(
             pid=stale_pid,
             started_at=time.time(),
+            backend=BuildBackend.SYCL,
             backend=BuildBackend.SYCL,
         )
         lock_file.write_text(
@@ -882,6 +889,7 @@ class TestProvenanceAtomicWrite:
         artifact = BuildArtifact(
             artifact_type="llama-server",
             backend=BuildBackend.SYCL,
+            backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url=config.git_remote_url,
             git_commit_sha="abc123",
@@ -938,6 +946,7 @@ class TestProvenanceFailureWarning:
         # Create artifact
         artifact = BuildArtifact(
             artifact_type="llama-server",
+            backend=BuildBackend.SYCL,
             backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url=config.git_remote_url,
@@ -1009,6 +1018,7 @@ class TestDryRunMode:
 
         mock_artifact = BuildArtifact(
             artifact_type="llama-server",
+            backend=BuildBackend.SYCL,
             backend=BuildBackend.SYCL,
             created_at=time.time(),
             git_remote_url="https://github.com/ggerganov/llama.cpp",
