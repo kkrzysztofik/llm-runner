@@ -54,7 +54,6 @@ from .components.menu import build_command_menu
 from .components.panels import (
     build_column_panel,
     build_placeholder_panel,
-    build_slot_status_panel,
 )
 from .constants import RISK_ACK_LABEL
 from .textual_app import TextualDashboardApp
@@ -186,11 +185,6 @@ class TUIApp:
         if self.telemetry_panel is not None:
             alerts.append(self.telemetry_panel)
 
-        # Add slot status panel
-        slot_status_panel = self._build_slot_status_panel()
-        if slot_status_panel is not None:
-            alerts.append(slot_status_panel)
-
         # Add profile status panel
         profile_panel = self._build_profile_status_panel()
         if profile_panel is not None:
@@ -244,20 +238,19 @@ class TUIApp:
         self, cfg: ServerConfig, buffer: LogBuffer, gpu: GPUStats | None
     ) -> Panel:
         stale_warning = self._get_stale_warning(cfg)
-        return build_column_panel(cfg, buffer, gpu, self.config.host, stale_warning)
+        return build_column_panel(
+            cfg,
+            buffer,
+            gpu,
+            self.config.host,
+            stale_warning,
+            slot_states=self._slot_states,
+            server_processes=self._server_processes,
+            is_unsaved=cfg.alias in self._unsaved_slots,
+        )
 
     def _build_placeholder_panel(self) -> Panel:
         return build_placeholder_panel()
-
-    def _build_slot_status_panel(self) -> Panel:
-        return build_slot_status_panel(
-            self.configs,
-            self._slot_states,
-            self._server_processes,
-            self.log_buffers,
-            self.config.host,
-            unsaved_slots=self._unsaved_slots,
-        )
 
     def _build_profile_status_panel(self) -> Panel | None:
         with self._profile_lock:

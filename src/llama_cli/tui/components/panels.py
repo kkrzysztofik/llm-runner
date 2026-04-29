@@ -34,14 +34,27 @@ def build_column_panel(
     gpu: GPUStats | None,
     host: str,
     stale_warning: str | None = None,
+    slot_states: dict[str, str] | None = None,
+    server_processes: dict[str, Any] | None = None,
+    is_unsaved: bool = False,
 ) -> Panel:
     """Build the per-server column panel with logs and GPU stats."""
     color_code = Colors.get_code(cfg.alias)
     color_style = color_code if color_code else "white"
 
+    slot_states = slot_states or {}
+    server_processes = server_processes or {}
+    status = _resolve_slot_status(cfg.alias, slot_states, server_processes)
+    backend_label = BACKEND_LABELS.get(cfg.backend, BACKEND_LABELS["llama_cpp"])
+    status_color = STATUS_COLORS.get(status, "white")
+
     header = Text()
-    header.append(f"{cfg.alias.upper()} ", style=f"bold {color_style}")
-    header.append(f"http://{host}:{cfg.port}/v1", style="dim")
+    header.append(f"[{cfg.alias}] ", style=f"bold {color_style}")
+    if is_unsaved:
+        header.append("UNSAVED ", style="bold yellow")
+    header.append(f"{status.upper()} ", style=status_color)
+    header.append(f"| {backend_label} ", style="cyan")
+    header.append(f"| http://{host}:{cfg.port}", style="dim")
     header.append("\n")
     header.append(
         f"Device: {cfg.device} | Ctx: {cfg.ctx_size} | Threads: {cfg.threads}", style="cyan"
@@ -82,19 +95,7 @@ def build_slot_section(
 ) -> Text:
     """Build the status Text for a single slot."""
     alias = cfg.alias
-    state = slot_states.get(alias, SlotState.OFFLINE.value)
-
-    status = state
-    if state == SlotState.RUNNING.value:
-        proc = server_processes.get(alias)
-        if not proc:
-            status = SlotState.CRASHED.value
-        elif hasattr(proc, "poll"):
-            # subprocess.Popen — poll() returns None while running
-            if proc.poll() is not None:
-                status = SlotState.CRASHED.value
-        elif not (proc.pid and psutil.pid_exists(proc.pid)):
-            status = SlotState.CRASHED.value
+    status = _resolve_slot_status(alias, slot_states, server_processes)
 
     backend_label = BACKEND_LABELS.get(cfg.backend, BACKEND_LABELS["llama_cpp"])
     color = STATUS_COLORS.get(status, "white")
@@ -115,6 +116,28 @@ def build_slot_section(
         header.append(Text(log_text + "\n", style="dim"))
 
     return header
+
+
+def _resolve_slot_status(
+    alias: str,
+    slot_states: dict[str, str],
+    server_processes: dict[str, Any],
+) -> str:
+    """Resolve final slot status from tracked state + process liveness."""
+    state = slot_states.get(alias, SlotState.OFFLINE.value)
+
+    status = state
+    if state == SlotState.RUNNING.value:
+        proc = server_processes.get(alias)
+        if not proc:
+            status = SlotState.CRASHED.value
+        elif hasattr(proc, "poll"):
+            # subprocess.Popen — poll() returns None while running
+            if proc.poll() is not None:
+                status = SlotState.CRASHED.value
+        elif not (proc.pid and psutil.pid_exists(proc.pid)):
+            status = SlotState.CRASHED.value
+    return status
 
 
 def build_slot_status_panel(
