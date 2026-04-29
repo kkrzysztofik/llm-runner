@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import Any, ClassVar, Literal
 
 
 class BuildBackend(StrEnum):
@@ -47,6 +47,7 @@ class BuildConfig:
     jobs: int | None = None
     update_sources: bool = True
     git_commit: str | None = None
+    build_timeout_seconds: int = 3600
 
     def __post_init__(self) -> None:
         """Ensure Path objects are Path instances and validate constraints."""
@@ -55,6 +56,10 @@ class BuildConfig:
         self.output_dir = Path(self.output_dir)
         if self.retry_attempts < 1:
             raise ValueError("retry_attempts must be >= 1")
+        if self.retry_delay < 0:
+            raise ValueError("retry_delay must be >= 0")
+        if self.jobs is not None and self.jobs < 1:
+            raise ValueError("jobs must be >= 1")
 
 
 @dataclass
@@ -67,7 +72,7 @@ class BuildArtifact:
     """
 
     artifact_type: Literal["llama-server"]
-    backend: Literal["sycl", "cuda", "both"]
+    backend: BuildBackend | Literal["sycl", "cuda", "both"]
     created_at: float
     git_remote_url: str
     git_commit_sha: str
@@ -92,7 +97,7 @@ class BuildArtifact:
             return None
         return self.binary_size_bytes / (1024 * 1024)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert BuildArtifact to a dictionary for JSON serialization.
 
         Returns:
@@ -153,7 +158,7 @@ class BuildLock:
 
     pid: int
     started_at: float
-    backend: str
+    backend: str  # BuildBackend value (str for deserialization compatibility)
 
     @property
     def elapsed_seconds(self) -> float:

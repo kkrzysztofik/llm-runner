@@ -197,7 +197,22 @@ class BuildPipeline:
 
         except Exception as e:
             logger.exception("[pipeline] unhandled exception in build pipeline")
-            return BuildResult(success=False, error_message=_redact_build_text(str(e)))
+            failure_progress = BuildProgress(
+                stage="pipeline",
+                status="failed",
+                message=_redact_build_text(str(e)),
+                progress_percent=0,
+            )
+            try:
+                artifact = ctx.write_failure_artifact(failure_progress)
+            except Exception:
+                artifact = None
+            return BuildResult(
+                success=False,
+                artifact=artifact,
+                error_message=_redact_build_text(str(e)),
+                progress=failure_progress,
+            )
 
         finally:
             self._release_lock()

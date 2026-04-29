@@ -21,8 +21,9 @@ from tests.support.factories import make_server_config
 
 
 def _regression_cfg(**kwargs: Any) -> ServerConfig:
+    slot_id = kwargs.pop("alias", "test")
     defaults = {
-        "alias": "test",
+        "alias": slot_id,
         "server_bin": "/usr/bin/llama-server",
         "backend": "llama_cpp",
     }

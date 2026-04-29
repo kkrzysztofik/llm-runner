@@ -603,46 +603,45 @@ def write_artifact(runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload
 
     # FR-007: Artifact filename format: artifact-{timestamp}.json (no UUID suffix)
     timestamp_filename = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    artifact_filename = f"artifact-{timestamp_filename}.json"
-    artifact_path = artifact_dir / artifact_filename
 
-    # Handle collision for same-second writes - append numeric suffix if path exists
-    collision_counter = 1
-    while artifact_path.exists():
-        base_name = f"artifact-{timestamp_filename}"
-        artifact_filename = f"{base_name}-{collision_counter}.json"
-        artifact_path = artifact_dir / artifact_filename
-        collision_counter += 1
-
+    # Redact sensitive environment variables in the data
+    # TypedDict is not recognized as dict by pyright, so we cast explicitly
     try:
-        # Redact sensitive environment variables in the data
-        # TypedDict is not recognized as dict by pyright, so we cast explicitly
         redacted_data = _redact_sensitive_in_dict(cast(dict, data))
-
-        # Atomic write — verify_permissions=True raises OSError on mode mismatch.
-        try:
-            atomic_write_json(
-                artifact_path,
-                redacted_data,
-                FILE_MODE_OWNER_ONLY,
-                verify_permissions=True,
-            )
-        except OSError:
-            raise _artifact_error(
-                OWNER_ONLY_PERMISSIONS_FAILURE, PERMISSION_WRITABILITY_HINT
-            ) from None
-
-        return artifact_path
-    except PermissionError as e:
-        raise _artifact_error(
-            "artifact persistence failed due to permission denied", PERMISSION_SUPPORT_HINT
-        ) from e
-    except OSError as e:
-        raise _artifact_error(f"artifact persistence failed: {e}", PERMISSION_SUPPORT_HINT) from e
     except TypeError as e:
         raise _artifact_error(
             f"artifact serialization failed: {e}", "ensure artifact data is JSON-serializable"
         ) from e
+
+    # Use O_EXCL exclusive-create to avoid TOCTOU race: two concurrent writers
+    # would each try to claim the same path; the loser gets FileExistsError and
+    # increments the suffix counter until it wins.
+    _MAX_COLLISION_RETRIES = 10
+    for attempt in range(_MAX_COLLISION_RETRIES):
+        suffix = f"-{attempt}" if attempt > 0 else ""
+        artifact_path = artifact_dir / f"artifact-{timestamp_filename}{suffix}.json"
+        try:
+            atomic_exclusive_create_json(artifact_path, redacted_data, FILE_MODE_OWNER_ONLY)
+            return artifact_path
+        except FileExistsError:
+            continue
+        except TypeError as e:
+            raise _artifact_error(
+                f"artifact serialization failed: {e}", "ensure artifact data is JSON-serializable"
+            ) from e
+        except PermissionError as e:
+            raise _artifact_error(
+                "artifact persistence failed due to permission denied", PERMISSION_SUPPORT_HINT
+            ) from e
+        except OSError as e:
+            raise _artifact_error(
+                f"artifact persistence failed: {e}", PERMISSION_SUPPORT_HINT
+            ) from e
+
+    raise _artifact_error(
+        f"artifact: failed to create unique file after {_MAX_COLLISION_RETRIES} attempts",
+        PERMISSION_SUPPORT_HINT,
+    )
 
 
 def _validate_artifact_fields(data: DryRunArtifactPayload | dict) -> None:

@@ -92,18 +92,20 @@ def _parse_architecture(data: bytes) -> str | None:
 
     """
     # Common architecture patterns in GGUF files
+    # Sorted longest-first so more specific patterns match before shorter prefixes
+    # (e.g. "qwen3" before "qwen", "phi3" before "phi").
     _ARCH_PATTERNS: list[tuple[bytes, str]] = [
+        (b"stablelm", "stablelm"),
+        (b"falcon", "falcon"),
         (b"llama", "llama"),
+        (b"mamba", "mamba"),
         (b"gpt_2", "gpt_2"),
+        (b"qwen3", "qwen3"),
+        (b"qwen2", "qwen2"),
+        (b"qwen", "qwen"),
+        (b"phi3", "phi3"),
         (b"bert", "bert"),
         (b"mpt", "mpt"),
-        (b"falcon", "falcon"),
-        (b"qwen2", "qwen2"),
-        (b"qwen3", "qwen3"),
-        (b"phi3", "phi3"),
-        (b"stablelm", "stablelm"),
-        (b"qwen", "qwen"),
-        (b"mamba", "mamba"),
     ]
     for pattern, arch in _ARCH_PATTERNS:
         if pattern in data:

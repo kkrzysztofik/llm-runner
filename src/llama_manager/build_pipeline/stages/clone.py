@@ -80,8 +80,9 @@ def _execute_clone(ctx: _BuildContext, progress: BuildProgress) -> BuildProgress
     """Execute the git clone operation."""
     try:
         if ctx.dry_run:
+            depth_flag = " --depth 1" if ctx.config.shallow_clone else ""
             progress.message = (
-                f"Would run: git clone --branch {ctx.config.git_branch} "
+                f"Would run: git clone --branch {ctx.config.git_branch}{depth_flag} "
                 f"{_redact_build_text(ctx.config.git_remote_url)} {ctx.config.source_dir}"
             )
             progress.status = "success"
@@ -96,7 +97,18 @@ def _execute_clone(ctx: _BuildContext, progress: BuildProgress) -> BuildProgress
         cmd.extend([ctx.config.git_remote_url, str(ctx.config.source_dir)])
 
         logger.debug("[clone] running: %s", _format_command(cmd))
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        ctx.append_command_output(
+            stage="clone",
+            command=cmd,
+            returncode=result.returncode,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(
+                result.returncode, cmd, output=result.stdout, stderr=result.stderr
+            )
 
         progress.message = f"Cloned {_redact_build_text(ctx.config.git_remote_url)}"
         progress.status = "success"
@@ -163,15 +175,15 @@ def _checkout_commit(ctx: _BuildContext, progress: BuildProgress) -> BuildProgre
             stderr=result.stderr,
         )
         if result.returncode != 0:
+            redacted_stderr = _redact_build_text(_tail_lines(result.stderr))
             logger.warning(
                 "[clone] commit checkout failed (rc=%s): %s",
                 result.returncode,
-                _tail_lines(result.stderr),
+                redacted_stderr,
             )
             progress.status = "skipped"
             progress.message = (
-                f"Commit checkout failed; continuing with existing sources: "
-                f"{_tail_lines(result.stderr)}"
+                f"Commit checkout failed; continuing with existing sources: {redacted_stderr}"
             )
             progress.progress_percent = 30
         else:
@@ -240,15 +252,15 @@ def _update_sources(ctx: _BuildContext, progress: BuildProgress) -> BuildProgres
         )
 
         if result.returncode != 0:
+            redacted_stderr = _redact_build_text(_tail_lines(result.stderr))
             logger.warning(
                 "[update-sources] checkout failed (rc=%s): %s",
                 result.returncode,
-                _tail_lines(result.stderr),
+                redacted_stderr,
             )
             progress.status = "skipped"
             progress.message = (
-                f"Source update failed; continuing with existing sources: "
-                f"{_tail_lines(result.stderr)}"
+                f"Source update failed; continuing with existing sources: {redacted_stderr}"
             )
             progress.progress_percent = 30
             return progress
@@ -261,10 +273,31 @@ def _update_sources(ctx: _BuildContext, progress: BuildProgress) -> BuildProgres
         if ctx.config.git_commit:
             progress = _checkout_commit(ctx, progress)
 
-    except subprocess.SubprocessError as e:
-        logger.warning("[update-sources] network error during update: %s", str(e))
+    except subprocess.CalledProcessError as e:
+        # git fetch failures are treated as network/connectivity issues — fall back
+        # to existing sources rather than failing the build entirely.
+        logger.warning("[update-sources] network error during fetch: %s", str(e))
         progress.status = "skipped"
         progress.message = "Network unavailable; continuing with existing sources"
+        progress.progress_percent = 30
+    except subprocess.SubprocessError as e:
+        err_msg = str(e).lower()
+        _NETWORK_KEYWORDS = (
+            "network",
+            "connect",
+            "resolve",
+            "timeout",
+            "unreachable",
+            "temporary failure",
+        )
+        if any(kw in err_msg for kw in _NETWORK_KEYWORDS):
+            logger.warning("[update-sources] network error during update: %s", str(e))
+            progress.status = "skipped"
+            progress.message = "Network unavailable; continuing with existing sources"
+        else:
+            logger.error("[update-sources] source update failed (auth/config?): %s", str(e))
+            progress.status = "failed"
+            progress.message = f"Source update failed: {_redact_build_text(str(e))}"
         progress.progress_percent = 30
 
     return progress

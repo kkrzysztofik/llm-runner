@@ -9,7 +9,6 @@ from llama_manager.config import (
     ProfileMetrics,
     ProfileRecord,
     ServerConfig,
-    SmokeFailurePhase,
     SmokePhase,
     SmokeProbeStatus,
 )
@@ -63,11 +62,10 @@ def make_smoke_result(**overrides: object) -> SmokeProbeResult:
     defaults: dict[str, object] = {
         "slot_id": "slot1",
         "status": SmokeProbeStatus.PASS,
-        "phase": SmokePhase.CHAT_COMPLETION,
-        "failure_phase": SmokeFailurePhase.NONE,
-        "latency_ms": 12.5,
-        "message": "ok",
-        "provenance": ProvenanceRecord(version="test", git_sha="abc1234"),
+        "phase_reached": SmokePhase.COMPLETE,
+        "failure_phase": None,
+        "latency_ms": 12,
+        "provenance": ProvenanceRecord(sha="abc1234", version="test"),
     }
     defaults.update(overrides)
     return SmokeProbeResult(**defaults)  # type: ignore[arg-type]

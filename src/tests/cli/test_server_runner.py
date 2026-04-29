@@ -69,8 +69,6 @@ class TestNormalizeMainArgs:
 
     def test_normalize_none_args(self) -> None:
         """_normalize_main_args with None should return sys.argv[1:]."""
-        import sys
-
         result = _normalize_main_args(None)
         assert result == sys.argv[1:]
 
@@ -757,19 +755,18 @@ class TestBuildTuiModeConfigs:
 
     def test_build_tui_mode_configs_skips_disabled_groups(self) -> None:
         """_build_tui_mode_configs should skip groups with tui_enabled=False."""
-        from llama_manager.config import RunGroupSpec
+        from llama_cli.server_runner import _build_tui_mode_configs
+        from llama_manager.config import Config
 
-        # Create a registry with one disabled group
-        disabled_group = RunGroupSpec(
-            group_id="disabled-group",
-            profile_ids=("summary-balanced",),
-            description="Disabled group",
-            tui_enabled=False,
-        )
-        # Note: We can't easily patch the registry here since _build_tui_mode_configs
-        # creates its own registry. This test documents expected behavior.
-        # The actual skipping is tested through the registry's tui_enabled field.
-        assert disabled_group.tui_enabled is False
+        cfg = Config()
+        parsed = argparse.Namespace(mode="both", port=None, port2=None)
+        result = _build_tui_mode_configs(cfg, parsed)
+
+        # "disabled-group" is not a registered group — only real groups with
+        # tui_enabled=True should appear in the result.
+        assert "disabled-group" not in result
+        # Standard groups are present
+        assert "both" in result
 
     def test_build_tui_mode_configs_with_port_overrides(self) -> None:
         """_build_tui_mode_configs should apply port overrides from parsed args."""

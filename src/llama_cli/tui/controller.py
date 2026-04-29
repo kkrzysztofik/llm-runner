@@ -565,8 +565,6 @@ class TUIApp:
             return
 
         # Create ServerConfig for the new slot
-        from llama_manager.config import ServerConfig
-
         backend = values.get("backend", "sycl")
         port = int(values.get("port", "8080"))
         threads = int(values.get("threads", "4"))
@@ -574,7 +572,6 @@ class TUIApp:
 
         # Determine device string from backend
         device = "SYCL" if backend == "sycl" else "CUDA"
-
         new_cfg = ServerConfig(
             alias=slot_id,
             model=values["model"],
@@ -589,7 +586,8 @@ class TUIApp:
         self.configs.append(new_cfg)
         self.log_buffers[slot_id] = LogBuffer(redact_sensitive=True)
 
-        # Determine GPU index
+        # Determine GPU index: SYCL runs on Intel Arc (slot 1 by convention),
+        # CUDA runs on NVIDIA (slot 0 by convention). Adjust via gpu_indices if needed.
         gpu_idx = 1 if backend == "sycl" else 0
         self.gpu_indices.append(gpu_idx)
         self.gpu_stats.append(GPUStats(gpu_idx, collector=self._make_collector(gpu_idx)))
@@ -1010,7 +1008,11 @@ class TUIApp:
                 updated_configs.append(cfg)
                 continue
 
-            # Apply profile overrides via merge_config_overrides
+            # Apply profile overrides via merge_config_overrides.
+            # override_dict captures the current slot's runtime settings so they
+            # take precedence over profile_overrides — i.e. user-visible params
+            # (threads, ctx_size, ubatch_size, cache types) come from the slot,
+            # while profile_config can fill in any values not present in override_dict.
             override_dict = {
                 "threads": cfg.threads,
                 "ctx_size": cfg.ctx_size,

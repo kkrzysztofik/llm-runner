@@ -63,7 +63,7 @@ class _MockPopen:
     def __exit__(self, *args: object) -> None:
         pass
 
-    def wait(self) -> int:
+    def wait(self, timeout: float | None = None) -> int:
         return self._returncode
 
     @property

@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Any
 
 
-def build_command_args(tmp_path: Path, **overrides: object) -> Namespace:
+def build_command_args(tmp_path: Path, **overrides: Any) -> Namespace:
     """Create a minimal argparse Namespace for build command tests."""
-    defaults: dict[str, object] = {
+    defaults: dict[str, Any] = {
         "backend": "cuda",
         "source_dir": tmp_path / "source",
         "build_dir": tmp_path / "build",

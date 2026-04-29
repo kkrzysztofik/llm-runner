@@ -217,7 +217,7 @@ def _print_resolved_slot(
     if server_cfg.device.startswith("SYCL"):
         print(f"  Device: {server_cfg.device}")
     else:
-        print("  Device: NVIDIA (CUDA)")
+        print(f"  Device: {server_cfg.device}")
     print(f"  Context: {server_cfg.ctx_size}")
     print(f"  Threads: {server_cfg.threads}")
     print(f"  UBatch: {server_cfg.ubatch_size}")

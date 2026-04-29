@@ -6,7 +6,7 @@ key constants and optional timeout.
 """
 
 from queue import Empty, Queue
-from threading import Thread
+from threading import Event, Thread
 
 from ._binary import (
     _detect_gguf_version,
@@ -74,11 +74,15 @@ def extract_gguf_metadata(
         )
 
     result_queue: Queue[GGUFMetadataRecord | BaseException] = Queue(maxsize=1)
+    cancel_event = Event()
 
     def _parse() -> None:
         try:
             # Attempt GGUFReader first
             reader_result = _try_gguf_reader(model_path, prefix_cap_bytes)
+
+            if cancel_event.is_set():
+                return
 
             if reader_result is not None:
                 fields, version = reader_result
@@ -101,9 +105,11 @@ def extract_gguf_metadata(
                     parse_timeout_s,
                 )
 
-            result_queue.put(record, block=False)
+            if not cancel_event.is_set():
+                result_queue.put(record, block=False)
         except Exception as exc:
-            result_queue.put(exc, block=False)
+            if not cancel_event.is_set():
+                result_queue.put(exc, block=False)
 
     # Run parse in a thread with timeout
     thread = Thread(target=_parse, daemon=True)
@@ -111,6 +117,7 @@ def extract_gguf_metadata(
     thread.join(timeout=parse_timeout_s)
 
     if thread.is_alive():
+        cancel_event.set()
         raise TimeoutError(
             f"GGUF metadata parse timed out after {parse_timeout_s}s for {model_path}",
         )

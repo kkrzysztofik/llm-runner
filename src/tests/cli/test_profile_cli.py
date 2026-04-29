@@ -338,6 +338,27 @@ def _make_benchmark_result(
     )
 
 
+def _populate_profile_mock_defaults(mock_cfg: Any, tmp_path: Path) -> None:
+    """Populate a mock Config with the standard profile test defaults."""
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    mock_cfg.profiles_dir = profiles_dir
+    mock_cfg.summary_balanced_port = 8080
+    mock_cfg.summary_fast_port = 8082
+    mock_cfg.qwen35_port = 8081
+    mock_cfg.default_threads_summary_balanced = 8
+    mock_cfg.default_ctx_size_summary = 16144
+    mock_cfg.default_ubatch_size_summary_balanced = 1024
+    mock_cfg.default_cache_type_summary_k = "q8_0"
+    mock_cfg.default_cache_type_summary_v = "q8_0"
+    mock_cfg.default_n_gpu_layers = 99
+    mock_cfg.default_n_gpu_layers_qwen35 = "all"
+    mock_cfg.server_binary_version = "1.18.0"
+    mock_cfg.model_summary_balanced = str(tmp_path / "model.gguf")
+    mock_cfg.llama_server_bin_intel = str(tmp_path / "llama-server")
+    mock_cfg.llama_server_bin_nvidia = ""
+
+
 def _build_mock_config(
     tmp_path: Path, cuda_exists: bool = False
 ) -> tuple[MagicMock, str, Path, Any]:
@@ -634,23 +655,8 @@ class TestCmdProfile:
         """cmd_profile should print a warning when a lockfile exists."""
         with patch("llama_cli.commands.profile.Config") as mock_cfg_cls:
             mock_cfg = mock_cfg_cls.return_value
-            profiles_dir = tmp_path / "profiles"
-            profiles_dir.mkdir(parents=True, exist_ok=True)
-            mock_cfg.profiles_dir = profiles_dir
-            mock_cfg.summary_balanced_port = 8080
-            mock_cfg.summary_fast_port = 8082
-            mock_cfg.qwen35_port = 8081
-            mock_cfg.default_threads_summary_balanced = 8
-            mock_cfg.default_ctx_size_summary = 16144
-            mock_cfg.default_ubatch_size_summary_balanced = 1024
-            mock_cfg.default_cache_type_summary_k = "q8_0"
-            mock_cfg.default_cache_type_summary_v = "q8_0"
-            mock_cfg.default_n_gpu_layers = 99
-            mock_cfg.default_n_gpu_layers_qwen35 = "all"
-            mock_cfg.server_binary_version = "1.18.0"
-            mock_cfg.model_summary_balanced = str(tmp_path / "model.gguf")
-            mock_cfg.llama_server_bin_intel = str(tmp_path / "llama-server")
-            mock_cfg.llama_server_bin_nvidia = ""
+            _populate_profile_mock_defaults(mock_cfg, tmp_path)
+            profiles_dir = mock_cfg.profiles_dir
 
             # Create lockfile in the parent of profiles_dir
             lockfile = tmp_path / "test-slot.lock"
@@ -808,23 +814,8 @@ class TestCmdProfile:
         """cmd_profile should call write_profile with the profiles_dir from config."""
         with patch("llama_cli.commands.profile.Config") as mock_cfg_cls:
             mock_cfg = mock_cfg_cls.return_value
-            profiles_dir = tmp_path / "profiles"
-            profiles_dir.mkdir(parents=True, exist_ok=True)
-            mock_cfg.profiles_dir = profiles_dir
-            mock_cfg.summary_balanced_port = 8080
-            mock_cfg.summary_fast_port = 8082
-            mock_cfg.qwen35_port = 8081
-            mock_cfg.default_threads_summary_balanced = 8
-            mock_cfg.default_ctx_size_summary = 16144
-            mock_cfg.default_ubatch_size_summary_balanced = 1024
-            mock_cfg.default_cache_type_summary_k = "q8_0"
-            mock_cfg.default_cache_type_summary_v = "q8_0"
-            mock_cfg.default_n_gpu_layers = 99
-            mock_cfg.default_n_gpu_layers_qwen35 = "all"
-            mock_cfg.server_binary_version = "1.18.0"
-            mock_cfg.model_summary_balanced = str(tmp_path / "model.gguf")
-            mock_cfg.llama_server_bin_intel = str(tmp_path / "llama-server")
-            mock_cfg.llama_server_bin_nvidia = ""
+            _populate_profile_mock_defaults(mock_cfg, tmp_path)
+            profiles_dir = mock_cfg.profiles_dir
 
             benchmark_result = _make_benchmark_result()
             mock_record = MagicMock()

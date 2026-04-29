@@ -33,12 +33,14 @@ class Config:
 
     def __post_init__(self) -> None:
         """Compute derived paths from llama_cpp_root after dataclass init."""
-        self.llama_server_bin_intel = str(
-            Path(self.llama_cpp_root) / "build" / "bin" / "llama-server"
-        )
-        self.llama_server_bin_nvidia = str(
-            Path(self.llama_cpp_root) / "build_cuda" / "bin" / "llama-server"
-        )
+        if not self.llama_server_bin_intel:
+            self.llama_server_bin_intel = str(
+                Path(self.llama_cpp_root) / "build" / "bin" / "llama-server"
+            )
+        if not self.llama_server_bin_nvidia:
+            self.llama_server_bin_nvidia = str(
+                Path(self.llama_cpp_root) / "build_cuda" / "bin" / "llama-server"
+            )
 
     # Models
     model_summary_balanced: str = field(

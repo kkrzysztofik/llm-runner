@@ -66,7 +66,7 @@ def build_column_panel(
 def build_placeholder_panel() -> Panel:
     """Build a placeholder panel for the right column when only one config exists."""
     return Panel(
-        Text("[dim]No secondary config[/dim]"),
+        Text("No secondary config", style="dim"),
         title="Status",
         border_style="dim",
     )
@@ -103,8 +103,7 @@ def build_slot_section(
     if buffer is not None:
         log_lines = buffer.get_lines()[-3:] if buffer.get_lines() else []
         log_text = "\n".join(log_lines) if log_lines else "  (no logs yet)"
-        if log_text:
-            header.append(Text(log_text + "\n", style="dim"))
+        header.append(Text(log_text + "\n", style="dim"))
 
     return header
 

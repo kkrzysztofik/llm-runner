@@ -86,7 +86,16 @@ def _run_build_subprocess(
         stderr_t = threading.Thread(target=read_stderr)
         stdout_t.start()
         stderr_t.start()
-        proc.wait()
+        try:
+            proc.wait(timeout=ctx.config.build_timeout_seconds)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout_t.join(timeout=5)
+            stderr_t.join(timeout=5)
+            progress.status = "failed"
+            progress.message = f"Build timed out after {ctx.config.build_timeout_seconds}s"
+            logger.error("[build] %s", progress.message)
+            return progress
         stdout_t.join()
         stderr_t.join()
 

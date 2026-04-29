@@ -739,8 +739,8 @@ class TestModelSlotValidation:
         assert result.error_code == ErrorCode.PORT_INVALID
 
     def test_validate_slot_port_boundary_min(self) -> None:
-        """validate_slot_port should accept port 1."""
-        result = validate_slot_port(1, "slot1")
+        """validate_slot_port should accept port 1024 (minimum non-privileged port)."""
+        result = validate_slot_port(1024, "slot1")
         assert result.passed is True
 
     def test_validate_slot_port_boundary_max(self) -> None:

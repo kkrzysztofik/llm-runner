@@ -82,7 +82,7 @@ class _BuildContext:
         )
         return BuildArtifact(
             artifact_type="llama-server",
-            backend=self.config.backend.value,
+            backend=self.config.backend,
             created_at=time.time(),
             git_remote_url=_redact_build_text(self.config.git_remote_url),
             git_commit_sha=git_commit_sha,
@@ -122,6 +122,7 @@ class _BuildContext:
             metadata={"backend": self.config.backend.value},
         )
         artifact.failure_report_path = report.report_dir
+        report.build_artifact_json = json.dumps(artifact.to_dict(), indent=2)
         report.save_to_file()
         logger.info("[failure] report written to %s", report.report_dir)
         return artifact
