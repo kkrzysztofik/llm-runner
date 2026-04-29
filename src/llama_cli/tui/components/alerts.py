@@ -174,6 +174,10 @@ def build_system_status_panel(
         load_1 = load_5 = load_15 = -1.0
 
     text = Text()
+    text.append("Date/Time: ", style="bright_cyan")
+    text.append(time.strftime("%Y-%m-%d %H:%M:%S"), style="bright_white")
+    text.append("\n")
+
     for line in _build_core_grid_lines(cpu_per_core, left_width=left_block_width):
         text.append(line)
         text.append("\n")
