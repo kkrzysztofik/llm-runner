@@ -1,6 +1,5 @@
 """TUIApp controller — manages server lifecycle, state, and rendering."""
 
-import queue
 import signal
 import sys
 import threading
@@ -83,9 +82,6 @@ class TUIApp:
         self.risks_acknowledged: bool = False
         self.active_risk_kind: str | None = None
 
-        # Textual keypress dispatch queue used by unit tests and app actions.
-        self._keypress_queue: queue.Queue[str] = queue.Queue()
-
         # Profile state
         self._profile_status: dict[str, str] = {}  # alias -> "idle" | "running" | "done" | "failed"
         self._profile_flavor: dict[str, str] = {}  # alias -> flavor string
@@ -96,14 +92,10 @@ class TUIApp:
         self._status_messages: list[tuple[float, str]] = []
         self._status_lock = threading.Lock()
 
-        # Non-blocking profile flavor request queue
+        # Non-blocking profile flavor request state
         self._profile_request: str | None = None
         self._build_request: bool = False
         self._smoke_request: bool = False
-
-        # Slot configuration mode (for adding new slots)
-        self._slot_config_state: dict[str, str] = {}  # slot_id -> current prompt field
-        self._slot_config_values: dict[str, dict[str, str]] = {}  # slot_id -> {field: value}
         self._unsaved_slots: set[str] = set()
 
         self.server_manager = ServerManager()
@@ -294,7 +286,6 @@ class TUIApp:
     def _build_command_menu(self) -> Text:
         return build_command_menu(
             self._profile_request,
-            self._slot_config_state,
             self.risk_panel,
             self.active_risk_kind,
         )
@@ -332,180 +323,126 @@ class TUIApp:
     def _cleanup(self) -> None:
         self.server_manager.cleanup_servers()
 
-    def handle_keypress(self, key: str) -> None:
-        """Handle a Textual key event through the existing state machine."""
-        _KEY_MAP = {
-            "return": "\n",
-            "escape": "\x1b",
-            "backspace": "\x7f",
-            "ctrl+c": "^C",
-            "ctrl+C": "^C",
-            "ctrl_c": "^C",
-            "tab": "\t",
-        }
-        self._keypress_queue.put(_KEY_MAP.get(key, key))
-        self._process_keypresses()
+    def request_quit(self) -> None:
+        """Request a graceful shutdown from the UI."""
+        if self.risk_panel is not None:
+            if self.active_risk_kind == "hardware":
+                self.handle_hardware_warning("q")
+            return
+        self._graceful_shutdown()
 
-    def _handle_profile_key(self, key: str) -> bool:
-        """Handle profile-related keys. Returns True if key was consumed."""
-        if self._profile_request is not None and key in {"1", "2", "3"}:
-            alias = self._profile_request
+    def interrupt(self) -> None:
+        """Request an interrupt from the UI.
+
+        Matches the legacy Ctrl+C path: abort a running profile if one exists,
+        otherwise shut the app down.
+        """
+        if self.risk_panel is not None:
+            return
+
+        with self._profile_lock:
+            for cfg in self.configs:
+                if self._profile_status.get(cfg.alias) == "running":
+                    cancel_event = self._profile_cancel_events.get(cfg.alias)
+                    if cancel_event is not None:
+                        cancel_event.set()
+                    self._profile_status[cfg.alias] = "failed"
+                    self._push_status_message(f"Profile '{cfg.alias}' aborted.")
+                    return
+
+        self._graceful_shutdown()
+
+    def refresh_display(self) -> None:
+        """Request a refresh message from the UI."""
+        if self.risk_panel is not None:
+            return
+        self._push_status_message("Display refreshed.")
+
+    def request_profile(self) -> None:
+        """Start the profile selection flow from the UI."""
+        if self.risk_panel is not None or not self.configs:
+            return
+        alias = self.configs[0].alias
+        with self._profile_lock:
+            self._profile_status[alias] = "idle"
+        self._profile_request = alias
+
+    def request_build(self) -> None:
+        """Start the build selection flow from the UI."""
+        if self.risk_panel is not None:
+            return
+        self._build_request = True
+        self._push_status_message("Select build target: [1] SYCL  [2] CUDA  [3] Both")
+
+    def request_smoke(self) -> None:
+        """Start the smoke selection flow from the UI."""
+        if self.risk_panel is not None:
+            return
+        self._smoke_request = True
+        self._push_status_message("Select smoke scope: [1] Both  [2] Active Slot")
+
+    def cancel_pending_prompt(self) -> bool:
+        """Cancel any pending profile, build, or smoke prompt."""
+        if self._profile_request is not None:
             self._profile_request = None
-            self._wait_for_flavor_selection(alias, preselected_key=key)
+            self._push_status_message("Profile selection cancelled.")
             return True
 
-        if key == "^C":
-            if self._profile_request is not None:
-                self._profile_request = None
-                self._push_status_message("Profile selection cancelled.")
-                return True
-            # Let _on_key handle running profiles / shutdown
-            return False
-
-        if key.upper() == "P" and self.configs:
-            cfg = self.configs[0]
-            self._prompt_profile_flavor(cfg.alias)
-            return True
-
-        return False
-
-    def _handle_build_key(self, key: str) -> bool:
-        """Handle build-related keys. Returns True if consumed."""
-        if self._build_request and key in {"1", "2", "3"}:
-            self._build_request = False
-            # Map choice to target (1=sycl, 2=cuda, 3=both)
-            target = {"1": "sycl", "2": "cuda", "3": "both"}.get(key, "both")
-            self._push_status_message(f"Feature not fully hooked up in TUI yet: Build {target}")
-            # Placeholder: trigger actual build logic in background thread
-            return True
-
-        if self._build_request and key in {"^C", "\x1b"}:
+        if self._build_request:
             self._build_request = False
             self._push_status_message("Build selection cancelled.")
             return True
 
-        if key == "b":
-            self._build_request = True
-            self._push_status_message("Select build target: [1] SYCL  [2] CUDA  [3] Both")
-            return True
-
-        return False
-
-    def _handle_smoke_key(self, key: str) -> bool:
-        """Handle smoke test-related keys. Returns True if consumed."""
-        if self._smoke_request and key in {"1", "2"}:
-            self._smoke_request = False
-            target = "both" if key == "1" else "slot"
-            self._push_status_message(f"Feature not fully hooked up in TUI yet: Smoke {target}")
-            # Placeholder: trigger smoke logic
-            return True
-
-        if self._smoke_request and key in {"^C", "\x1b"}:
+        if self._smoke_request:
             self._smoke_request = False
             self._push_status_message("Smoke selection cancelled.")
             return True
 
-        if key == "s":
-            self._smoke_request = True
-            self._push_status_message("Select smoke scope: [1] Both  [2] Active Slot")
+        return False
+
+    def select_pending_option(self, key: str) -> bool:
+        """Apply a numeric choice to the current pending prompt."""
+        if self.risk_panel is not None:
+            return False
+
+        if self._profile_request is not None and key in {"1", "2", "3"}:
+            alias = self._profile_request
+            self._profile_request = None
+            flavor_map = {"1": "balanced", "2": "fast", "3": "quality"}
+            self._run_profile_background(alias, flavor_map[key])
+            return True
+
+        if self._build_request and key in {"1", "2", "3"}:
+            self._build_request = False
+            target = {"1": "sycl", "2": "cuda", "3": "both"}.get(key, "both")
+            self._push_status_message(f"Feature not fully hooked up in TUI yet: Build {target}")
+            return True
+
+        if self._smoke_request and key in {"1", "2"}:
+            self._smoke_request = False
+            target = "both" if key == "1" else "slot"
+            self._push_status_message(f"Feature not fully hooked up in TUI yet: Smoke {target}")
             return True
 
         return False
 
-    def _handle_risk_key(self, key: str) -> None:
-        """Handle hardware warning and VRAM risk keys."""
-        if key in ("y", "n"):
-            if self.active_risk_kind == "vram":
-                result = self.handle_vram_risk(key)
-            else:
-                result = self.handle_hardware_warning(key)
-            if result in ("proceed", "abort"):
-                self.active_risk_kind = None
-        elif key == "q" and self.active_risk_kind != "vram":
-            result = self.handle_hardware_warning(key)
-            if result in ("acknowledge", "abort", "quit"):
-                self.active_risk_kind = None
-
-    def _process_keypresses(self) -> None:
-        """Drain the keypress queue and handle relevant keys."""
-        while not self._keypress_queue.empty():
-            try:
-                key = self._keypress_queue.get_nowait()
-            except queue.Empty:
-                break
-
-            # Handle slot configuration mode first
-            if self._slot_config_state:
-                self._process_slot_config_input(key)
-                continue
-
-            if self._handle_profile_key(key):
-                continue
-
-            if self._handle_build_key(key):
-                continue
-
-            if self._handle_smoke_key(key):
-                continue
-
-            if self.risk_panel is not None:
-                self._handle_risk_key(key)
-                continue
-
-            self._on_key(key)
-
-        # Handle queued profile flavor request non-blockingly
-        if self._profile_request is not None:
-            alias = self._profile_request
-            self._profile_request = None
-            self._wait_for_flavor_selection(alias)
-
-    def _prompt_profile_flavor(self, alias: str) -> None:
-        """Queue a non-blocking profile flavor request for the given alias.
-
-        The actual prompt is processed by _process_keypresses via the keypress
-        queue so the Textual event loop is never blocked.
-        """
-        # Check if already profiling
-        with self._profile_lock:
-            if self._profile_status.get(alias) == "running":
-                return
-
-        # Clear any previous status
-        with self._profile_lock:
-            self._profile_status[alias] = "idle"
-
-        # Queue the alias so _process_keypresses can handle it non-blockingly
-        self._profile_request = alias
-
-    def _wait_for_flavor_selection(self, alias: str, preselected_key: str | None = None) -> None:
-        """Non-blocking flavor selection — drain keypress queue once per cycle.
-
-        Called from _process_keypresses; does NOT sleep or block.
-        If the user hasn't pressed a valid key yet, the request stays queued
-        and _process_keypresses will try again on the next dashboard refresh.
-        """
-        flavor_map = {"1": "balanced", "2": "fast", "3": "quality"}
-
-        if preselected_key in flavor_map:
-            self._profile_request = None
-            self._run_profile_background(alias, flavor_map[preselected_key])
+    def acknowledge_risk(self) -> None:
+        """Acknowledge the active risk prompt."""
+        if self.risk_panel is None:
             return
+        if self.active_risk_kind == "vram":
+            self.handle_vram_risk("y")
+        else:
+            self.handle_hardware_warning("y")
 
-        while not self._keypress_queue.empty():
-            try:
-                key = self._keypress_queue.get_nowait()
-            except queue.Empty:
-                break
-            if key in flavor_map:
-                self._profile_request = None
-                self._run_profile_background(alias, flavor_map[key])
-                return
-            if key == "^C":
-                self._profile_request = None
-                self._push_status_message(f"Profile '{alias}' cancelled.")
-                return
-            # Ignore other keys silently
+    def reject_risk(self) -> None:
+        """Reject the active risk prompt."""
+        if self.risk_panel is None:
+            return
+        if self.active_risk_kind == "vram":
+            self.handle_vram_risk("n")
+        else:
+            self.handle_hardware_warning("n")
 
     def _push_status_message(self, message: str) -> None:
         """Push a message to the TUI-safe status buffer and trigger a refresh.
@@ -518,26 +455,6 @@ class TUIApp:
             # Keep at most 5 messages
             if len(self._status_messages) > 5:
                 self._status_messages.pop(0)
-
-    # ------------------------------------------------------------------
-    # Slot configuration (add new slots)
-    # ------------------------------------------------------------------
-
-    SLOT_CONFIG_FIELDS = ["model", "port", "backend", "threads", "ctx_size"]
-    SLOT_CONFIG_PROMPTS = {
-        "model": "Model path: ",
-        "port": "Port: ",
-        "backend": "Backend (cuda/sycl): ",
-        "threads": "Threads: ",
-        "ctx_size": "Context size: ",
-    }
-
-    def _prompt_add_slot(self) -> None:
-        """Start the slot configuration flow."""
-        slot_id = f"slot{len(self.configs) + 1}"
-        self._slot_config_state[slot_id] = "model"
-        self._slot_config_values[slot_id] = {}
-        self._push_status_message(f"Adding {slot_id}: {self.SLOT_CONFIG_PROMPTS['model']}")
 
     def add_slot_from_form(self, values: dict[str, str]) -> bool:
         """Create or replace a slot from modal profile selection."""
@@ -640,86 +557,6 @@ class TUIApp:
         )
         return True
 
-    def _process_slot_config_input(self, key: str) -> None:
-        """Process input during slot configuration mode.
-
-        Non-blocking - called from _process_keypresses.
-        """
-        # Find any slots in config mode
-        slots_to_process = list(self._slot_config_state.keys())
-        for slot_id in slots_to_process:
-            current_field = self._slot_config_state.get(slot_id)
-            if current_field is None:
-                continue
-
-            # Handle Enter key - advance to next field or complete
-            if key == "\n":
-                self._advance_slot_config_field(slot_id)
-                continue
-
-            # Handle Escape key - cancel
-            if key == "\x1b":
-                self._cancel_slot_config(slot_id)
-                continue
-
-            # Handle backspace
-            if key in {"\x7f", "\b"}:
-                current_value = self._slot_config_values.get(slot_id, {}).get(current_field, "")
-                if current_value:
-                    self._slot_config_values[slot_id][current_field] = current_value[:-1]
-                continue
-
-            # Handle regular character input (only for value fields)
-            if len(key) == 1 and current_field in self.SLOT_CONFIG_FIELDS:
-                current_value = self._slot_config_values.get(slot_id, {}).get(current_field, "")
-                self._slot_config_values[slot_id][current_field] = current_value + key
-
-    def _advance_slot_config_field(self, slot_id: str) -> None:
-        """Advance to the next field in slot configuration."""
-        values = self._slot_config_values.get(slot_id, {})
-        current_field = self._slot_config_state.get(slot_id)
-
-        if current_field is None:
-            return
-
-        if not self._validate_slot_field(current_field, values):
-            return
-
-        # Find next field
-        fields = self.SLOT_CONFIG_FIELDS
-        try:
-            current_idx = fields.index(current_field)
-            if current_idx + 1 < len(fields):
-                next_field = fields[current_idx + 1]
-                self._slot_config_state[slot_id] = next_field
-                self._push_status_message(
-                    f"Adding {slot_id}: {self.SLOT_CONFIG_PROMPTS[next_field]}"
-                )
-            else:
-                # All fields complete - create the slot
-                self._finalize_slot_config(slot_id)
-        except ValueError:
-            self._cancel_slot_config(slot_id)
-
-    def _validate_slot_field(self, current_field: str, values: dict[str, str]) -> bool:
-        """Validate and normalise the current slot config field.
-
-        Returns ``False`` if the caller should abort advancing (e.g. model
-        path is empty).
-        """
-        if current_field == "port":
-            self._normalize_slot_port(values)
-        elif current_field == "threads":
-            self._normalize_slot_threads(values)
-        elif current_field == "ctx_size":
-            self._normalize_slot_ctx_size(values)
-        elif current_field == "backend":
-            self._normalize_slot_backend(values)
-        elif current_field == "model" and not values.get("model", "").strip():
-            self._push_status_message("Model path required")
-            return False
-        return True
-
     def _normalize_slot_port(self, values: dict[str, str]) -> None:
         """Validate and normalise the port field, falling back to 8080."""
         try:
@@ -730,100 +567,6 @@ class TUIApp:
         except ValueError:
             self._push_status_message("Invalid port, using 8080")
             values["port"] = "8080"
-
-    def _normalize_slot_threads(self, values: dict[str, str]) -> None:
-        """Validate and normalise the threads field, falling back to 4."""
-        try:
-            threads = int(values.get("threads", ""))
-            if threads < 1:
-                self._push_status_message("Invalid threads, using 4")
-                values["threads"] = "4"
-        except ValueError:
-            self._push_status_message("Invalid threads, using 4")
-            values["threads"] = "4"
-
-    def _normalize_slot_ctx_size(self, values: dict[str, str]) -> None:
-        """Validate and normalise the ctx_size field, falling back to 2048."""
-        try:
-            ctx_size = int(values.get("ctx_size", ""))
-            if ctx_size < 512:
-                self._push_status_message("Invalid ctx_size, using 2048")
-                values["ctx_size"] = "2048"
-        except ValueError:
-            self._push_status_message("Invalid ctx_size, using 2048")
-            values["ctx_size"] = "2048"
-
-    def _normalize_slot_backend(self, values: dict[str, str]) -> None:
-        """Validate and normalise the backend field, falling back to sycl."""
-        backend = values.get("backend", "").lower()
-        if backend not in ("cuda", "sycl"):
-            self._push_status_message("Invalid backend, using sycl")
-            values["backend"] = "sycl"
-        else:
-            values["backend"] = backend
-
-    def _finalize_slot_config(self, slot_id: str) -> None:
-        """Create the slot from collected configuration values."""
-        values = self._slot_config_values.get(slot_id, {})
-        if not values.get("model"):
-            self._push_status_message("Slot configuration cancelled")
-            self._slot_config_state.pop(slot_id, None)
-            self._slot_config_values.pop(slot_id, None)
-            return
-
-        self._add_slot_from_values(slot_id, values)
-
-        # Clean up config state
-        self._slot_config_state.pop(slot_id, None)
-        self._slot_config_values.pop(slot_id, None)
-
-    def _add_slot_from_values(self, slot_id: str, values: dict[str, str]) -> None:
-        """Add a configured slot and start its server process."""
-        # Create ServerConfig for the new slot
-        backend = values.get("backend", "sycl")
-        port = int(values.get("port", "8080"))
-        threads = int(values.get("threads", "4"))
-        ctx_size = int(values.get("ctx_size", "2048"))
-
-        # Determine device string from backend
-        device = "SYCL" if backend == "sycl" else "CUDA"
-        new_cfg = ServerConfig(
-            alias=slot_id,
-            model=values["model"],
-            device=device,
-            port=port,
-            ctx_size=ctx_size,
-            ubatch_size=512,
-            threads=threads,
-            backend=backend,
-        )
-
-        self.configs.append(new_cfg)
-        self.log_buffers[slot_id] = LogBuffer(redact_sensitive=True)
-        self._unsaved_slots.add(slot_id)
-
-        # Determine GPU index: SYCL runs on Intel Arc (slot 1 by convention),
-        # CUDA runs on NVIDIA (slot 0 by convention). Adjust via gpu_indices if needed.
-        gpu_idx = 1 if backend == "sycl" else 0
-        self.gpu_indices.append(gpu_idx)
-        self.gpu_stats.append(GPUStats(gpu_idx, collector=self._make_collector(gpu_idx)))
-
-        # Register the slot and start the server process so the new slot becomes live.
-        new_slot = ModelSlot(slot_id=slot_id, model_path=values["model"], port=port)
-        self.slots.append(new_slot)
-        log_handler = lambda line, buf=self.log_buffers[slot_id]: buf.add_line(line)  # noqa: E731
-        procs = self.server_manager.start_servers([new_cfg], {slot_id: log_handler})
-        if procs:
-            self._server_processes[slot_id] = procs[0]
-        self.handle_slot_transition(slot_id, SlotState.RUNNING)
-
-        self._push_status_message(f"Added {slot_id}: {values['model']} on {backend}:{port}")
-
-    def _cancel_slot_config(self, slot_id: str) -> None:
-        """Cancel slot configuration."""
-        self._push_status_message("Slot configuration cancelled")
-        self._slot_config_state.pop(slot_id, None)
-        self._slot_config_values.pop(slot_id, None)
 
     def _run_profile_background(self, alias: str, flavor: str) -> None:
         """Run profiling in a background thread so the TUI stays responsive."""
@@ -973,45 +716,6 @@ class TUIApp:
             return
         self.risk_panel = None
         self.risks_acknowledged = False
-
-    def _on_key(self, key: str) -> None:
-        """Handle key presses from the keypress queue."""
-        # Handle Ctrl+C — abort profile or graceful shutdown
-        if key == "^C":
-            # Check if a profile is running
-            with self._profile_lock:
-                for cfg in self.configs:
-                    if self._profile_status.get(cfg.alias) == "running":
-                        cancel_event = self._profile_cancel_events.get(cfg.alias)
-                        if cancel_event is not None:
-                            cancel_event.set()
-                        self._profile_status[cfg.alias] = "failed"
-                        self._push_status_message(f"Profile '{cfg.alias}' aborted.")
-                        return
-
-            # No profile running — graceful shutdown
-            self._graceful_shutdown()
-            return
-
-        # Handle 'q' key — quit
-        if key == "q":
-            self._graceful_shutdown()
-            return
-
-        # Handle 'r' key — refresh display
-        if key == "r":
-            self._push_status_message("Display refreshed.")
-            return
-
-        # Handle 'a' key — add new slot
-        if key == "a":
-            self._prompt_add_slot()
-            return
-
-        # Handle 'P' key — trigger profiling on the focused slot
-        if key.upper() == "P" and self.configs:
-            cfg = self.configs[0]
-            self._prompt_profile_flavor(cfg.alias)
 
     def handle_hardware_warning(self, key: str) -> str:
         """Handle hardware mismatch warning key press.

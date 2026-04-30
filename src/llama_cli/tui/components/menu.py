@@ -6,7 +6,6 @@ from rich.text import Text
 
 def build_command_menu(
     profile_request: str | None,
-    slot_config_state: dict[str, str],
     risk_panel: Panel | None,
     active_risk_kind: str | None,
 ) -> Text:
@@ -25,10 +24,6 @@ def build_command_menu(
         _add_item("2", "Fast")
         _add_item("3", "Quality")
         _add_item("^C", "Cancel")
-    elif slot_config_state:
-        _add_item("Enter", "Next")
-        _add_item("Backspace", "Edit")
-        _add_item("Esc", "Cancel")
     elif risk_panel is not None:
         _add_item("y", "Confirm")
         _add_item("n", "Abort")

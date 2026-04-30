@@ -12,7 +12,7 @@ from __future__ import annotations
 import signal
 import threading
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -426,21 +426,92 @@ class TestGracefulShutdownKeyHandler:
         mock_pipeline.release_lock.assert_called_once()
         assert app._build_in_progress is False
 
-    def test_keypress_queue_processes_keys(self) -> None:
-        """_process_keypresses should drain the keypress queue."""
+    def test_request_quit_calls_graceful_shutdown(self) -> None:
+        """request_quit should initiate graceful shutdown when idle."""
         from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
 
-        # Put some keys in queue
-        app._keypress_queue.put("test_key")
-        app._keypress_queue.put("^C")
+        with patch.object(app, "_graceful_shutdown") as mock_shutdown:
+            app.request_quit()
 
-        # Should not raise
-        app._process_keypresses()
+        mock_shutdown.assert_called_once()
 
-        # Queue should be drained
-        assert app._keypress_queue.empty()
+    def test_interrupt_aborts_running_profile(self) -> None:
+        """interrupt should abort a running profile before shutdown."""
+        from llama_cli.tui import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config(alias="slot0")], gpu_indices=[0])
+        cancel_event = threading.Event()
+        with app._profile_lock:
+            app._profile_status["slot0"] = "running"
+            app._profile_cancel_events["slot0"] = cancel_event
+
+        app.interrupt()
+
+        assert cancel_event.is_set()
+        assert app._profile_status["slot0"] == "failed"
+
+    def test_refresh_display_appends_message(self) -> None:
+        """refresh_display should add a visible status message."""
+        from llama_cli.tui import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
+
+        app.refresh_display()
+
+        assert any("refreshed" in msg.lower() for _, msg in app._status_messages)
+
+    def test_request_profile_sets_pending_request(self) -> None:
+        """request_profile should queue the first profile for selection."""
+        from llama_cli.tui import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config(alias="slot0")], gpu_indices=[0])
+
+        app.request_profile()
+
+        assert app._profile_request == "slot0"
+        assert app._profile_status["slot0"] == "idle"
+
+    def test_select_pending_option_for_profile_starts_background_profile(self) -> None:
+        """select_pending_option should launch the chosen profile flavor."""
+        from llama_cli.tui import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config(alias="slot0")], gpu_indices=[0])
+        app._profile_request = "slot0"
+
+        with patch.object(app, "_run_profile_background") as mock_run:
+            consumed = app.select_pending_option("2")
+
+        assert consumed is True
+        mock_run.assert_called_once_with("slot0", "fast")
+        assert app._profile_request is None
+
+    def test_request_build_and_cancel_pending_prompt(self) -> None:
+        """request_build should set build state and cancel_pending_prompt should clear it."""
+        from llama_cli.tui import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
+
+        app.request_build()
+        assert app._build_request is True
+
+        cancelled = app.cancel_pending_prompt()
+        assert cancelled is True
+        assert app._build_request is False
+
+    def test_request_smoke_and_cancel_pending_prompt(self) -> None:
+        """request_smoke should set smoke state and cancel_pending_prompt should clear it."""
+        from llama_cli.tui import TUIApp
+
+        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
+
+        app.request_smoke()
+        assert app._smoke_request is True
+
+        cancelled = app.cancel_pending_prompt()
+        assert cancelled is True
+        assert app._smoke_request is False
 
     def test_push_status_message(self) -> None:
         """_push_status_message should add messages to the status buffer."""
@@ -486,15 +557,6 @@ class TestGracefulShutdownKeyHandler:
         panel = app._build_status_messages_panel()
         assert panel is None
 
-    def test_handle_keypress_dispatches_through_queue(self) -> None:
-        """Textual key dispatch should reuse the queue-based state machine."""
-        from llama_cli.tui import TUIApp
-
-        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
-        app.handle_keypress("r")
-        assert app._keypress_queue.empty()
-        assert any("refreshed" in msg.lower() for _, msg in app._status_messages)
-
     def test_abort_profile(self) -> None:
         """_abort_profile should cancel any running profile."""
         from llama_cli.tui import TUIApp
@@ -525,11 +587,9 @@ class TestHandleHardwareWarning:
         # Set up a risk panel to be cleared
         app.risk_panel = MagicMock()
 
-        # Queue 'y' key
-        app._keypress_queue.put("y")
-        app._process_keypresses()
+        result = app.handle_hardware_warning("y")
 
-        # Panel should be cleared
+        assert result == "acknowledge"
         assert app.risk_panel is None
 
     def test_handle_hardware_warning_n_aborts(self) -> None:
@@ -541,11 +601,9 @@ class TestHandleHardwareWarning:
         # Set up a risk panel so handler is invoked
         app.risk_panel = MagicMock()
 
-        # Queue 'n' key
-        app._keypress_queue.put("n")
-        app._process_keypresses()
+        result = app.handle_hardware_warning("n")
 
-        # running should be set to False (abort)
+        assert result == "abort"
         assert app.running is False
 
     def test_handle_hardware_warning_q_quits(self) -> None:
@@ -557,11 +615,9 @@ class TestHandleHardwareWarning:
         # Set up a risk panel so handler is invoked
         app.risk_panel = MagicMock()
 
-        # Queue 'q' key
-        app._keypress_queue.put("q")
-        app._process_keypresses()
+        result = app.handle_hardware_warning("q")
 
-        # running should be set to False (quit)
+        assert result == "quit"
         assert app.running is False
 
     def test_handle_hardware_warning_other_ignored(self) -> None:
@@ -573,11 +629,9 @@ class TestHandleHardwareWarning:
         # Set up a risk panel
         app.risk_panel = MagicMock()
 
-        # Queue an unknown key
-        app._keypress_queue.put("x")
-        app._process_keypresses()
+        result = app.handle_hardware_warning("x")
 
-        # Panel should remain unchanged
+        assert result == "ignore"
         assert app.risk_panel is not None
 
 
@@ -594,11 +648,9 @@ class TestHandleVramRisk:
         app.risk_panel = MagicMock()
         app.active_risk_kind = "vram"
 
-        # Queue 'y' key
-        app._keypress_queue.put("y")
-        app._process_keypresses()
+        result = app.handle_vram_risk("y")
 
-        # Panel should be cleared
+        assert result == "proceed"
         assert app.risk_panel is None
 
     def test_handle_vram_risk_n_aborts(self) -> None:
@@ -623,43 +675,7 @@ class TestHandleVramRisk:
         app.risk_panel = MagicMock()
         app.active_risk_kind = "vram"
 
-        # Queue an unknown key
-        app._keypress_queue.put("x")
-        app._process_keypresses()
+        result = app.handle_vram_risk("x")
 
-        # Panel should remain unchanged
+        assert result == "ignore"
         assert app.risk_panel is not None
-
-
-class TestProcessKeypressesDispatch:
-    """Tests for _process_keypresses dispatching normal keys via _on_key."""
-
-    def test_q_key_triggers_graceful_shutdown(self) -> None:
-        """_process_keypresses should dispatch 'q' to _on_key for shutdown."""
-        from llama_cli.tui import TUIApp
-
-        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
-        app._keypress_queue.put("q")
-        app._process_keypresses()
-        assert app.running is False
-
-    def test_r_key_triggers_refresh_message(self) -> None:
-        """_process_keypresses should dispatch 'r' to _on_key for refresh."""
-        from llama_cli.tui import TUIApp
-
-        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
-        app._keypress_queue.put("r")
-        app._process_keypresses()
-        assert any("refreshed" in msg.lower() for _, msg in app._status_messages)
-
-    def test_risk_panel_blocks_normal_keys(self) -> None:
-        """_process_keypresses should not dispatch normal keys when risk panel is active."""
-        from llama_cli.tui import TUIApp
-
-        app = TUIApp(configs=[_make_minimal_config()], gpu_indices=[0])
-        app.risk_panel = MagicMock()
-        app._keypress_queue.put("r")
-        app._process_keypresses()
-        # 'r' is not a risk action key; with risk panel active it should be
-        # consumed without triggering a refresh.
-        assert not any("refreshed" in msg.lower() for _, msg in app._status_messages)

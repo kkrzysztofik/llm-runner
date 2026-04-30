@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
-from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static
 
@@ -26,10 +25,12 @@ class TextualDashboardApp(App[None]):
     BINDINGS = [
         Binding("q", "quit_dashboard", "Quit", priority=True),
         Binding("ctrl+c", "interrupt_dashboard", "Stop", priority=True),
+        Binding("escape", "cancel_pending_prompt", "Cancel"),
         Binding("r", "refresh_dashboard", "Refresh"),
         Binding("p", "profile", "Profile"),
         Binding("b", "build", "Build"),
         Binding("s", "smoke", "Smoke"),
+        Binding("a", "add_slot", "Add Slot"),
         Binding("y", "confirm", "Confirm"),
         Binding("n", "reject", "Abort"),
         Binding("1", "select_flavor('1')", "Balanced"),
@@ -54,31 +55,18 @@ class TextualDashboardApp(App[None]):
         self.refresh_dashboard()
         self.set_interval(0.25, self.refresh_dashboard)
 
-    def on_key(self, event: Key) -> None:
-        if event.key.lower() == "a":
-            self.action_add_slot()
-            event.stop()
-            return
-
-        key = self._textual_key_to_controller_key(event)
-        if key is None:
-            return
-        self.controller.handle_keypress(key)
-        self.refresh_dashboard()
-        event.stop()
-
     def action_quit_dashboard(self) -> None:
-        self.controller.handle_keypress("q")
+        self.controller.request_quit()
         if not self.controller.running:
             self.exit()
 
     def action_interrupt_dashboard(self) -> None:
-        self.controller.handle_keypress("^C")
+        self.controller.interrupt()
         if not self.controller.running:
             self.exit()
 
     def action_refresh_dashboard(self) -> None:
-        self.controller.handle_keypress("r")
+        self.controller.refresh_display()
         self.refresh_dashboard()
 
     def action_add_slot(self) -> None:
@@ -105,29 +93,33 @@ class TextualDashboardApp(App[None]):
         ]
 
     def action_build(self) -> None:
-        self.controller.handle_keypress("b")
+        self.controller.request_build()
         self.refresh_dashboard()
 
     def action_smoke(self) -> None:
-        self.controller.handle_keypress("s")
+        self.controller.request_smoke()
         self.refresh_dashboard()
 
     def action_profile(self) -> None:
-        self.controller.handle_keypress("P")
+        self.controller.request_profile()
         self.refresh_dashboard()
 
     def action_confirm(self) -> None:
-        self.controller.handle_keypress("y")
+        self.controller.acknowledge_risk()
         self.refresh_dashboard()
 
     def action_reject(self) -> None:
-        self.controller.handle_keypress("n")
+        self.controller.reject_risk()
         if not self.controller.running:
             self.exit()
         self.refresh_dashboard()
 
     def action_select_flavor(self, key: str) -> None:
-        self.controller.handle_keypress(key)
+        self.controller.select_pending_option(key)
+        self.refresh_dashboard()
+
+    def action_cancel_pending_prompt(self) -> None:
+        self.controller.cancel_pending_prompt()
         self.refresh_dashboard()
 
     def refresh_dashboard(self) -> None:
@@ -154,19 +146,6 @@ class TextualDashboardApp(App[None]):
         for ts, message in updates:
             self.notify(message, title="Status", severity="information")
             self._last_notified_status_ts = max(self._last_notified_status_ts, ts)
-
-    def _textual_key_to_controller_key(self, event: Key) -> str | None:
-        if event.key in {"enter", "return"}:
-            return "\n"
-        if event.key == "escape":
-            return "\x1b"
-        if event.key in {"backspace", "delete_left", "delete"}:
-            return "\x7f"
-        if event.key == "ctrl+c":
-            return "^C"
-        if event.character is not None and len(event.character) == 1:
-            return event.character
-        return None
 
 
 class AddSlotModal(ModalScreen[dict[str, str] | None]):
