@@ -154,11 +154,10 @@ def build_gpu_telemetry_panel(lines: list[str]) -> Panel | None:
 def build_system_status_panel(
     gpu_lines: list[str],
     notices: list[str] | None = None,
-    panel_width: int | None = None,
 ) -> Panel:
     """Build a single htop-style system status panel for the top area."""
     notices = notices or []
-    content_width = max(72, (panel_width or 120) - 4)
+    content_width = 116
     right_block_width = min(44, max(36, content_width // 3))
     left_block_width = max(28, content_width - right_block_width - 3)
 

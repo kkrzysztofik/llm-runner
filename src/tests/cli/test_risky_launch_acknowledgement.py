@@ -45,7 +45,7 @@ def test_parse_tui_args_supports_acknowledge_risky_flag(monkeypatch: pytest.Monk
     monkeypatch.setattr(
         sys,
         "argv",
-        ["run_models_tui.py", "summary-balanced", "--acknowledge-risky"],
+        ["llm-runner", "summary-balanced", "--acknowledge-risky"],
     )
     parsed = parse_tui_args()
     assert parsed.mode == "summary-balanced"

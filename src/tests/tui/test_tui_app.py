@@ -50,8 +50,6 @@ class TestTUIAppInit:
         assert len(app.configs) == 1
         assert app.gpu_indices == [0]
         assert app.running is True
-        assert app.width == 80
-        assert app.height == 24
         assert app.launch_result is None
         assert app.risk_panel is None
         assert app.risks_acknowledged is False
@@ -78,13 +76,6 @@ class TestTUIAppInit:
         app = TUIApp(configs=[_make_config()], gpu_indices=[0], slots=slots)
         assert len(app.slots) == 1
 
-    def test_init_default_width_height(self) -> None:
-        """TUIApp should have default 80x24 dimensions."""
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        assert app.width == 80
-        assert app.height == 24
-
-
 # =============================================================================
 # stop
 # =============================================================================
@@ -99,65 +90,6 @@ class TestTUIAppStop:
         app.running = True
         app.stop()
         assert app.running is False
-
-
-# =============================================================================
-# on_resize
-# =============================================================================
-
-
-class TestTUIAppOnResize:
-    """Tests for TUIApp.on_resize."""
-
-    def test_on_resize_updates_dimensions(self) -> None:
-        """on_resize should update width and height."""
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        mock_event = MagicMock()
-        mock_event.width = 120
-        mock_event.height = 40
-        app.on_resize(mock_event)  # type: ignore[arg-type]
-        assert app.width == 120
-        assert app.height == 40
-
-
-# =============================================================================
-# build_layout
-# =============================================================================
-
-
-class TestTUIAppBuildLayout:
-    """Tests for TUIApp.build_layout."""
-
-    def test_build_layout_structure(self) -> None:
-        """build_layout should describe the responsive Textual content layout."""
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app.width = 120
-        layout = app.build_layout()
-
-        assert layout.content_orientation == "horizontal"
-
-    def test_build_layout_row_split(self) -> None:
-        """build_layout should use horizontal content when width >= 80."""
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app.width = 120
-        layout = app.build_layout()
-
-        assert layout.content_orientation == "horizontal"
-
-    def test_build_layout_column_split(self) -> None:
-        """build_layout should use vertical content when width < 80."""
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app.width = 60
-        layout = app.build_layout()
-
-        assert layout.content_orientation == "vertical"
-
-    def test_build_layout_boundary_width_is_horizontal(self) -> None:
-        """build_layout should switch to horizontal at the 80-column boundary."""
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app.width = 80
-        layout = app.build_layout()
-        assert layout.content_orientation == "horizontal"
 
 
 # =============================================================================

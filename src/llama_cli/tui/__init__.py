@@ -5,6 +5,6 @@ Public API re-exported from submodules for convenience.
 
 from .controller import TUIApp
 from .textual_app import TextualDashboardApp
-from .types import DashboardSnapshot, TextualLayoutSpec
+from .types import DashboardSnapshot
 
-__all__ = ["DashboardSnapshot", "TextualDashboardApp", "TextualLayoutSpec", "TUIApp"]
+__all__ = ["DashboardSnapshot", "TextualDashboardApp", "TUIApp"]

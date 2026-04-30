@@ -57,7 +57,7 @@ from .components.panels import (
 )
 from .constants import RISK_ACK_LABEL
 from .textual_app import TextualDashboardApp
-from .types import DashboardSnapshot, TextualLayoutSpec
+from .types import DashboardSnapshot
 
 
 class TUIApp:
@@ -76,8 +76,6 @@ class TUIApp:
         self.log_buffers: dict[str, LogBuffer] = {}
         self.gpu_stats: list[GPUStats] = []
         self.running = True
-        self.width = 80
-        self.height = 24
         self.launch_result: LaunchResult | None = None
         self.status_panel: Panel | None = None
         self._telemetry_lines: list[str] = []
@@ -160,17 +158,9 @@ class TUIApp:
 
         return collector
 
-    def on_resize(self, event: Any) -> None:
-        self.width = event.width
-        self.height = event.height
-
     def stop(self) -> None:
         """Stop the TUI loop gracefully."""
         self.running = False
-
-    def build_layout(self) -> TextualLayoutSpec:
-        orientation = "horizontal" if self.width >= 80 else "vertical"
-        return TextualLayoutSpec(content_orientation=orientation)
 
     def render(self) -> DashboardSnapshot:
         self._update_gpu_telemetry()
@@ -178,7 +168,6 @@ class TUIApp:
         alerts_panel = build_system_status_panel(
             gpu_lines=self._telemetry_lines,
             notices=self._build_system_notices(),
-            panel_width=self.width,
         )
 
         left_panel: Panel | None = None
@@ -944,6 +933,8 @@ class TUIApp:
                     ack_token,
                     acknowledged,
                 )
+        if has_risks and acknowledged:
+            self.risks_acknowledged = True
         return has_risks
 
     def _acknowledge_single_risk(

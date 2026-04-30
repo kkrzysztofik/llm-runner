@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
-from textual.events import Key, Resize
+from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static
 
@@ -21,43 +21,8 @@ class TextualDashboardApp(App[None]):
     """Textual shell for the llm-runner dashboard."""
 
     TITLE = "llm-runner"
+    CSS_PATH = "textual_app.tcss"
     _LEFT_PANEL_ID = "#left"
-    CSS = """
-    Screen {
-        layout: vertical;
-    }
-
-    #dashboard {
-        height: 1fr;
-        layout: vertical;
-    }
-
-    #alerts {
-        height: auto;
-        max-height: 35%;
-    }
-
-    #content {
-        height: 1fr;
-    }
-
-    #content.horizontal {
-        layout: horizontal;
-    }
-
-    #content.vertical {
-        layout: vertical;
-    }
-
-    .column {
-        width: 1fr;
-        height: 1fr;
-    }
-
-    #menu {
-        height: 1;
-    }
-    """
     BINDINGS = [
         Binding("q", "quit_dashboard", "Quit", priority=True),
         Binding("ctrl+c", "interrupt_dashboard", "Stop", priority=True),
@@ -80,7 +45,7 @@ class TextualDashboardApp(App[None]):
     def compose(self) -> ComposeResult:
         with Container(id="dashboard"):
             yield Static(id="alerts")
-            with Horizontal(id="content", classes="horizontal"):
+            with Container(id="content"):
                 yield Static(id="left", classes="column")
                 yield Static(id="right", classes="column")
             yield Static(id="menu")
@@ -88,11 +53,6 @@ class TextualDashboardApp(App[None]):
     def on_mount(self) -> None:
         self.refresh_dashboard()
         self.set_interval(0.25, self.refresh_dashboard)
-
-    def on_resize(self, event: Resize) -> None:
-        self.controller.width = event.size.width
-        self.controller.height = event.size.height
-        self.refresh_dashboard()
 
     def on_key(self, event: Key) -> None:
         if event.key.lower() == "a":
@@ -178,16 +138,11 @@ class TextualDashboardApp(App[None]):
         self._emit_status_toasts()
 
         snapshot = self.controller.render()
-        content = self.query_one("#content", Horizontal)
-        content_orientation = self.controller.build_layout().content_orientation
-        content.set_classes(content_orientation)
-
         self.query_one("#alerts", Static).update(snapshot.alerts)
+        left = self.query_one(self._LEFT_PANEL_ID, Static)
+        left.set_class(snapshot.left is None, "empty")
         if snapshot.left is not None:
-            self.query_one(self._LEFT_PANEL_ID, Static).display = True
-            self.query_one(self._LEFT_PANEL_ID, Static).update(snapshot.left)
-        else:
-            self.query_one(self._LEFT_PANEL_ID, Static).display = False
+            left.update(snapshot.left)
         self.query_one("#right", Static).update(snapshot.right)
         self.query_one("#menu", Static).update(snapshot.menu)
 
@@ -217,48 +172,11 @@ class TextualDashboardApp(App[None]):
 class AddSlotModal(ModalScreen[dict[str, str] | None]):
     """Modal form for adding a new slot."""
 
+    CSS_PATH = "textual_app.tcss"
+
     def __init__(self, profile_options: list[tuple[str, str]]) -> None:
         super().__init__()
         self._profile_options = profile_options
-
-    CSS = """
-    AddSlotModal {
-        align: center middle;
-    }
-
-    #add-slot-dialog {
-        width: 80;
-        max-width: 95%;
-        height: auto;
-        padding: 1 2;
-        border: round $accent;
-        background: $surface;
-    }
-
-    #add-slot-title {
-        text-style: bold;
-        margin-bottom: 1;
-    }
-
-    .add-slot-row {
-        height: 3;
-    }
-
-    .add-slot-label {
-        width: 18;
-        content-align: left middle;
-    }
-
-    .add-slot-input {
-        width: 1fr;
-    }
-
-    #add-slot-actions {
-        height: 3;
-        align-horizontal: right;
-        margin-top: 1;
-    }
-    """
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
@@ -294,8 +212,8 @@ class AddSlotModal(ModalScreen[dict[str, str] | None]):
                 )
 
             with Horizontal(id="add-slot-actions"):
-                yield Button("Cancel", id="cancel-slot", variant="default")
-                yield Button("Add Slot", id="submit-slot", variant="success")
+                yield Button("Cancel", id="cancel-slot")
+                yield Button("Add Slot", id="submit-slot")
 
     def on_mount(self) -> None:
         self.query_one("#slot-profile", Select).focus()

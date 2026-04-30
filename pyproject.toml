@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "rich>=15.0.0",
-    "textual>=6.6,<7",
+    "textual>=8.2.4,<9",
     "psutil>=7.2.2",
     "httpx>=0.28.1",
     "gguf>=0.18.0",
@@ -31,6 +31,9 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/llama_cli", "src/llama_manager"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/llama_cli/tui/textual_app.tcss" = "llama_cli/tui/textual_app.tcss"
 
 [tool.hatch.build.targets.wheel.sources]
 "src" = ""
@@ -79,7 +82,7 @@ known-first-party = ["llama_cli", "llama_manager", "tests"]
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
-include = ["src/llama_cli", "src/llama_manager", "src/tests", "src/run_opencode_models.py", "src/run_models_tui.py"]
+include = ["src/llama_cli", "src/llama_manager", "src/tests"]
 exclude = [".venv", "dist"]
 reportMissingImports = true
 reportMissingModuleSource = false

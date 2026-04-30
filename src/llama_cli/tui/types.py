@@ -7,13 +7,6 @@ from rich.text import Text
 
 
 @dataclass(frozen=True)
-class TextualLayoutSpec:
-    """Responsive layout metadata consumed by tests and the Textual app."""
-
-    content_orientation: str
-
-
-@dataclass(frozen=True)
 class DashboardSnapshot:
     """Current dashboard renderables for Textual widgets."""
 
