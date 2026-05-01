@@ -8,7 +8,6 @@ from .._context import _BuildContext
 from ..models import BuildProgress
 from ..utils import (
     MSG_SOURCES_ALREADY_EXIST,
-    MSG_SOURCES_NOT_GIT_REPO,
     _format_command,
     _redact_build_text,
     _tail_lines,

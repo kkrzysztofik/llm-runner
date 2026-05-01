@@ -340,9 +340,7 @@ def _extract_from_raw_bytes(
         embedding_length = _parse_numeric_field(
             data, Keys.LLM.EMBEDDING_LENGTH.format(arch=architecture)
         )
-        block_count = _parse_numeric_field(
-            data, Keys.LLM.BLOCK_COUNT.format(arch=architecture)
-        )
+        block_count = _parse_numeric_field(data, Keys.LLM.BLOCK_COUNT.format(arch=architecture))
         context_length = _parse_numeric_field(
             data, Keys.LLM.CONTEXT_LENGTH.format(arch=architecture)
         )

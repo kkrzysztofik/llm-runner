@@ -23,7 +23,6 @@ import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, Mock, patch
 
 if TYPE_CHECKING:

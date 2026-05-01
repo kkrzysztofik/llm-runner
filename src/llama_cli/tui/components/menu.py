@@ -1,7 +1,16 @@
-"""Bottom command menu builder for the TUI."""
+"""Command menu builder and CommandMenu widget for the TUI."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from rich.panel import Panel
 from rich.text import Text
+from textual.app import RenderResult
+from textual.widget import Widget
+
+if TYPE_CHECKING:
+    from llama_cli.tui.controller import TUIApp
 
 
 def build_command_menu(
@@ -39,3 +48,35 @@ def build_command_menu(
         _add_item("^C", "Stop")
 
     return menu
+
+
+# ---------------------------------------------------------------------------
+# Compound Widget
+# ---------------------------------------------------------------------------
+
+
+class CommandMenu(Widget):
+    """Bottom command menu bar — context-aware hotkey display.
+
+    Replaces the anonymous ``Static(id="menu")`` widget.  Renders different
+    key hints depending on the current TUI mode (normal / profile-select /
+    risk-acknowledgement).
+    """
+
+    DEFAULT_CSS = """
+    CommandMenu {
+        height: 1;
+    }
+    """
+
+    def __init__(self, controller: TUIApp) -> None:
+        super().__init__(id="menu")
+        self._controller = controller
+
+    def render(self) -> RenderResult:
+        ctrl = self._controller
+        return build_command_menu(
+            ctrl.profile_request,
+            ctrl.risk_panel,
+            ctrl.active_risk_kind,
+        )

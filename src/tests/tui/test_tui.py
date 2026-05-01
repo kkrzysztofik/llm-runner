@@ -419,12 +419,12 @@ class TestGracefulShutdownKeyHandler:
         # Mock build pipeline
         mock_pipeline = MagicMock()
         app._build_pipeline = mock_pipeline
-        app._build_in_progress = True
+        app.build_in_progress = True
 
         app._signal_handler(signal.SIGINT, None)
 
         mock_pipeline.release_lock.assert_called_once()
-        assert app._build_in_progress is False
+        assert app.build_in_progress is False
 
     def test_request_quit_calls_graceful_shutdown(self) -> None:
         """request_quit should initiate graceful shutdown when idle."""
@@ -470,7 +470,7 @@ class TestGracefulShutdownKeyHandler:
 
         app.request_profile()
 
-        assert app._profile_request == "slot0"
+        assert app.profile_request == "slot0"
         assert app._profile_status["slot0"] == "idle"
 
     def test_select_pending_option_for_profile_starts_background_profile(self) -> None:
@@ -478,14 +478,14 @@ class TestGracefulShutdownKeyHandler:
         from llama_cli.tui import TUIApp
 
         app = TUIApp(configs=[_make_minimal_config(alias="slot0")], gpu_indices=[0])
-        app._profile_request = "slot0"
+        app.profile_request = "slot0"
 
         with patch.object(app, "_run_profile_background") as mock_run:
             consumed = app.select_pending_option("2")
 
         assert consumed is True
         mock_run.assert_called_once_with("slot0", "fast")
-        assert app._profile_request is None
+        assert app.profile_request is None
 
     def test_request_build_and_cancel_pending_prompt(self) -> None:
         """request_build should set build state and cancel_pending_prompt should clear it."""

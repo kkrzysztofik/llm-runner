@@ -1,14 +1,21 @@
-"""Pure panel-builder functions for TUI column and slot widgets."""
+"""Panel-builder functions and ServerLogPanel widget for the TUI column areas."""
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 import psutil
 from rich.console import Group
 from rich.panel import Panel
 from rich.text import Text
+from textual.app import RenderResult
+from textual.widget import Widget
 
 from llama_cli.colors import Colors
 from llama_manager import GPUStats, LogBuffer, ServerConfig, SlotState
+
+if TYPE_CHECKING:
+    from llama_cli.tui.controller import TUIApp
 
 # ---- Lookup tables (formerly TUIApp class variables) ----
 
@@ -245,3 +252,61 @@ def _parse_percent(value: object) -> float | None:
         return float(text)
     except ValueError:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Compound Widget
+# ---------------------------------------------------------------------------
+
+
+class ServerLogPanel(Widget):
+    """Per-slot column panel: logs + GPU stats.
+
+    Replaces the anonymous ``Static(id="left"|"right")`` widgets.  Accepts
+    ``slot_index`` (0 = primary, 1 = secondary) and renders the appropriate
+    column content.  When the slot index is out of range the widget falls back
+    to a placeholder so it is always visible rather than hidden.
+    """
+
+    DEFAULT_CSS = """
+    ServerLogPanel {
+        width: 1fr;
+        height: 1fr;
+    }
+    """
+
+    def __init__(self, slot_index: int, controller: TUIApp) -> None:
+        super().__init__(classes="column")
+        self._slot_index = slot_index
+        self._controller = controller
+
+    def render(self) -> RenderResult:
+        ctrl = self._controller
+        configs = ctrl.configs
+        if self._slot_index >= len(configs):
+            if self._slot_index == 0:
+                # Primary slot absent → show the "no slots" panel
+                return build_slot_status_panel(
+                    [],
+                    ctrl.slot_states,
+                    ctrl.server_processes,
+                    ctrl.log_buffers,
+                    ctrl.config.host,
+                )
+            return build_placeholder_panel()
+
+        cfg = configs[self._slot_index]
+        buffer = ctrl.log_buffers[cfg.alias]
+        gpu: GPUStats | None = (
+            ctrl.gpu_stats[self._slot_index] if self._slot_index < len(ctrl.gpu_stats) else None
+        )
+        return build_column_panel(
+            cfg,
+            buffer,
+            gpu,
+            ctrl.config.host,
+            stale_warning=ctrl.get_stale_warning(cfg),
+            slot_states=ctrl.slot_states,
+            server_processes=ctrl.server_processes,
+            is_unsaved=cfg.alias in ctrl.unsaved_slots,
+        )

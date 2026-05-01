@@ -109,11 +109,19 @@ def extract_gguf_metadata(
 
     """
     # Validate parameters before any reads or thread creation
-    if isinstance(prefix_cap_bytes, bool) or not isinstance(prefix_cap_bytes, int) or prefix_cap_bytes <= 0:
+    if (
+        isinstance(prefix_cap_bytes, bool)
+        or not isinstance(prefix_cap_bytes, int)
+        or prefix_cap_bytes <= 0
+    ):
         raise ValueError(
             f"prefix_cap_bytes must be a positive integer, got: {prefix_cap_bytes}",
         )
-    if isinstance(parse_timeout_s, bool) or not isinstance(parse_timeout_s, int | float) or parse_timeout_s <= 0:
+    if (
+        isinstance(parse_timeout_s, bool)
+        or not isinstance(parse_timeout_s, int | float)
+        or parse_timeout_s <= 0
+    ):
         raise ValueError(
             f"parse_timeout_s must be a positive number, got: {parse_timeout_s}",
         )

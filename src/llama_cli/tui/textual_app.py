@@ -6,11 +6,19 @@ from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal
-from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Select, Static
+from textual.containers import Container
 
 from llama_manager.config import create_default_profile_registry
+
+from .components.alerts import (
+    GPUTelemetryWidget,
+    NoticesWidget,
+    SystemHealthWidget,
+    SystemStatusWidget,
+)
+from .components.menu import CommandMenu
+from .components.modal import AddSlotModal
+from .components.panels import ServerLogPanel
 
 if TYPE_CHECKING:
     from .controller import TUIApp
@@ -21,7 +29,6 @@ class TextualDashboardApp(App[None]):
 
     TITLE = "llm-runner"
     CSS_PATH = "textual_app.tcss"
-    _LEFT_PANEL_ID = "#left"
     BINDINGS = [
         Binding("q", "quit_dashboard", "Quit", priority=True),
         Binding("ctrl+c", "interrupt_dashboard", "Stop", priority=True),
@@ -45,11 +52,11 @@ class TextualDashboardApp(App[None]):
 
     def compose(self) -> ComposeResult:
         with Container(id="dashboard"):
-            yield Static(id="alerts")
+            yield SystemStatusWidget(self.controller)
             with Container(id="content"):
-                yield Static(id="left", classes="column")
-                yield Static(id="right", classes="column")
-            yield Static(id="menu")
+                yield ServerLogPanel(0, self.controller)
+                yield ServerLogPanel(1, self.controller)
+            yield CommandMenu(self.controller)
 
     def on_mount(self) -> None:
         self.refresh_dashboard()
@@ -129,93 +136,19 @@ class TextualDashboardApp(App[None]):
 
         self._emit_status_toasts()
 
-        snapshot = self.controller.render()
-        self.query_one("#alerts", Static).update(snapshot.alerts)
-        left = self.query_one(self._LEFT_PANEL_ID, Static)
-        left.set_class(snapshot.left is None, "empty")
-        if snapshot.left is not None:
-            left.update(snapshot.left)
-        self.query_one("#right", Static).update(snapshot.right)
-        self.query_one("#menu", Static).update(snapshot.menu)
+        # Refresh each leaf widget.  SystemStatusWidget uses compose() so it
+        # is just a layout container — its children own their own repaints.
+        self.query_one(SystemHealthWidget).refresh()
+        self.query_one(GPUTelemetryWidget).refresh()
+        self.query_one(NoticesWidget).refresh()
+        for panel in self.query(ServerLogPanel):
+            panel.refresh()
+        self.query_one(CommandMenu).refresh()
 
     def _emit_status_toasts(self) -> None:
         updates = self.controller.get_status_messages_since(self._last_notified_status_ts)
         if not updates:
             return
-
         for ts, message in updates:
             self.notify(message, title="Status", severity="information")
             self._last_notified_status_ts = max(self._last_notified_status_ts, ts)
-
-
-class AddSlotModal(ModalScreen[dict[str, str] | None]):
-    """Modal form for adding a new slot."""
-
-    CSS_PATH = "textual_app.tcss"
-
-    def __init__(self, profile_options: list[tuple[str, str]]) -> None:
-        super().__init__()
-        self._profile_options = profile_options
-
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
-        Binding("ctrl+c", "cancel", "Cancel"),
-    ]
-
-    _FIELD_ORDER = (
-        "slot-port",
-    )
-
-    def compose(self) -> ComposeResult:
-        with Container(id="add-slot-dialog"):
-            yield Label("Add Slot", id="add-slot-title")
-
-            with Horizontal(classes="add-slot-row"):
-                yield Label("Profile", classes="add-slot-label")
-                yield Select(
-                    options=self._profile_options,
-                    allow_blank=False,
-                    value=self._profile_options[0][1],
-                    prompt="Choose a profile",
-                    id="slot-profile",
-                    classes="add-slot-input",
-                )
-
-            with Horizontal(classes="add-slot-row"):
-                yield Label("Port override", classes="add-slot-label")
-                yield Input(
-                    value="",
-                    placeholder="optional; leave blank for profile default",
-                    id="slot-port",
-                    classes="add-slot-input",
-                )
-
-            with Horizontal(id="add-slot-actions"):
-                yield Button("Cancel", id="cancel-slot")
-                yield Button("Add Slot", id="submit-slot")
-
-    def on_mount(self) -> None:
-        self.query_one("#slot-profile", Select).focus()
-
-    def action_cancel(self) -> None:
-        self.dismiss(None)
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cancel-slot":
-            self.dismiss(None)
-            return
-        if event.button.id == "submit-slot":
-            self.dismiss(self._collect_values())
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        input_id = event.input.id
-        if input_id != "slot-port":
-            return
-        self.dismiss(self._collect_values())
-
-    def _collect_values(self) -> dict[str, str]:
-        selected_profile = self.query_one("#slot-profile", Select).value
-        return {
-            "profile": "" if selected_profile == Select.BLANK else str(selected_profile),
-            "port": self.query_one("#slot-port", Input).value,
-        }

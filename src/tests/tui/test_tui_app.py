@@ -110,6 +110,7 @@ class TestTextualDashboardAppActions:
         controller.interrupt.assert_called_once()
         assert mock_refresh.call_count == 8
 
+
 # =============================================================================
 # stop
 # =============================================================================
@@ -258,7 +259,7 @@ class TestHandleBuildProgress:
     def test_handle_progress_retry(self) -> None:
         """_handle_build_progress should create retrying status panel."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app._build_in_progress = True
+        app.build_in_progress = True
 
         progress = BuildProgress(
             stage="build",
@@ -269,13 +270,13 @@ class TestHandleBuildProgress:
         )
         app._handle_build_progress(progress)
 
-        assert app._build_progress is progress
+        assert app.build_progress is progress
         assert app.status_panel is not None
 
     def test_handle_progress_failure(self) -> None:
         """_handle_build_progress should create failed status panel."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app._build_in_progress = True
+        app.build_in_progress = True
 
         progress = BuildProgress(
             stage="build",
@@ -290,7 +291,7 @@ class TestHandleBuildProgress:
     def test_handle_progress_success_clears(self) -> None:
         """_handle_build_progress should clear status panel on success."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app._build_in_progress = True
+        app.build_in_progress = True
         app.status_panel = MagicMock()
 
         progress = BuildProgress(
@@ -379,7 +380,7 @@ class TestBuildLlamaCpp:
                 result = app.build_llama_cpp(backend="sycl", dry_run=False)
 
                 assert result is True
-                assert app._build_in_progress is False
+                assert app.build_in_progress is False
 
     def test_build_llama_cpp_failure(self, tmp_path: Path) -> None:
         """build_llama_cpp should return False on failure."""
@@ -403,7 +404,7 @@ class TestBuildLlamaCpp:
                 result = app.build_llama_cpp(backend="sycl", dry_run=False)
 
                 assert result is False
-                assert app._build_in_progress is False
+                assert app.build_in_progress is False
 
     def test_build_llama_cpp_dry_run(self, tmp_path: Path) -> None:
         """build_llama_cpp should set dry_run on pipeline."""
@@ -469,7 +470,7 @@ class TestSignalHandler:
     def test_signal_handler_build_releases_lock(self) -> None:
         """_signal_handler_build should release build lock."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app._build_in_progress = True
+        app.build_in_progress = True
 
         with patch.object(app, "_build_pipeline") as mock_pipeline:
             mock_pipeline.release_lock.return_value = None
@@ -548,7 +549,7 @@ class TestProfilingFlow:
                 return_value=(MagicMock(), stale_result),
             ) as mock_load,
         ):
-            warning = app._get_stale_warning(cfg)
+            warning = app.get_stale_warning(cfg)
 
         assert warning is not None
         assert "profile stale" in warning.lower()
@@ -573,7 +574,7 @@ class TestBuildCommandMenu:
 
     def test_profile_pending_shows_flavor_commands(self) -> None:
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app._profile_request = "slot0"
+        app.profile_request = "slot0"
         menu = app._build_command_menu()
         text = menu.plain
         assert "Balanced" in text
@@ -656,7 +657,7 @@ class TestAddSlotFromForm:
         assert ok is True
         assert any(cfg.alias == "summary-fast" for cfg in app.configs)
         assert "summary-fast" in app.log_buffers
-        assert "summary-fast" in app._unsaved_slots
+        assert "summary-fast" in app.unsaved_slots
 
     def test_add_slot_from_form_rejects_empty_profile(self) -> None:
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
@@ -697,4 +698,3 @@ class TestAddSlotFromForm:
         assert ok is False
         assert len(app.configs) == 1
         assert app.configs[0].alias == "summary-balanced"
-

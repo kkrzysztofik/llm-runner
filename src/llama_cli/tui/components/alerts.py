@@ -1,15 +1,23 @@
-"""Pure alert/status panel builders for the TUI."""
+"""Alert/status panel builders and SystemStatusWidget for the TUI."""
+
+from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 import psutil
 from rich import box
 from rich.panel import Panel
 from rich.text import Text
+from textual.app import ComposeResult, RenderResult
+from textual.widget import Widget
 
 from llama_manager import LaunchResult
 
 from ..constants import STATUS_PREFIX, STYLE_BOLD_RED, STYLE_BOLD_YELLOW
+
+if TYPE_CHECKING:
+    from llama_cli.tui.controller import TUIApp
 
 
 def build_status_panel(launch_result: LaunchResult) -> Panel | None:
@@ -155,8 +163,41 @@ def build_system_status_panel(
     gpu_lines: list[str],
     notices: list[str] | None = None,
 ) -> Panel:
-    """Build a single htop-style system status panel for the top area."""
+    """Build a single htop-style system status panel for the top area.
+
+    Used by ``controller.render()`` for the legacy snapshot path.  The widget
+    path decomposes this into three focused child widgets instead.
+    """
     notices = notices or []
+    text = _build_system_health_text()
+
+    if gpu_lines:
+        text.append("\n")
+        text.append("GPU ", style="bold yellow")
+        text.append(
+            " | ".join(line.replace("\n", " ").strip() for line in gpu_lines), style="yellow"
+        )
+        text.append("\n")
+
+    for notice in notices[-2:]:
+        text.append(f"! {notice}\n", style="bold yellow")
+
+    return Panel(
+        text,
+        title="",
+        box=box.SQUARE,
+        border_style="black",
+        padding=(0, 0),
+    )
+
+
+def _build_system_health_text() -> Text:
+    """Build the CPU, memory, swap, and uptime section as a Rich Text object.
+
+    Pure psutil — no controller dependency.  Extracted so that
+    ``SystemHealthWidget`` and ``build_system_status_panel`` share the same
+    logic without duplication.
+    """
     content_width = 116
     right_block_width = min(44, max(36, content_width // 3))
     left_block_width = max(28, content_width - right_block_width - 3)
@@ -232,22 +273,7 @@ def build_system_status_panel(
     uptime_right.append(f" {_format_uptime(uptime_s)}", style="bright_white")
     _append_two_column_line(text, uptime_left, uptime_right, left_width=left_block_width)
 
-    if gpu_lines:
-        text.append("\n")
-        text.append("GPU ", style="bold yellow")
-        text.append(" | ".join(line.replace("\n", " ").strip() for line in gpu_lines), style="yellow")
-        text.append("\n")
-
-    for notice in notices[-2:]:
-        text.append(f"! {notice}\n", style="bold yellow")
-
-    return Panel(
-        text,
-        title="",
-        box=box.SQUARE,
-        border_style="black",
-        padding=(0, 0),
-    )
+    return text
 
 
 def _usage_bar(percent: float, width: int = 10) -> str:
@@ -344,3 +370,120 @@ def _get_task_stats() -> tuple[int, int, int]:
         if info.get("status") == psutil.STATUS_RUNNING:
             running_count += 1
     return task_count, thread_count, running_count
+
+
+# ---------------------------------------------------------------------------
+# Compound Widgets
+# ---------------------------------------------------------------------------
+
+
+class SystemHealthWidget(Widget):
+    """CPU, memory, swap, and uptime stats — pure psutil, no controller dependency.
+
+    This widget is intentionally decoupled from the controller so it can be
+    used or tested in isolation, like a pure React component.
+    """
+
+    DEFAULT_CSS = """
+    SystemHealthWidget {
+        height: auto;
+    }
+    """
+
+    def render(self) -> RenderResult:
+        return _build_system_health_text()
+
+
+class GPUTelemetryWidget(Widget):
+    """One-line GPU stats for all configured GPUs.
+
+    Calls ``gpu.update()`` on each repaint so the data is always fresh.
+    Hidden (height 0) when no GPUs are configured.
+    """
+
+    DEFAULT_CSS = """
+    GPUTelemetryWidget {
+        height: 1;
+    }
+    GPUTelemetryWidget.hidden {
+        display: none;
+    }
+    """
+
+    def __init__(self, controller: TUIApp) -> None:
+        super().__init__()
+        self._controller = controller
+
+    def render(self) -> RenderResult:
+        gpu_lines: list[str] = []
+        for gpu in self._controller.gpu_stats:
+            gpu.update()
+            gpu_lines.append(gpu.format_stats_text())
+        if not gpu_lines:
+            self.add_class("hidden")
+            return Text()
+        self.remove_class("hidden")
+        text = Text()
+        text.append("GPU ", style="bold yellow")
+        text.append(
+            " | ".join(line.replace("\n", " ").strip() for line in gpu_lines),
+            style="yellow",
+        )
+        return text
+
+
+class NoticesWidget(Widget):
+    """Active system notices: risk acknowledgement, build progress, profiling.
+
+    Hidden when there are no active notices.
+    """
+
+    DEFAULT_CSS = """
+    NoticesWidget {
+        height: auto;
+    }
+    NoticesWidget.hidden {
+        display: none;
+    }
+    """
+
+    def __init__(self, controller: TUIApp) -> None:
+        super().__init__()
+        self._controller = controller
+
+    def render(self) -> RenderResult:
+        notices = self._controller.build_system_notices()
+        if not notices:
+            self.add_class("hidden")
+            return Text()
+        self.remove_class("hidden")
+        text = Text()
+        for notice in notices[-2:]:
+            text.append(f"! {notice}\n", style="bold yellow")
+        return text
+
+
+class SystemStatusWidget(Widget):
+    """Top status bar — composed from three focused child widgets.
+
+    React equivalent: a compound component whose ``compose()`` yields
+    ``SystemHealthWidget``, ``GPUTelemetryWidget``, and ``NoticesWidget``.
+    Each child owns its own data source and repaint cycle; this widget only
+    provides the shared container and outer border.
+    """
+
+    DEFAULT_CSS = """
+    SystemStatusWidget {
+        height: auto;
+        max-height: 35%;
+    }
+    """
+
+    def __init__(self, controller: TUIApp) -> None:
+        super().__init__(id="alerts")
+        self._controller = controller
+
+    def compose(self) -> ComposeResult:
+        yield SystemHealthWidget()
+        yield GPUTelemetryWidget(self._controller)
+        yield NoticesWidget(self._controller)

@@ -77,7 +77,6 @@ class TUIApp:
         self.running = True
         self.launch_result: LaunchResult | None = None
         self.status_panel: Panel | None = None
-        self._telemetry_lines: list[str] = []
         self.risk_panel: Panel | None = None
         self.risks_acknowledged: bool = False
         self.active_risk_kind: str | None = None
@@ -93,16 +92,16 @@ class TUIApp:
         self._status_lock = threading.Lock()
 
         # Non-blocking profile flavor request state
-        self._profile_request: str | None = None
+        self.profile_request: str | None = None
         self._build_request: bool = False
         self._smoke_request: bool = False
-        self._unsaved_slots: set[str] = set()
+        self.unsaved_slots: set[str] = set()
 
         self.server_manager = ServerManager()
 
         # Slot state tracking for TUI dashboard
-        self._slot_states: dict[str, str] = {}  # alias -> SlotState value
-        self._server_processes: dict[str, Any] = {}  # alias -> subprocess.Popen
+        self.slot_states: dict[str, str] = {}  # alias -> SlotState value
+        self.server_processes: dict[str, Any] = {}  # alias -> subprocess.Popen
 
         for cfg in configs:
             self.log_buffers[cfg.alias] = LogBuffer(redact_sensitive=True)
@@ -112,8 +111,8 @@ class TUIApp:
 
         # Build pipeline state
         self._build_pipeline: BuildPipeline | None = None
-        self._build_in_progress = False
-        self._build_progress: BuildProgress | None = None
+        self.build_in_progress = False
+        self.build_progress: BuildProgress | None = None
         self._original_sigint_handler: Callable[[int, FrameType | None], Any] | int | None = None
 
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -125,9 +124,9 @@ class TUIApp:
         If a build is in progress, release the build lock before stopping.
         """
         # Release build lock if in progress
-        if self._build_in_progress and self._build_pipeline is not None:
+        if self.build_in_progress and self._build_pipeline is not None:
             self._build_pipeline.release_lock()
-            self._build_in_progress = False
+            self.build_in_progress = False
 
         self.stop()
 
@@ -136,10 +135,10 @@ class TUIApp:
 
         Releases build lock and stops the build gracefully.
         """
-        if self._build_in_progress and self._build_pipeline is not None:
+        if self.build_in_progress and self._build_pipeline is not None:
             print("\nBuild interrupted by user, releasing lock...", file=sys.stderr)
             self._build_pipeline.release_lock()
-            self._build_in_progress = False
+            self.build_in_progress = False
             sys.exit(130)  # Standard exit code for Ctrl+C
 
     def _make_collector(self, device_index: int) -> Callable[[], dict[str, Any]]:
@@ -155,11 +154,14 @@ class TUIApp:
         self.running = False
 
     def render(self) -> DashboardSnapshot:
-        self._update_gpu_telemetry()
+        gpu_lines: list[str] = []
+        for gpu in self.gpu_stats:
+            gpu.update()
+            gpu_lines.append(gpu.format_stats_text())
 
         alerts_panel = build_system_status_panel(
-            gpu_lines=self._telemetry_lines,
-            notices=self._build_system_notices(),
+            gpu_lines=gpu_lines,
+            notices=self.build_system_notices(),
         )
 
         left_panel: Panel | None = None
@@ -204,16 +206,16 @@ class TUIApp:
     def _build_column_panel(
         self, cfg: ServerConfig, buffer: LogBuffer, gpu: GPUStats | None
     ) -> Panel:
-        stale_warning = self._get_stale_warning(cfg)
+        stale_warning = self.get_stale_warning(cfg)
         return build_column_panel(
             cfg,
             buffer,
             gpu,
             self.config.host,
             stale_warning,
-            slot_states=self._slot_states,
-            server_processes=self._server_processes,
-            is_unsaved=cfg.alias in self._unsaved_slots,
+            slot_states=self.slot_states,
+            server_processes=self.server_processes,
+            is_unsaved=cfg.alias in self.unsaved_slots,
         )
 
     def _build_placeholder_panel(self) -> Panel:
@@ -224,7 +226,7 @@ class TUIApp:
             active = {a: s for a, s in self._profile_status.items() if s != "idle"}
         return build_profile_status_panel(active, self._profile_flavor)
 
-    def _build_system_notices(self) -> list[str]:
+    def build_system_notices(self) -> list[str]:
         """Build concise status notices shown in the top system panel."""
         notices: list[str] = []
 
@@ -234,10 +236,10 @@ class TUIApp:
             elif self.launch_result.is_degraded():
                 notices.append("Launch degraded: some slots blocked")
 
-        if self._build_in_progress and self._build_progress is not None:
+        if self.build_in_progress and self.build_progress is not None:
             notices.append(
-                f"Build {self._build_progress.stage}: {self._build_progress.status} "
-                f"({self._build_progress.progress_percent}%)"
+                f"Build {self.build_progress.stage}: {self.build_progress.status} "
+                f"({self.build_progress.progress_percent}%)"
             )
 
         if self.risk_panel is not None:
@@ -285,23 +287,10 @@ class TUIApp:
 
     def _build_command_menu(self) -> Text:
         return build_command_menu(
-            self._profile_request,
+            self.profile_request,
             self.risk_panel,
             self.active_risk_kind,
         )
-
-    def _update_gpu_telemetry(self) -> None:
-        """Update GPU telemetry panel with latest stats."""
-        if not self.gpu_stats:
-            self._telemetry_lines = []
-            return
-
-        lines: list[str] = []
-        for gpu in self.gpu_stats:
-            gpu.update()  # Refresh stats from collector
-            lines.append(gpu.format_stats_text())
-
-        self._telemetry_lines = lines
 
     # ------------------------------------------------------------------
     # Print helpers
@@ -365,7 +354,7 @@ class TUIApp:
         alias = self.configs[0].alias
         with self._profile_lock:
             self._profile_status[alias] = "idle"
-        self._profile_request = alias
+        self.profile_request = alias
 
     def request_build(self) -> None:
         """Start the build selection flow from the UI."""
@@ -383,8 +372,8 @@ class TUIApp:
 
     def cancel_pending_prompt(self) -> bool:
         """Cancel any pending profile, build, or smoke prompt."""
-        if self._profile_request is not None:
-            self._profile_request = None
+        if self.profile_request is not None:
+            self.profile_request = None
             self._push_status_message("Profile selection cancelled.")
             return True
 
@@ -405,9 +394,9 @@ class TUIApp:
         if self.risk_panel is not None:
             return False
 
-        if self._profile_request is not None and key in {"1", "2", "3"}:
-            alias = self._profile_request
-            self._profile_request = None
+        if self.profile_request is not None and key in {"1", "2", "3"}:
+            alias = self.profile_request
+            self.profile_request = None
             flavor_map = {"1": "balanced", "2": "fast", "3": "quality"}
             self._run_profile_background(alias, flavor_map[key])
             return True
@@ -496,22 +485,22 @@ class TUIApp:
     def _remove_slot_runtime_state(self, alias: str) -> None:
         """Remove runtime state for one slot alias."""
         self.log_buffers.pop(alias, None)
-        self._server_processes.pop(alias, None)
-        self._slot_states.pop(alias, None)
-        self._unsaved_slots.discard(alias)
+        self.server_processes.pop(alias, None)
+        self.slot_states.pop(alias, None)
+        self.unsaved_slots.discard(alias)
         self.slots = [slot for slot in self.slots if slot.slot_id != alias]
 
     def _register_and_start_slot(self, cfg: ServerConfig) -> None:
         """Register and start one slot using the current config."""
         alias = cfg.alias
         self.log_buffers[alias] = LogBuffer(redact_sensitive=True)
-        self._unsaved_slots.add(alias)
+        self.unsaved_slots.add(alias)
         self.slots.append(ModelSlot(slot_id=alias, model_path=cfg.model, port=cfg.port))
 
         log_handler = lambda line, buf=self.log_buffers[alias]: buf.add_line(line)  # noqa: E731
         procs = self.server_manager.start_servers([cfg], {alias: log_handler})
         if procs:
-            self._server_processes[alias] = procs[0]
+            self.server_processes[alias] = procs[0]
         self.handle_slot_transition(alias, SlotState.RUNNING)
 
     def _upsert_profile_slot(self, cfg: ServerConfig, profile_id: str) -> bool:
@@ -634,7 +623,7 @@ class TUIApp:
     # Profile staleness helpers
     # ------------------------------------------------------------------
 
-    def _get_stale_warning(self, cfg: ServerConfig) -> str | None:
+    def get_stale_warning(self, cfg: ServerConfig) -> str | None:
         """Check if the cached profile for a config is stale.
 
         Returns a warning string or None if the profile is fresh / nonexistent.
@@ -775,8 +764,8 @@ class TUIApp:
             slot_id: The slot identifier.
             new_state: The new state for the slot.
         """
-        old_state = self._slot_states.get(slot_id)
-        self._slot_states[slot_id] = new_state.value
+        old_state = self.slot_states.get(slot_id)
+        self.slot_states[slot_id] = new_state.value
 
         # Handle specific transitions
         if old_state is None and new_state == SlotState.RUNNING:
@@ -834,10 +823,10 @@ class TUIApp:
         Args:
             progress: BuildProgress from the pipeline
         """
-        self._build_progress = progress
+        self.build_progress = progress
 
         # Update status panel if build is in progress
-        if self._build_in_progress:
+        if self.build_in_progress:
             if progress.is_retrying:
                 status_text = Text()
                 status_text.append("STATUS: ", style="bold yellow")
@@ -1013,7 +1002,7 @@ class TUIApp:
             build_config, progress_callback=self._handle_build_progress
         )
         self._build_pipeline.dry_run = dry_run
-        self._build_in_progress = True
+        self.build_in_progress = True
 
         # Capture original SIGINT handler before replacing it
         self._original_sigint_handler = signal.signal(signal.SIGINT, self._signal_handler_build)
@@ -1035,7 +1024,7 @@ class TUIApp:
                 print(f"Build failed: {result.error_message}", file=sys.stderr)
                 return False
         finally:
-            self._build_in_progress = False
+            self.build_in_progress = False
             # Restore original SIGINT handler
             if self._original_sigint_handler is not None:
                 signal.signal(signal.SIGINT, self._original_sigint_handler)
@@ -1080,7 +1069,7 @@ class TUIApp:
         }
         processes = self.server_manager.start_servers(launched_configs, log_handlers)
 
-        self._server_processes = {
+        self.server_processes = {
             cfg.alias: proc for cfg, proc in zip(launched_configs, processes, strict=True)
         }
 

@@ -7,11 +7,6 @@ Screen {
     layout: vertical;
 }
 
-#alerts {
-    height: auto;
-    max-height: 35%;
-}
-
 #content {
     height: 1fr;
     layout: horizontal;
@@ -20,58 +15,4 @@ Screen {
 .column {
     width: 1fr;
     height: 1fr;
-}
-
-#menu {
-    height: 1;
-}
-
-.empty {
-    display: none;
-}
-
-AddSlotModal {
-    align: center middle;
-}
-
-#add-slot-dialog {
-    width: 80;
-    max-width: 95%;
-    height: auto;
-    padding: 1 2;
-    border: round $accent;
-    background: $surface;
-}
-
-#add-slot-title {
-    text-style: bold;
-    margin-bottom: 1;
-}
-
-.add-slot-row {
-    height: 3;
-}
-
-.add-slot-label {
-    width: 18;
-    content-align: left middle;
-}
-
-.add-slot-input {
-    width: 1fr;
-}
-
-#add-slot-actions {
-    height: 3;
-    align-horizontal: right;
-    margin-top: 1;
-}
-
-#cancel-slot {
-    border: tall $panel;
-}
-
-#submit-slot {
-    border: tall $success;
-    background: $success 20%;
 }
