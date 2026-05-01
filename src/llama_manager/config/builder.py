@@ -1,11 +1,19 @@
 # ServerConfig creation helpers
 
 import os
+from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
+from ..gpu_stats import get_gpu_identifier
 from .defaults import Config, SmokeProbeConfiguration
-from .profile_cache import PROFILE_OVERRIDE_FIELDS, StalenessResult
+from .profile_cache import (
+    PROFILE_OVERRIDE_FIELDS,
+    ProfileFlavor,
+    StalenessResult,
+    load_profile_with_staleness,
+    profile_to_override_dict,
+)
 from .profiles import RunGroupSpec, RunProfileError, RunProfileRegistry, RunProfileSpec
 from .server import ServerConfig
 
@@ -604,6 +612,104 @@ def merge_config_overrides(
         backend=merged["backend"],
         risky_acknowledged=merged["risky_acknowledged"],
     )
+
+
+def apply_profile_overrides(
+    configs: list[ServerConfig],
+    base_config: Config,
+    get_driver_version: Callable[[str], str],
+) -> tuple[list[ServerConfig], list[str]]:
+    """Apply cached profile overrides to configs.
+
+    For each config, attempts to load a cached profile. If found and fresh,
+    applies the whitelisted profile parameters via merge_config_overrides.
+    Identity fields (model, alias, device, port, backend, etc.) are preserved
+    from the original config.
+
+    Args:
+        configs: List of ServerConfig objects to apply overrides to.
+        base_config: Base Config with profiles_dir, staleness settings, etc.
+        get_driver_version: Callable that accepts a backend string and returns
+            the driver version string.
+
+    Returns:
+        Tuple of (updated_configs, status_messages).
+    """
+    updated_configs: list[ServerConfig] = []
+    messages: list[str] = []
+
+    for cfg in configs:
+        try:
+            gpu_identifier = get_gpu_identifier(cfg.backend)
+            driver_version = get_driver_version(cfg.backend)
+            binary_version = base_config.server_binary_version or "unknown"
+
+            record, staleness = load_profile_with_staleness(
+                profiles_dir=base_config.profiles_dir,
+                gpu_identifier=gpu_identifier,
+                backend=cfg.backend,
+                flavor=ProfileFlavor.BALANCED,
+                current_driver_version=driver_version,
+                current_binary_version=binary_version,
+                staleness_days=base_config.profile_staleness_days,
+            )
+        except Exception:
+            messages.append(f"No profile found for {cfg.alias}; using defaults")
+            updated_configs.append(cfg)
+            continue
+
+        if record is None:
+            messages.append(f"No profile found for {cfg.alias}; using defaults")
+            updated_configs.append(cfg)
+            continue
+
+        if staleness is not None and staleness.is_stale:
+            reasons = "; ".join(r.value.replace("_", " ").title() for r in staleness.reasons)
+            messages.append(f"Profile stale for {cfg.alias}: {reasons}; using defaults")
+            updated_configs.append(cfg)
+            continue
+
+        profile_overrides = profile_to_override_dict(record)
+
+        if not profile_overrides:
+            messages.append(f"Profile empty for {cfg.alias}; using defaults")
+            updated_configs.append(cfg)
+            continue
+
+        override_dict: dict[str, object] = {}
+
+        merged = merge_config_overrides(
+            defaults=base_config,
+            slot_config=None,
+            workstation_config=None,
+            profile_config=profile_overrides,
+            override_config=override_dict,
+        )
+
+        # Preserve identity fields that shouldn't come from profile
+        merged.model = cfg.model
+        merged.alias = cfg.alias
+        merged.device = cfg.device
+        merged.port = cfg.port
+        merged.bind_address = cfg.bind_address
+        merged.server_bin = cfg.server_bin
+        merged.backend = cfg.backend
+        merged.tensor_split = cfg.tensor_split
+        merged.reasoning_mode = cfg.reasoning_mode
+        merged.reasoning_format = cfg.reasoning_format
+        merged.chat_template_kwargs = cfg.chat_template_kwargs
+        merged.reasoning_budget = cfg.reasoning_budget
+        merged.use_jinja = cfg.use_jinja
+        merged.n_gpu_layers = cfg.n_gpu_layers
+        merged.risky_acknowledged = cfg.risky_acknowledged
+
+        messages.append(
+            f"Applied profile: {cfg.alias} (balanced) "
+            f"[threads={merged.threads}, ctx={merged.ctx_size}]"
+        )
+        updated_configs.append(merged)
+
+    return updated_configs, messages
 
 
 def create_smoke_config(

@@ -8,6 +8,7 @@ Covers:
 - Status panel building
 """
 
+import signal
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -16,7 +17,7 @@ import pytest
 
 from llama_cli.tui import TUIApp
 from llama_cli.tui.textual_app import TextualDashboardApp
-from llama_manager.build_pipeline import BuildBackend, BuildProgress, BuildResult
+from llama_manager.build_pipeline import BuildProgress, BuildResult
 from llama_manager.config import ServerConfig
 from tests.support.factories import make_server_config
 
@@ -234,16 +235,31 @@ class TestRiskPanels:
         assert app.risks_acknowledged is True
 
     def test_update_risk_panel_state_with_risks(self) -> None:
-        """_update_risk_panel_state should set acknowledged panel when has_risks."""
+        """_update_risk_panel_state should set required panel when risks not acknowledged."""
+        from llama_manager import RiskAckResult
+
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app._update_risk_panel_state(has_risks=True)
+        result = RiskAckResult(has_risks=True, risks_acknowledged=False)
+        app._update_risk_panel_state(result)
         assert app.risks_acknowledged is False
+
+    def test_update_risk_panel_state_with_acknowledged_risks(self) -> None:
+        """_update_risk_panel_state should set acknowledged panel when risks acknowledged."""
+        from llama_manager import RiskAckResult
+
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        result = RiskAckResult(has_risks=True, risks_acknowledged=True)
+        app._update_risk_panel_state(result)
+        assert app.risks_acknowledged is True
 
     def test_update_risk_panel_state_without_risks(self) -> None:
         """_update_risk_panel_state should clear risk_panel when no risks."""
+        from llama_manager import RiskAckResult
+
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         app.risk_panel = MagicMock()
-        app._update_risk_panel_state(has_risks=False)
+        result = RiskAckResult(has_risks=False, risks_acknowledged=False)
+        app._update_risk_panel_state(result)
         assert app.risk_panel is None
         assert app.risks_acknowledged is False
 
@@ -360,45 +376,45 @@ class TestHandleLaunchResult:
 class TestBuildLlamaCpp:
     """Tests for TUIApp.build_llama_cpp."""
 
+    def _make_mock_config(self, tmp_path: Path) -> MagicMock:
+        """Create a mock Config with build attributes."""
+        mock_config = MagicMock()
+        mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
+        mock_config.builds_dir = tmp_path / "output"
+        mock_config.build_git_remote = "https://github.com/ggerganov/llama.cpp"
+        mock_config.build_git_branch = "main"
+        mock_config.build_retry_attempts = 2
+        mock_config.build_retry_delay = 5
+        return mock_config
+
     def test_build_llama_cpp_success(self, tmp_path: Path) -> None:
         """build_llama_cpp should return True on success."""
         with patch("llama_cli.tui.controller.Config") as mock_config_cls:
-            mock_config = MagicMock()
-            mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
-            mock_config.builds_dir = tmp_path / "output"
-            mock_config.build_git_remote = "https://github.com/ggerganov/llama.cpp"
-            mock_config.build_git_branch = "main"
-            mock_config.build_retry_attempts = 2
-            mock_config.build_retry_delay = 5
-            mock_config_cls.return_value = mock_config
+            mock_config_cls.return_value = self._make_mock_config(tmp_path)
 
-            with patch("llama_cli.tui.controller.BuildPipeline") as mock_pipeline_cls:
-                mock_pipeline_cls.return_value.run.return_value = BuildResult(success=True)
-                mock_pipeline_cls.return_value.dry_run = False
+            with (
+                patch("llama_cli.tui.controller.signal.signal") as mock_signal,
+                patch("llama_cli.tui.controller.run_build_for_backend") as mock_run_build,
+            ):
+                mock_run_build.return_value = BuildResult(success=True)
 
                 app = TUIApp(configs=[_make_config()], gpu_indices=[0])
                 result = app.build_llama_cpp(backend="sycl", dry_run=False)
 
                 assert result is True
                 assert app.build_in_progress is False
+                mock_signal.assert_called()
 
     def test_build_llama_cpp_failure(self, tmp_path: Path) -> None:
         """build_llama_cpp should return False on failure."""
         with patch("llama_cli.tui.controller.Config") as mock_config_cls:
-            mock_config = MagicMock()
-            mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
-            mock_config.builds_dir = tmp_path / "output"
-            mock_config.build_git_remote = "https://github.com/ggerganov/llama.cpp"
-            mock_config.build_git_branch = "main"
-            mock_config.build_retry_attempts = 2
-            mock_config.build_retry_delay = 5
-            mock_config_cls.return_value = mock_config
+            mock_config_cls.return_value = self._make_mock_config(tmp_path)
 
-            with patch("llama_cli.tui.controller.BuildPipeline") as mock_pipeline_cls:
-                mock_pipeline_cls.return_value.run.return_value = BuildResult(
-                    success=False, error_message="failed"
-                )
-                mock_pipeline_cls.return_value.dry_run = False
+            with (
+                patch("llama_cli.tui.controller.signal.signal"),
+                patch("llama_cli.tui.controller.run_build_for_backend") as mock_run_build,
+            ):
+                mock_run_build.return_value = BuildResult(success=False, error_message="failed")
 
                 app = TUIApp(configs=[_make_config()], gpu_indices=[0])
                 result = app.build_llama_cpp(backend="sycl", dry_run=False)
@@ -407,47 +423,60 @@ class TestBuildLlamaCpp:
                 assert app.build_in_progress is False
 
     def test_build_llama_cpp_dry_run(self, tmp_path: Path) -> None:
-        """build_llama_cpp should set dry_run on pipeline."""
+        """build_llama_cpp should pass dry_run to orchestration."""
         with patch("llama_cli.tui.controller.Config") as mock_config_cls:
-            mock_config = MagicMock()
-            mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
-            mock_config.builds_dir = tmp_path / "output"
-            mock_config.build_git_remote = "https://github.com/ggerganov/llama.cpp"
-            mock_config.build_git_branch = "main"
-            mock_config.build_retry_attempts = 2
-            mock_config.build_retry_delay = 5
-            mock_config_cls.return_value = mock_config
+            mock_config_cls.return_value = self._make_mock_config(tmp_path)
 
-            with patch("llama_cli.tui.controller.BuildPipeline") as mock_pipeline_cls:
-                mock_pipeline_cls.return_value.run.return_value = BuildResult(success=True)
+            with (
+                patch("llama_cli.tui.controller.signal.signal"),
+                patch("llama_cli.tui.controller.run_build_for_backend") as mock_run_build,
+            ):
+                mock_run_build.return_value = BuildResult(success=True)
 
                 app = TUIApp(configs=[_make_config()], gpu_indices=[0])
                 app.build_llama_cpp(backend="sycl", dry_run=True)
 
-                assert mock_pipeline_cls.return_value.dry_run is True
+                assert mock_run_build.call_args.kwargs["dry_run"] is True
 
     def test_build_llama_cpp_cuda_backend(self, tmp_path: Path) -> None:
-        """build_llama_cpp should use correct backend for CUDA."""
+        """build_llama_cpp should pass cuda backend to orchestration."""
         with patch("llama_cli.tui.controller.Config") as mock_config_cls:
-            mock_config = MagicMock()
-            mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
-            mock_config.builds_dir = tmp_path / "output"
-            mock_config.build_git_remote = "https://github.com/ggerganov/llama.cpp"
-            mock_config.build_git_branch = "main"
-            mock_config.build_retry_attempts = 2
-            mock_config.build_retry_delay = 5
-            mock_config_cls.return_value = mock_config
+            mock_config_cls.return_value = self._make_mock_config(tmp_path)
 
-            with patch("llama_cli.tui.controller.BuildPipeline") as mock_pipeline_cls:
-                mock_pipeline_cls.return_value.run.return_value = BuildResult(success=True)
+            with (
+                patch("llama_cli.tui.controller.signal.signal"),
+                patch("llama_cli.tui.controller.run_build_for_backend") as mock_run_build,
+            ):
+                mock_run_build.return_value = BuildResult(success=True)
 
                 app = TUIApp(configs=[_make_config()], gpu_indices=[0])
                 app.build_llama_cpp(backend="cuda", dry_run=False)
 
-                # Verify pipeline was created with CUDA backend
-                call_args = mock_pipeline_cls.call_args
-                build_config = call_args[0][0]
-                assert build_config.backend == BuildBackend.CUDA
+                assert mock_run_build.call_args.kwargs["backend"] == "cuda"
+
+    def test_build_llama_cpp_restores_sigint(self, tmp_path: Path) -> None:
+        """build_llama_cpp should restore the original SIGINT handler."""
+        original_handler = object()
+
+        with patch("llama_cli.tui.controller.Config") as mock_config_cls:
+            mock_config_cls.return_value = self._make_mock_config(tmp_path)
+
+            with (
+                patch(
+                    "llama_cli.tui.controller.signal.signal",
+                    return_value=original_handler,
+                ) as mock_signal,
+                patch("llama_cli.tui.controller.run_build_for_backend") as mock_run_build,
+            ):
+                mock_run_build.return_value = BuildResult(success=True)
+
+                app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+                app.build_llama_cpp(backend="sycl", dry_run=False)
+
+                # signal.signal is also called in TUIApp.__init__
+                sigint_calls = [c for c in mock_signal.call_args_list if c[0][0] == signal.SIGINT]
+                # Last SIGINT call should restore the original handler
+                assert sigint_calls[-1][0] == (signal.SIGINT, original_handler)
 
 
 # =============================================================================
@@ -600,45 +629,8 @@ class TestBuildCommandMenu:
 
 
 # =============================================================================
-# Slot config normalizer helpers
+# Slot creation via delegation to llama_manager.slot_manager
 # =============================================================================
-
-
-class TestNormalizeSlotPort:
-    """Tests for TUIApp._normalize_slot_port."""
-
-    def _make_app(self) -> TUIApp:
-        return TUIApp(configs=[_make_config()], gpu_indices=[0])
-
-    def test_valid_port_unchanged(self) -> None:
-        app = self._make_app()
-        values: dict[str, str] = {"port": "8080"}
-        app._normalize_slot_port(values)
-        assert values["port"] == "8080"
-
-    def test_port_below_range_resets_to_default(self) -> None:
-        app = self._make_app()
-        values: dict[str, str] = {"port": "80"}
-        app._normalize_slot_port(values)
-        assert values["port"] == "8080"
-
-    def test_port_above_range_resets_to_default(self) -> None:
-        app = self._make_app()
-        values: dict[str, str] = {"port": "99999"}
-        app._normalize_slot_port(values)
-        assert values["port"] == "8080"
-
-    def test_non_numeric_port_resets_to_default(self) -> None:
-        app = self._make_app()
-        values: dict[str, str] = {"port": "abc"}
-        app._normalize_slot_port(values)
-        assert values["port"] == "8080"
-
-    def test_empty_port_resets_to_default(self) -> None:
-        app = self._make_app()
-        values: dict[str, str] = {"port": ""}
-        app._normalize_slot_port(values)
-        assert values["port"] == "8080"
 
 
 class TestAddSlotFromForm:

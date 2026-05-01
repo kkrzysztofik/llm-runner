@@ -337,3 +337,209 @@ class TestServerManagerLaunchAllSlots:
             # Assert LaunchResult has degraded status
             assert isinstance(result, LaunchResult)
             assert result.status == "degraded"
+
+
+class TestLaunchOrchestrate:
+    """Characterization tests for launch_orchestrate extracted from TUI controller."""
+
+    def test_empty_configs_returns_empty_result(self) -> None:
+        """Empty configs should return empty=True with guidance message."""
+        from llama_manager.process_manager import (
+            LaunchOrchestrationResult,
+            launch_orchestrate,
+        )
+
+        with patch(
+            "llama_manager.process_manager.apply_profile_overrides",
+            return_value=([], ["No profile found"]),
+        ):
+            mock_sm = Mock()
+            result = launch_orchestrate(
+                configs=[],
+                base_config=Mock(),
+                server_manager=mock_sm,
+                log_buffers={},
+                get_driver_version=lambda _b: "driver-1",
+            )
+
+        assert isinstance(result, LaunchOrchestrationResult)
+        assert result.empty is True
+        assert result.updated_configs == []
+        assert "No slots configured. Press 'a' to add a slot." in result.status_messages
+        mock_sm.begin_launch_attempt.assert_not_called()
+
+    def test_success_path_returns_processes_and_slot_states(self) -> None:
+        """Happy path should return processes, slot_states, and success result."""
+        from llama_manager.process_manager import LaunchResult, launch_orchestrate
+        from tests.support.factories import make_server_config
+
+        cfg = make_server_config(alias="test", port=8080)
+        mock_proc = Mock()
+        mock_sm = Mock()
+        mock_sm.begin_launch_attempt.return_value = "attempt-1"
+        mock_sm.issue_ack_token.return_value = "ack:attempt-1"
+        mock_sm.launch_all_slots.return_value = LaunchResult(
+            status="success", launched=["test"], warnings=None, errors=None
+        )
+        mock_sm.start_servers.return_value = [mock_proc]
+
+        log_buffers = {"test": Mock()}
+
+        with (
+            patch(
+                "llama_manager.process_manager.apply_profile_overrides",
+                return_value=([cfg], ["Applied profile"]),
+            ),
+            patch(
+                "llama_manager.risk_ack.evaluate_risks",
+                return_value=Mock(has_risks=False, risks_acknowledged=False, risk_details=[]),
+            ),
+        ):
+            result = launch_orchestrate(
+                configs=[cfg],
+                base_config=Mock(),
+                server_manager=mock_sm,
+                log_buffers=log_buffers,
+                get_driver_version=lambda _b: "driver-1",
+            )
+
+        assert result.empty is False
+        assert result.launch_result.status == "success"
+        assert result.processes == {"test": mock_proc}
+        assert result.slot_states == {"test": "running"}
+        assert "Applied profile" in result.status_messages
+        mock_sm.start_servers.assert_called_once()
+
+    def test_blocked_launch_returns_no_processes(self) -> None:
+        """Blocked launch should return empty processes/dict and status messages."""
+        from llama_manager.process_manager import LaunchResult, launch_orchestrate
+        from tests.support.factories import make_server_config
+
+        cfg = make_server_config(alias="test", port=8080)
+        mock_sm = Mock()
+        mock_sm.begin_launch_attempt.return_value = "attempt-1"
+        mock_sm.issue_ack_token.return_value = "ack:attempt-1"
+        mock_sm.launch_all_slots.return_value = LaunchResult(
+            status="blocked",
+            launched=[],
+            warnings=None,
+            errors=Mock(errors=[]),
+        )
+
+        with (
+            patch(
+                "llama_manager.process_manager.apply_profile_overrides",
+                return_value=([cfg], []),
+            ),
+            patch(
+                "llama_manager.risk_ack.evaluate_risks",
+                return_value=Mock(has_risks=False, risks_acknowledged=False, risk_details=[]),
+            ),
+        ):
+            result = launch_orchestrate(
+                configs=[cfg],
+                base_config=Mock(),
+                server_manager=mock_sm,
+                log_buffers={},
+                get_driver_version=lambda _b: "driver-1",
+            )
+
+        assert result.launch_result.is_blocked() is True
+        assert result.processes == {}
+        assert result.slot_states == {}
+        assert "Launch blocked: no slots could be launched" in result.status_messages
+        mock_sm.start_servers.assert_not_called()
+
+    def test_degraded_launch_returns_partial_processes(self) -> None:
+        """Degraded launch should return partial processes and warning messages."""
+        from llama_manager.process_manager import LaunchResult, launch_orchestrate
+        from tests.support.factories import make_server_config
+
+        cfg1 = make_server_config(alias="slot1", port=8080)
+        cfg2 = make_server_config(alias="slot2", port=8081)
+
+        mock_proc = Mock()
+        mock_sm = Mock()
+        mock_sm.begin_launch_attempt.return_value = "attempt-1"
+        mock_sm.issue_ack_token.return_value = "ack:attempt-1"
+        mock_sm.launch_all_slots.return_value = LaunchResult(
+            status="degraded",
+            launched=["slot1"],
+            warnings=["slot2 blocked by lock"],
+            errors=None,
+        )
+        mock_sm.start_servers.return_value = [mock_proc]
+
+        log_buffers = {"slot1": Mock(), "slot2": Mock()}
+
+        with (
+            patch(
+                "llama_manager.process_manager.apply_profile_overrides",
+                return_value=([cfg1, cfg2], []),
+            ),
+            patch(
+                "llama_manager.risk_ack.evaluate_risks",
+                return_value=Mock(has_risks=False, risks_acknowledged=False, risk_details=[]),
+            ),
+        ):
+            result = launch_orchestrate(
+                configs=[cfg1, cfg2],
+                base_config=Mock(),
+                server_manager=mock_sm,
+                log_buffers=log_buffers,
+                get_driver_version=lambda _b: "driver-1",
+            )
+
+        assert result.launch_result.is_degraded() is True
+        assert list(result.processes.keys()) == ["slot1"]
+        assert "slot2" not in result.processes
+        assert "Launch degraded: some slots blocked" in result.status_messages
+        mock_sm.start_servers.assert_called_once()
+
+    def test_risk_evaluation_result_included(self) -> None:
+        """Risk evaluation result should be included in the orchestration result."""
+        from llama_manager.process_manager import LaunchResult, launch_orchestrate
+        from tests.support.factories import make_server_config
+
+        cfg = make_server_config(alias="test", port=8080)
+        risk_result = Mock(
+            has_risks=True,
+            risks_acknowledged=False,
+            risk_details=[
+                {
+                    "alias": "test",
+                    "risk": "privileged_port",
+                    "risk_kind": "hardware",
+                }
+            ],
+        )
+
+        mock_proc = Mock()
+        mock_sm = Mock()
+        mock_sm.begin_launch_attempt.return_value = "attempt-1"
+        mock_sm.issue_ack_token.return_value = "ack:attempt-1"
+        mock_sm.launch_all_slots.return_value = LaunchResult(
+            status="success", launched=["test"], warnings=None, errors=None
+        )
+        mock_sm.start_servers.return_value = [mock_proc]
+
+        with (
+            patch(
+                "llama_manager.process_manager.apply_profile_overrides",
+                return_value=([cfg], []),
+            ),
+            patch(
+                "llama_manager.risk_ack.evaluate_risks",
+                return_value=risk_result,
+            ),
+        ):
+            result = launch_orchestrate(
+                configs=[cfg],
+                base_config=Mock(),
+                server_manager=mock_sm,
+                log_buffers={"test": Mock()},
+                get_driver_version=lambda _b: "driver-1",
+            )
+
+        assert result.risk_result == risk_result
+        assert result.risk_result.has_risks is True
