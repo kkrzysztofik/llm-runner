@@ -103,7 +103,8 @@ def register_and_start_slot(
     state["unsaved_slots"].add(alias)
     state["slots"].append(ModelSlot(slot_id=alias, model_path=cfg.model, port=cfg.port))
 
-    log_handler = lambda line, buf=state["log_buffers"][alias]: buf.add_line(line)  # noqa: E731
+    log_buffer = state["log_buffers"][alias]
+    log_handler = lambda line, buf=log_buffer: buf.add_line(line)  # noqa: E731
     procs = server_manager.start_servers([cfg], {alias: log_handler})
     if procs:
         state["server_processes"][alias] = procs[0]

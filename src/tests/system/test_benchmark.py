@@ -17,20 +17,21 @@ from llama_manager.benchmark import (
 )
 
 
+@pytest.fixture
+def make_temp_bin(tmp_path: Path) -> Path:
+    """Create a temporary file to serve as a fake llama-bench binary."""
+    path = tmp_path / "llama-bench"
+    path.touch()
+    path.chmod(0o755)
+    return path
+
+
 class TestBuildBenchmarkCmd:
     """Tests for build_benchmark_cmd."""
 
-    def _make_temp_bin(self, tmp_path: Path, executable: bool = True) -> Path:
-        """Create a temporary file to serve as a fake llama-bench binary."""
-        path = tmp_path / "llama-bench"
-        path.touch()
-        if executable:
-            path.chmod(0o755)
-        return path
-
-    def test_contains_required_flags(self, tmp_path: Path) -> None:
+    def test_contains_required_flags(self, make_temp_bin: Path) -> None:
         """build_benchmark_cmd should contain all required flags."""
-        bin_path = self._make_temp_bin(tmp_path)
+        bin_path = make_temp_bin
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/models/test.gguf",
@@ -55,9 +56,9 @@ class TestBuildBenchmarkCmd:
         assert "F16" in cmd
         assert "-ngl" in cmd
 
-    def test_returns_list_of_strings(self, tmp_path: Path) -> None:
+    def test_returns_list_of_strings(self, make_temp_bin: Path) -> None:
         """build_benchmark_cmd should return a list[str]."""
-        bin_path = self._make_temp_bin(tmp_path)
+        bin_path = make_temp_bin
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/models/test.gguf",
@@ -71,9 +72,9 @@ class TestBuildBenchmarkCmd:
         assert isinstance(cmd, list)
         assert all(isinstance(part, str) for part in cmd)
 
-    def test_n_gpu_layers_default_all(self, tmp_path: Path) -> None:
+    def test_n_gpu_layers_default_all(self, make_temp_bin: Path) -> None:
         """n_gpu_layers should default to 'all'."""
-        bin_path = self._make_temp_bin(tmp_path)
+        bin_path = make_temp_bin
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/models/test.gguf",
@@ -87,9 +88,9 @@ class TestBuildBenchmarkCmd:
         ngl_idx = cmd.index("-ngl")
         assert cmd[ngl_idx + 1] == "all"
 
-    def test_n_gpu_layers_custom_value(self, tmp_path: Path) -> None:
+    def test_n_gpu_layers_custom_value(self, make_temp_bin: Path) -> None:
         """n_gpu_layers should accept a custom int value."""
-        bin_path = self._make_temp_bin(tmp_path)
+        bin_path = make_temp_bin
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/models/test.gguf",
@@ -246,17 +247,9 @@ class TestParseBenchmarkOutput:
 class TestBuildBenchmarkCmdEdgeCases:
     """Edge-case tests for build_benchmark_cmd."""
 
-    def _make_temp_bin(self, tmp_path: Path, executable: bool = True) -> Path:
-        """Create a temporary file to serve as a fake llama-bench binary."""
-        path = tmp_path / "llama-bench"
-        path.touch()
-        if executable:
-            path.chmod(0o755)
-        return path
-
-    def test_n_gpu_layers_explicit_string_all(self, tmp_path: Path) -> None:
+    def test_n_gpu_layers_explicit_string_all(self, make_temp_bin: Path) -> None:
         """Test build_benchmark_cmd with n_gpu_layers='all' as explicit string."""
-        bin_path = self._make_temp_bin(tmp_path)
+        bin_path = make_temp_bin
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/tmp/model.gguf",
@@ -271,9 +264,9 @@ class TestBuildBenchmarkCmdEdgeCases:
         ngl_idx = cmd.index("-ngl")
         assert cmd[ngl_idx + 1] == "all"
 
-    def test_n_gpu_layers_custom_int_value(self, tmp_path: Path) -> None:
+    def test_n_gpu_layers_custom_int_value(self, make_temp_bin: Path) -> None:
         """Test build_benchmark_cmd with n_gpu_layers as an int."""
-        bin_path = self._make_temp_bin(tmp_path)
+        bin_path = make_temp_bin
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/tmp/model.gguf",
@@ -733,17 +726,9 @@ class TestParseBenchmarkOutputMixedFormats:
 class TestBuildBenchmarkCmdAllParams:
     """Tests for build_benchmark_cmd with all parameter combinations."""
 
-    def _make_temp_bin(self, tmp_path: Path, executable: bool = True) -> Path:
-        """Create a temporary file to serve as a fake llama-bench binary."""
-        path = tmp_path / "llama-bench"
-        path.touch()
-        if executable:
-            path.chmod(0o755)
-        return path
-
-    def test_all_parameters_included(self, tmp_path: Path) -> None:
+    def test_all_parameters_included(self, make_temp_bin: Path) -> None:
         """build_benchmark_cmd should include all parameters in the command."""
-        bin_path = self._make_temp_bin(tmp_path)
+        bin_path = make_temp_bin
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/models/qwen2.5-7b-q4_k_m.gguf",
@@ -771,9 +756,9 @@ class TestBuildBenchmarkCmdAllParams:
         assert "-ngl" in cmd
         assert "99" in cmd
 
-    def test_cmd_length(self, tmp_path: Path) -> None:
+    def test_cmd_length(self, make_temp_bin: Path) -> None:
         """build_benchmark_cmd should produce a command with expected length."""
-        bin_path = self._make_temp_bin(tmp_path)
+        bin_path = make_temp_bin
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/model.gguf",
@@ -787,9 +772,9 @@ class TestBuildBenchmarkCmdAllParams:
         # bench_bin(1) + 7 flag-value pairs(14) = 15 elements
         assert len(cmd) == 15
 
-    def test_cmd_order(self, tmp_path: Path) -> None:
+    def test_cmd_order(self, make_temp_bin: Path) -> None:
         """build_benchmark_cmd should maintain correct argument order."""
-        bin_path = self._make_temp_bin(tmp_path)
+        bin_path = make_temp_bin
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/model.gguf",
@@ -811,9 +796,9 @@ class TestBuildBenchmarkCmdAllParams:
         assert cmd[11] == "--cache-type-v"
         assert cmd[13] == "-ngl"
 
-    def test_special_characters_in_model_path(self, tmp_path: Path) -> None:
+    def test_special_characters_in_model_path(self, make_temp_bin: Path) -> None:
         """build_benchmark_cmd should handle special characters in model path."""
-        bin_path = self._make_temp_bin(tmp_path)
+        bin_path = make_temp_bin
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/models/qwen2.5-7b-q4_k_m.gguf",
@@ -826,9 +811,9 @@ class TestBuildBenchmarkCmdAllParams:
 
         assert "/models/qwen2.5-7b-q4_k_m.gguf" in cmd
 
-    def test_cache_type_q8_0(self, tmp_path: Path) -> None:
+    def test_cache_type_q8_0(self, make_temp_bin: Path) -> None:
         """build_benchmark_cmd should accept Q8_0 cache types."""
-        bin_path = self._make_temp_bin(tmp_path)
+        bin_path = make_temp_bin
         cmd = build_benchmark_cmd(
             bench_bin=str(bin_path),
             model="/model.gguf",

@@ -45,6 +45,8 @@ class DashboardApp(App[None]):
         self.controller = controller
         self.view_model = controller.view_model
         self._last_notified_status_ts: float = 0.0
+        self._profile_options_cache: list[tuple[str, str]] | None = None
+        self._profile_cache_config_id: int | None = None
 
     def compose(self) -> ComposeResult:
         with Container(id="dashboard"):
@@ -86,14 +88,20 @@ class DashboardApp(App[None]):
         self.refresh_dashboard()
 
     def _build_profile_options(self) -> list[tuple[str, str]]:
+        config_id = id(self.controller.config)
+        if self._profile_options_cache is not None and self._profile_cache_config_id == config_id:
+            return self._profile_options_cache
+
         registry = create_default_profile_registry(self.controller.config)
-        return [
+        self._profile_options_cache = [
             (
                 f"{profile.profile_id} - {profile.description}",
                 profile.profile_id,
             )
             for profile in registry.profiles
         ]
+        self._profile_cache_config_id = config_id
+        return self._profile_options_cache
 
     def action_build(self) -> None:
         self.controller.request_build()

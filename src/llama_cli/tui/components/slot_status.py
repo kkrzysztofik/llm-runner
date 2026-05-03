@@ -42,12 +42,16 @@ class SlotStatusResolver:
         status = state
         if state == SlotState.RUNNING.value:
             proc = server_processes.get(alias)
-            if (
-                not proc
-                or (hasattr(proc, "poll") and proc.poll() is not None)
-                or (not hasattr(proc, "poll") and not (proc.pid and psutil.pid_exists(proc.pid)))
-            ):
+            if not proc:
                 status = SlotState.CRASHED.value
+            elif hasattr(proc, "poll"):
+                # Process-like object: check if it has exited
+                if proc.poll() is not None:
+                    status = SlotState.CRASHED.value
+            else:
+                # PID-based object: check via psutil
+                if not (proc.pid and psutil.pid_exists(proc.pid)):
+                    status = SlotState.CRASHED.value
         return status
 
 
@@ -98,8 +102,9 @@ class SlotStatusPanel(Widget):
         buffer = self._state.log_buffers.get(alias)
         if buffer is not None:
             lines = buffer.get_lines()
-            log_lines = lines[-3:] if lines else []
-            log_text = "\n".join(log_lines) if log_lines else "  (no logs yet)"
-            section.append(Text(log_text + "\n", style="dim"))
+            if lines:
+                log_lines = lines[-3:]
+                log_text = "\n".join(log_lines)
+                section.append(Text(log_text + "\n", style="dim"))
 
         return section

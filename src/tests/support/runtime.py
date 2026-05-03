@@ -43,12 +43,15 @@ def fixture_path(name: str) -> Path:
 
 
 def valid_artifact_data(**overrides: object) -> dict[str, object]:
-    """Create valid FR-007 dry-run artifact data."""
+    """Create valid FR-007 dry-run artifact data.
+
+    Uses per-slot dicts for resolved_command and validation_results.
+    """
     data: dict[str, object] = {
         "timestamp": "2026-04-12T00:00:00Z",
         "slot_scope": ["slot1"],
-        "resolved_command": {"cmd": ["echo", "test"]},
-        "validation_results": {"passed": True, "checks": []},
+        "resolved_command": {"slot1": {"cmd": ["echo", "test"]}},
+        "validation_results": {"slot1": {"passed": True, "checks": []}},
         "warnings": [],
         "environment_redacted": {},
     }

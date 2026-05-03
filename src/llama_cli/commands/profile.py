@@ -181,7 +181,7 @@ def _query_sycl_driver() -> str | None:
     return None
 
 
-def _get_driver_version(backend: str) -> str:
+def get_driver_version(backend: str) -> str:
     """Query the GPU driver version for the given backend.
 
     Args:
@@ -381,7 +381,13 @@ def _check_slot_lockfile(slot_id: str, config: Config, _emit: Callable[[str], No
 def _resolve_bench_bin(server_config: ServerConfig, config: Config) -> str | None:
     """Resolve benchmark binary path, return None if unavailable."""
     server_bin = server_config.server_bin or config.llama_server_bin_intel
-    return server_bin.replace("llama-server", "llama-bench") if server_bin else "llama-bench"
+    if not server_bin:
+        return "llama-bench"
+    # Safely swap basename only when it matches known server binary names
+    base = os.path.basename(server_bin)
+    if base in ("llama-server", "llama-server.exe", "llama-server-metal"):
+        return os.path.join(os.path.dirname(server_bin), "llama-bench")
+    return None
 
 
 def cmd_profile(
@@ -438,7 +444,7 @@ def cmd_profile(
     gpu_identifier = get_gpu_identifier(backend)
 
     # Get driver version
-    driver_version = _get_driver_version(backend)
+    driver_version = get_driver_version(backend)
 
     # Resolve flavor-based config
     flavor_obj = ProfileFlavor(flavor)

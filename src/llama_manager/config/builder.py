@@ -2,7 +2,7 @@
 
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from typing import Any
 
@@ -27,6 +27,10 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     FR-006: Priority order is defaults < slot/workstation < profile < override.
     This function implements the merge logic where override values take precedence
     over base values, recursively merging nested dicts.
+
+    List values are merged by concatenation: base list items are preserved first,
+    then override list items are appended.  All values are deep-copied to prevent
+    shared mutable state between caller and result.
 
     Args:
         base: Base dictionary (lower precedence).
@@ -64,7 +68,7 @@ def _validate_merged_config(
         raise ValueError(f"threads must be greater than 0, got: {threads}")
 
     model_overridden = any(
-        isinstance(layer, dict) and "model" in layer
+        isinstance(layer, Mapping) and "model" in layer
         for layer in (slot_config, workstation_config, profile_config, override_config)
     )
     if model_overridden:
@@ -88,8 +92,8 @@ def _validate_port_override_count(group: RunGroupSpec, port_overrides: tuple[int
 
 def _validate_resolved_profile_data(data: dict[str, Any]) -> None:
     port = data.get("port")
-    if not isinstance(port, int) or not (1 <= port <= 65535):
-        raise ValueError(f"port must be between 1 and 65535, got: {port}")
+    if not isinstance(port, int) or not (1024 <= port <= 65535):
+        raise ValueError(f"port must be between 1024 and 65535, got: {port}")
 
     threads = data.get("threads")
     if not isinstance(threads, int) or threads <= 0:
@@ -232,6 +236,7 @@ def create_summary_balanced_cfg(
     threads: int | None = None,
     cache_k: str | None = None,
     cache_v: str | None = None,
+    registry: RunProfileRegistry | None = None,
 ) -> ServerConfig:
     """Create a ServerConfig for the summary-balanced model profile.
 
@@ -242,12 +247,16 @@ def create_summary_balanced_cfg(
         threads: Number of threads (defaults to Config.default_threads_summary_balanced).
         cache_k: K cache type.
         cache_v: V cache type.
+        registry: Optional pre-built ProfileRegistry to reuse across calls.
+            When omitted, a fresh registry is created via
+            ``create_default_profile_registry()``.
 
     Returns:
         A configured ServerConfig instance.
 
     """
-    registry = create_default_profile_registry()
+    if registry is None:
+        registry = create_default_profile_registry()
     return resolve_profile_config(
         registry,
         "summary-balanced",
@@ -271,6 +280,7 @@ def create_summary_fast_cfg(
     threads: int | None = None,
     cache_k: str | None = None,
     cache_v: str | None = None,
+    registry: RunProfileRegistry | None = None,
 ) -> ServerConfig:
     """Create a ServerConfig for the summary-fast model profile.
 
@@ -281,12 +291,16 @@ def create_summary_fast_cfg(
         threads: Number of threads (defaults to Config.default_threads_summary_fast).
         cache_k: K cache type.
         cache_v: V cache type.
+        registry: Optional pre-built ProfileRegistry to reuse across calls.
+            When omitted, a fresh registry is created via
+            ``create_default_profile_registry()``.
 
     Returns:
         A configured ServerConfig instance.
 
     """
-    registry = create_default_profile_registry()
+    if registry is None:
+        registry = create_default_profile_registry()
     return resolve_profile_config(
         registry,
         "summary-fast",
@@ -314,6 +328,7 @@ def create_qwen35_cfg(
     model: str | None = None,
     server_bin: str = "",
     backend: str = "llama_cpp",
+    registry: RunProfileRegistry | None = None,
 ) -> ServerConfig:
     """Create a ServerConfig for the qwen35-coding model profile.
 
@@ -328,12 +343,16 @@ def create_qwen35_cfg(
         model: Specific model path (defaults to Config.model_qwen35).
         server_bin: Path to llama-server binary (defaults to Config.llama_server_bin_nvidia).
         backend: Inference backend (defaults to 'llama_cpp').
+        registry: Optional pre-built ProfileRegistry to reuse across calls.
+            When omitted, a fresh registry is created via
+            ``create_default_profile_registry()``.
 
     Returns:
         A configured ServerConfig instance.
 
     """
-    registry = create_default_profile_registry()
+    if registry is None:
+        registry = create_default_profile_registry()
     return resolve_profile_config(
         registry,
         "qwen35",
@@ -656,11 +675,14 @@ def apply_profile_overrides(
                 current_binary_version=binary_version,
                 staleness_days=base_config.profile_staleness_days,
             )
-        except Exception:
+        except (OSError, FileNotFoundError, ValueError, KeyError):
             _logger.exception("Failed to load profile for %s; falling back to defaults", cfg.alias)
             messages.append(f"No profile found for {cfg.alias}; using defaults")
             updated_configs.append(cfg)
             continue
+        except Exception:
+            _logger.exception("Unexpected error loading profile for %s", cfg.alias)
+            raise
 
         if record is None:
             messages.append(f"No profile found for {cfg.alias}; using defaults")
@@ -680,14 +702,12 @@ def apply_profile_overrides(
             updated_configs.append(cfg)
             continue
 
-        override_dict: dict[str, object] = {}
-
         merged = merge_config_overrides(
             defaults=base_config,
             slot_config=None,
             workstation_config=None,
             profile_config=profile_overrides,
-            override_config=override_dict,
+            override_config=None,
         )
 
         # Preserve identity fields that shouldn't come from profile

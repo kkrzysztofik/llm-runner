@@ -692,7 +692,9 @@ class TestMVVMArchitecture:
     def test_view_model_exposes_plain_command_state(self) -> None:
         from llama_cli.tui import DashboardController
 
-        controller = DashboardController(configs=[_make_minimal_config(alias="slot0")], gpu_indices=[])
+        controller = DashboardController(
+            configs=[_make_minimal_config(alias="slot0")], gpu_indices=[]
+        )
         controller.request_profile()
 
         state = controller.view_model.command_menu()

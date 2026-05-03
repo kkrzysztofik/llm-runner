@@ -5,7 +5,7 @@ import sys
 import threading
 from collections.abc import Callable
 from types import FrameType
-from typing import Any
+from typing import Any, Literal
 
 from rich.panel import Panel
 from rich.text import Text
@@ -52,6 +52,7 @@ class DashboardController:
         configs: list[ServerConfig],
         gpu_indices: list[int],
         slots: list[ModelSlot] | None = None,
+        register_signals: bool = True,
     ) -> None:
         self.model = DashboardModel(configs=configs, gpu_indices=gpu_indices, slots=slots)
         self.view_model = DashboardViewModel(self.model)
@@ -68,8 +69,9 @@ class DashboardController:
         self.build_progress: BuildProgress | None = None
         self._original_sigint_handler: Callable[[int, FrameType | None], Any] | int | None = None
 
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        if register_signals:
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
 
     @property
     def config(self) -> Config:
@@ -120,11 +122,11 @@ class DashboardController:
         return bool(self.model.risk_prompt and self.model.risk_prompt.acknowledged)
 
     @property
-    def active_risk_kind(self) -> str | None:
+    def active_risk_kind(self) -> Literal["vram", "hardware"] | None:
         return self.model.risk_prompt.kind if self.model.risk_prompt is not None else None
 
     @active_risk_kind.setter
-    def active_risk_kind(self, value: str | None) -> None:
+    def active_risk_kind(self, value: Literal["vram", "hardware"] | None) -> None:
         if value is None:
             self.model.clear_risk_prompt()
         else:
@@ -283,10 +285,12 @@ class DashboardController:
     def _build_status_panel(self, launch_result: LaunchResult) -> None:
         self.status_panel = self._status_panel_renderer.render(launch_result)
 
-    def _build_risk_panel_required(self, kind: str = "hardware") -> None:
+    def _build_risk_panel_required(self, kind: Literal["vram", "hardware"] = "hardware") -> None:
         self.model.set_risk_prompt(kind=kind, acknowledged=False)
 
-    def _build_risk_panel_acknowledged(self, kind: str = "hardware") -> None:
+    def _build_risk_panel_acknowledged(
+        self, kind: Literal["vram", "hardware"] = "hardware"
+    ) -> None:
         self.model.set_risk_prompt(kind=kind, acknowledged=True)
 
     def _build_column_panel(
@@ -737,7 +741,7 @@ class DashboardController:
                 signal.signal(signal.SIGINT, self._original_sigint_handler)
 
     def run(self, acknowledged: bool = False) -> None:
-        from llama_cli.commands.profile import _get_driver_version
+        from llama_cli.commands.profile import get_driver_version
 
         # Delegate launch orchestration to the pure library function
         result = launch_orchestrate(
@@ -745,7 +749,7 @@ class DashboardController:
             self.config,
             self.server_manager,
             self.log_buffers,
-            _get_driver_version,
+            get_driver_version,
             acknowledged=acknowledged,
         )
 

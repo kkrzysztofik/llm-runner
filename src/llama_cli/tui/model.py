@@ -9,7 +9,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 from llama_cli.gpu_collectors import collect_nvtop_stats
 from llama_manager import (
@@ -79,7 +79,9 @@ class DashboardModel:
         """Stop the dashboard."""
         self.running = False
 
-    def set_risk_prompt(self, kind: str, acknowledged: bool = False) -> None:
+    def set_risk_prompt(
+        self, kind: Literal["vram", "hardware"], acknowledged: bool = False
+    ) -> None:
         """Set the active risk prompt."""
         self.risk_prompt = RiskPromptState(kind=kind, acknowledged=acknowledged)
 
@@ -112,7 +114,5 @@ class DashboardModel:
                 return []
             now = time.monotonic()
             return [
-                msg
-                for ts, msg in self.status_messages
-                if now - ts < self.STATUS_MESSAGE_LIFETIME_S
+                msg for ts, msg in self.status_messages if now - ts < self.STATUS_MESSAGE_LIFETIME_S
             ]

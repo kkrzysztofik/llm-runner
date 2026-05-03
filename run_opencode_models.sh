@@ -256,12 +256,6 @@ validate_ports() {
 # Append Qwen35 speculative-decoding flags to a command array (by nameref).
 append_qwen35_spec_flags() {
   local -n _target="$1"
-  _target+=(
-    --spec-type "$DEFAULT_SPEC_TYPE_QWEN35_BOTH"
-    --spec-ngram-size-n "$DEFAULT_SPEC_NGRAM_SIZE_N_QWEN35_BOTH"
-    --draft-min "$DEFAULT_DRAFT_MIN_QWEN35_BOTH"
-    --draft-max "$DEFAULT_DRAFT_MAX_QWEN35_BOTH"
-  )
 }
 
 # ============================================================

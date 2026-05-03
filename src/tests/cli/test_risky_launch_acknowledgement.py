@@ -117,8 +117,17 @@ def test_tui_run_keeps_acknowledged_risk_panel_visible() -> None:
 
 
 def test_dry_run_prompts_for_risky_operation_with_exact_prompt() -> None:
-    with patch("builtins.input", return_value="n") as mock_input, pytest.raises(SystemExit) as exc:
-        dry_run("summary-balanced", primary_port="80")
+    with (
+        patch(
+            "llama_cli.commands.dry_run.detect_risky_operations", return_value=["privileged_port"]
+        ),
+        patch("builtins.input", return_value="n") as mock_input,
+        pytest.raises(SystemExit) as exc,
+    ):
+        dry_run("summary-balanced", primary_port="8080")
+
+    assert exc.value.code == 1
+    mock_input.assert_called_once_with("Confirm risky operation [y/N]: ")
 
     assert exc.value.code == 1
     mock_input.assert_called_once_with("Confirm risky operation [y/N]: ")

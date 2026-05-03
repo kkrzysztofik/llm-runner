@@ -87,11 +87,12 @@ def atomic_write_json(
                  mismatch.
         TypeError: If *data* is not JSON-serializable.
     """
-    fd, tmp_path = tempfile.mkstemp(
+    fd, tmp_path_str = tempfile.mkstemp(
         prefix=".tmp_",
         suffix=".json",
         dir=str(path.parent),
     )
+    tmp_path = Path(tmp_path_str)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2, ensure_ascii=False)
@@ -99,8 +100,8 @@ def atomic_write_json(
             fh.flush()
             os.fsync(fh.fileno())
 
-        os.chmod(tmp_path, mode)
-        os.replace(tmp_path, str(path))
+        os.chmod(str(tmp_path), mode)
+        os.replace(str(tmp_path), str(path))
         fsync_directory(path.parent)
 
         if verify_permissions:
@@ -112,5 +113,5 @@ def atomic_write_json(
                 )
     except BaseException:
         with contextlib.suppress(FileNotFoundError):
-            os.unlink(tmp_path)
+            os.unlink(str(tmp_path))
         raise

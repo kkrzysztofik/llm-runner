@@ -13,6 +13,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 import time
@@ -27,9 +28,18 @@ from llama_manager import (
 from llama_manager.config import create_smoke_config
 from llama_manager.smoke import (
     SmokeProbeResult,
-    _ensure_report_dir,
     probe_slot,
 )
+
+# Canonical slot registry — single source of truth for slot config
+_SLOT_REGISTRY: dict[str, dict[str, str]] = {
+    "summary-balanced": {
+        "port_attr": "summary_balanced_port",
+        "model_attr": "model_summary_balanced",
+    },
+    "summary-fast": {"port_attr": "summary_fast_port", "model_attr": "model_summary_fast"},
+    "qwen35-coding": {"port_attr": "qwen35_port", "model_attr": "model_qwen35"},
+}
 
 
 def _build_slot_configs(
@@ -59,8 +69,15 @@ def _build_slot_configs(
         if not slot_id:
             print("error: 'slot' mode requires a slot ID argument", file=sys.stderr)
             sys.exit(1)
-        slot_port = _resolve_slot_port(cfg, slot_id)
-        slot_model = _resolve_slot_model(cfg, slot_id)
+        entry = _SLOT_REGISTRY.get(slot_id)
+        if entry is None:
+            print(
+                f"error: unknown slot '{slot_id}'. Valid slots: {', '.join(_SLOT_REGISTRY.keys())}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        slot_port = getattr(cfg, entry["port_attr"])
+        slot_model = getattr(cfg, entry["model_attr"])
         return [(slot_id, slot_model, cfg.host, slot_port)]
 
     print(f"error: unknown smoke mode '{mode}'. Valid modes: both, slot", file=sys.stderr)
@@ -80,18 +97,14 @@ def _resolve_slot_port(cfg: Config, slot_id: str) -> int:
     Raises:
         SystemExit: If slot_id is unknown.
     """
-    slot_port_map = {
-        "summary-balanced": cfg.summary_balanced_port,
-        "summary-fast": cfg.summary_fast_port,
-        "qwen35-coding": cfg.qwen35_port,
-    }
-    if slot_id not in slot_port_map:
+    entry = _SLOT_REGISTRY.get(slot_id)
+    if entry is None:
         print(
-            f"error: unknown slot '{slot_id}'. Valid slots: {', '.join(slot_port_map.keys())}",
+            f"error: unknown slot '{slot_id}'. Valid slots: {', '.join(_SLOT_REGISTRY.keys())}",
             file=sys.stderr,
         )
         sys.exit(1)
-    return slot_port_map[slot_id]
+    return getattr(cfg, entry["port_attr"])
 
 
 def _resolve_slot_model(cfg: Config, slot_id: str) -> str:
@@ -107,18 +120,14 @@ def _resolve_slot_model(cfg: Config, slot_id: str) -> str:
     Raises:
         SystemExit: If slot_id is unknown.
     """
-    slot_model_map = {
-        "summary-balanced": cfg.model_summary_balanced,
-        "summary-fast": cfg.model_summary_fast,
-        "qwen35-coding": cfg.model_qwen35,
-    }
-    if slot_id not in slot_model_map:
+    entry = _SLOT_REGISTRY.get(slot_id)
+    if entry is None:
         print(
-            f"error: unknown slot '{slot_id}'. Valid slots: {', '.join(slot_model_map.keys())}",
+            f"error: unknown slot '{slot_id}'. Valid slots: {', '.join(_SLOT_REGISTRY.keys())}",
             file=sys.stderr,
         )
         sys.exit(1)
-    return slot_model_map[slot_id]
+    return getattr(cfg, entry["model_attr"])
 
 
 def _probe_server(
@@ -196,17 +205,15 @@ def _build_smoke_config(parsed: argparse.Namespace) -> SmokeProbeConfiguration:
         model_id_override=parsed.model_id,
     )
 
-    if parsed.delay > 0:
-        smoke_cfg.inter_slot_delay_s = parsed.delay
-    if parsed.timeout > 0:
-        smoke_cfg.listen_timeout_s = parsed.timeout
-    if parsed.max_tokens > 0:
-        smoke_cfg.max_tokens = parsed.max_tokens
-    if parsed.prompt:
-        smoke_cfg.prompt = parsed.prompt
-
-    # Re-run __post_init__ validation after CLI overrides
-    # (direct field assignment bypasses dataclass validation)
+    # Apply CLI overrides using dataclasses.replace for safe validation
+    smoke_cfg = dataclasses.replace(
+        smoke_cfg,
+        inter_slot_delay_s=parsed.delay if parsed.delay > 0 else smoke_cfg.inter_slot_delay_s,
+        listen_timeout_s=parsed.timeout if parsed.timeout > 0 else smoke_cfg.listen_timeout_s,
+        max_tokens=parsed.max_tokens if parsed.max_tokens > 0 else smoke_cfg.max_tokens,
+        prompt=parsed.prompt if parsed.prompt else smoke_cfg.prompt,
+    )
+    # dataclasses.replace does not call __post_init__, so we invoke it manually
     smoke_cfg.__post_init__()
 
     return smoke_cfg
@@ -273,7 +280,7 @@ def run_smoke(args: list[str]) -> int:
     # Ensure report directory exists when there are failures (T072)
     if report.fail_count > 0:
         runtime_dir = resolve_runtime_dir()
-        _ensure_report_dir(runtime_dir / "smoke_reports")
+        (runtime_dir / "smoke_reports").mkdir(parents=True, exist_ok=True, mode=0o700)
 
     # Output results
     if json_output:

@@ -124,7 +124,7 @@ class Config:
     toolchain_timeout_seconds: int = 30
 
     # Profile management
-    profile_staleness_days: int = field(default_factory=lambda: 30)
+    profile_staleness_days: int = 30
     server_binary_version: str = field(
         default_factory=lambda: os.environ.get("SERVER_BINARY_VERSION", "")
     )

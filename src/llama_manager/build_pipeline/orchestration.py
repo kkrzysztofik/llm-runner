@@ -35,9 +35,7 @@ def run_build_for_backend(
         BuildResult from the pipeline execution.
     """
     if backend not in ("sycl", "cuda"):
-        raise ValueError(
-            f"unsupported backend: {backend!r}; expected one of: sycl, cuda"
-        )
+        raise ValueError(f"unsupported backend: {backend!r}; expected one of: sycl, cuda")
 
     source_dir = Path(config.llama_cpp_root)
     build_dir = source_dir / ("build_cuda" if backend == "cuda" else "build")
@@ -51,7 +49,7 @@ def run_build_for_backend(
         output_dir=output_dir,
         git_remote_url=config.build_git_remote,
         git_branch=config.build_git_branch,
-        shallow_clone=True,
+        shallow_clone=getattr(config, "build_shallow_clone", True),
         retry_attempts=config.build_retry_attempts,
         retry_delay=config.build_retry_delay,
     )

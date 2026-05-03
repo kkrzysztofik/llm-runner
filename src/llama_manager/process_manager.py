@@ -1010,13 +1010,28 @@ def launch_orchestrate(
     )
 
     # Check if risks are present and not acknowledged - block launch if so
-    launch_result: LaunchResult | None = None
     if risk_result.has_risks and not risk_result.risks_acknowledged and risk_result.risk_details:
-        # 6. Launch all slots (to get proper LaunchResult with blocked status)
+        # Block launch: risks detected but not acknowledged
         launch_result = server_manager.launch_all_slots(slots)
-    else:
-        # 6. Launch all slots (normal path)
-        launch_result = server_manager.launch_all_slots(slots)
+        # Return early — do NOT proceed to server start
+        status_messages: list[str] = list(profile_messages)
+        status_messages.append(
+            "Launch blocked: unacknowledged risks detected. "
+            f"Details: {len(risk_result.risk_details)} risk(s) require"
+            " acknowledgement.",
+        )
+        return LaunchOrchestrationResult(
+            updated_configs=updated_configs,
+            launch_result=launch_result,
+            processes={},
+            slot_states={},
+            status_messages=status_messages,
+            risk_result=risk_result,
+            empty=False,
+        )
+
+    # 6. Launch all slots (normal path — risks acknowledged or none detected)
+    launch_result = server_manager.launch_all_slots(slots)
 
     # 7. Handle launch result — collect messages, do not print or exit
     status_messages: list[str] = list(profile_messages)

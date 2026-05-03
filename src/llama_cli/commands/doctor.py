@@ -772,14 +772,25 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
     )
 
     if not dry_run:
-        # Check for --yes flag to skip confirmation for destructive actions
         skip_confirmation = getattr(parsed, "yes", False)
-        if not skip_confirmation:
-            # Filter out actions that require confirmation unless --yes is passed
-            result.actions = [
-                a for a in result.actions if not a.requires_confirmation
-            ]
-        _execute_repair_actions(result)
+        if skip_confirmation:
+            _execute_repair_actions(result)
+        else:
+            # Prompt interactively for confirmation-required actions
+            for action in result.actions:
+                if action.requires_confirmation:
+                    print(f"\nAction: {action.description}")
+                    if action.dry_run_command:
+                        print(Colors.dim(f"  Command: {action.dry_run_command}"))
+                    try:
+                        response = input("Confirm? [y/N]: ").strip().lower()
+                    except EOFError:
+                        print(f"Skipping action (no terminal input): {action.description}")
+                        continue
+                    if response != "y":
+                        print(f"Skipping action: {action.description}")
+                        continue
+                _execute_repair_action(action, result)
 
     if json_output:
         _print_json(result.to_dict())

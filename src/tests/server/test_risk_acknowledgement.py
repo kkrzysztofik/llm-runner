@@ -2,6 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from llama_manager.config import ServerConfig
 from llama_manager.risk_ack import (
     RISK_ACK_LABEL,
     evaluate_risks,
@@ -138,7 +139,7 @@ def test_evaluate_risks_skips_already_acknowledged() -> None:
 
 
 def test_evaluate_risks_pre_acknowledged_flag() -> None:
-    """acknowledged=True sets risks_acknowledged and mutates config."""
+    """acknowledged=True sets risks_acknowledged and updates config copy."""
     cfg = MagicMock()
     cfg.alias = "test"
     cfg.port = 80
@@ -148,11 +149,13 @@ def test_evaluate_risks_pre_acknowledged_flag() -> None:
     sm = MagicMock()
     sm.is_risk_acknowledged.return_value = False
 
-    result = evaluate_risks([cfg], sm, "attempt-1", _ACK_TOKEN, acknowledged=True)
+    configs: list[ServerConfig] = [cfg]  # type: ignore[list-item]
+    result = evaluate_risks(configs, sm, "attempt-1", _ACK_TOKEN, acknowledged=True)
 
     assert result.has_risks is True
     assert result.risks_acknowledged is True
-    assert RISK_ACK_LABEL in cfg.risky_acknowledged
+    # The config in the list is replaced with a copy containing the label
+    assert RISK_ACK_LABEL in configs[0].risky_acknowledged
 
 
 def test_evaluate_risks_does_not_double_append_label() -> None:

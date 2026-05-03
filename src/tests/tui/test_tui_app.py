@@ -572,7 +572,7 @@ class TestProfilingFlow:
                 "llama_cli.tui.viewmodel.get_gpu_identifier", return_value="intel-arc_b580-00"
             ) as mock_gpu,
             patch(
-                "llama_cli.commands.profile._get_driver_version", return_value="driver-1"
+                "llama_cli.commands.profile.get_driver_version", return_value="driver-1"
             ) as mock_driver,
             patch(
                 "llama_cli.tui.viewmodel.load_profile_with_staleness",

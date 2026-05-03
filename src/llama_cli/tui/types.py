@@ -1,7 +1,7 @@
 """Typed view state shared across the TUI submodule."""
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from llama_manager import GPUStats, LogBuffer, ServerConfig
 
@@ -10,7 +10,7 @@ from llama_manager import GPUStats, LogBuffer, ServerConfig
 class RiskPromptState:
     """Current risk prompt state."""
 
-    kind: str
+    kind: Literal["vram", "hardware"]
     acknowledged: bool
 
 

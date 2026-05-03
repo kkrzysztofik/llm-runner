@@ -122,7 +122,18 @@ class AddSlotModal(ModalScreen[dict[str, str] | None]):
 
     def _collect_values(self) -> dict[str, str]:
         selected_profile = self.query_one("#slot-profile", Select).value
+        port_raw = self.query_one("#slot-port", Input).value.strip()
+        # Validate numeric port input
+        if port_raw:
+            try:
+                port_val = int(port_raw)
+                if not (1 <= port_val <= 65535):
+                    self.notify("Port must be 1-65535", severity="error")
+                    return {"profile": "", "port": ""}
+            except ValueError:
+                self.notify("Port must be a number", severity="error")
+                return {"profile": "", "port": ""}
         return {
             "profile": "" if selected_profile == Select.BLANK else str(selected_profile),
-            "port": self.query_one("#slot-port", Input).value,
+            "port": port_raw,
         }

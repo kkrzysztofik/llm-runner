@@ -38,11 +38,22 @@ class NoticesWidget(Widget):
         super().__init__()
         self._view_model = view_model
         self._renderer = NoticesRenderer()
+        self._has_notices = False
+
+    def on_mount(self) -> None:
+        self.set_interval(0.25, self._check_notices)
+
+    def _check_notices(self) -> None:
+        notices = self._view_model.system_notices()
+        if notices and not self._has_notices:
+            self._has_notices = True
+            self.remove_class("hidden")
+        elif not notices and self._has_notices:
+            self._has_notices = False
+            self.add_class("hidden")
 
     def render(self) -> RenderResult:
         notices = self._view_model.system_notices()
         if not notices:
-            self.add_class("hidden")
             return Text()
-        self.remove_class("hidden")
         return self._renderer.render(notices)

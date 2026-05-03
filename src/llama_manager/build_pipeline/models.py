@@ -1,7 +1,7 @@
 """Build pipeline data models for M2."""
 
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar, Literal
@@ -105,23 +105,9 @@ class BuildArtifact:
         Returns:
             Dictionary with all artifact fields, converting Path objects to strings.
         """
-        return {
-            "artifact_type": self.artifact_type,
-            "backend": self.backend,
-            "created_at": self.created_at,
-            "git_remote_url": self.git_remote_url,
-            "git_commit_sha": self.git_commit_sha,
-            "git_branch": self.git_branch,
-            "build_command": self.build_command,
-            "build_duration_seconds": self.build_duration_seconds,
-            "exit_code": self.exit_code,
-            "binary_path": str(self.binary_path) if self.binary_path else None,
-            "binary_size_bytes": self.binary_size_bytes,
-            "build_log_path": str(self.build_log_path) if self.build_log_path else None,
-            "failure_report_path": str(self.failure_report_path)
-            if self.failure_report_path
-            else None,
-        }
+        data = asdict(self)
+        # Convert Path instances to strings
+        return {k: str(v) if isinstance(v, Path) else v for k, v in data.items()}
 
 
 @dataclass

@@ -278,8 +278,8 @@ class TestDryRunSmokeFlagBundleOutput:
         assert "[configured]" in captured.out
         assert "[not set]" not in captured.out
 
-    def test_dry_run_prompt_is_redacted_for_secrets(self, capsys) -> None:
-        """Prompt text should not contain sensitive data (it's user-provided text)."""
+    def test_dry_run_shows_user_prompt_text(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Prompt text (user-provided) should be displayed in dry-run output."""
         from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()

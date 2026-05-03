@@ -11,11 +11,18 @@ from textual.widget import Widget
 class SystemHealthRenderer:
     """Builds CPU, memory, swap, and uptime status text."""
 
+    def __init__(self) -> None:
+        self._task_cache: tuple[int, int, int] | None = None
+        self._task_cache_ts: float = 0.0
+        self._task_cache_ttl: float = 1.5  # 1.5s TTL
+
     def render(self) -> Text:
         content_width = 116
         right_block_width = min(44, max(36, content_width // 3))
         left_block_width = max(28, content_width - right_block_width - 3)
 
+        # Prime cpu_percent on first call for accurate reading
+        _ = psutil.cpu_percent(interval=0.1, percpu=True)
         cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
         mem = psutil.virtual_memory()
         swap = psutil.swap_memory()
@@ -118,9 +125,15 @@ class SystemHealthRenderer:
             text.append("  Load: n/a", style="dim")
         return text
 
-    def _usage_bar(self, percent: float, width: int = 10) -> str:
+    def _usage_bar(self, percent: float, width: int, style: str = "bright_white") -> Text:
         filled = int(round((max(0.0, min(100.0, percent)) / 100.0) * width))
-        return "|" * filled + " " * (width - filled)
+        bar = Text()
+        for i in range(width):
+            if i < filled:
+                bar.append("█", style=style)
+            else:
+                bar.append("░", style="dim")
+        return bar
 
     def _usage_color(self, percent: float) -> str:
         if percent >= 85:
@@ -166,7 +179,7 @@ class SystemHealthRenderer:
                 cell = Text()
                 cell.append(f"{idx:>2}", style="bright_blue")
                 cell.append("[", style="bright_white")
-                cell.append(self._usage_bar(pct, width=bar_width), style=self._usage_color(pct))
+                cell.append(self._usage_bar(pct, width=bar_width, style=self._usage_color(pct)))
                 cell.append("]", style="bright_white")
                 cell.append(" ")
                 cell.append(f"{pct:5.1f}%", style="bright_white" if pct > 0 else "dim")
@@ -200,6 +213,10 @@ class SystemHealthRenderer:
         return f"{gib:,.2f}G"
 
     def _get_task_stats(self) -> tuple[int, int, int]:
+        now = time.time()
+        if self._task_cache is not None and now - self._task_cache_ts < self._task_cache_ttl:
+            return self._task_cache
+
         task_count = 0
         thread_count = 0
         running_count = 0
@@ -209,7 +226,9 @@ class SystemHealthRenderer:
             thread_count += int(info.get("num_threads") or 0)
             if info.get("status") == psutil.STATUS_RUNNING:
                 running_count += 1
-        return task_count, thread_count, running_count
+        self._task_cache = (task_count, thread_count, running_count)
+        self._task_cache_ts = now
+        return self._task_cache
 
 
 class SystemHealthWidget(Widget):

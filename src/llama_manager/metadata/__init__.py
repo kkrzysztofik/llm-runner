@@ -8,24 +8,12 @@ key constants and optional timeout.
 from queue import Empty, Queue
 from threading import Event, Thread
 
-from ._binary import (
-    _detect_gguf_version,
-    _extract_from_raw_bytes,
-    _parse_architecture,
-    _parse_general_name,
-    _parse_numeric_field,
-    _parse_tokenizer_type,
-)
+from ._binary import _extract_from_raw_bytes
 from ._reader import _extract_from_gguf_reader, _try_gguf_reader
 from ._types import GGUFMetadataRecord, normalize_filename
 
 __all__ = [
     "GGUFMetadataRecord",
-    "_detect_gguf_version",
-    "_parse_architecture",
-    "_parse_general_name",
-    "_parse_numeric_field",
-    "_parse_tokenizer_type",
     "extract_gguf_metadata",
     "normalize_filename",
 ]

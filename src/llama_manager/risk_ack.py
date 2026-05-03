@@ -5,6 +5,7 @@ configurations and resolving user key-press actions.  It does not import
 Rich, argparse, or subprocess and must not depend on ``llama_cli``.
 """
 
+from copy import copy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -50,15 +51,24 @@ def evaluate_risks(
     Returns:
         RiskAckResult with ``has_risks``, ``risks_acknowledged``, and
         ``risk_details``.
+
+    Note:
+        When ``acknowledged`` is True, a shallow copy of each config is
+        returned with ``risky_acknowledged`` updated; the original
+        ``ServerConfig`` objects are not mutated.
     """
     from .server import detect_risky_operations
 
     has_risks = False
     risk_details: list[dict[str, Any]] = []
 
-    for cfg in configs:
+    for idx, cfg in enumerate(configs):
         if acknowledged and RISK_ACK_LABEL not in cfg.risky_acknowledged:
-            cfg.risky_acknowledged.append(RISK_ACK_LABEL)
+            # Make a shallow copy to avoid mutating the original config
+            new_ack_list = list(cfg.risky_acknowledged)
+            new_ack_list.append(RISK_ACK_LABEL)
+            configs[idx] = copy(cfg)
+            configs[idx].risky_acknowledged = new_ack_list
 
         for risk in detect_risky_operations(cfg):
             has_risks = True

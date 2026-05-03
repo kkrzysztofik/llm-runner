@@ -94,9 +94,9 @@ def _parse_architecture(data: bytes) -> str | None:
         Architecture string, or None if not found.
 
     """
-    # Common architecture patterns in GGUF files
-    # Sorted longest-first so more specific patterns match before shorter prefixes
-    # (e.g. "qwen3" before "qwen", "phi3" before "phi").
+    # Common architecture patterns in GGUF files.
+    # Longer, more specific patterns are listed before shorter prefixes
+    # so they match first (e.g. "qwen3" before "qwen", "phi3" before "phi").
     _ARCH_PATTERNS: list[tuple[bytes, str]] = [
         (b"stablelm", "stablelm"),
         (b"falcon", "falcon"),
@@ -167,6 +167,34 @@ def _read_int64(data: bytes, offset: int) -> int | None:
         return None
     val = int.from_bytes(data[offset : offset + 8], "little")
     return val - (1 << 64) if val >= (1 << 63) else val
+
+
+def _read_uint8(data: bytes, offset: int) -> int | None:
+    """Read uint8 from data at offset."""
+    if offset + 1 > len(data):
+        return None
+    return int.from_bytes(data[offset : offset + 1], "little")
+
+
+def _read_uint16(data: bytes, offset: int) -> int | None:
+    """Read uint16 from data at offset."""
+    if offset + 2 > len(data):
+        return None
+    return int.from_bytes(data[offset : offset + 2], "little")
+
+
+def _read_uint32(data: bytes, offset: int) -> int | None:
+    """Read uint32 from data at offset."""
+    if offset + 4 > len(data):
+        return None
+    return int.from_bytes(data[offset : offset + 4], "little")
+
+
+def _read_uint64(data: bytes, offset: int) -> int | None:
+    """Read uint64 from data at offset."""
+    if offset + 8 > len(data):
+        return None
+    return int.from_bytes(data[offset : offset + 8], "little")
 
 
 def _skip_non_integer_type(data: bytes, offset: int, type_tag: int) -> int:
@@ -270,13 +298,13 @@ def _read_integer_value(data: bytes, offset: int, type_tag: int) -> int | None:
     if type_tag not in (0, 1, 2, 3, 4, 5, 10, 11):
         return None
     readers = {
-        0: _read_int8,
+        0: _read_uint8,
         1: _read_int8,
-        2: _read_int16,
+        2: _read_uint16,
         3: _read_int16,
-        4: _read_int32,
+        4: _read_uint32,
         5: _read_int32,
-        10: _read_int64,
+        10: _read_uint64,
         11: _read_int64,
     }
     reader = readers.get(type_tag)

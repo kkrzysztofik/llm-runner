@@ -107,9 +107,7 @@ def _execute_clone(
 
         logger.debug("[clone] running: %s", _format_command(cmd))
         try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, check=False, timeout=120
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=120)
         except subprocess.TimeoutExpired as e:
             ctx.append_command_output(
                 stage="clone",
@@ -119,6 +117,7 @@ def _execute_clone(
                 stderr=f"Git clone timed out after 120s: {e}",
             )
             raise
+
         ctx.append_command_output(
             stage="clone",
             command=cmd,

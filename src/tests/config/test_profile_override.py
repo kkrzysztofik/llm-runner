@@ -5,6 +5,8 @@ Locks in the behavior of the extracted _apply_profile_overrides logic.
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from llama_manager.config import Config, ServerConfig
 from llama_manager.config.builder import apply_profile_overrides
 from tests.support.factories import make_server_config
@@ -39,7 +41,7 @@ def test_exception_during_profile_load(
     mock_load_profile: MagicMock,
     mock_get_gpu_id: MagicMock,
 ) -> None:
-    """When profile loading raises, message indicates no profile found."""
+    """Unexpected exceptions during profile loading are re-raised."""
     mock_get_gpu_id.return_value = "test-gpu"
     mock_load_profile.side_effect = RuntimeError("disk error")
 
@@ -47,11 +49,9 @@ def test_exception_during_profile_load(
     base = Config()
     get_driver = MagicMock(return_value="1.0")
 
-    updated, messages = apply_profile_overrides([cfg], base, get_driver)
+    with pytest.raises(RuntimeError, match="disk error"):
+        apply_profile_overrides([cfg], base, get_driver)
 
-    assert len(updated) == 1
-    assert updated[0] is cfg
-    assert messages == ["No profile found for summary-balanced; using defaults"]
     mock_profile_to_override_dict.assert_not_called()
 
 

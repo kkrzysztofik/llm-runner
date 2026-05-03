@@ -139,7 +139,16 @@ def _try_gguf_reader(
             with os.fdopen(capped_fd, "wb") as capped_file:
                 capped_fd = None  # Already transferred ownership
                 with open(model_path, "rb") as src:
-                    capped_file.write(src.read(prefix_cap_bytes))
+                    remaining = prefix_cap_bytes
+                    chunk_size = 64 * 1024  # 64 KB chunks
+                    while remaining > 0:
+                        if cancel_event is not None and cancel_event.is_set():
+                            return None
+                        chunk = src.read(min(remaining, chunk_size))
+                        if not chunk:
+                            break
+                        capped_file.write(chunk)
+                        remaining -= len(chunk)
         except Exception:
             # If writing fails, close and clean up
             if capped_fd is not None:

@@ -1,5 +1,7 @@
 """Risk acknowledgement panel renderer."""
 
+from typing import Literal
+
 from rich.panel import Panel
 from rich.text import Text
 
@@ -7,7 +9,7 @@ from rich.text import Text
 class RiskPanelRenderer:
     """Builds risk acknowledgement panels."""
 
-    def required(self, kind: str = "hardware") -> Panel:
+    def required(self, kind: Literal["vram", "hardware"] = "hardware") -> Panel:
         text = Text()
         text.append("RISK STATUS: ", style="bold")
         text.append(" ACKNOWLEDGEMENT REQUIRED ", style="bold red reverse")

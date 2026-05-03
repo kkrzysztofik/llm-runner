@@ -431,7 +431,8 @@ def _handle_tui_case(args: list[str]) -> argparse.Namespace | None:
     # Mode is now optional - if not provided, TUI starts in standalone mode
     mode = (
         args[1]
-        if len(args) >= 2 and args[1] not in ("--port", "--port2", "--acknowledge-risky", "-p", "-P")
+        if len(args) >= 2
+        and args[1] not in ("--port", "--port2", "--acknowledge-risky", "-p", "-P")
         else None
     )
 

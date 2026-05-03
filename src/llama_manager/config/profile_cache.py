@@ -359,14 +359,12 @@ def get_profile_path(
     sanitized_flavor = _sanitize_filename_component(flavor.value)
 
     filename = f"{sanitized_gpu}-{sanitized_backend}-{sanitized_flavor}.json"
-    candidate = (profiles_dir / filename).resolve()
+    candidate = profiles_dir / filename
 
-    # Path traversal protection: ensure the resolved path is under profiles_dir
-    profiles_dir_resolved = profiles_dir.resolve()
-    if (
-        not str(candidate).startswith(str(profiles_dir_resolved) + os.sep)
-        and candidate != profiles_dir_resolved
-    ):
+    # Path traversal protection: use realpath to prevent symlink attacks
+    real_candidate = os.path.realpath(str(candidate))
+    real_profiles = os.path.realpath(str(profiles_dir))
+    if not real_candidate.startswith(real_profiles + os.sep) and real_candidate != real_profiles:
         raise ValueError(
             f"profile path escapes profiles_dir: {filename} (resolved to {candidate})",
         )

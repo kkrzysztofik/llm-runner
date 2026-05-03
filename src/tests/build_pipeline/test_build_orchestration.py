@@ -184,6 +184,7 @@ class TestRunBuildForBackend:
         config.build_git_branch = "develop"
         config.build_retry_attempts = 5
         config.build_retry_delay = 10
+        config.build_shallow_clone = True
 
         with patch("llama_manager.build_pipeline.orchestration.BuildPipeline") as mock_pipeline_cls:
             mock_pipeline = mock_pipeline_cls.return_value

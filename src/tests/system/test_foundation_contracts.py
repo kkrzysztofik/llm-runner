@@ -380,10 +380,17 @@ class TestResolveRuntimeDir:
             )
 
     def test_invalid_env_var_falls_back_to_xdg(self, tmp_path: Path) -> None:
-        """Should fall back to XDG_RUNTIME_DIR if LLM_RUNNER_RUNTIME_DIR is invalid."""
+        """Should fall back to XDG_RUNTIME_DIR if LLM_RUNNER_RUNTIME_DIR points to a file."""
         xdg_base = tmp_path / "xdg_runtime"
         xdg_base.mkdir()
-        with patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(xdg_base)}, clear=False):
+        # Set LLM_RUNNER_RUNTIME_DIR to a file (not a directory) to trigger fallback
+        invalid_dir = tmp_path / "not_a_dir"
+        invalid_dir.write_text("not a directory")
+        with patch.dict(
+            os.environ,
+            {"LLM_RUNNER_RUNTIME_DIR": str(invalid_dir), "XDG_RUNTIME_DIR": str(xdg_base)},
+            clear=False,
+        ):
             result = resolve_runtime_dir()
             assert result == xdg_base / "llm-runner"
 
@@ -459,7 +466,8 @@ class TestReadLock:
 
     def test_corrupted_lock_returns_none(self, tmp_path: Path) -> None:
         """Should return None for corrupted lockfile."""
-        lock_path = tmp_path / "lock-corrupted.json"
+        # write_lock creates files with pattern "slot-{slot_id}.lock"
+        lock_path = tmp_path / "slot-corrupted.lock"
         lock_path.write_text("invalid json {{{")
         metadata = read_lock(tmp_path, "corrupted")
         assert metadata is None

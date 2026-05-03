@@ -83,9 +83,7 @@ class DashboardViewModel:
 
         cfg = configs[slot_index]
         gpu: GPUStats | None = (
-            self.model.gpu_stats[slot_index]
-            if slot_index < len(self.model.gpu_stats)
-            else None
+            self.model.gpu_stats[slot_index] if slot_index < len(self.model.gpu_stats) else None
         )
         return ServerColumnState(
             config=cfg,
@@ -111,14 +109,14 @@ class DashboardViewModel:
     def stale_warning(self, cfg: ServerConfig) -> str | None:
         """Check whether the cached profile for a config is stale."""
         try:
-            from llama_cli.commands.profile import _get_driver_version
+            from llama_cli.commands.profile import get_driver_version
 
             _record, staleness = load_profile_with_staleness(
                 profiles_dir=self.model.config.profiles_dir,
                 gpu_identifier=get_gpu_identifier(cfg.backend),
                 backend=cfg.backend,
                 flavor=ProfileFlavor.BALANCED,
-                current_driver_version=_get_driver_version(cfg.backend),
+                current_driver_version=get_driver_version(cfg.backend),
                 current_binary_version=self.model.config.server_binary_version or "unknown",
                 staleness_days=self.model.config.profile_staleness_days,
             )
