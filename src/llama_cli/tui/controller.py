@@ -46,10 +46,7 @@ from .components.alerts import (
     build_system_status_panel,
 )
 from .components.menu import build_command_menu
-from .components.panels import (
-    build_column_panel,
-    build_placeholder_panel,
-)
+from .components.panels import ServerColumnPanel, SlotStatusPanel
 from .textual_app import TextualDashboardApp
 from .types import DashboardSnapshot
 
@@ -202,7 +199,7 @@ class TUIApp:
         self, cfg: ServerConfig, buffer: LogBuffer, gpu: GPUStats | None
     ) -> Panel:
         stale_warning = self.get_stale_warning(cfg)
-        return build_column_panel(
+        return ServerColumnPanel(
             cfg,
             buffer,
             gpu,
@@ -211,10 +208,16 @@ class TUIApp:
             slot_states=self.slot_states,
             server_processes=self.server_processes,
             is_unsaved=cfg.alias in self.unsaved_slots,
-        )
+        ).render()
 
     def _build_placeholder_panel(self) -> Panel:
-        return build_placeholder_panel()
+        return SlotStatusPanel(
+            [],
+            self.slot_states,
+            self.server_processes,
+            self.log_buffers,
+            self.config.host,
+        ).render()
 
     def _build_profile_status_panel(self) -> Panel | None:
         with self._profile_lock:

@@ -15,32 +15,30 @@ from .alerts import (
 from .menu import CommandMenu, build_command_menu
 from .modal import AddSlotModal
 from .panels import (
+    GPUStatsPanel,
+    ServerColumnPanel,
     ServerLogPanel,
-    build_column_panel,
-    build_placeholder_panel,
-    build_slot_section,
-    build_slot_status_panel,
+    SlotStatusPanel,
 )
 
 __all__ = [
     # Widgets
     "AddSlotModal",
     "CommandMenu",
+    "GPUStatsPanel",
     "GPUTelemetryWidget",
     "NoticesWidget",
+    "ServerColumnPanel",
     "ServerLogPanel",
+    "SlotStatusPanel",
     "SystemHealthWidget",
     "SystemStatusWidget",
     # Builder functions
-    "build_column_panel",
     "build_command_menu",
     "build_gpu_telemetry_panel",
-    "build_placeholder_panel",
     "build_profile_status_panel",
     "build_risk_panel_acknowledged",
     "build_risk_panel_required",
-    "build_slot_section",
-    "build_slot_status_panel",
     "build_status_messages_panel",
     "build_status_panel",
 ]
