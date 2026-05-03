@@ -21,10 +21,10 @@ from .components.modal import AddSlotModal
 from .components.panels import ServerLogPanel
 
 if TYPE_CHECKING:
-    from .controller import TUIApp
+    from .controller import DashboardController
 
 
-class TextualDashboardApp(App[None]):
+class DashboardApp(App[None]):
     """Textual shell for the llm-runner dashboard."""
 
     TITLE = "llm-runner"
@@ -42,18 +42,19 @@ class TextualDashboardApp(App[None]):
         Binding("n", "reject", "Abort"),
     ]
 
-    def __init__(self, controller: TUIApp) -> None:
+    def __init__(self, controller: DashboardController) -> None:
         super().__init__()
         self.controller = controller
+        self.view_model = controller.view_model
         self._last_notified_status_ts: float = 0.0
 
     def compose(self) -> ComposeResult:
         with Container(id="dashboard"):
-            yield SystemStatusWidget(self.controller)
+            yield SystemStatusWidget(self.view_model)
             with Container(id="content"):
-                yield ServerLogPanel(0, self.controller)
-                yield ServerLogPanel(1, self.controller)
-            yield CommandMenu(self.controller)
+                yield ServerLogPanel(0, self.view_model)
+                yield ServerLogPanel(1, self.view_model)
+            yield CommandMenu(self.view_model)
 
     def on_mount(self) -> None:
         self.refresh_dashboard()

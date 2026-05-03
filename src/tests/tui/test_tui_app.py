@@ -15,11 +15,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llama_cli.tui import TUIApp
-from llama_cli.tui.textual_app import TextualDashboardApp
+from llama_cli.tui import DashboardController
+from llama_cli.tui.textual_app import DashboardApp
 from llama_manager.build_pipeline import BuildProgress, BuildResult
 from llama_manager.config import ServerConfig
 from tests.support.factories import make_server_config
+
+TUIApp = DashboardController
+TextualDashboardApp = DashboardApp
 
 
 def _make_config(
@@ -137,34 +140,34 @@ class TestTUIAppRender:
     def test_render_no_configs(self) -> None:
         """render should handle no configs gracefully."""
         app = TUIApp(configs=[], gpu_indices=[])
-        layout = app.render()
+        layout = app.render_panels()
         assert layout is not None
 
     def test_render_single_config(self) -> None:
         """render should render single config with placeholder."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        layout = app.render()
+        layout = app.render_panels()
         assert layout is not None
 
     def test_render_two_configs(self) -> None:
         """render should render both configs side by side."""
         configs = [_make_config("model1", 8080, "CUDA"), _make_config("model2", 8081, "SYCL")]
         app = TUIApp(configs=configs, gpu_indices=[0, 1])
-        layout = app.render()
+        layout = app.render_panels()
         assert layout is not None
 
     def test_render_with_status_panel(self) -> None:
         """render should include status panel in alerts."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         app.status_panel = MagicMock()
-        layout = app.render()
+        layout = app.render_panels()
         assert layout is not None
 
     def test_render_populates_menu(self) -> None:
         """render should populate the dashboard snapshot menu."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        snapshot = app.render()
-        assert snapshot.menu is not None
+        snapshot = app.render_panels()
+        assert snapshot[3] is not None
 
 
 # =============================================================================
@@ -566,13 +569,13 @@ class TestProfilingFlow:
 
         with (
             patch(
-                "llama_cli.tui.controller.get_gpu_identifier", return_value="intel-arc_b580-00"
+                "llama_cli.tui.viewmodel.get_gpu_identifier", return_value="intel-arc_b580-00"
             ) as mock_gpu,
             patch(
                 "llama_cli.commands.profile._get_driver_version", return_value="driver-1"
             ) as mock_driver,
             patch(
-                "llama_cli.tui.controller.load_profile_with_staleness",
+                "llama_cli.tui.viewmodel.load_profile_with_staleness",
                 return_value=(MagicMock(), stale_result),
             ) as mock_load,
         ):

@@ -1,34 +1,28 @@
-"""TUIApp controller — manages server lifecycle, state, and rendering."""
+"""Dashboard controller for the Textual TUI."""
 
 import signal
 import sys
 import threading
-import time
 from collections.abc import Callable
 from types import FrameType
 from typing import Any
 
-from rich.console import RenderableType
 from rich.panel import Panel
 from rich.text import Text
 
-from llama_cli.gpu_collectors import collect_nvtop_stats
 from llama_manager import (
     Config,
     GPUStats,
     LaunchResult,
     LogBuffer,
     ModelSlot,
-    ProfileFlavor,
     RiskAckResult,
     ServerConfig,
     ServerManager,
     SlotState,
     add_slot_from_form,
     compute_slot_transition,
-    get_gpu_identifier,
     launch_orchestrate,
-    load_profile_with_staleness,
     resolve_risk_action,
 )
 from llama_manager.build_pipeline import (
@@ -38,68 +32,36 @@ from llama_manager.build_pipeline import (
 )
 
 from .components.alerts import (
-    build_profile_status_panel,
-    build_risk_panel_acknowledged,
-    build_risk_panel_required,
-    build_status_messages_panel,
-    build_status_panel,
-    build_system_status_panel,
+    LaunchStatusPanelRenderer,
+    ProfileStatusPanelRenderer,
+    RiskPanelRenderer,
+    StatusMessagesRenderer,
+    SystemStatusPanelRenderer,
 )
-from .components.menu import build_command_menu
 from .components.panels import ServerColumnPanel, SlotStatusPanel
-from .textual_app import TextualDashboardApp
-from .types import DashboardSnapshot
+from .model import DashboardModel
+from .textual_app import DashboardApp
+from .types import ServerColumnState
+from .viewmodel import DashboardViewModel
 
 
-class TUIApp:
-    """Main TUI application with 2-column layout."""
+class DashboardController:
+    """Controller for TUI commands, lifecycle, and background work."""
 
     def __init__(
         self,
         configs: list[ServerConfig],
         gpu_indices: list[int],
         slots: list[ModelSlot] | None = None,
-    ):
-        self.config = Config()
-        self.configs = configs
-        self.gpu_indices = gpu_indices
-        self.slots = slots or []
-        self.log_buffers: dict[str, LogBuffer] = {}
-        self.gpu_stats: list[GPUStats] = []
-        self.running = True
-        self.launch_result: LaunchResult | None = None
+    ) -> None:
+        self.model = DashboardModel(configs=configs, gpu_indices=gpu_indices, slots=slots)
+        self.view_model = DashboardViewModel(self.model)
+        self._status_panel_renderer = LaunchStatusPanelRenderer()
+        self._risk_panel_renderer = RiskPanelRenderer()
+        self._profile_status_renderer = ProfileStatusPanelRenderer()
+        self._status_messages_renderer = StatusMessagesRenderer()
+        self._system_status_renderer = SystemStatusPanelRenderer()
         self.status_panel: Panel | None = None
-        self.risk_panel: Panel | None = None
-        self.risks_acknowledged: bool = False
-        self.active_risk_kind: str | None = None
-
-        # Profile state
-        self._profile_status: dict[str, str] = {}  # alias -> "idle" | "running" | "done" | "failed"
-        self._profile_flavor: dict[str, str] = {}  # alias -> flavor string
-        self._profile_cancel_events: dict[str, threading.Event] = {}
-        self._profile_lock = threading.Lock()
-
-        # TUI-safe status message buffer. Each entry is (timestamp, message).
-        self._status_messages: list[tuple[float, str]] = []
-        self._status_lock = threading.Lock()
-
-        # Non-blocking profile flavor request state
-        self.profile_request: str | None = None
-        self._build_request: bool = False
-        self._smoke_request: bool = False
-        self.unsaved_slots: set[str] = set()
-
-        self.server_manager = ServerManager()
-
-        # Slot state tracking for TUI dashboard
-        self.slot_states: dict[str, str] = {}  # alias -> SlotState value
-        self.server_processes: dict[str, Any] = {}  # alias -> subprocess.Popen
-
-        for cfg in configs:
-            self.log_buffers[cfg.alias] = LogBuffer(redact_sensitive=True)
-        for idx in gpu_indices:
-            # Pass a bound collector callable with the device index
-            self.gpu_stats.append(GPUStats(idx, collector=self._make_collector(idx)))
 
         # Build pipeline state
         self._build_pipeline: BuildPipeline | None = None
@@ -109,6 +71,153 @@ class TUIApp:
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
+
+    @property
+    def config(self) -> Config:
+        return self.model.config
+
+    @property
+    def configs(self) -> list[ServerConfig]:
+        return self.model.configs
+
+    @configs.setter
+    def configs(self, value: list[ServerConfig]) -> None:
+        self.model.configs = value
+
+    @property
+    def gpu_indices(self) -> list[int]:
+        return self.model.gpu_indices
+
+    @property
+    def slots(self) -> list[ModelSlot]:
+        return self.model.slots
+
+    @property
+    def log_buffers(self) -> dict[str, LogBuffer]:
+        return self.model.log_buffers
+
+    @property
+    def gpu_stats(self) -> list[GPUStats]:
+        return self.model.gpu_stats
+
+    @property
+    def running(self) -> bool:
+        return self.model.running
+
+    @running.setter
+    def running(self, value: bool) -> None:
+        self.model.running = value
+
+    @property
+    def launch_result(self) -> LaunchResult | None:
+        return self.model.launch_result
+
+    @launch_result.setter
+    def launch_result(self, value: LaunchResult | None) -> None:
+        self.model.launch_result = value
+
+    @property
+    def risks_acknowledged(self) -> bool:
+        return bool(self.model.risk_prompt and self.model.risk_prompt.acknowledged)
+
+    @property
+    def active_risk_kind(self) -> str | None:
+        return self.model.risk_prompt.kind if self.model.risk_prompt is not None else None
+
+    @active_risk_kind.setter
+    def active_risk_kind(self, value: str | None) -> None:
+        if value is None:
+            self.model.clear_risk_prompt()
+        else:
+            self.model.set_risk_prompt(value, acknowledged=self.risks_acknowledged)
+
+    @property
+    def risk_panel(self) -> Panel | None:
+        prompt = self.model.risk_prompt
+        if prompt is None:
+            return None
+        if prompt.acknowledged:
+            return self._risk_panel_renderer.acknowledged()
+        return self._risk_panel_renderer.required(prompt.kind)
+
+    @risk_panel.setter
+    def risk_panel(self, value: object | None) -> None:
+        if value is None:
+            self.model.clear_risk_prompt()
+        elif self.model.risk_prompt is None:
+            self.model.set_risk_prompt("hardware", acknowledged=False)
+
+    @property
+    def profile_request(self) -> str | None:
+        return self.model.profile_request
+
+    @profile_request.setter
+    def profile_request(self, value: str | None) -> None:
+        self.model.profile_request = value
+
+    @property
+    def _build_request(self) -> bool:
+        return self.model.build_request
+
+    @_build_request.setter
+    def _build_request(self, value: bool) -> None:
+        self.model.build_request = value
+
+    @property
+    def _smoke_request(self) -> bool:
+        return self.model.smoke_request
+
+    @_smoke_request.setter
+    def _smoke_request(self, value: bool) -> None:
+        self.model.smoke_request = value
+
+    @property
+    def unsaved_slots(self) -> set[str]:
+        return self.model.unsaved_slots
+
+    @property
+    def server_manager(self) -> ServerManager:
+        return self.model.server_manager
+
+    @property
+    def slot_states(self) -> dict[str, str]:
+        return self.model.slot_states
+
+    @slot_states.setter
+    def slot_states(self, value: dict[str, str]) -> None:
+        self.model.slot_states = value
+
+    @property
+    def server_processes(self) -> dict[str, Any]:
+        return self.model.server_processes
+
+    @server_processes.setter
+    def server_processes(self, value: dict[str, Any]) -> None:
+        self.model.server_processes = value
+
+    @property
+    def _profile_status(self) -> dict[str, str]:
+        return self.model.profile_status
+
+    @property
+    def _profile_flavor(self) -> dict[str, str]:
+        return self.model.profile_flavor
+
+    @property
+    def _profile_cancel_events(self) -> dict[str, threading.Event]:
+        return self.model.profile_cancel_events
+
+    @property
+    def _profile_lock(self) -> threading.Lock:
+        return self.model.profile_lock
+
+    @property
+    def _status_messages(self) -> list[tuple[float, str]]:
+        return self.model.status_messages
+
+    @property
+    def _status_lock(self) -> threading.Lock:
+        return self.model.status_lock
 
     def _signal_handler(self, signum: int, frame: FrameType | None) -> None:
         """Handle shutdown signals by stopping the TUI loop.
@@ -135,27 +244,15 @@ class TUIApp:
 
     def _make_collector(self, device_index: int) -> Callable[[], dict[str, Any]]:
         """Create a GPU collector bound to a specific device index."""
-
-        def collector() -> dict[str, Any]:
-            return collect_nvtop_stats(device_index)
-
-        return collector
+        return self.model.make_collector(device_index)
 
     def stop(self) -> None:
         """Stop the TUI loop gracefully."""
         self.running = False
 
-    def render(self) -> DashboardSnapshot:
-        gpu_lines: list[str] = []
-        for gpu in self.gpu_stats:
-            gpu.update()
-            gpu_lines.append(gpu.format_stats_text())
-
-        alerts_panel = build_system_status_panel(
-            gpu_lines=gpu_lines,
-            notices=self.build_system_notices(),
-        )
-
+    def render_panels(self) -> tuple[Panel, Panel | None, Panel, Text]:
+        """Render a snapshot of the dashboard for tests and non-Textual callers."""
+        alerts_panel = self._system_status_renderer.render_panel(self.view_model.system_status())
         left_panel: Panel | None = None
         if self.configs:
             cfg1 = self.configs[0]
@@ -171,11 +268,13 @@ class TUIApp:
         else:
             right_panel = self._build_placeholder_panel()
 
-        return DashboardSnapshot(
-            alerts=alerts_panel,
-            left=left_panel,
-            right=right_panel,
-            menu=self._build_command_menu(),
+        from .components.menu import CommandMenuRenderer
+
+        return (
+            alerts_panel,
+            left_panel,
+            right_panel,
+            CommandMenuRenderer().render(self.view_model.command_menu()),
         )
 
     # ------------------------------------------------------------------
@@ -183,56 +282,43 @@ class TUIApp:
     # ------------------------------------------------------------------
 
     def _build_status_panel(self, launch_result: LaunchResult) -> None:
-        self.status_panel = build_status_panel(launch_result)
+        self.status_panel = self._status_panel_renderer.render(launch_result)
 
     def _build_risk_panel_required(self, kind: str = "hardware") -> None:
-        self.risk_panel = build_risk_panel_required(kind=kind)
-        self.risks_acknowledged = False
-        self.active_risk_kind = kind
+        self.model.set_risk_prompt(kind=kind, acknowledged=False)
 
     def _build_risk_panel_acknowledged(self, kind: str = "hardware") -> None:
-        self.risk_panel = build_risk_panel_acknowledged()
-        self.risks_acknowledged = True
-        self.active_risk_kind = kind
+        self.model.set_risk_prompt(kind=kind, acknowledged=True)
 
     def _build_column_panel(
         self, cfg: ServerConfig, buffer: LogBuffer, gpu: GPUStats | None
     ) -> Panel:
         stale_warning = self.get_stale_warning(cfg)
         return ServerColumnPanel(
-            cfg,
-            buffer,
-            gpu,
-            self.config.host,
-            stale_warning,
-            slot_states=self.slot_states,
-            server_processes=self.server_processes,
-            is_unsaved=cfg.alias in self.unsaved_slots,
+            ServerColumnState(
+                config=cfg,
+                buffer=buffer,
+                gpu=gpu,
+                host=self.config.host,
+                stale_warning=stale_warning,
+                slot_states=self.slot_states,
+                server_processes=self.server_processes,
+                is_unsaved=cfg.alias in self.unsaved_slots,
+            )
         ).render()
 
     def _build_placeholder_panel(self) -> Panel:
-        return SlotStatusPanel(
-            [],
-            self.slot_states,
-            self.server_processes,
-            self.log_buffers,
-            self.config.host,
-        ).render()
+        return SlotStatusPanel(self.view_model.slot_status(configs=[])).render()
 
     def _build_profile_status_panel(self) -> Panel | None:
-        with self._profile_lock:
-            active = {a: s for a, s in self._profile_status.items() if s != "idle"}
-        return build_profile_status_panel(active, self._profile_flavor)
+        return self._profile_status_renderer.render(
+            self.view_model.active_profile_status(),
+            self._profile_flavor,
+        )
 
     def build_system_notices(self) -> list[str]:
         """Build concise status notices shown in the top system panel."""
-        notices: list[str] = []
-
-        if self.status_panel is not None and self.launch_result is not None:
-            if self.launch_result.is_blocked():
-                notices.append("Launch blocked: no slots could be launched")
-            elif self.launch_result.is_degraded():
-                notices.append("Launch degraded: some slots blocked")
+        notices = self.view_model.system_notices()
 
         if self.build_in_progress and self.build_progress is not None:
             notices.append(
@@ -240,55 +326,26 @@ class TUIApp:
                 f"({self.build_progress.progress_percent}%)"
             )
 
-        if self.risk_panel is not None:
-            if self.active_risk_kind == "vram":
-                notices.append("VRAM risk acknowledgement required [y/n]")
-            elif self.risks_acknowledged:
-                notices.append("Risky operation acknowledged")
-            else:
-                notices.append("Hardware risk acknowledgement required [y/n]")
-
-        with self._profile_lock:
-            running_profiles = [a for a, s in self._profile_status.items() if s == "running"]
-        if running_profiles:
-            notices.append(f"Profiling running: {', '.join(running_profiles)}")
-
         return notices
 
     # How long (seconds) a status message remains visible across renders.
-    _STATUS_MESSAGE_LIFETIME_S: float = 30.0
+    _STATUS_MESSAGE_LIFETIME_S: float = DashboardModel.STATUS_MESSAGE_LIFETIME_S
 
-    def _build_status_messages_panel(self) -> RenderableType | None:
-        with self._status_lock:
-            if not self._status_messages:
-                return None
-            now = time.monotonic()
-            messages = [
-                msg
-                for ts, msg in self._status_messages
-                if now - ts < self._STATUS_MESSAGE_LIFETIME_S
-            ]
-        if not messages:
-            return None
-        return build_status_messages_panel(messages)
+    def _build_status_messages_panel(self) -> Text | None:
+        return self._status_messages_renderer.render(self.view_model.status_messages())
 
     def get_status_messages_since(self, since_ts: float) -> list[tuple[float, str]]:
         """Return status messages newer than ``since_ts``."""
-        with self._status_lock:
-            return [(ts, msg) for ts, msg in self._status_messages if ts > since_ts]
+        return self.model.get_status_messages_since(since_ts)
 
     def prune_expired_status_messages(self) -> None:
         """Remove status messages older than ``_STATUS_MESSAGE_LIFETIME_S``."""
-        cutoff = time.monotonic() - self._STATUS_MESSAGE_LIFETIME_S
-        with self._status_lock:
-            self._status_messages = [(ts, msg) for ts, msg in self._status_messages if ts >= cutoff]
+        self.model.prune_expired_status_messages()
 
     def _build_command_menu(self) -> Text:
-        return build_command_menu(
-            self.profile_request,
-            self.risk_panel,
-            self.active_risk_kind,
-        )
+        from .components.menu import CommandMenuRenderer
+
+        return CommandMenuRenderer().render(self.view_model.command_menu())
 
     # ------------------------------------------------------------------
     # Print helpers
@@ -398,11 +455,7 @@ class TUIApp:
         This method is safe to call from TUI handlers — it only mutates the
         status buffer and leaves rendering to Textual.
         """
-        with self._status_lock:
-            self._status_messages.append((time.monotonic(), message))
-            # Keep at most 5 messages
-            if len(self._status_messages) > 5:
-                self._status_messages.pop(0)
+        self.model.push_status_message(message)
 
     def add_slot_from_form(self, values: dict[str, str]) -> bool:
         """Create or replace a slot from modal profile selection."""
@@ -498,30 +551,8 @@ class TUIApp:
     # ------------------------------------------------------------------
 
     def get_stale_warning(self, cfg: ServerConfig) -> str | None:
-        """Check if the cached profile for a config is stale.
-
-        Returns a warning string or None if the profile is fresh / nonexistent.
-        """
-        try:
-            from llama_cli.commands.profile import _get_driver_version
-
-            _record, staleness = load_profile_with_staleness(
-                profiles_dir=self.config.profiles_dir,
-                gpu_identifier=get_gpu_identifier(cfg.backend),
-                backend=cfg.backend,
-                flavor=ProfileFlavor.BALANCED,
-                current_driver_version=_get_driver_version(cfg.backend),
-                current_binary_version=self.config.server_binary_version or "unknown",
-                staleness_days=self.config.profile_staleness_days,
-            )
-        except Exception:
-            return None
-
-        if staleness is None or not staleness.is_stale:
-            return None
-
-        reasons = "; ".join(r.value.replace("_", " ").title() for r in staleness.reasons)
-        return f"\u26a0 profile stale \u2014 {reasons}"
+        """Return a warning string when the cached profile is stale."""
+        return self.view_model.stale_warning(cfg)
 
     def _update_risk_panel_state(self, result: RiskAckResult) -> None:
         if result.has_risks:
@@ -531,7 +562,6 @@ class TUIApp:
                 self._build_risk_panel_required()
             return
         self.risk_panel = None
-        self.risks_acknowledged = False
 
     def _apply_risk_action(self, action: str) -> None:
         if action in ("acknowledge", "proceed"):
@@ -747,7 +777,7 @@ class TUIApp:
         self.slot_states = result.slot_states
 
         try:
-            TextualDashboardApp(self).run()
+            DashboardApp(self).run()
         finally:
             self._cleanup()
 
@@ -757,6 +787,6 @@ class TUIApp:
         Used when no slots are configured - allows user to add slots interactively.
         """
         try:
-            TextualDashboardApp(self).run()
+            DashboardApp(self).run()
         finally:
             self._cleanup()

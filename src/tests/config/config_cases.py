@@ -906,11 +906,11 @@ class TestLifecycleAuditTrail:
 
 
 class TestTUILifecycle:
-    """Tests for TUIApp lifecycle management via ServerManager."""
+    """Tests for dashboard lifecycle management via ServerManager."""
 
     def test_tui_uses_servermanager(self) -> None:
-        """TUIApp should use ServerManager for lifecycle management."""
-        from llama_cli.tui import TUIApp
+        """DashboardController should use ServerManager for lifecycle management."""
+        from llama_cli.tui import DashboardController
         from llama_manager import ServerConfig
 
         configs = [
@@ -924,7 +924,7 @@ class TestTUILifecycle:
                 threads=2,
             ),
         ]
-        app = TUIApp(configs, [0])
+        app = DashboardController(configs, [0])
         # Verify ServerManager is initialized
         assert app.server_manager is not None
         # Verify cleanup delegates to ServerManager (no error on empty cleanup)

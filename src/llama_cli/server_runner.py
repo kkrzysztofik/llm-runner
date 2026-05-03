@@ -217,7 +217,7 @@ def _run_tui(parsed: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for failure).
     """
-    from llama_cli.tui import TUIApp
+    from llama_cli.tui import DashboardController
 
     cfg = Config()
 
@@ -235,7 +235,7 @@ def _run_tui(parsed: argparse.Namespace) -> int:
 
         _validate_tui_configs(configs)
 
-    app = TUIApp(configs, gpu_indices)
+    app = DashboardController(configs, gpu_indices)
     app.run(acknowledged=parsed.acknowledge_risky)
     return 0
 

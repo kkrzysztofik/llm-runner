@@ -7,7 +7,7 @@ import pytest
 from llama_cli import server_runner
 from llama_cli.cli_parser import parse_args, parse_tui_args
 from llama_cli.commands.dry_run import dry_run
-from llama_cli.tui import TUIApp
+from llama_cli.tui import DashboardController
 from llama_manager import LaunchResult, ServerConfig, ServerManager
 from llama_manager.config import ErrorCode, ErrorDetail, MultiValidationError
 
@@ -15,11 +15,11 @@ from llama_manager.config import ErrorCode, ErrorDetail, MultiValidationError
 class _FakeTextualDashboardApp:
     """Fake Textual app for TUI tests without terminal rendering."""
 
-    def __init__(self, controller: TUIApp) -> None:
+    def __init__(self, controller: DashboardController) -> None:
         self.controller = controller
 
     def run(self) -> None:
-        self.controller.render()
+        self.controller.render_panels()
 
 
 def _risky_cfg() -> ServerConfig:
@@ -73,17 +73,17 @@ def test_cleanup_clears_attempt_ack_cache() -> None:
 
 
 def test_tui_risk_panels_render_required_and_acknowledged_states() -> None:
-    app = TUIApp([_risky_cfg()], [0])
+    app = DashboardController([_risky_cfg()], [0])
 
     app._build_risk_panel_required()
-    required_layout = app.render()
+    required_layout = app.render_panels()
     assert required_layout is not None
     assert app.risk_panel is not None
     assert "ACKNOWLEDGEMENT REQUIRED" in str(app.risk_panel.renderable)
     assert app.risks_acknowledged is False
 
     app._build_risk_panel_acknowledged()
-    acknowledged_layout = app.render()
+    acknowledged_layout = app.render_panels()
     assert acknowledged_layout is not None
     assert app.risk_panel is not None
     assert "ACKNOWLEDGED" in str(app.risk_panel.renderable)
@@ -91,11 +91,11 @@ def test_tui_risk_panels_render_required_and_acknowledged_states() -> None:
 
 
 def test_tui_run_keeps_acknowledged_risk_panel_visible() -> None:
-    app = TUIApp([_risky_cfg()], [0])
+    app = DashboardController([_risky_cfg()], [0])
     app.running = False
 
     with (
-        patch("llama_cli.tui.controller.TextualDashboardApp", _FakeTextualDashboardApp),
+        patch("llama_cli.tui.controller.DashboardApp", _FakeTextualDashboardApp),
         patch("llama_cli.tui.components.panels.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,
@@ -152,7 +152,7 @@ def test_dry_run_exits_when_backend_validation_fails() -> None:
 
 
 def test_tui_run_exits_when_launch_is_blocked(capsys: pytest.CaptureFixture[str]) -> None:
-    app = TUIApp([_risky_cfg()], [0])
+    app = DashboardController([_risky_cfg()], [0])
     app.running = False
 
     blocked_error = ErrorDetail(
@@ -163,7 +163,7 @@ def test_tui_run_exits_when_launch_is_blocked(capsys: pytest.CaptureFixture[str]
     )
 
     with (
-        patch("llama_cli.tui.controller.TextualDashboardApp", _FakeTextualDashboardApp),
+        patch("llama_cli.tui.controller.DashboardApp", _FakeTextualDashboardApp),
         patch.object(
             app.server_manager,
             "launch_all_slots",
@@ -185,11 +185,11 @@ def test_tui_run_exits_when_launch_is_blocked(capsys: pytest.CaptureFixture[str]
 
 
 def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) -> None:
-    app = TUIApp([_risky_cfg()], [0])
+    app = DashboardController([_risky_cfg()], [0])
     app.running = False
 
     with (
-        patch("llama_cli.tui.controller.TextualDashboardApp", _FakeTextualDashboardApp),
+        patch("llama_cli.tui.controller.DashboardApp", _FakeTextualDashboardApp),
         patch("llama_cli.tui.components.panels.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,

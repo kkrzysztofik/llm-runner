@@ -58,7 +58,7 @@ class TestRunTuiPrereqs:
             ),
             patch.object(server_runner, "require_executable", return_value=None) as mock_require,
             patch.object(server_runner, "_validate_tui_configs") as mock_validate,
-            patch("llama_cli.tui.TUIApp") as mock_tui_app,
+            patch("llama_cli.tui.DashboardController") as mock_tui_app,
         ):
             mock_tui_app.return_value.run.return_value = None
             result = server_runner._run_tui(parsed)
@@ -96,7 +96,7 @@ class TestRunTuiPrereqs:
             ),
             patch.object(server_runner, "require_executable", return_value=None) as mock_require,
             patch.object(server_runner, "_validate_tui_configs"),
-            patch("llama_cli.tui.TUIApp") as mock_tui_app,
+            patch("llama_cli.tui.DashboardController") as mock_tui_app,
         ):
             mock_tui_app.return_value.run.return_value = None
             result = server_runner._run_tui(parsed)

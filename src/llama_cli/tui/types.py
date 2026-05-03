@@ -1,16 +1,56 @@
-"""Dataclass types shared across the TUI submodule."""
+"""Typed view state shared across the TUI submodule."""
 
 from dataclasses import dataclass
+from typing import Any
 
-from rich.panel import Panel
-from rich.text import Text
+from llama_manager import GPUStats, LogBuffer, ServerConfig
 
 
 @dataclass(frozen=True)
-class DashboardSnapshot:
-    """Current dashboard renderables for Textual widgets."""
+class RiskPromptState:
+    """Current risk prompt state."""
 
-    alerts: Panel
-    left: Panel | None
-    right: Panel
-    menu: Text
+    kind: str
+    acknowledged: bool
+
+
+@dataclass(frozen=True)
+class CommandMenuState:
+    """State needed to render the bottom command menu."""
+
+    profile_request: str | None
+    risk_prompt: RiskPromptState | None
+
+
+@dataclass(frozen=True)
+class SystemStatusState:
+    """State needed to render the top system status widgets."""
+
+    gpu_lines: list[str]
+    notices: list[str]
+
+
+@dataclass(frozen=True)
+class ServerColumnState:
+    """State needed to render one server column."""
+
+    config: ServerConfig
+    buffer: LogBuffer
+    gpu: GPUStats | None
+    host: str
+    stale_warning: str | None
+    slot_states: dict[str, str]
+    server_processes: dict[str, Any]
+    is_unsaved: bool
+
+
+@dataclass(frozen=True)
+class SlotStatusState:
+    """State needed to render the fallback slot status panel."""
+
+    configs: list[ServerConfig]
+    slot_states: dict[str, str]
+    server_processes: dict[str, Any]
+    log_buffers: dict[str, LogBuffer]
+    host: str
+    unsaved_slots: set[str]

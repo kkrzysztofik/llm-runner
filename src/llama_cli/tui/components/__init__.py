@@ -1,18 +1,18 @@
-"""llama_cli.tui.components — panel-builder functions and named widgets."""
+"""Named Textual widgets and renderers for the TUI."""
 
 from .alerts import (
+    GPUTelemetryPanelRenderer,
     GPUTelemetryWidget,
+    LaunchStatusPanelRenderer,
     NoticesWidget,
+    ProfileStatusPanelRenderer,
+    RiskPanelRenderer,
+    StatusMessagesRenderer,
     SystemHealthWidget,
+    SystemStatusPanelRenderer,
     SystemStatusWidget,
-    build_gpu_telemetry_panel,
-    build_profile_status_panel,
-    build_risk_panel_acknowledged,
-    build_risk_panel_required,
-    build_status_messages_panel,
-    build_status_panel,
 )
-from .menu import CommandMenu, build_command_menu
+from .menu import CommandMenu, CommandMenuRenderer
 from .modal import AddSlotModal
 from .panels import (
     GPUStatsPanel,
@@ -25,20 +25,19 @@ __all__ = [
     # Widgets
     "AddSlotModal",
     "CommandMenu",
+    "CommandMenuRenderer",
     "GPUStatsPanel",
+    "GPUTelemetryPanelRenderer",
     "GPUTelemetryWidget",
+    "LaunchStatusPanelRenderer",
     "NoticesWidget",
+    "ProfileStatusPanelRenderer",
+    "RiskPanelRenderer",
     "ServerColumnPanel",
     "ServerLogPanel",
     "SlotStatusPanel",
+    "StatusMessagesRenderer",
     "SystemHealthWidget",
+    "SystemStatusPanelRenderer",
     "SystemStatusWidget",
-    # Builder functions
-    "build_command_menu",
-    "build_gpu_telemetry_panel",
-    "build_profile_status_panel",
-    "build_risk_panel_acknowledged",
-    "build_risk_panel_required",
-    "build_status_messages_panel",
-    "build_status_panel",
 ]

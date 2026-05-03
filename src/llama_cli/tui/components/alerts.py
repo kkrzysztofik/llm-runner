@@ -1,4 +1,4 @@
-"""Alert/status panel builders and SystemStatusWidget for the TUI."""
+"""Alert/status panel renderers and SystemStatusWidget for the TUI."""
 
 from __future__ import annotations
 
@@ -17,178 +17,172 @@ from llama_manager import LaunchResult
 from ..constants import STATUS_PREFIX, STYLE_BOLD_RED, STYLE_BOLD_YELLOW
 
 if TYPE_CHECKING:
-    from llama_cli.tui.controller import TUIApp
+    from llama_cli.tui.types import SystemStatusState
+    from llama_cli.tui.viewmodel import DashboardViewModel
 
 
-def build_status_panel(launch_result: LaunchResult) -> Panel | None:
-    """Build a panel describing a launch result.
+class LaunchStatusPanelRenderer:
+    """Builds a panel describing a launch result."""
 
-    Returns None if the launch succeeded (no panel needed).
-    """
-    if launch_result.is_success():
-        return None
+    def render(self, launch_result: LaunchResult) -> Panel | None:
+        """Return None if the launch succeeded and no panel is needed."""
+        if launch_result.is_success():
+            return None
 
-    status_text = Text()
-    if launch_result.is_blocked():
-        status_text.append(STATUS_PREFIX, style=STYLE_BOLD_RED)
-        status_text.append("BLOCKED", style="bold red reverse")
-        status_text.append("\n\n")
-        if launch_result.errors is not None:
-            status_text.append("FR-005 Error Details:\n", style=STYLE_BOLD_YELLOW)
-            for error_detail in launch_result.errors.errors:
-                status_text.append(f"  - {error_detail.error_code}\n", style="red")
-                status_text.append(
-                    f"    failed_check: {error_detail.failed_check}\n",
-                    style="dim",
-                )
-                status_text.append(
-                    f"    why_blocked: {error_detail.why_blocked}\n",
-                    style="dim",
-                )
-                status_text.append(
-                    f"    how_to_fix: {error_detail.how_to_fix}\n\n",
-                    style="dim",
-                )
+        status_text = Text()
+        if launch_result.is_blocked():
+            status_text.append(STATUS_PREFIX, style=STYLE_BOLD_RED)
+            status_text.append("BLOCKED", style="bold red reverse")
+            status_text.append("\n\n")
+            if launch_result.errors is not None:
+                status_text.append("FR-005 Error Details:\n", style=STYLE_BOLD_YELLOW)
+                for error_detail in launch_result.errors.errors:
+                    status_text.append(f"  - {error_detail.error_code}\n", style="red")
+                    status_text.append(
+                        f"    failed_check: {error_detail.failed_check}\n",
+                        style="dim",
+                    )
+                    status_text.append(
+                        f"    why_blocked: {error_detail.why_blocked}\n",
+                        style="dim",
+                    )
+                    status_text.append(
+                        f"    how_to_fix: {error_detail.how_to_fix}\n\n",
+                        style="dim",
+                    )
+            return Panel(
+                status_text,
+                title="[red]Launch Failed[/red]",
+                border_style="red",
+            )
+
+        status_text.append(STATUS_PREFIX, style=STYLE_BOLD_YELLOW)
+        status_text.append("DEGRADED", style=STYLE_BOLD_YELLOW)
+        status_text.append(" (partial success)\n\n", style="dim")
+        launched = launch_result.launched or []
+        if launched:
+            status_text.append("Launched slots:\n", style="bold green")
+            for slot_id in launched:
+                status_text.append(f"  + {slot_id}\n", style="green")
+            status_text.append("\n")
+        for warning in launch_result.warnings or []:
+            status_text.append(f"  ! {warning}\n", style="yellow")
         return Panel(
             status_text,
-            title="[red]Launch Failed[/red]",
-            border_style="red",
+            title="[yellow]Launch Degraded[/yellow]",
+            border_style="yellow",
         )
 
-    status_text.append(STATUS_PREFIX, style=STYLE_BOLD_YELLOW)
-    status_text.append("DEGRADED", style=STYLE_BOLD_YELLOW)
-    status_text.append(" (partial success)\n\n", style="dim")
-    launched = launch_result.launched or []
-    if launched:
-        status_text.append("Launched slots:\n", style="bold green")
-        for slot_id in launched:
-            status_text.append(f"  + {slot_id}\n", style="green")
-        status_text.append("\n")
-    for warning in launch_result.warnings or []:
-        status_text.append(f"  ! {warning}\n", style="yellow")
-    return Panel(
-        status_text,
-        title="[yellow]Launch Degraded[/yellow]",
-        border_style="yellow",
-    )
+
+class RiskPanelRenderer:
+    """Builds risk acknowledgement panels."""
+
+    def required(self, kind: str = "hardware") -> Panel:
+        text = Text()
+        text.append("RISK STATUS: ", style="bold")
+        text.append(" ACKNOWLEDGEMENT REQUIRED ", style="bold red reverse")
+        if kind == "vram":
+            text.append("\nVRAM heuristics indicate a high risk of Out-Of-Memory errors.")
+        else:
+            text.append("\nHardware validation warnings detected. Launch is blocked.")
+
+        text.append("\n\nPress ", style="dim")
+        text.append("[y]", style="bold green")
+        text.append(" to acknowledge and continue, or ", style="dim")
+        text.append("[n]", style="bold red")
+        text.append(" to abort.", style="dim")
+
+        return Panel(text, title="Risk Management", border_style="red")
+
+    def acknowledged(self) -> Panel:
+        text = Text()
+        text.append("RISK STATUS: ", style="bold")
+        text.append(" ACKNOWLEDGED ", style="bold green reverse")
+        text.append("\nRisky operations (privileged ports, non-loopback bind) were acknowledged.")
+        return Panel(text, title="Risk Management", border_style="green")
 
 
-def build_risk_panel_required(kind: str = "hardware") -> Panel:
-    """Build the risk acknowledgement-required panel."""
-    text = Text()
-    text.append("RISK STATUS: ", style="bold")
-    text.append(" ACKNOWLEDGEMENT REQUIRED ", style="bold red reverse")
-    if kind == "vram":
-        text.append("\nVRAM heuristics indicate a high risk of Out-Of-Memory errors.")
-    else:
-        text.append("\nHardware validation warnings detected. Launch is blocked.")
+class ProfileStatusPanelRenderer:
+    """Builds the active profile operations panel."""
 
-    text.append("\n\nPress ", style="dim")
-    text.append("[y]", style="bold green")
-    text.append(" to acknowledge and continue, or ", style="dim")
-    text.append("[n]", style="bold red")
-    text.append(" to abort.", style="dim")
+    def render(
+        self,
+        profile_status: dict[str, str],
+        profile_flavor: dict[str, str],
+    ) -> Panel | None:
+        if not profile_status:
+            return None
 
-    return Panel(text, title="Risk Management", border_style="red")
+        text = Text()
+        for alias, status in profile_status.items():
+            flavor = profile_flavor.get(alias, "unknown")
+            if status == "running":
+                text.append("\u25b6 ", style="yellow")
+                text.append(f"Profiling {alias}: {flavor} ", style="yellow")
+                text.append("[running...]", style="dim")
+            elif status == "done":
+                text.append("\u2713 ", style="green")
+                text.append(f"Profile {alias}: {flavor} ", style="green")
+                text.append("[done]", style="dim")
+            elif status == "failed":
+                text.append("\u2717 ", style="red")
+                text.append(f"Profile {alias}: {flavor} ", style="red")
+                text.append("[failed]", style="dim")
+            text.append("\n")
 
-
-def build_risk_panel_acknowledged() -> Panel:
-    """Build the risk acknowledged panel."""
-    text = Text()
-    text.append("RISK STATUS: ", style="bold")
-    text.append(" ACKNOWLEDGED ", style="bold green reverse")
-    text.append("\nRisky operations (privileged ports, non-loopback bind) were acknowledged.")
-    return Panel(text, title="Risk Management", border_style="green")
-
-
-def build_profile_status_panel(
-    profile_status: dict[str, str],
-    profile_flavor: dict[str, str],
-) -> Panel | None:
-    """Build a panel showing active profile operations.
-
-    ``profile_status`` should already be filtered to non-idle entries.
-    """
-    if not profile_status:
-        return None
-
-    text = Text()
-    for alias, status in profile_status.items():
-        flavor = profile_flavor.get(alias, "unknown")
-        if status == "running":
-            text.append("\u25b6 ", style="yellow")
-            text.append(f"Profiling {alias}: {flavor} ", style="yellow")
-            text.append("[running...]", style="dim")
-        elif status == "done":
-            text.append("\u2713 ", style="green")
-            text.append(f"Profile {alias}: {flavor} ", style="green")
-            text.append("[done]", style="dim")
-        elif status == "failed":
-            text.append("\u2717 ", style="red")
-            text.append(f"Profile {alias}: {flavor} ", style="red")
-            text.append("[failed]", style="dim")
-        text.append("\n")
-
-    return Panel(text, title="Profile Status", border_style="yellow")
+        return Panel(text, title="Profile Status", border_style="yellow")
 
 
-def build_status_messages_panel(messages: list[str]) -> Text | None:
-    """Build inline alert text from a list of status messages.
+class StatusMessagesRenderer:
+    """Builds inline alert text from status messages."""
 
-    Returns None if the list is empty.
-    """
-    if not messages:
-        return None
+    def render(self, messages: list[str]) -> Text | None:
+        if not messages:
+            return None
 
-    text = Text()
-    text.append("ALERTS\n", style="bold yellow")
-    for msg in messages:
-        text.append(f"• {msg}\n", style="green")
-    return text
-
-
-def build_gpu_telemetry_panel(lines: list[str]) -> Panel | None:
-    """Build the GPU telemetry panel from pre-formatted stat lines.
-
-    Returns None if no lines are provided.
-    """
-    if not lines:
-        return None
-
-    text = Text("\n".join(lines))
-    return Panel(text, title="GPU Telemetry", border_style="yellow")
+        text = Text()
+        text.append("ALERTS\n", style="bold yellow")
+        for msg in messages:
+            text.append(f"• {msg}\n", style="green")
+        return text
 
 
-def build_system_status_panel(
-    gpu_lines: list[str],
-    notices: list[str] | None = None,
-) -> Panel:
-    """Build a single htop-style system status panel for the top area.
+class GPUTelemetryPanelRenderer:
+    """Builds the GPU telemetry panel from pre-formatted stat lines."""
 
-    Used by ``controller.render()`` for the legacy snapshot path.  The widget
-    path decomposes this into three focused child widgets instead.
-    """
-    notices = notices or []
-    text = _build_system_health_text()
+    def render_panel(self, lines: list[str]) -> Panel | None:
+        if not lines:
+            return None
 
-    if gpu_lines:
-        text.append("\n")
-        text.append("GPU ", style="bold yellow")
-        text.append(
-            " | ".join(line.replace("\n", " ").strip() for line in gpu_lines), style="yellow"
+        text = Text("\n".join(lines))
+        return Panel(text, title="GPU Telemetry", border_style="yellow")
+
+
+class SystemStatusPanelRenderer:
+    """Builds the combined top system status panel."""
+
+    def render_panel(self, state: SystemStatusState) -> Panel:
+        text = _build_system_health_text()
+
+        if state.gpu_lines:
+            text.append("\n")
+            text.append("GPU ", style="bold yellow")
+            text.append(
+                " | ".join(line.replace("\n", " ").strip() for line in state.gpu_lines),
+                style="yellow",
+            )
+            text.append("\n")
+
+        for notice in state.notices[-2:]:
+            text.append(f"! {notice}\n", style="bold yellow")
+
+        return Panel(
+            text,
+            title="",
+            box=box.SQUARE,
+            border_style="black",
+            padding=(0, 0),
         )
-        text.append("\n")
-
-    for notice in notices[-2:]:
-        text.append(f"! {notice}\n", style="bold yellow")
-
-    return Panel(
-        text,
-        title="",
-        box=box.SQUARE,
-        border_style="black",
-        padding=(0, 0),
-    )
 
 
 def _build_system_health_text() -> Text:
@@ -410,15 +404,12 @@ class GPUTelemetryWidget(Widget):
     }
     """
 
-    def __init__(self, controller: TUIApp) -> None:
+    def __init__(self, view_model: DashboardViewModel) -> None:
         super().__init__()
-        self._controller = controller
+        self._view_model = view_model
 
     def render(self) -> RenderResult:
-        gpu_lines: list[str] = []
-        for gpu in self._controller.gpu_stats:
-            gpu.update()
-            gpu_lines.append(gpu.format_stats_text())
+        gpu_lines = self._view_model.gpu_telemetry_lines()
         if not gpu_lines:
             self.add_class("hidden")
             return Text()
@@ -447,12 +438,12 @@ class NoticesWidget(Widget):
     }
     """
 
-    def __init__(self, controller: TUIApp) -> None:
+    def __init__(self, view_model: DashboardViewModel) -> None:
         super().__init__()
-        self._controller = controller
+        self._view_model = view_model
 
     def render(self) -> RenderResult:
-        notices = self._controller.build_system_notices()
+        notices = self._view_model.system_notices()
         if not notices:
             self.add_class("hidden")
             return Text()
@@ -479,11 +470,11 @@ class SystemStatusWidget(Widget):
     }
     """
 
-    def __init__(self, controller: TUIApp) -> None:
+    def __init__(self, view_model: DashboardViewModel) -> None:
         super().__init__(id="alerts")
-        self._controller = controller
+        self._view_model = view_model
 
     def compose(self) -> ComposeResult:
         yield SystemHealthWidget()
-        yield GPUTelemetryWidget(self._controller)
-        yield NoticesWidget(self._controller)
+        yield GPUTelemetryWidget(self._view_model)
+        yield NoticesWidget(self._view_model)

@@ -12,10 +12,11 @@ from textual.app import RenderResult
 from textual.widget import Widget
 
 from llama_cli.colors import Colors
-from llama_manager import GPUStats, LogBuffer, ServerConfig, SlotState
+from llama_cli.tui.types import ServerColumnState, SlotStatusState
+from llama_manager import GPUStats, ServerConfig, SlotState
 
 if TYPE_CHECKING:
-    from llama_cli.tui.controller import TUIApp
+    from llama_cli.tui.viewmodel import DashboardViewModel
 
 # ---------------------------------------------------------------------------
 # Module-level lookup tables
@@ -37,25 +38,27 @@ STATUS_COLORS: dict[str, str] = {
 }
 
 
-def _resolve_slot_status(
-    alias: str,
-    slot_states: dict[str, str],
-    server_processes: dict[str, Any],
-) -> str:
-    """Resolve final slot status from tracked state + process liveness."""
-    state = slot_states.get(alias, SlotState.OFFLINE.value)
-    status = state
-    if state == SlotState.RUNNING.value:
-        proc = server_processes.get(alias)
-        if not proc:
-            status = SlotState.CRASHED.value
-        elif hasattr(proc, "poll"):
-            # subprocess.Popen — poll() returns None while running
-            if proc.poll() is not None:
+class SlotStatusResolver:
+    """Resolves final slot status from tracked state and process liveness."""
+
+    def resolve(
+        self,
+        alias: str,
+        slot_states: dict[str, str],
+        server_processes: dict[str, Any],
+    ) -> str:
+        state = slot_states.get(alias, SlotState.OFFLINE.value)
+        status = state
+        if state == SlotState.RUNNING.value:
+            proc = server_processes.get(alias)
+            if not proc:
                 status = SlotState.CRASHED.value
-        elif not (proc.pid and psutil.pid_exists(proc.pid)):
-            status = SlotState.CRASHED.value
-    return status
+            elif hasattr(proc, "poll"):
+                if proc.poll() is not None:
+                    status = SlotState.CRASHED.value
+            elif not (proc.pid and psutil.pid_exists(proc.pid)):
+                status = SlotState.CRASHED.value
+        return status
 
 
 # ---------------------------------------------------------------------------
@@ -174,57 +177,48 @@ class ServerColumnPanel(Widget):
 
     def __init__(
         self,
-        cfg: ServerConfig,
-        buffer: LogBuffer,
-        gpu: GPUStats | None,
-        host: str,
-        stale_warning: str | None = None,
-        slot_states: dict[str, str] | None = None,
-        server_processes: dict[str, Any] | None = None,
-        is_unsaved: bool = False,
+        state: ServerColumnState,
     ) -> None:
         super().__init__()
-        self._cfg = cfg
-        self._buffer = buffer
-        self._gpu = gpu
-        self._host = host
-        self._stale_warning = stale_warning
-        self._slot_states = slot_states or {}
-        self._server_processes = server_processes or {}
-        self._is_unsaved = is_unsaved
+        self._state = state
+        self._resolver = SlotStatusResolver()
 
     def render(self) -> Panel:  # type: ignore[override]
-        cfg = self._cfg
+        cfg = self._state.config
         color_code = Colors.get_code(cfg.alias)
         color_style = color_code if color_code else "white"
 
         header = self._build_header(color_style)
-        gpu_panel = GPUStatsPanel(self._gpu).render()
-        logs_text = self._buffer.get_text(empty_message="Waiting for output...")
+        gpu_panel = GPUStatsPanel(self._state.gpu).render()
+        logs_text = self._state.buffer.get_text(empty_message="Waiting for output...")
         logs = Panel(Text(logs_text), title="Logs", border_style="dim")
         return Panel(Group(header, gpu_panel, logs), border_style=color_style)
 
     def _build_header(self, color_style: str) -> Text:
-        cfg = self._cfg
-        status = _resolve_slot_status(cfg.alias, self._slot_states, self._server_processes)
+        cfg = self._state.config
+        status = self._resolver.resolve(
+            cfg.alias,
+            self._state.slot_states,
+            self._state.server_processes,
+        )
         backend_label = BACKEND_LABELS.get(cfg.backend, BACKEND_LABELS["llama_cpp"])
         status_color = STATUS_COLORS.get(status, "white")
 
         header = Text()
         header.append(f"[{cfg.alias}] ", style=f"bold {color_style}")
-        if self._is_unsaved:
+        if self._state.is_unsaved:
             header.append("UNSAVED ", style="bold yellow")
         header.append(f"{status.upper()} ", style=status_color)
         header.append(f"| {backend_label} ", style="cyan")
-        header.append(f"| http://{self._host}:{cfg.port}", style="dim")
+        header.append(f"| http://{self._state.host}:{cfg.port}", style="dim")
         header.append("\n")
         header.append(
             f"Device: {cfg.device} | Ctx: {cfg.ctx_size} | Threads: {cfg.threads}",
             style="cyan",
         )
-        if self._stale_warning:
+        if self._state.stale_warning:
             header.append("\n")
-            header.append(self._stale_warning, style="yellow")
+            header.append(self._state.stale_warning, style="yellow")
         header.append("\n\n")
         return header
 
@@ -244,23 +238,14 @@ class SlotStatusPanel(Widget):
 
     def __init__(
         self,
-        configs: list[ServerConfig],
-        slot_states: dict[str, str],
-        server_processes: dict[str, Any],
-        log_buffers: dict[str, LogBuffer],
-        host: str,
-        unsaved_slots: set[str] | None = None,
+        state: SlotStatusState,
     ) -> None:
         super().__init__()
-        self._configs = configs
-        self._slot_states = slot_states
-        self._server_processes = server_processes
-        self._log_buffers = log_buffers
-        self._host = host
-        self._unsaved_slots = unsaved_slots or set()
+        self._state = state
+        self._resolver = SlotStatusResolver()
 
     def render(self) -> Panel:  # type: ignore[override]
-        sections: list[Any] = [self._render_slot_section(cfg) for cfg in self._configs]
+        sections: list[Any] = [self._render_slot_section(cfg) for cfg in self._state.configs]
         if not sections:
             sections = [
                 Text(
@@ -275,20 +260,24 @@ class SlotStatusPanel(Widget):
 
     def _render_slot_section(self, cfg: ServerConfig) -> Text:
         alias = cfg.alias
-        status = _resolve_slot_status(alias, self._slot_states, self._server_processes)
+        status = self._resolver.resolve(
+            alias,
+            self._state.slot_states,
+            self._state.server_processes,
+        )
         backend_label = BACKEND_LABELS.get(cfg.backend, BACKEND_LABELS["llama_cpp"])
         color = STATUS_COLORS.get(status, "white")
 
         section = Text()
         section.append(f"[{alias}] ", style="bold")
-        if alias in self._unsaved_slots:
+        if alias in self._state.unsaved_slots:
             section.append("UNSAVED ", style="bold yellow")
         section.append(f"{status.upper()} ", style=color)
         section.append(f"| {backend_label} ", style="cyan")
-        section.append(f"| http://{self._host}:{cfg.port}", style="dim")
+        section.append(f"| http://{self._state.host}:{cfg.port}", style="dim")
         section.append("\n")
 
-        buffer = self._log_buffers.get(alias)
+        buffer = self._state.log_buffers.get(alias)
         if buffer is not None:
             log_lines = buffer.get_lines()[-3:] if buffer.get_lines() else []
             log_text = "\n".join(log_lines) if log_lines else "  (no logs yet)"
@@ -317,42 +306,35 @@ class ServerLogPanel(Widget):
     }
     """
 
-    def __init__(self, slot_index: int, controller: TUIApp) -> None:
+    def __init__(self, slot_index: int, view_model: DashboardViewModel) -> None:
         super().__init__(classes="column")
         self._slot_index = slot_index
-        self._controller = controller
+        self._view_model = view_model
 
     def render(self) -> RenderResult:
-        ctrl = self._controller
-        configs = ctrl.configs
-        if self._slot_index >= len(configs):
+        state = self._view_model.column(
+            self._slot_index,
+            stale_warning=None,
+        )
+        if state is None:
             if self._slot_index == 0:
-                # Primary slot absent → show the "no slots" panel
-                return SlotStatusPanel(
-                    [],
-                    ctrl.slot_states,
-                    ctrl.server_processes,
-                    ctrl.log_buffers,
-                    ctrl.config.host,
-                ).render()
+                return SlotStatusPanel(self._view_model.slot_status(configs=[])).render()
             return Panel(
                 Text("No secondary config", style="dim"),
                 title="Status",
                 border_style="dim",
             )
 
-        cfg = configs[self._slot_index]
-        buffer = ctrl.log_buffers[cfg.alias]
-        gpu: GPUStats | None = (
-            ctrl.gpu_stats[self._slot_index] if self._slot_index < len(ctrl.gpu_stats) else None
-        )
+        stale_warning = self._view_model.stale_warning(state.config)
         return ServerColumnPanel(
-            cfg,
-            buffer,
-            gpu,
-            ctrl.config.host,
-            stale_warning=ctrl.get_stale_warning(cfg),
-            slot_states=ctrl.slot_states,
-            server_processes=ctrl.server_processes,
-            is_unsaved=cfg.alias in ctrl.unsaved_slots,
+            ServerColumnState(
+                config=state.config,
+                buffer=state.buffer,
+                gpu=state.gpu,
+                host=state.host,
+                stale_warning=stale_warning,
+                slot_states=state.slot_states,
+                server_processes=state.server_processes,
+                is_unsaved=state.is_unsaved,
+            )
         ).render()
