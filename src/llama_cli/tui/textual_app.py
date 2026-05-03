@@ -40,9 +40,6 @@ class TextualDashboardApp(App[None]):
         Binding("a", "add_slot", "Add Slot"),
         Binding("y", "confirm", "Confirm"),
         Binding("n", "reject", "Abort"),
-        Binding("1", "select_flavor('1')", "Balanced"),
-        Binding("2", "select_flavor('2')", "Fast"),
-        Binding("3", "select_flavor('3')", "Quality"),
     ]
 
     def __init__(self, controller: TUIApp) -> None:
@@ -119,10 +116,6 @@ class TextualDashboardApp(App[None]):
         self.controller.reject_risk()
         if not self.controller.running:
             self.exit()
-        self.refresh_dashboard()
-
-    def action_select_flavor(self, key: str) -> None:
-        self.controller.select_pending_option(key)
         self.refresh_dashboard()
 
     def action_cancel_pending_prompt(self) -> None:

@@ -95,7 +95,6 @@ class TestTextualDashboardAppActions:
             app.action_smoke()
             app.action_confirm()
             app.action_reject()
-            app.action_select_flavor("1")
             app.action_cancel_pending_prompt()
             app.action_refresh_dashboard()
             app.action_interrupt_dashboard()
@@ -105,11 +104,10 @@ class TestTextualDashboardAppActions:
         controller.request_smoke.assert_called_once()
         controller.acknowledge_risk.assert_called_once()
         controller.reject_risk.assert_called_once()
-        controller.select_pending_option.assert_called_once_with("1")
         controller.cancel_pending_prompt.assert_called_once()
         controller.refresh_display.assert_called_once()
         controller.interrupt.assert_called_once()
-        assert mock_refresh.call_count == 8
+        assert mock_refresh.call_count == 7
 
 
 # =============================================================================

@@ -473,20 +473,6 @@ class TestGracefulShutdownKeyHandler:
         assert app.profile_request == "slot0"
         assert app._profile_status["slot0"] == "idle"
 
-    def test_select_pending_option_for_profile_starts_background_profile(self) -> None:
-        """select_pending_option should launch the chosen profile flavor."""
-        from llama_cli.tui import TUIApp
-
-        app = TUIApp(configs=[_make_minimal_config(alias="slot0")], gpu_indices=[0])
-        app.profile_request = "slot0"
-
-        with patch.object(app, "_run_profile_background") as mock_run:
-            consumed = app.select_pending_option("2")
-
-        assert consumed is True
-        mock_run.assert_called_once_with("slot0", "fast")
-        assert app.profile_request is None
-
     def test_request_build_and_cancel_pending_prompt(self) -> None:
         """request_build should set build state and cancel_pending_prompt should clear it."""
         from llama_cli.tui import TUIApp

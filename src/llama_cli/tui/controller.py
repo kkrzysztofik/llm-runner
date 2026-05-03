@@ -371,32 +371,6 @@ class TUIApp:
 
         return False
 
-    def select_pending_option(self, key: str) -> bool:
-        """Apply a numeric choice to the current pending prompt."""
-        if self.risk_panel is not None:
-            return False
-
-        if self.profile_request is not None and key in {"1", "2", "3"}:
-            alias = self.profile_request
-            self.profile_request = None
-            flavor_map = {"1": "balanced", "2": "fast", "3": "quality"}
-            self._run_profile_background(alias, flavor_map[key])
-            return True
-
-        if self._build_request and key in {"1", "2", "3"}:
-            self._build_request = False
-            target = {"1": "sycl", "2": "cuda", "3": "both"}.get(key, "both")
-            self._push_status_message(f"Feature not fully hooked up in TUI yet: Build {target}")
-            return True
-
-        if self._smoke_request and key in {"1", "2"}:
-            self._smoke_request = False
-            target = "both" if key == "1" else "slot"
-            self._push_status_message(f"Feature not fully hooked up in TUI yet: Smoke {target}")
-            return True
-
-        return False
-
     def acknowledge_risk(self) -> None:
         """Acknowledge the active risk prompt."""
         if self.risk_panel is None:
