@@ -71,6 +71,8 @@ class AddSlotModal(ModalScreen[dict[str, str] | None]):
 
     def __init__(self, profile_options: list[tuple[str, str]]) -> None:
         super().__init__()
+        if not profile_options:
+            raise ValueError("profile_options must not be empty")
         self._profile_options = profile_options
 
     def compose(self):  # type: ignore[override]

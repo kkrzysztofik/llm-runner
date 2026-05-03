@@ -1,5 +1,6 @@
 # ServerConfig creation helpers
 
+import logging
 import os
 from collections.abc import Callable
 from copy import deepcopy
@@ -16,6 +17,8 @@ from .profile_cache import (
 )
 from .profiles import RunGroupSpec, RunProfileError, RunProfileRegistry, RunProfileSpec
 from .server import ServerConfig
+
+_logger = logging.getLogger(__name__)
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -654,6 +657,7 @@ def apply_profile_overrides(
                 staleness_days=base_config.profile_staleness_days,
             )
         except Exception:
+            _logger.exception("Failed to load profile for %s; falling back to defaults", cfg.alias)
             messages.append(f"No profile found for {cfg.alias}; using defaults")
             updated_configs.append(cfg)
             continue

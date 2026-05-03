@@ -35,7 +35,6 @@ class DashboardViewModel:
     def gpu_telemetry_lines(self) -> list[str]:
         lines: list[str] = []
         for gpu in self.model.gpu_stats:
-            gpu.update()
             lines.append(gpu.format_stats_text())
         return lines
 
@@ -62,7 +61,7 @@ class DashboardViewModel:
                 alias for alias, status in self.model.profile_status.items() if status == "running"
             ]
         if running_profiles:
-            notices.append(f"Profiling running: {', '.join(running_profiles)}")
+            notices.append(f"Profiles running: {', '.join(running_profiles)}")
 
         return notices
 

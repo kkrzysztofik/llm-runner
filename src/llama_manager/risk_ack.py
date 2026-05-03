@@ -100,6 +100,7 @@ def resolve_risk_action(key: str, risk_kind: str | None) -> str:
         Action string: ``"acknowledge"``, ``"proceed"``, ``"abort"``,
         ``"quit"``, or ``"ignore"``.
     """
+    key = key.lower()
     if key == "y":
         return "proceed" if risk_kind == "vram" else "acknowledge"
     if key == "n":

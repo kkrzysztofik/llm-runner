@@ -34,6 +34,11 @@ def run_build_for_backend(
     Returns:
         BuildResult from the pipeline execution.
     """
+    if backend not in ("sycl", "cuda"):
+        raise ValueError(
+            f"unsupported backend: {backend!r}; expected one of: sycl, cuda"
+        )
+
     source_dir = Path(config.llama_cpp_root)
     build_dir = source_dir / ("build_cuda" if backend == "cuda" else "build")
     output_dir = config.builds_dir

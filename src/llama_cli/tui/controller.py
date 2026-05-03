@@ -758,13 +758,14 @@ class DashboardController:
 
         # Map risk result to TUI panels
         self._update_risk_panel_state(result.risk_result)
-        for detail in result.risk_result.risk_details:
-            if not acknowledged:
-                self._build_risk_panel_required(detail["risk_kind"])
+        if not acknowledged:
+            for detail in result.risk_result.risk_details:
                 self._push_status_message(
                     f"warning: risky operation in {detail['alias']}: {detail['risk']} — "
                     f"press 'y' to acknowledge, 'n' to abort"
                 )
+            if result.risk_result.risk_details:
+                self._build_risk_panel_required(result.risk_result.risk_details[0]["risk_kind"])
 
         self.launch_result = result.launch_result
         self._build_status_panel(result.launch_result)

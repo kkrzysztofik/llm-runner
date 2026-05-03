@@ -159,7 +159,7 @@ def test_evaluate_risks_does_not_double_append_label() -> None:
     """acknowledged=True does not double-append RISK_ACK_LABEL."""
     cfg = MagicMock()
     cfg.alias = "test"
-    cfg.port = 8080
+    cfg.port = 80
     cfg.bind_address = "127.0.0.1"
     cfg.risky_acknowledged = [RISK_ACK_LABEL]
 
