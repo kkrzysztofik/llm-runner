@@ -219,7 +219,9 @@ def _extract_version(output: str, tool_name: str) -> str | None:
     version_match = re.search(r"\d+(?:\.\d+){0,2}", output)
     if version_match:
         return version_match.group(0)
-    return output.split("\n")[0] if output else None
+    # Return None for empty or whitespace-only output
+    stripped = output.strip() if output else ""
+    return stripped.split("\n")[0] if stripped else None
 
 
 def _try_tool(cmd: list[str], name: str, timeout: int) -> tuple[bool, str | None]:

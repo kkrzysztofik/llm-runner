@@ -7,6 +7,8 @@ import os
 import time
 from pathlib import Path
 
+import psutil
+
 from ..common.file_ops import atomic_exclusive_create_json, atomic_write_json
 from .models import BuildLock
 
@@ -102,11 +104,7 @@ def is_lock_stale(lock_path: Path) -> bool:
         lock = BuildLock(pid=pid, started_at=started_at, backend=data.get("backend", ""))
 
         # Check if PID is still valid
-        try:
-            os.kill(pid, 0)
-            pid_valid = True
-        except OSError:
-            pid_valid = False
+        pid_valid = psutil.pid_exists(pid)
 
         # Lock is stale if PID is invalid or timeout exceeded
         return not pid_valid or lock.is_stale()
@@ -130,5 +128,5 @@ def get_lock_error_message(lock_path: Path) -> str:
         pid = data.get("pid", "unknown")
         backend = data.get("backend", "unknown")
         return f"Build lock already held by PID {pid} (backend: {backend})"
-    except Exception:
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
         return "Build lock file exists but could not be read"

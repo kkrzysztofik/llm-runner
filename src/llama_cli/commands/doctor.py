@@ -597,23 +597,24 @@ def _collect_directories_repair_actions(result: DoctorRepairResult, config: Conf
             )
         elif dir_path.exists() and not dir_path.is_dir():
             # Conflict: path exists but is not a directory (file or symlink)
+            # Step 1: Remove conflicting file
             result.actions.append(
                 RepairAction(
-                    action_type="remove_and_create_directory",
-                    description=f"Remove conflicting {name} file and create directory: {dir_path}",
-                    command=[
-                        "rm",
-                        "-rf",
-                        str(dir_path),
-                        "&&",
-                        "mkdir",
-                        "-m",
-                        "700",
-                        "-p",
-                        str(dir_path),
-                    ],
-                    dry_run_command=f"# rm -rf '{dir_path}' && mkdir -m 700 -p '{dir_path}'",
+                    action_type="remove_file_or_directory",
+                    description=f"Remove conflicting {name} file: {dir_path}",
+                    command=["rm", "-rf", str(dir_path)],
+                    dry_run_command=f"rm -rf '{dir_path}'",
                     requires_confirmation=True,
+                )
+            )
+            # Step 2: Create directory
+            result.actions.append(
+                RepairAction(
+                    action_type="create_directory",
+                    description=f"Create directory: {dir_path}",
+                    command=["mkdir", "-m", "700", "-p", str(dir_path)],
+                    dry_run_command=f"mkdir -m 700 -p '{dir_path}'",
+                    requires_confirmation=False,
                 )
             )
 
@@ -771,6 +772,13 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
     )
 
     if not dry_run:
+        # Check for --yes flag to skip confirmation for destructive actions
+        skip_confirmation = getattr(parsed, "yes", False)
+        if not skip_confirmation:
+            # Filter out actions that require confirmation unless --yes is passed
+            result.actions = [
+                a for a in result.actions if not a.requires_confirmation
+            ]
         _execute_repair_actions(result)
 
     if json_output:
@@ -857,8 +865,12 @@ FR-004.7: doctor --repair command for failed staging cleanup
     )
     repair_parser.set_defaults(func=cmd_doctor_repair)
 
-    # Default: show help
-    parser.set_defaults(func=lambda args: parser.print_help())
+    # Default: show help and return exit code
+    def _show_help(args: argparse.Namespace) -> int:
+        parser.print_help()
+        return 1
+
+    parser.set_defaults(func=_show_help)
 
     return parser
 

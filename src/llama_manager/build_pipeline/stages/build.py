@@ -89,7 +89,16 @@ def _run_build_subprocess(
         try:
             proc.wait(timeout=ctx.config.build_timeout_seconds)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            proc.wait()
+            if proc.stdout:
+                proc.stdout.close()
+            if proc.stderr:
+                proc.stderr.close()
             stdout_t.join(timeout=5)
             stderr_t.join(timeout=5)
             progress.status = "failed"

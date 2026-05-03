@@ -53,7 +53,7 @@ def _build_slot_configs(
     if mode == "both":
         return [
             ("summary-balanced", cfg.model_summary_balanced, cfg.host, cfg.summary_balanced_port),
-            ("qwen35-coding", cfg.model_qwen35_both, cfg.host, cfg.qwen35_port),
+            ("qwen35-coding", cfg.model_qwen35, cfg.host, cfg.qwen35_port),
         ]
     if mode == "slot":
         if not slot_id:

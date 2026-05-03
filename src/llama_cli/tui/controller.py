@@ -672,7 +672,9 @@ class DashboardController:
                 # Clear status panel on success
                 self.status_panel = None
 
-    def _handle_launch_result(self, launch_result: LaunchResult) -> None:
+    def _handle_launch_result(self, launch_result: LaunchResult | None) -> None:
+        if launch_result is None:
+            return
         if launch_result.is_blocked():
             print("error: launch blocked - no slots could be launched", file=sys.stderr)
             if launch_result.errors is not None:
@@ -768,10 +770,12 @@ class DashboardController:
                 self._build_risk_panel_required(result.risk_result.risk_details[0]["risk_kind"])
 
         self.launch_result = result.launch_result
-        self._build_status_panel(result.launch_result)
+        if result.launch_result is not None:
+            self._build_status_panel(result.launch_result)
 
         # CLI boundary: stderr printing and SystemExit for blocked launches
-        self._handle_launch_result(result.launch_result)
+        if result.launch_result is not None:
+            self._handle_launch_result(result.launch_result)
 
         self.server_processes = result.processes
         self.slot_states = result.slot_states

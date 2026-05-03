@@ -9,6 +9,7 @@ import time
 from typing import Any, NoReturn
 
 from llama_manager import (
+    RISK_ACK_LABEL,
     Config,
     DryRunSlotPayload,
     ServerConfig,
@@ -25,7 +26,6 @@ from llama_manager.config import (
 )
 from llama_manager.server import detect_risky_operations
 
-RISK_ACK_LABEL = "warning_bypass"
 RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
 ELIGIBLE_LABEL = "    Eligible"
 REASON_LABEL = "    Reason"

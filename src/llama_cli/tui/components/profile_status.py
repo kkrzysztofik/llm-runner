@@ -16,7 +16,11 @@ class ProfileStatusPanelRenderer:
             return None
 
         text = Text()
+        first = True
         for alias, status in profile_status.items():
+            if not first:
+                text.append("\n")
+            first = False
             flavor = profile_flavor.get(alias, "unknown")
             if status == "running":
                 text.append("\u25b6 ", style="yellow")
@@ -30,6 +34,9 @@ class ProfileStatusPanelRenderer:
                 text.append("\u2717 ", style="red")
                 text.append(f"Profile {alias}: {flavor} ", style="red")
                 text.append("[failed]", style="dim")
-            text.append("\n")
+            else:
+                text.append("? ", style="dim")
+                text.append(f"Profile {alias}: {flavor} ", style="dim")
+                text.append(f"[{status}]", style="dim")
 
         return Panel(text, title="Profile Status", border_style="yellow")

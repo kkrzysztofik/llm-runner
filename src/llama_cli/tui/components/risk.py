@@ -24,9 +24,12 @@ class RiskPanelRenderer:
 
         return Panel(text, title="Risk Management", border_style="red")
 
-    def acknowledged(self) -> Panel:
+    def acknowledged(self, risk_description: str | None = None) -> Panel:
         text = Text()
         text.append("RISK STATUS: ", style="bold")
         text.append(" ACKNOWLEDGED ", style="bold green reverse")
-        text.append("\nRisky operations (privileged ports, non-loopback bind) were acknowledged.")
+        if risk_description:
+            text.append(f"\nRisky operation(s) acknowledged: {risk_description}")
+        else:
+            text.append("\nRisky operation(s) were acknowledged.")
         return Panel(text, title="Risk Management", border_style="green")

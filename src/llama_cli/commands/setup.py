@@ -150,22 +150,6 @@ def _print_status(status: Any) -> None:
     _print_success(f"Complete: {yes if status.is_complete else no}")
 
 
-def _backend_from_string(backend: str) -> BuildBackend | None:
-    """Convert backend string to BuildBackend enum.
-
-    Args:
-        backend: Backend string (sycl, cuda)
-
-    Returns:
-        BuildBackend enum or None
-    """
-    if backend == "sycl":
-        return BuildBackend.SYCL
-    elif backend == "cuda":
-        return BuildBackend.CUDA
-    return None
-
-
 def _resolve_backend_enum(backend: str | None) -> BuildBackend | None:
     """Convert backend string to BuildBackend enum."""
     if backend == "sycl":
