@@ -31,14 +31,13 @@ from llama_manager.build_pipeline import (
     run_build_for_backend,
 )
 
-from .components.alerts import (
-    LaunchStatusPanelRenderer,
-    ProfileStatusPanelRenderer,
-    RiskPanelRenderer,
-    StatusMessagesRenderer,
-    SystemStatusPanelRenderer,
-)
-from .components.panels import ServerColumnPanel, SlotStatusPanel
+from .components.launch_status import LaunchStatusPanelRenderer
+from .components.profile_status import ProfileStatusPanelRenderer
+from .components.risk import RiskPanelRenderer
+from .components.server_column import ServerColumnPanel
+from .components.slot_status import SlotStatusPanel
+from .components.status_messages import StatusMessagesRenderer
+from .components.system_status import SystemStatusPanelRenderer
 from .model import DashboardModel
 from .textual_app import DashboardApp
 from .types import ServerColumnState

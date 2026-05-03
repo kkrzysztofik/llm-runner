@@ -10,15 +10,13 @@ from textual.containers import Container
 
 from llama_manager.config import create_default_profile_registry
 
-from .components.alerts import (
-    GPUTelemetryWidget,
-    NoticesWidget,
-    SystemHealthWidget,
-    SystemStatusWidget,
-)
+from .components.gpu_telemetry import GPUTelemetryWidget
 from .components.menu import CommandMenu
 from .components.modal import AddSlotModal
-from .components.panels import ServerLogPanel
+from .components.notices import NoticesWidget
+from .components.server_log import ServerLogPanel
+from .components.system_health import SystemHealthWidget
+from .components.system_status import SystemStatusWidget
 
 if TYPE_CHECKING:
     from .controller import DashboardController
