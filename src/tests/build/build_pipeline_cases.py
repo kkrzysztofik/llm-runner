@@ -1439,7 +1439,7 @@ class TestDryRunToolchainValidation:
         mock_status.is_cuda_ready = False
         mock_status.missing_tools = Mock(return_value=[])
 
-        with patch("llama_manager.toolchain.detector.detect_toolchain", return_value=mock_status):
+        with patch("llama_manager.toolchain.detect_toolchain", return_value=mock_status):
             progress = run_preflight(ctx)
 
             # Should validate toolchain and succeed
