@@ -32,6 +32,8 @@ MODEL_QWEN35="/home/kmk/models/unsloth/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-I
 # MODEL_QWEN35 uses Qwen 3.5 for the single-run (qwen35) mode — this is deliberate version
 # differentiation to support different model configurations per mode.
 MODEL_QWEN35_BOTH="/home/kmk/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf"
+MODEL_QWEN35_BOTH_MTP="/home/kmk/models/Qwen3.6-35BA3B-MTP-unsloth-pattern-imatrix.gguf"
+MODEL_QWEN27B_MTP="/home/kmk/models/Qwen3.6-27B-MTP-unsloth-pattern-imatrix.gguf"
 MODEL_GEMMA4_E4B="/home/kmk/models/unsloth/gemma-4-E4B-it-GGUF/gemma-4-E4B-it-UD-Q6_K_XL.gguf"
 MODEL_GEMMA4_E4B_MMPROJ="/home/kmk/models/unsloth/gemma-4-E4B-it-GGUF/mmproj-BF16.gguf"
 MODEL_GEMMA4_27B="/home/kmk/models/unsloth/gemma-4-26B-A4B-it-GGUF/gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf"
@@ -44,6 +46,7 @@ HOST="127.0.0.1"
 SUMMARY_BALANCED_PORT="8080"
 SUMMARY_FAST_PORT="8082"
 QWEN35_PORT="8081"
+QWEN27B_PORT="8084"
 GEMMA4_E4B_PORT="$SUMMARY_BALANCED_PORT"
 GEMMA4_27B_PORT="$QWEN35_PORT"
 GEMMA4_31B_PORT="8085"
@@ -56,6 +59,7 @@ GEMMA4_CHAT_TEMPLATE_KWARGS='{"enable_thinking":true}'
 DEFAULT_N_GPU_LAYERS=99                  # Max GPU layers for fastest inference
 DEFAULT_CTX_SIZE_SUMMARY=262144           # 256k with headroom for summary assistants
 DEFAULT_CTX_SIZE_QWEN35=262144           # Match NVIDIA qwen35 single-run config
+DEFAULT_CTX_SIZE_QWEN27B=262144          # Match NVIDIA qwen27b MTP config
 DEFAULT_CTX_SIZE_GEMMA4_E4B=131072       # Full 128k context for Gemma 4 E4B
 # 27B Q4_K_XL: validated llama-completion warmup + gen at 262144 on RTX 3090 (f16 KV, -np 1)
 DEFAULT_CTX_SIZE_GEMMA4_27B=262144
@@ -72,6 +76,7 @@ DEFAULT_N_GPU_LAYERS_GEMMA4_31B=99
 DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED=1024
 DEFAULT_UBATCH_SIZE_SUMMARY_FAST=512
 DEFAULT_UBATCH_SIZE_QWEN35=1024
+DEFAULT_UBATCH_SIZE_QWEN27B=1024
 DEFAULT_UBATCH_SIZE_GEMMA4_E4B=512
 DEFAULT_UBATCH_SIZE_GEMMA4_27B=1024
 DEFAULT_UBATCH_SIZE_GEMMA4_31B=512
@@ -80,6 +85,7 @@ DEFAULT_UBATCH_SIZE_GEMMA4_27B_BOTH=1024
 DEFAULT_THREADS_SUMMARY_BALANCED=8
 DEFAULT_THREADS_SUMMARY_FAST=8
 DEFAULT_THREADS_QWEN35=12
+DEFAULT_THREADS_QWEN27B=12
 DEFAULT_THREADS_GEMMA4_E4B=12
 DEFAULT_THREADS_BATCH_GEMMA4_E4B=24
 DEFAULT_THREADS_GEMMA4_27B=24
@@ -88,6 +94,9 @@ DEFAULT_THREADS_QWEN35_BOTH=12
 DEFAULT_THREADS_GEMMA4_27B_BOTH=8
 DEFAULT_POLL_MS_GEMMA4_E4B=0
 DEFAULT_POLL_MS_QWEN35=0
+DEFAULT_POLL_MS_QWEN27B=0
+DEFAULT_PARALLEL_QWEN35_BOTH=1
+DEFAULT_PARALLEL_QWEN27B=1
 DEFAULT_PARALLEL_GEMMA4_E4B=-1
 # Single slot minimizes VRAM for parallel KV / server batching (matches llama-completion -np 1 probes)
 DEFAULT_PARALLEL_GEMMA4_27B=1
@@ -97,6 +106,8 @@ DEFAULT_CACHE_TYPE_SUMMARY_K=q8_0
 DEFAULT_CACHE_TYPE_SUMMARY_V=q8_0
 DEFAULT_CACHE_TYPE_QWEN35_K=q8_0
 DEFAULT_CACHE_TYPE_QWEN35_V=q8_0
+DEFAULT_CACHE_TYPE_QWEN27B_K=q8_0
+DEFAULT_CACHE_TYPE_QWEN27B_V=q8_0
 DEFAULT_CACHE_TYPE_QWEN35_BOTH_K=q8_0
 DEFAULT_CACHE_TYPE_QWEN35_BOTH_V=q8_0
 DEFAULT_CACHE_TYPE_GEMMA4_E4B_K=f16
@@ -126,6 +137,10 @@ DEFAULT_SPEC_TYPE_QWEN35_BOTH=ngram-mod
 DEFAULT_SPEC_NGRAM_SIZE_N_QWEN35_BOTH=24
 DEFAULT_DRAFT_MIN_QWEN35_BOTH=48
 DEFAULT_DRAFT_MAX_QWEN35_BOTH=64
+
+# Qwen MTP speculative decoding (NVIDIA)
+DEFAULT_SPEC_TYPE_QWEN_MTP=mtp
+DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP=3
 
 # ============================================================
 # GLOBAL STATE
@@ -256,6 +271,18 @@ validate_ports() {
 # Append Qwen35 speculative-decoding flags to a command array (by nameref).
 append_qwen35_spec_flags() {
   local -n _target="$1"
+  _target+=(
+    --spec-type "$DEFAULT_SPEC_TYPE_QWEN_MTP"
+    --spec-draft-n-max "$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP"
+  )
+}
+
+append_qwen27b_spec_flags() {
+  local -n _target="$1"
+  _target+=(
+    --spec-type "$DEFAULT_SPEC_TYPE_QWEN_MTP"
+    --spec-draft-n-max "$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP"
+  )
 }
 
 # ============================================================
@@ -493,6 +520,24 @@ start_qwen35() {
   exec_server "qwen35-coding" cmd
 }
 
+start_qwen27b() {
+  local port="$1"
+  local cmd=()
+
+  require_model "$MODEL_QWEN27B_MTP"
+  require_executable "$LLAMA_SERVER_BIN_NVIDIA" "NVIDIA llama-server"
+  build_server_cmd cmd "$MODEL_QWEN27B_MTP" "qwen27b-coding" "" "$port" \
+    "$DEFAULT_CTX_SIZE_QWEN27B" "$DEFAULT_UBATCH_SIZE_QWEN27B" "$DEFAULT_THREADS_QWEN27B" \
+    "" on deepseek '{"preserve_thinking":true}' "" "false" \
+    "$DEFAULT_CACHE_TYPE_QWEN27B_K" "$DEFAULT_CACHE_TYPE_QWEN27B_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN27B"
+  cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+  cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
+  cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN27B")
+  append_qwen27b_spec_flags cmd
+
+  exec_server "qwen27b-coding" cmd
+}
+
 start_gemma4_27b() {
   local port="$1"
   local cmd=()
@@ -544,7 +589,7 @@ start_both_qwen35() {
   local qwen35_cmd=()
 
   require_model "$MODEL_SUMMARY_BALANCED"
-  require_model "$MODEL_QWEN35_BOTH"
+  require_model "$MODEL_QWEN35_BOTH_MTP"
   require_executable "$LLAMA_SERVER_BIN_NVIDIA" "NVIDIA llama-server"
 
   build_server_cmd summary_balanced_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
@@ -553,12 +598,13 @@ start_both_qwen35() {
   summary_balanced_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   summary_balanced_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   
-  build_server_cmd qwen35_cmd "$MODEL_QWEN35_BOTH" "qwen35-coding" "" "$qwen35_port" \
+  build_server_cmd qwen35_cmd "$MODEL_QWEN35_BOTH_MTP" "qwen35-coding" "" "$qwen35_port" \
     "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
-    "" on deepseek '{"enable_thinking":true,"preserve_thinking":true}' "" "false" \
+    "" on deepseek '{"preserve_thinking":true}' "" "false" \
     "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
   qwen35_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   qwen35_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
+  qwen35_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN35_BOTH")
   append_qwen35_spec_flags qwen35_cmd
 
   # Setup signal handlers BEFORE launching servers
@@ -640,9 +686,10 @@ Usage:
   run_opencode_models.sh gemma4-27b [port]
   run_opencode_models.sh gemma4-31b [port]
   run_opencode_models.sh qwen35 [port]
+  run_opencode_models.sh qwen27b [port]
   run_opencode_models.sh both-qwen35 [summary_balanced_port qwen35_port]
   run_opencode_models.sh both-gemma4-27b [gemma4_e4b_port gemma4_27b_port]
-  run_opencode_models.sh dry-run summary-balanced|summary-fast|gemma4-e4b|gemma4-27b|gemma4-31b|qwen35|both-qwen35|both-gemma4-27b [ports...]
+  run_opencode_models.sh dry-run summary-balanced|summary-fast|gemma4-e4b|gemma4-27b|gemma4-31b|qwen35|qwen27b|both-qwen35|both-gemma4-27b [ports...]
 
 Examples:
   run_opencode_models.sh summary-balanced
@@ -651,6 +698,7 @@ Examples:
   run_opencode_models.sh gemma4-27b 8084
   run_opencode_models.sh gemma4-31b 8085
   run_opencode_models.sh qwen35 8080
+  run_opencode_models.sh qwen27b 8084
   run_opencode_models.sh both-qwen35 8080 8081
   run_opencode_models.sh both-gemma4-27b 8080 8084
   run_opencode_models.sh dry-run both-qwen35
@@ -672,6 +720,7 @@ dry_run() {
   local summary_balanced_port="${primary_port:-$SUMMARY_BALANCED_PORT}"
   local summary_fast_port="${primary_port:-$SUMMARY_FAST_PORT}"
   local qwen35_port_single="${primary_port:-$QWEN35_PORT}"
+  local qwen27b_port_single="${primary_port:-$QWEN27B_PORT}"
   local qwen35_port_both="${secondary_port:-$QWEN35_PORT}"
   local gemma4_27b_port_single="${primary_port:-$GEMMA4_27B_PORT}"
   local gemma4_27b_port_both="${secondary_port:-$GEMMA4_27B_PORT}"
@@ -689,7 +738,8 @@ dry_run() {
   echo "gemma4-27b model: $MODEL_GEMMA4_27B"
   echo "gemma4-31b model: $MODEL_GEMMA4_31B"
   echo "qwen35 model: $MODEL_QWEN35"
-  echo "qwen35 both model: $MODEL_QWEN35_BOTH"
+  echo "qwen35 both model: $MODEL_QWEN35_BOTH_MTP"
+  echo "qwen27b mtp model: $MODEL_QWEN27B_MTP"
   echo ""
 
   case "$mode" in
@@ -848,6 +898,32 @@ dry_run() {
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
+    qwen27b)
+      echo "qwen27b-coding:"
+      echo "  Port: $qwen27b_port_single"
+      echo "  Device: NVIDIA (CUDA)"
+      echo "  Context: $DEFAULT_CTX_SIZE_QWEN27B"
+      echo "  Threads: $DEFAULT_THREADS_QWEN27B"
+      echo "  UBatch: $DEFAULT_UBATCH_SIZE_QWEN27B"
+      echo "  Parallel slots: $DEFAULT_PARALLEL_QWEN27B"
+      echo "  KV cache: $DEFAULT_CACHE_TYPE_QWEN27B_K/$DEFAULT_CACHE_TYPE_QWEN27B_V"
+      echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN35"
+      echo "  Reasoning: on"
+      echo "  Reasoning Format: deepseek"
+      echo "  Chat Template Kwargs: {\"preserve_thinking\":true}"
+      echo "  Poll: $DEFAULT_POLL_MS_QWEN27B"
+      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP)"
+      build_server_cmd tmp_cmd "$MODEL_QWEN27B_MTP" "qwen27b-coding" "" "$qwen27b_port_single" \
+        "$DEFAULT_CTX_SIZE_QWEN27B" "$DEFAULT_UBATCH_SIZE_QWEN27B" "$DEFAULT_THREADS_QWEN27B" \
+        "" on deepseek '{"preserve_thinking":true}' "" "false" \
+        "$DEFAULT_CACHE_TYPE_QWEN27B_K" "$DEFAULT_CACHE_TYPE_QWEN27B_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN27B"
+      tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
+      tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
+      tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN27B")
+      append_qwen27b_spec_flags tmp_cmd
+      echo "  Command: ${tmp_cmd[*]}"
+      unset tmp_cmd
+      ;;
     both-qwen35)
       echo "summary-balanced:"
       echo "  Port: $summary_balanced_port"
@@ -876,19 +952,21 @@ dry_run() {
       echo "  Context: $DEFAULT_CTX_SIZE_BOTH_QWEN35"
       echo "  Threads: $DEFAULT_THREADS_QWEN35_BOTH"
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_QWEN35_BOTH"
+      echo "  Parallel slots: $DEFAULT_PARALLEL_QWEN35_BOTH"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_QWEN35_BOTH_K/$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V"
       echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN35_BOTH"
       echo "  Reasoning: on"
       echo "  Reasoning Format: deepseek"
-      echo "  Chat Template Kwargs: {\"enable_thinking\":true,\"preserve_thinking\":true}"
+      echo "  Chat Template Kwargs: {\"preserve_thinking\":true}"
       echo "  Poll: $DEFAULT_POLL_MS_QWEN35"
-      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN35_BOTH (n=$DEFAULT_SPEC_NGRAM_SIZE_N_QWEN35_BOTH, draft=$DEFAULT_DRAFT_MIN_QWEN35_BOTH..$DEFAULT_DRAFT_MAX_QWEN35_BOTH)"
-      build_server_cmd tmp_cmd "$MODEL_QWEN35_BOTH" "qwen35-coding" "" "$qwen35_port_both" \
+      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP)"
+      build_server_cmd tmp_cmd "$MODEL_QWEN35_BOTH_MTP" "qwen35-coding" "" "$qwen35_port_both" \
         "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
-        "" on deepseek '{"enable_thinking":true,"preserve_thinking":true}' "" "false" \
+        "" on deepseek '{"preserve_thinking":true}' "" "false" \
         "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
+      tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN35_BOTH")
       append_qwen35_spec_flags tmp_cmd
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
@@ -968,7 +1046,7 @@ mode="${1:-}"
 if [[ "$mode" == "dry-run" ]]; then
   mode="${2:-}"
   if [[ -z "$mode" ]]; then
-    echo "error: dry-run requires a mode argument (summary-balanced|summary-fast|gemma4-e4b|gemma4-27b|gemma4-31b|qwen35|both-qwen35|both-gemma4-27b)" >&2
+    echo "error: dry-run requires a mode argument (summary-balanced|summary-fast|gemma4-e4b|gemma4-27b|gemma4-31b|qwen35|qwen27b|both-qwen35|both-gemma4-27b)" >&2
     usage
     exit 1
   fi
@@ -1033,6 +1111,15 @@ case "$mode" in
     fi
     echo "Starting qwen35-coding at http://$HOST:$port/v1 (NVIDIA CUDA)"
     start_qwen35 "$port"
+    ;;
+  qwen27b)
+    port="${2:-$QWEN27B_PORT}"
+    if ! validate_port "$port" "qwen27b port"; then
+      usage
+      exit 1
+    fi
+    echo "Starting qwen27b-coding at http://$HOST:$port/v1 (NVIDIA CUDA, MTP)"
+    start_qwen27b "$port"
     ;;
   both-qwen35)
     port32="${2:-$SUMMARY_BALANCED_PORT}"
