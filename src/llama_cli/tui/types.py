@@ -20,6 +20,8 @@ class CommandMenuState:
 
     profile_request: str | None
     risk_prompt: RiskPromptState | None
+    build_request: bool
+    smoke_request: bool
 
 
 @dataclass(frozen=True)

@@ -316,11 +316,11 @@ def _read_legacy_integer_value(data: bytes, offset: int, type_tag: int) -> int |
     if type_tag not in (1, 2, 3, 4, 5, 6):
         return None
     readers = {
-        1: _read_int8,
+        1: _read_uint8,
         2: _read_int8,
-        3: _read_int16,
+        3: _read_uint16,
         4: _read_int16,
-        5: _read_int32,
+        5: _read_uint32,
         6: _read_int32,
     }
     reader = readers.get(type_tag)

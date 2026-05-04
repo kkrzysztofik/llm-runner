@@ -24,6 +24,8 @@ class DashboardViewModel:
         return CommandMenuState(
             profile_request=self.model.profile_request,
             risk_prompt=self.model.risk_prompt,
+            build_request=self.model.build_request,
+            smoke_request=self.model.smoke_request,
         )
 
     def system_status(self) -> SystemStatusState:
@@ -76,7 +78,7 @@ class DashboardViewModel:
     def status_messages(self) -> list[str]:
         return self.model.recent_status_messages()
 
-    def column(self, slot_index: int, stale_warning: str | None = None) -> ServerColumnState | None:
+    def column(self, slot_index: int) -> ServerColumnState | None:
         configs = self.model.configs
         if slot_index >= len(configs):
             return None
@@ -90,7 +92,7 @@ class DashboardViewModel:
             buffer=self.model.log_buffers[cfg.alias],
             gpu=gpu,
             host=self.model.config.host,
-            stale_warning=stale_warning,
+            stale_warning=self.stale_warning(cfg),
             slot_states=self.model.slot_states,
             server_processes=self.model.server_processes,
             is_unsaved=cfg.alias in self.model.unsaved_slots,

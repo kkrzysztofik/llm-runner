@@ -9,8 +9,6 @@ from rich.text import Text
 from textual.app import RenderResult
 from textual.widget import Widget
 
-from llama_cli.tui.types import ServerColumnState
-
 from .server_column import ServerColumnPanel
 from .slot_status import SlotStatusPanel
 
@@ -34,10 +32,7 @@ class ServerLogPanel(Widget):
         self._view_model = view_model
 
     def render(self) -> RenderResult:
-        state = self._view_model.column(
-            self._slot_index,
-            stale_warning=None,
-        )
+        state = self._view_model.column(self._slot_index)
         if state is None:
             if self._slot_index == 0:
                 return SlotStatusPanel(self._view_model.slot_status(configs=[])).render()
@@ -47,16 +42,4 @@ class ServerLogPanel(Widget):
                 border_style="dim",
             )
 
-        stale_warning = self._view_model.stale_warning(state.config)
-        return ServerColumnPanel(
-            ServerColumnState(
-                config=state.config,
-                buffer=state.buffer,
-                gpu=state.gpu,
-                host=state.host,
-                stale_warning=stale_warning,
-                slot_states=state.slot_states,
-                server_processes=state.server_processes,
-                is_unsaved=state.is_unsaved,
-            )
-        ).render()
+        return ServerColumnPanel(state).render()

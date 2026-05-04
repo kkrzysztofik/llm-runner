@@ -24,7 +24,16 @@ class CommandMenuRenderer:
             menu.append(f" {key} ", style="bold cyan reverse")
             menu.append(f" {desc} ", style="white")
 
-        if state.profile_request is not None:
+        if state.build_request:
+            add_item("1", "SYCL")
+            add_item("2", "CUDA")
+            add_item("3", "Both")
+            add_item("^C", "Cancel")
+        elif state.smoke_request:
+            add_item("1", "Both")
+            add_item("2", "Active Slot")
+            add_item("^C", "Cancel")
+        elif state.profile_request is not None:
             add_item("1", "Balanced")
             add_item("2", "Fast")
             add_item("3", "Quality")

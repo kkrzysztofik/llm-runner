@@ -45,15 +45,20 @@ class NoticesWidget(Widget):
 
     def _check_notices(self) -> None:
         notices = self._view_model.system_notices()
-        if notices and not self._has_notices:
+        messages = self._view_model.status_messages()
+        if (notices or messages) and not self._has_notices:
             self._has_notices = True
             self.remove_class("hidden")
-        elif not notices and self._has_notices:
+        elif not notices and not messages and self._has_notices:
             self._has_notices = False
             self.add_class("hidden")
 
     def render(self) -> RenderResult:
         notices = self._view_model.system_notices()
-        if not notices:
+        messages = self._view_model.status_messages()
+        if not notices and not messages:
             return Text()
-        return self._renderer.render(notices)
+        text = self._renderer.render(notices)
+        for msg in messages:
+            text.append(f"• {msg}\n", style="green")
+        return text
