@@ -380,14 +380,18 @@ def _check_slot_lockfile(slot_id: str, config: Config, _emit: Callable[[str], No
 
 def _resolve_bench_bin(server_config: ServerConfig, config: Config) -> str | None:
     """Resolve benchmark binary path, return None if unavailable."""
+    import shutil
+
     server_bin = server_config.server_bin or config.llama_server_bin_intel
     if not server_bin:
-        return "llama-bench"
+        return shutil.which("llama-bench")
     # Safely swap basename only when it matches known server binary names
     base = os.path.basename(server_bin)
     if base in ("llama-server", "llama-server.exe", "llama-server-metal"):
-        return os.path.join(os.path.dirname(server_bin), "llama-bench")
-    return None
+        bench_path = os.path.join(os.path.dirname(server_bin), "llama-bench")
+        if os.path.exists(bench_path):
+            return bench_path
+    return shutil.which("llama-bench")
 
 
 def cmd_profile(

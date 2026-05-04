@@ -339,7 +339,9 @@ class TestAddSlotFromForm:
 
     @patch("llama_manager.slot_manager.resolve_profile_config")
     @patch("llama_manager.slot_manager.create_default_profile_registry")
-    def test_creates_slot_from_profile(self, mock_registry_cls: MagicMock, mock_resolve: MagicMock) -> None:
+    def test_creates_slot_from_profile(
+        self, mock_registry_cls: MagicMock, mock_resolve: MagicMock
+    ) -> None:
         cfg = _make_config(alias="summary-fast", device="SYCL0", port=8090)
         mock_resolve.return_value = cfg
         registry = MagicMock()
@@ -373,7 +375,9 @@ class TestAddSlotFromForm:
 
     @patch("llama_manager.slot_manager.resolve_profile_config")
     @patch("llama_manager.slot_manager.create_default_profile_registry")
-    def test_invalid_port_includes_warning(self, mock_registry_cls: MagicMock, mock_resolve: MagicMock) -> None:
+    def test_invalid_port_includes_warning(
+        self, mock_registry_cls: MagicMock, mock_resolve: MagicMock
+    ) -> None:
         cfg = _make_config(alias="summary-fast", device="SYCL0")
         mock_resolve.return_value = cfg
         registry = MagicMock()
@@ -404,8 +408,12 @@ class TestAddSlotFromForm:
 
     @patch("llama_manager.slot_manager.resolve_profile_config")
     @patch("llama_manager.slot_manager.create_default_profile_registry")
-    def test_rejects_unknown_profile(self, mock_registry_cls: MagicMock, mock_resolve: MagicMock) -> None:
-        mock_resolve.side_effect = ValueError("unknown")
+    def test_rejects_unknown_profile(
+        self, mock_registry_cls: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        from llama_manager.config.profiles import RunProfileError
+
+        mock_resolve.side_effect = RunProfileError("unknown")
         registry = MagicMock()
         registry.profile_ids = ["summary-fast", "summary-balanced"]
         mock_registry_cls.return_value = registry

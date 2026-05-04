@@ -9,6 +9,7 @@ from typing import Any
 
 from .config import Config, ModelSlot, ServerConfig, SlotState
 from .config.builder import create_default_profile_registry, resolve_profile_config
+from .config.profiles import RunProfileError
 from .gpu_stats import GPUStats
 from .log_buffer import LogBuffer
 from .process_manager import ServerManager
@@ -241,7 +242,7 @@ def add_slot_from_form(
 
     try:
         new_cfg = resolve_profile_config(registry, profile_id, override_config=override_config)
-    except ValueError:
+    except RunProfileError:
         allowed = ", ".join(registry.profile_ids)
         messages.append(f"Unknown profile '{profile_id}'. Choose one of: {allowed}")
         return False, messages, state

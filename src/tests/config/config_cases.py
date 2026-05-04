@@ -547,7 +547,6 @@ class TestArtifactFilenameUniqueness:
             data["slot_scope"] = [f"slot{i}"]
             path = write_artifact(runtime_dir, f"slot{i}", data)
             paths.append(path)
-            time.sleep(0.1)
 
         filenames = [p.name for p in paths]
         unique_filenames = set(filenames)

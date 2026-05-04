@@ -39,6 +39,7 @@ class NoticesWidget(Widget):
         self._view_model = view_model
         self._renderer = NoticesRenderer()
         self._has_notices = False
+        self.add_class("hidden")
 
     def on_mount(self) -> None:
         self.set_interval(0.25, self._check_notices)

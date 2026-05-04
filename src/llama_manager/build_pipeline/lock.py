@@ -94,6 +94,9 @@ def is_lock_stale(lock_path: Path) -> bool:
         with open(lock_path) as f:
             data = json.load(f)
 
+        if not isinstance(data, dict):
+            return True
+
         pid = data.get("pid")
         started_at_str = data.get("started_at")
 
@@ -125,8 +128,10 @@ def get_lock_error_message(lock_path: Path) -> str:
     try:
         with open(lock_path) as f:
             data = json.load(f)
+        if not isinstance(data, dict):
+            return "Build lock file exists but could not be read"
         pid = data.get("pid", "unknown")
         backend = data.get("backend", "unknown")
         return f"Build lock already held by PID {pid} (backend: {backend})"
-    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+    except (OSError, json.JSONDecodeError, TypeError):
         return "Build lock file exists but could not be read"

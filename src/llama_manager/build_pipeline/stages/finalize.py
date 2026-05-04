@@ -85,6 +85,6 @@ def write_provenance(artifact: BuildArtifact, output_dir: Path) -> bool:
         logger.debug("[provenance] atomically wrote %s", final_file)
         return True
 
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, TypeError) as e:
         logger.warning("[provenance] failed to write: %s", e)
         return False

@@ -15,14 +15,16 @@ class SystemHealthRenderer:
         self._task_cache: tuple[int, int, int] | None = None
         self._task_cache_ts: float = 0.0
         self._task_cache_ttl: float = 1.5  # 1.5s TTL
+        self._cpu_primed = False
+        # Prime CPU percent once so the first render call already has data
+        _ = psutil.cpu_percent(interval=0.1, percpu=True)
+        self._cpu_primed = True
 
     def render(self) -> Text:
         content_width = 116
         right_block_width = min(44, max(36, content_width // 3))
         left_block_width = max(28, content_width - right_block_width - 3)
 
-        # Prime cpu_percent on first call for accurate reading
-        _ = psutil.cpu_percent(interval=0.1, percpu=True)
         cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
         mem = psutil.virtual_memory()
         swap = psutil.swap_memory()
@@ -220,12 +222,23 @@ class SystemHealthRenderer:
         task_count = 0
         thread_count = 0
         running_count = 0
-        for proc in psutil.process_iter(attrs=["status", "num_threads"]):
-            task_count += 1
-            info = proc.info
-            thread_count += int(info.get("num_threads") or 0)
-            if info.get("status") == psutil.STATUS_RUNNING:
-                running_count += 1
+        try:
+            for proc in psutil.process_iter(attrs=["status", "num_threads"]):
+                try:
+                    info = proc.info
+                except Exception:  # noqa: S112
+                    continue
+                task_count += 1
+                thread_count += int(info.get("num_threads") or 0)
+                if info.get("status") == psutil.STATUS_RUNNING:
+                    running_count += 1
+        except Exception:
+            if self._task_cache is not None:
+                return self._task_cache
+            self._task_cache = (0, 0, 0)
+            self._task_cache_ts = now
+            return self._task_cache
+
         self._task_cache = (task_count, thread_count, running_count)
         self._task_cache_ts = now
         return self._task_cache

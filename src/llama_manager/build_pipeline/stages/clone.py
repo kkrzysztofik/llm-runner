@@ -106,15 +106,18 @@ def _execute_clone(
         cmd.extend([ctx.config.git_remote_url, str(ctx.config.source_dir)])
 
         logger.debug("[clone] running: %s", _format_command(cmd))
+        clone_timeout = getattr(ctx.config, "clone_timeout", 120)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=120)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, check=False, timeout=clone_timeout
+            )
         except subprocess.TimeoutExpired as e:
             ctx.append_command_output(
                 stage="clone",
                 command=cmd,
                 returncode=-1,
                 stdout="",
-                stderr=f"Git clone timed out after 120s: {e}",
+                stderr=f"Git clone timed out after {clone_timeout}s: {e}",
             )
             raise
 

@@ -57,10 +57,14 @@ class GPUTelemetryWidget(Widget):
         self._view_model = view_model
         self._renderer = GPUTelemetryLineRenderer()
 
-    def render(self) -> RenderResult:
+    def _check_visibility(self) -> None:
         gpu_lines = self._view_model.gpu_telemetry_lines()
         if not gpu_lines:
             self.add_class("hidden")
-            return Text()
-        self.remove_class("hidden")
+        else:
+            self.remove_class("hidden")
+
+    def render(self) -> RenderResult:
+        self._check_visibility()
+        gpu_lines = self._view_model.gpu_telemetry_lines()
         return self._renderer.render(gpu_lines)

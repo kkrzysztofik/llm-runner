@@ -74,16 +74,19 @@ def test_performance_validation_paths() -> None:
 
     # Port conflict validation
     conflict_times: list[float] = []
-    result: Any = None
+    conflict_results: list[Any] = []
     for _ in range(iterations):
         start: float = time.perf_counter()
         result = validate_ports(8080, 8080, "p1", "p2")
         end: float = time.perf_counter()
         conflict_times.append(end - start)
+        conflict_results.append(result)
 
     p95_conflict: float = get_p95(conflict_times)
     # Requirement: port conflict validation <= 150ms
-    assert result is not None  # Should return ErrorDetail for conflicting ports
+    assert all(r is not None for r in conflict_results), (
+        "validate_ports should return ErrorDetail for conflicting ports"
+    )
     assert p95_conflict <= 0.150, f"p95 port conflict validation too slow: {p95_conflict:.4f}s"
 
 

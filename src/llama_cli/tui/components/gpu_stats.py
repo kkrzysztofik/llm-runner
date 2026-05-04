@@ -1,5 +1,7 @@
 """Per-slot GPU stats panel."""
 
+from typing import Any
+
 from rich.panel import Panel
 from rich.text import Text
 from textual.widget import Widget
@@ -29,27 +31,26 @@ class GPUStatsPanel(Widget):
         cpu_pct = GPUStatsPanel._parse_percent(stats.get("cpu"))
         sys_mem_pct = GPUStatsPanel._parse_percent(stats.get("mem"))
 
+        def _fmt(val: Any) -> str:
+            return "N/A" if val is None else str(val)
+
         text = Text()
         text.append("Device: ", style="bright_white")
-        text.append(str(stats.get("device", "N/A")), style="cyan")
+        text.append(_fmt(stats.get("device")), style="cyan")
         text.append("\n")
 
         if gpu_pct is not None or mem_pct is not None:
-            GPUStatsPanel._append_usage_line(
-                text, "GPU", gpu_pct, str(stats.get("gpu_util", "N/A"))
-            )
+            GPUStatsPanel._append_usage_line(text, "GPU", gpu_pct, _fmt(stats.get("gpu_util")))
             text.append("  ", style="dim")
-            GPUStatsPanel._append_usage_line(
-                text, "VRAM", mem_pct, str(stats.get("mem_util", "N/A"))
-            )
+            GPUStatsPanel._append_usage_line(text, "VRAM", mem_pct, _fmt(stats.get("mem_util")))
         else:
-            GPUStatsPanel._append_usage_line(text, "CPU", cpu_pct, str(stats.get("cpu", "N/A")))
+            GPUStatsPanel._append_usage_line(text, "CPU", cpu_pct, _fmt(stats.get("cpu")))
             text.append("  ", style="dim")
-            GPUStatsPanel._append_usage_line(text, "Mem", sys_mem_pct, str(stats.get("mem", "N/A")))
+            GPUStatsPanel._append_usage_line(text, "Mem", sys_mem_pct, _fmt(stats.get("mem")))
         text.append("\n")
 
-        temp = str(stats.get("temp", "N/A"))
-        power = str(stats.get("power", "N/A"))
+        temp = _fmt(stats.get("temp"))
+        power = _fmt(stats.get("power"))
         if temp != "N/A" or power != "N/A":
             text.append("Temp:", style="bright_cyan")
             text.append(f" {temp}", style="bright_white" if temp != "N/A" else "dim")
@@ -92,6 +93,11 @@ class GPUStatsPanel(Widget):
         if text.endswith("%"):
             text = text[:-1].strip()
         try:
-            return float(text)
+            parsed = float(text)
         except ValueError:
             return None
+        import math
+
+        if math.isnan(parsed) or math.isinf(parsed):
+            return None
+        return parsed

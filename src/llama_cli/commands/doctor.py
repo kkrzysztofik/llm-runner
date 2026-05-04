@@ -777,7 +777,8 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
             _execute_repair_actions(result)
         else:
             # Prompt interactively for confirmation-required actions
-            for action in result.actions:
+            declined: set[int] = set()
+            for idx, action in enumerate(result.actions):
                 if action.requires_confirmation:
                     print(f"\nAction: {action.description}")
                     if action.dry_run_command:
@@ -786,9 +787,11 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                         response = input("Confirm? [y/N]: ").strip().lower()
                     except EOFError:
                         print(f"Skipping action (no terminal input): {action.description}")
+                        declined.add(idx)
                         continue
                     if response != "y":
                         print(f"Skipping action: {action.description}")
+                        declined.add(idx)
                         continue
                 _execute_repair_action(action, result)
 

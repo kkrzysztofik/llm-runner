@@ -50,7 +50,8 @@ class SlotStatusResolver:
                     status = SlotState.CRASHED.value
             else:
                 # PID-based object: check via psutil
-                if not (proc.pid and psutil.pid_exists(proc.pid)):
+                pid = getattr(proc, "pid", None)
+                if not (pid and psutil.pid_exists(pid)):
                     status = SlotState.CRASHED.value
         return status
 

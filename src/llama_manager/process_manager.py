@@ -1069,9 +1069,15 @@ def launch_orchestrate(
         if buf is not None:
             log_handlers[cfg.alias] = lambda line, b=buf: b.add_line(line)
 
-    processes_list = server_manager.start_servers(launched_configs, log_handlers)
-
     processes: dict[str, Any] = {}
+    try:
+        processes_list = server_manager.start_servers(launched_configs, log_handlers)
+    except Exception:
+        # Partial cleanup: shut down any processes that may have started before
+        # the exception, then re-raise so callers can handle the failure
+        server_manager.cleanup_servers()
+        raise
+
     for cfg, proc in zip(launched_configs, processes_list, strict=True):
         processes[cfg.alias] = proc
 

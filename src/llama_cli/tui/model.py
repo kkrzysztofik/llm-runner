@@ -97,9 +97,10 @@ class DashboardModel:
                 self.status_messages.pop(0)
 
     def get_status_messages_since(self, since_ts: float) -> list[tuple[float, str]]:
-        """Return status messages newer than ``since_ts``."""
+        """Return status messages newer than ``since_ts`` and not expired."""
+        cutoff = time.monotonic() - self.STATUS_MESSAGE_LIFETIME_S
         with self.status_lock:
-            return [(ts, msg) for ts, msg in self.status_messages if ts > since_ts]
+            return [(ts, msg) for ts, msg in self.status_messages if ts > since_ts and ts >= cutoff]
 
     def prune_expired_status_messages(self) -> None:
         """Remove expired status messages."""
