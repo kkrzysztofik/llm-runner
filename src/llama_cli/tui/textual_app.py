@@ -136,7 +136,9 @@ class DashboardApp(App[None]):
         self.refresh_dashboard()
 
     def action_cancel_pending_prompt(self) -> None:
-        self.controller.cancel_pending_prompt()
+        cancelled = self.controller.cancel_pending_prompt()
+        if not cancelled:
+            self.controller.interrupt()
         self.refresh_dashboard()
 
     def refresh_dashboard(self) -> None:

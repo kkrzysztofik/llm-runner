@@ -553,8 +553,9 @@ class TestArtifactFilenameUniqueness:
         unique_filenames = set(filenames)
         # write_artifact handles collisions by adding a suffix, so all filenames should be unique
         assert len(unique_filenames) == len(paths)
-        # At least one filename should have a collision suffix (e.g., -1, -2)
-        assert any("-" in name for name in filenames)
+        # At least one filename should have a collision suffix (e.g., artifact-20240101-120000-1.json)
+        # The base filename has one dash after "artifact"; collision suffixes add a second dash.
+        assert any(name.count("-") >= 2 for name in filenames)
 
     def test_artifact_filename_format(self, tmp_path) -> None:
         """FR-007: write_artifact should follow expected filename format (no UUID)."""

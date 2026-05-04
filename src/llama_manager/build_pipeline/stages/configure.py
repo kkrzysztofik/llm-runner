@@ -76,9 +76,13 @@ def run_configure(ctx: _BuildContext) -> BuildProgress:
             logger.error("[configure] cmake timed out after %s", duration)
             progress.status = "failed"
             progress.message = f"Configure timed out after {ctx.config.build_timeout_seconds}s"
-            stdout_str = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
+            stdout_str = (
+                e.stdout.decode(errors="replace")
+                if isinstance(e.stdout, bytes)
+                else (e.stdout or "")
+            )
             stderr_str = (
-                e.stderr.decode()
+                e.stderr.decode(errors="replace")
                 if isinstance(e.stderr, bytes)
                 else (e.stderr or f"Timed out after {ctx.config.build_timeout_seconds}s")
             )

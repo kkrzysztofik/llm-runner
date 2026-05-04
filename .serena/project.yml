@@ -84,7 +84,7 @@ fixed_tools: []
 # list of mode names that form the base set of active modes.
 # Resolution order for base_modes:
 #   1. If project.base_modes is explicitly set (including []), it replaces global.base_modes.
-#   2. If project.base_modes is undefined/empty, global.base_modes from serena_config.yml is used.
+#   2. If project.base_modes is undefined or explicitly set to [], global.base_modes from serena_config.yml is used.
 # Base modes are always included first in the effective mode set.
 base_modes:
 

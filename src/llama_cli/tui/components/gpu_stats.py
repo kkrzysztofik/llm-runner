@@ -32,7 +32,10 @@ class GPUStatsPanel(Widget):
         sys_mem_pct = GPUStatsPanel._parse_percent(stats.get("mem"))
 
         def _fmt(val: Any) -> str:
-            return "N/A" if val is None else str(val)
+            if val is None:
+                return "N/A"
+            s = str(val).strip()
+            return "N/A" if s == "" or s.lower() == "n/a" else s
 
         text = Text()
         text.append("Device: ", style="bright_white")

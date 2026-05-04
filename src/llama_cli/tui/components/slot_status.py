@@ -67,7 +67,7 @@ class SlotStatusPanel(Widget):
         self._state = state
         self._resolver = SlotStatusResolver()
 
-    def render(self) -> Panel:  # type: ignore[override]
+    def render(self) -> Panel:
         sections: list[Any] = [self._render_slot_section(cfg) for cfg in self._state.configs]
         if not sections:
             sections = [

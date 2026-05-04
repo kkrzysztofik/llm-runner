@@ -72,8 +72,9 @@ def _build_slot_configs(
             sys.exit(1)
         entry = _SLOT_REGISTRY.get(slot_id)
         if entry is None:
+            valid_slots = ", ".join(_SLOT_REGISTRY.keys())
             print(
-                f"error: unknown slot '{slot_id}'. Valid slots: {', '.join(_SLOT_REGISTRY.keys())}",
+                f"error: unknown slot '{slot_id}'. Valid slots: {valid_slots}",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -186,8 +187,7 @@ def _build_smoke_config(parsed: argparse.Namespace) -> SmokeProbeConfiguration:
     """Build SmokeProbeConfiguration from parsed CLI arguments.
 
     Uses create_smoke_config() as the base factory, then applies CLI overrides
-    directly on the returned object. Validation failures in __post_init__ are
-    caught and reported as clean error messages (no traceback).
+    directly on the returned object.
 
     Args:
         parsed: Parsed argparse namespace.

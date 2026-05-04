@@ -708,8 +708,6 @@ class DashboardController:
         Returns:
             True if build successful, False otherwise
         """
-        config = Config()
-
         def _set_pipeline(pipeline: BuildPipeline) -> None:
             self._build_pipeline = pipeline
             self.build_in_progress = True
@@ -725,7 +723,7 @@ class DashboardController:
             result = run_build_for_backend(
                 backend=backend,
                 dry_run=dry_run,
-                config=config,
+                config=self.config,
                 progress_callback=self._handle_build_progress,
                 pipeline_callback=_set_pipeline,
             )
