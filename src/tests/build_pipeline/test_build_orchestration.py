@@ -26,6 +26,7 @@ def _make_config(tmp_path: Path) -> MagicMock:
     config.build_git_branch = "main"
     config.build_retry_attempts = 2
     config.build_retry_delay = 5
+    config.build_shallow_clone = True
     return config
 
 

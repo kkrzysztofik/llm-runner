@@ -540,18 +540,21 @@ class TestArtifactFilenameUniqueness:
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
 
-        # Write multiple artifacts rapidly with small delays
-        paths = []
-        for i in range(5):
-            data = self._valid_artifact_data()
-            data["slot_scope"] = [f"slot{i}"]
-            path = write_artifact(runtime_dir, f"slot{i}", data)
-            paths.append(path)
+        # Mock time so all writes happen in the same second, forcing collision handling
+        with patch("llama_manager.process_manager.time.strftime", return_value="20240101-120000"):
+            paths = []
+            for i in range(5):
+                data = self._valid_artifact_data()
+                data["slot_scope"] = [f"slot{i}"]
+                path = write_artifact(runtime_dir, f"slot{i}", data)
+                paths.append(path)
 
         filenames = [p.name for p in paths]
         unique_filenames = set(filenames)
         # write_artifact handles collisions by adding a suffix, so all filenames should be unique
         assert len(unique_filenames) == len(paths)
+        # At least one filename should have a collision suffix (e.g., -1, -2)
+        assert any("-" in name for name in filenames)
 
     def test_artifact_filename_format(self, tmp_path) -> None:
         """FR-007: write_artifact should follow expected filename format (no UUID)."""

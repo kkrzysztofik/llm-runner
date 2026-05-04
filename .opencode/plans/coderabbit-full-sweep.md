@@ -22,7 +22,7 @@ These are security-critical or data-correctness bugs that can cause **unauthoriz
 
 | Severity | Count | Files Affected |
 |----------|-------|----------------|
-| **Critical** | 3 | doctor.py, process_manager.py, smoke.py |
+| **Critical** | 2 | doctor.py, process_manager.py |
 | **Major** | 13 | setup.py, smoke.py, doctor.py, cli_parser.py, test_reports.py, test_dry_run_flag_bundles.py, smoke_cli_cases.py, test_lock_integrity.py, test_foundation_contracts.py, test_launch_degraded_vs_blocked.py, test_launch_no_autobuild, smoke_cases.py, config_cases.py, test_build_lock_backend_values |
 | **Minor** | 24 | toolchain.py, profile_status.py, security.py, risk.py, profile.py, build.py, lock.py, builder.py, risk_ack.py, file_ops.py, _binary.py, smoke_cases.py, support/runtime.py, test_profile_cli.py |
 | **Trivial** | 72 | 40+ files across all modules |
@@ -204,7 +204,7 @@ new_config.risky_acknowledged.append(RISK_ACK_LABEL)
 
 | # | Lines | Fix |
 |---|-------|-----|
-| 20 | L132-136 | Consolidate duplicate `except subprocess.SubprocessError` into single `except Exception as e:` |
+| 20 | L132-136 | Consolidate duplicate `except subprocess.SubprocessError` into single `except (subprocess.SubprocessError, OSError) as e:` |
 | 22 | L109-116 | Add `timeout=120` to `subprocess.run()` and catch `subprocess.TimeoutExpired` |
 
 ### A.4.5 `src/llama_manager/build_pipeline/stages/configure.py` — 1 finding
@@ -296,7 +296,7 @@ new_config.risky_acknowledged.append(RISK_ACK_LABEL)
 
 **Fix:**
 - Add confirmation gating in `_execute_repair_actions` and `_execute_repair_action`
-- Check `dry_run or args.yes or action.requires_confirmation` before executing destructive actions
+- Check `not dry_run and not args.yes and action.requires_confirmation` before prompting for destructive actions
 - For non-`--yes` mode, prompt interactively or skip
 - Apply to all execution sites (L746-775, L847-851)
 
@@ -755,7 +755,7 @@ else:
 > **Assignee:** Documentation agent (can be merged with TUI Developer)
 > **Total findings:** 1
 
-### D.1 `QUICKSTART.md` — Ambiguous module reference
+## D.1 `QUICKSTART.md` — Ambiguous module reference
 
 **Finding #11** (L48-51)
 
@@ -771,54 +771,54 @@ else:
 
 Fix these before any other changes. They affect system security and data correctness.
 
-1. **process_manager.py** — Risk evaluation ignored (A.1)
-2. **doctor.py** — Confirmation bypass (B.1.1)
-3. **smoke.py** — Config divergence (B.1.2)
+- **process_manager.py** — Risk evaluation ignored (A.1)
+- **doctor.py** — Confirmation bypass (B.1.1)
+- **smoke.py** — Config divergence (B.1.2)
 
 ## Phase 2 — Major Bugs
 
-4. **doctor.py** — RepairAction composite command (B.2.1)
-5. **doctor.py** — Default subcommand returns None (B.2.2)
-6. **setup.py** — Duplicate backend conversion (B.2.3)
-7. **smoke.py** — Duplicate slot mappings (B.2.4)
-8. **smoke.py** — Manual `__post_init__` (B.2.5)
-9. **cli_parser.py** — Short flags as TUI mode (B.2.6)
-10. **finalize.py** — Duplicate artifact serialization (A.2.1)
-11. **profile_cache.py** — Symlink vulnerability (A.2.2)
-12. **builder.py** — Port validation alignment (A.2.3)
+- **doctor.py** — RepairAction composite command (B.2.1)
+- **doctor.py** — Default subcommand returns None (B.2.2)
+- **setup.py** — Duplicate backend conversion (B.2.3)
+- **smoke.py** — Duplicate slot mappings (B.2.4)
+- **smoke.py** — Manual `__post_init__` (B.2.5)
+- **cli_parser.py** — Short flags as TUI mode (B.2.6)
+- **finalize.py** — Duplicate artifact serialization (A.2.1)
+- **profile_cache.py** — Symlink vulnerability (A.2.2)
+- **builder.py** — Port validation alignment (A.2.3)
 
 ## Phase 3 — Minor Fixes
 
-13. **toolchain.py** — Empty string from `_extract_version` (A.3.1)
-14. **security.py** — AUTH_HEADER redaction (A.3.2)
-15. **risk_ack.py** — Mutation of input configs (A.3.3)
-16. **file_ops.py** — Type mixing (A.3.4)
-17. **_binary.py** — Unsigned int readers (A.3.5)
-18. **profile.py** — `_resolve_bench_bin` path (B.3.1)
-19. **profile_status.py** — Trailing newline + else (B.3.2)
-20. **risk.py** — Hardcoded message + typing (B.3.3)
-21. **system_health.py** — cpu_percent + dead code + caching (B.3.4, B.3.5)
-22. **notices.py** — Render mutation (B.3.6)
-23. **lock.py** — PID validation + bare except (A.4.7)
-24. **builder.py** — Registry caching, Mapping check, deep_merge doc, override_dict, except handling (A.4.1)
+- **toolchain.py** — Empty string from `_extract_version` (A.3.1)
+- **security.py** — AUTH_HEADER redaction (A.3.2)
+- **risk_ack.py** — Mutation of input configs (A.3.3)
+- **file_ops.py** — Type mixing (A.3.4)
+- **_binary.py** — Unsigned int readers (A.3.5)
+- **profile.py** — `_resolve_bench_bin` path (B.3.1)
+- **profile_status.py** — Trailing newline + else (B.3.2)
+- **risk.py** — Hardcoded message + typing (B.3.3)
+- **system_health.py** — cpu_percent + dead code + caching (B.3.4, B.3.5)
+- **notices.py** — Render mutation (B.3.6)
+- **lock.py** — PID validation + bare except (A.4.7)
+- **builder.py** — Registry caching, Mapping check, deep_merge doc, override_dict, except handling (A.4.1)
 
 ## Phase 4 — Trivial Fixes
 
-25. All remaining trivial findings across all modules (A.4.2 through B.4.9)
+- All remaining trivial findings across all modules (A.4.2 through B.4.9)
 
 ## Phase 5 — Test Fixes
 
-26. All critical/major test fixes (C.1)
-27. All minor test fixes (C.2)
-28. All trivial test fixes (C.3)
+- All critical/major test fixes (C.1)
+- All minor test fixes (C.2)
+- All trivial test fixes (C.3)
 
 ## Phase 6 — Validation
 
-29. Run `ruff check .` — must pass
-30. Run `ruff format --check` — must pass
-31. Run `pyright` — must pass
-32. Run `pytest` — must pass
-33. Run `pip-audit` — check for CVEs
+- Run `ruff check .` — must pass
+- Run `ruff format --check` — must pass
+- Run `pyright` — must pass
+- Run `pytest` — must pass
+- Run `pip-audit` — check for CVEs
 
 ---
 

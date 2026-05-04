@@ -76,6 +76,7 @@ class RepairAction:
     dry_run_command: str | None
     requires_confirmation: bool = False
     args: list[str] | None = None
+    prerequisite_index: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -86,6 +87,7 @@ class RepairAction:
             "dry_run_command": self.dry_run_command,
             "requires_confirmation": self.requires_confirmation,
             "args": self.args,
+            "prerequisite_index": self.prerequisite_index,
         }
 
 
@@ -598,6 +600,7 @@ def _collect_directories_repair_actions(result: DoctorRepairResult, config: Conf
         elif dir_path.exists() and not dir_path.is_dir():
             # Conflict: path exists but is not a directory (file or symlink)
             # Step 1: Remove conflicting file
+            remove_index = len(result.actions)
             result.actions.append(
                 RepairAction(
                     action_type="remove_file_or_directory",
@@ -607,7 +610,7 @@ def _collect_directories_repair_actions(result: DoctorRepairResult, config: Conf
                     requires_confirmation=True,
                 )
             )
-            # Step 2: Create directory
+            # Step 2: Create directory (linked to removal)
             result.actions.append(
                 RepairAction(
                     action_type="create_directory",
@@ -615,6 +618,7 @@ def _collect_directories_repair_actions(result: DoctorRepairResult, config: Conf
                     command=["mkdir", "-m", "700", "-p", str(dir_path)],
                     dry_run_command=f"mkdir -m 700 -p '{dir_path}'",
                     requires_confirmation=False,
+                    prerequisite_index=remove_index,
                 )
             )
 
@@ -779,7 +783,21 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
             # Prompt interactively for confirmation-required actions
             declined: set[int] = set()
             for idx, action in enumerate(result.actions):
+                # Skip actions whose prerequisite was declined
+                if action.prerequisite_index is not None and action.prerequisite_index in declined:
+                    result.warnings.append(
+                        f"Skipped '{action.description}' because prerequisite action was declined"
+                    )
+                    continue
                 if action.requires_confirmation:
+                    # When emitting JSON, interactive prompts break the output stream;
+                    # skip destructive actions rather than prompting.
+                    if json_output:
+                        result.warnings.append(
+                            f"Skipped '{action.description}' (requires confirmation; use --yes to auto-accept)"
+                        )
+                        declined.add(idx)
+                        continue
                     print(f"\nAction: {action.description}")
                     if action.dry_run_command:
                         print(Colors.dim(f"  Command: {action.dry_run_command}"))

@@ -644,7 +644,8 @@ class TestAddSlotFromForm:
             "port": "8090",
         }
 
-        with patch.object(app.server_manager, "start_servers", return_value=[]):
+        mock_proc = MagicMock()
+        with patch.object(app.server_manager, "start_servers", return_value=[mock_proc]):
             ok = app.add_slot_from_form(form_values)
 
         assert ok is True
@@ -670,9 +671,10 @@ class TestAddSlotFromForm:
         existing = _make_config(alias="summary-balanced", port=8080, device="SYCL0")
         app = TUIApp(configs=[existing], gpu_indices=[1])
 
+        mock_proc = MagicMock()
         with (
             patch.object(app.server_manager, "shutdown_slot", return_value=True),
-            patch.object(app.server_manager, "start_servers", return_value=[]),
+            patch.object(app.server_manager, "start_servers", return_value=[mock_proc]),
         ):
             ok = app.add_slot_from_form({"profile": "summary-fast", "port": "8092"})
 

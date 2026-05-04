@@ -466,7 +466,7 @@ class TestReadLock:
 
     def test_corrupted_lock_returns_none(self, tmp_path: Path) -> None:
         """Should return None for corrupted lockfile."""
-        # write_lock creates files with pattern "slot-{slot_id}.lock"
+        # create_lock creates files with pattern "slot-{slot_id}.lock"
         lock_path = tmp_path / "slot-corrupted.lock"
         lock_path.write_text("invalid json {{{")
         metadata = read_lock(tmp_path, "corrupted")

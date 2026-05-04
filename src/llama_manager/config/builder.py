@@ -1,5 +1,6 @@
 # ServerConfig creation helpers
 
+import dataclasses
 import logging
 import os
 from collections.abc import Callable, Mapping
@@ -702,9 +703,11 @@ def apply_profile_overrides(
             updated_configs.append(cfg)
             continue
 
+        slot_config = dataclasses.asdict(cfg)
+        slot_config.pop("model", None)
         merged = merge_config_overrides(
             defaults=base_config,
-            slot_config=None,
+            slot_config=slot_config,
             workstation_config=None,
             profile_config=profile_overrides,
             override_config=None,

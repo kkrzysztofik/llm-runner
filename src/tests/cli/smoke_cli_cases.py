@@ -1205,6 +1205,7 @@ class TestRunSmoke:
             patch("llama_cli.commands.smoke._run_probes", return_value=[mock_fail_result]),
             patch("llama_cli.commands.smoke._print_report_human") as mock_human_printer,
             patch("llama_cli.commands.smoke.resolve_runtime_dir") as mock_runtime,
+            patch("llama_cli.commands.smoke._ensure_report_dir") as mock_ensure_dir,
         ):
             mock_cfg.return_value.inter_slot_delay_s = 0
             mock_cfg.return_value.listen_timeout_s = 5
@@ -1216,6 +1217,7 @@ class TestRunSmoke:
             run_smoke(["both"])
 
         mock_human_printer.assert_called_once()
+        mock_ensure_dir.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

@@ -28,6 +28,7 @@ from llama_manager import (
 from llama_manager.config import create_smoke_config
 from llama_manager.smoke import (
     SmokeProbeResult,
+    _ensure_report_dir,
     probe_slot,
 )
 
@@ -213,9 +214,6 @@ def _build_smoke_config(parsed: argparse.Namespace) -> SmokeProbeConfiguration:
         max_tokens=parsed.max_tokens if parsed.max_tokens > 0 else smoke_cfg.max_tokens,
         prompt=parsed.prompt if parsed.prompt else smoke_cfg.prompt,
     )
-    # dataclasses.replace does not call __post_init__, so we invoke it manually
-    smoke_cfg.__post_init__()
-
     return smoke_cfg
 
 
@@ -280,7 +278,7 @@ def run_smoke(args: list[str]) -> int:
     # Ensure report directory exists when there are failures (T072)
     if report.fail_count > 0:
         runtime_dir = resolve_runtime_dir()
-        (runtime_dir / "smoke_reports").mkdir(parents=True, exist_ok=True, mode=0o700)
+        _ensure_report_dir(runtime_dir / "smoke_reports")
 
     # Output results
     if json_output:

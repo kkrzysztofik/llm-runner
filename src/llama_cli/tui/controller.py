@@ -253,7 +253,11 @@ class DashboardController:
 
     def render_panels(self) -> tuple[Panel, Panel | None, Panel, Text]:
         """Render a snapshot of the dashboard for tests and non-Textual callers."""
-        alerts_panel = self._system_status_renderer.render_panel(self.view_model.system_status())
+        alerts_panel = (
+            self.status_panel
+            if self.status_panel is not None
+            else self._system_status_renderer.render_panel(self.view_model.system_status())
+        )
         left_panel: Panel | None = None
         if self.configs:
             cfg1 = self.configs[0]

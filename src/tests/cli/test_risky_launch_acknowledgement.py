@@ -129,9 +129,6 @@ def test_dry_run_prompts_for_risky_operation_with_exact_prompt() -> None:
     assert exc.value.code == 1
     mock_input.assert_called_once_with("Confirm risky operation [y/N]: ")
 
-    assert exc.value.code == 1
-    mock_input.assert_called_once_with("Confirm risky operation [y/N]: ")
-
 
 def test_dry_run_invalid_mode_exits_with_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
