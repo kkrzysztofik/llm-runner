@@ -708,6 +708,7 @@ class DashboardController:
         Returns:
             True if build successful, False otherwise
         """
+
         def _set_pipeline(pipeline: BuildPipeline) -> None:
             self._build_pipeline = pipeline
             self.build_in_progress = True
