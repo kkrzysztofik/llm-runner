@@ -106,16 +106,19 @@ def register_and_start_slot(
     log_buffer = state["log_buffers"][alias]
     log_handler = lambda line, buf=log_buffer: buf.add_line(line)  # noqa: E731
     procs = server_manager.start_servers([cfg], {alias: log_handler})
-    if procs:
-        state["server_processes"][alias] = procs[0]
 
     old_state = state["slot_states"].get(alias)
-    state["slot_states"][alias] = SlotState.RUNNING.value
     messages: list[str] = []
-    result = compute_slot_transition(alias, old_state, SlotState.RUNNING)
-    if result is not None:
-        message, _color = result
-        messages.append(message)
+    if procs:
+        state["server_processes"][alias] = procs[0]
+        state["slot_states"][alias] = SlotState.RUNNING.value
+        result = compute_slot_transition(alias, old_state, SlotState.RUNNING)
+        if result is not None:
+            message, _color = result
+            messages.append(message)
+    else:
+        state["slot_states"][alias] = SlotState.CRASHED.value
+        messages.append(f"Slot '{alias}' failed to start: no process returned")
 
     return state, messages
 

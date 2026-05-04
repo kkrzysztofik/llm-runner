@@ -3,6 +3,9 @@
 Locks in the behavior of the extracted _apply_profile_overrides logic.
 """
 
+from __future__ import annotations
+
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -205,14 +208,14 @@ def test_mixed_configs(
 
     def _load_side_effect(
         *,
-        profiles_dir,
-        gpu_identifier,
-        backend,
-        flavor,
-        current_driver_version,
-        current_binary_version,
-        staleness_days,
-    ):
+        profiles_dir: str,
+        gpu_identifier: str | None,
+        backend: str,
+        flavor: str,
+        current_driver_version: str | None,
+        current_binary_version: str | None,
+        staleness_days: int | None,
+    ) -> tuple[Any, Any]:
         # Return different results based on backend to simulate mixed outcomes
         if backend == "llama_cpp":
             return (MagicMock(), StalenessResult(is_stale=False))

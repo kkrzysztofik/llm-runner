@@ -29,10 +29,11 @@ class DashboardApp(App[None]):
     CSS_PATH = "textual_app.tcss"
     BINDINGS = [
         Binding("q", "quit_dashboard", "Quit", priority=True),
-        Binding("ctrl+c", "interrupt_dashboard", "Stop", priority=True),
+        Binding("ctrl+c", "cancel_pending_prompt", "Cancel", priority=True),
         Binding("escape", "cancel_pending_prompt", "Cancel"),
         Binding("r", "refresh_dashboard", "Refresh"),
         Binding("p", "profile", "Profile"),
+        Binding("P", "profile", "Profile"),
         Binding("b", "build", "Build"),
         Binding("s", "smoke", "Smoke"),
         Binding("a", "add_slot", "Add Slot"),
@@ -52,8 +53,8 @@ class DashboardApp(App[None]):
         with Container(id="dashboard"):
             yield SystemStatusWidget(self.view_model)
             with Container(id="content"):
-                yield ServerLogPanel(0, self.view_model)
-                yield ServerLogPanel(1, self.view_model)
+                for i in range(len(self.view_model.model.configs)):
+                    yield ServerLogPanel(i, self.view_model)
             yield CommandMenu(self.view_model)
 
     def on_mount(self) -> None:
@@ -85,7 +86,16 @@ class DashboardApp(App[None]):
             self.controller.cancel_add_slot_form()
         else:
             self.controller.add_slot_from_form(result)
+            self._reconcile_server_log_panels()
         self.refresh_dashboard()
+
+    def _reconcile_server_log_panels(self) -> None:
+        """Ensure ServerLogPanel widgets match the current slot count."""
+        container = self.query_one("#content", Container)
+        current_panels = list(container.query(ServerLogPanel))
+        needed = len(self.view_model.model.configs)
+        for i in range(len(current_panels), needed):
+            container.mount(ServerLogPanel(i, self.view_model))
 
     def _build_profile_options(self) -> list[tuple[str, str]]:
         config_id = id(self.controller.config)

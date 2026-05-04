@@ -205,7 +205,8 @@ class TestRegisterAndStartSlot:
         updated_state, messages = register_and_start_slot(cfg, server_manager, state)
 
         assert "summary" not in state["server_processes"]
-        assert any("launched successfully" in m for m in messages)
+        assert state["slot_states"]["summary"] == SlotState.CRASHED.value
+        assert any("failed to start" in m for m in messages)
 
     def test_second_registration_no_first_launch_message(self) -> None:
         cfg = _make_config(alias="summary")
@@ -338,7 +339,7 @@ class TestAddSlotFromForm:
 
     @patch("llama_manager.slot_manager.resolve_profile_config")
     @patch("llama_manager.slot_manager.create_default_profile_registry")
-    def test_creates_slot_from_profile(self, mock_registry_cls, mock_resolve) -> None:
+    def test_creates_slot_from_profile(self, mock_registry_cls: MagicMock, mock_resolve: MagicMock) -> None:
         cfg = _make_config(alias="summary-fast", device="SYCL0", port=8090)
         mock_resolve.return_value = cfg
         registry = MagicMock()
@@ -372,7 +373,7 @@ class TestAddSlotFromForm:
 
     @patch("llama_manager.slot_manager.resolve_profile_config")
     @patch("llama_manager.slot_manager.create_default_profile_registry")
-    def test_invalid_port_includes_warning(self, mock_registry_cls, mock_resolve) -> None:
+    def test_invalid_port_includes_warning(self, mock_registry_cls: MagicMock, mock_resolve: MagicMock) -> None:
         cfg = _make_config(alias="summary-fast", device="SYCL0")
         mock_resolve.return_value = cfg
         registry = MagicMock()
@@ -403,7 +404,7 @@ class TestAddSlotFromForm:
 
     @patch("llama_manager.slot_manager.resolve_profile_config")
     @patch("llama_manager.slot_manager.create_default_profile_registry")
-    def test_rejects_unknown_profile(self, mock_registry_cls, mock_resolve) -> None:
+    def test_rejects_unknown_profile(self, mock_registry_cls: MagicMock, mock_resolve: MagicMock) -> None:
         mock_resolve.side_effect = ValueError("unknown")
         registry = MagicMock()
         registry.profile_ids = ["summary-fast", "summary-balanced"]

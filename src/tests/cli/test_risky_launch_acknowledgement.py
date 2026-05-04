@@ -161,7 +161,16 @@ def test_dry_run_exits_when_backend_validation_fails() -> None:
 
 
 def test_tui_run_exits_when_launch_is_blocked(capsys: pytest.CaptureFixture[str]) -> None:
-    app = DashboardController([_risky_cfg()], [0])
+    safe_cfg = ServerConfig(
+        model="/home/kmk/models/test-model.gguf",
+        alias="summary-balanced",
+        device="SYCL0",
+        port=8080,
+        ctx_size=2048,
+        ubatch_size=512,
+        threads=4,
+    )
+    app = DashboardController([safe_cfg], [0])
     app.running = False
 
     blocked_error = ErrorDetail(

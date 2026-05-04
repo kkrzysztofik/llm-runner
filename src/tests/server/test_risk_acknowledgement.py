@@ -112,12 +112,7 @@ def test_evaluate_risks_detects_privileged_port() -> None:
     assert result.risk_details[0]["alias"] == "test"
     assert result.risk_details[0]["risk"] == "privileged_port"
     assert result.risk_details[0]["risk_kind"] == "hardware"
-    sm.acknowledge_risk.assert_called_once_with(
-        "test",
-        "privileged_port",
-        launch_attempt_id="attempt-1",
-        ack_token=_ACK_TOKEN,
-    )
+    sm.acknowledge_risk.assert_not_called()
 
 
 def test_evaluate_risks_skips_already_acknowledged() -> None:
@@ -197,7 +192,7 @@ def test_evaluate_risks_multiple_configs() -> None:
     assert len(result.risk_details) == 2
     aliases = {d["alias"] for d in result.risk_details}
     assert aliases == {"a", "b"}
-    assert sm.acknowledge_risk.call_count == 2
+    sm.acknowledge_risk.assert_not_called()
 
 
 # =============================================================================

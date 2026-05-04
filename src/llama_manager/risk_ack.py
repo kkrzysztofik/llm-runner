@@ -83,12 +83,13 @@ def evaluate_risks(
                     "risk_kind": risk_kind,
                 }
             )
-            server_manager.acknowledge_risk(
-                cfg.alias,
-                risk,
-                launch_attempt_id=launch_attempt_id,
-                ack_token=ack_token,
-            )
+            if acknowledged:
+                server_manager.acknowledge_risk(
+                    cfg.alias,
+                    risk,
+                    launch_attempt_id=launch_attempt_id,
+                    ack_token=ack_token,
+                )
 
     risks_acknowledged = has_risks and acknowledged
 

@@ -404,6 +404,7 @@ class TestLaunchOrchestrate:
             )
 
         assert result.empty is False
+        assert result.launch_result is not None
         assert result.launch_result.status == "success"
         assert result.processes == {"test": mock_proc}
         assert result.slot_states == {"test": "running"}
@@ -444,6 +445,7 @@ class TestLaunchOrchestrate:
                 get_driver_version=lambda _b: "driver-1",
             )
 
+        assert result.launch_result is not None
         assert result.launch_result.is_blocked() is True
         assert result.processes == {}
         assert result.slot_states == {}
@@ -490,6 +492,7 @@ class TestLaunchOrchestrate:
                 get_driver_version=lambda _b: "driver-1",
             )
 
+        assert result.launch_result is not None
         assert result.launch_result.is_degraded() is True
         assert list(result.processes.keys()) == ["slot1"]
         assert "slot2" not in result.processes

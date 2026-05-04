@@ -217,7 +217,7 @@ class LaunchOrchestrationResult:
     """
 
     updated_configs: list[ServerConfig]
-    launch_result: LaunchResult
+    launch_result: LaunchResult | None
     processes: dict[str, Any]
     slot_states: dict[str, str]
     status_messages: list[str]
@@ -1012,8 +1012,6 @@ def launch_orchestrate(
     # Check if risks are present and not acknowledged - block launch if so
     if risk_result.has_risks and not risk_result.risks_acknowledged and risk_result.risk_details:
         # Block launch: risks detected but not acknowledged
-        launch_result = server_manager.launch_all_slots(slots)
-        # Return early — do NOT proceed to server start
         status_messages: list[str] = list(profile_messages)
         status_messages.append(
             "Launch blocked: unacknowledged risks detected. "
@@ -1022,7 +1020,7 @@ def launch_orchestrate(
         )
         return LaunchOrchestrationResult(
             updated_configs=updated_configs,
-            launch_result=launch_result,
+            launch_result=None,
             processes={},
             slot_states={},
             status_messages=status_messages,
