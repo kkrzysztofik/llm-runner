@@ -73,7 +73,7 @@ def detect_duplicate_slots(slots: list[ModelSlot]) -> list[str]:
         List of normalized slot_ids that appear more than once
 
     """
-    seen: dict[str, int] = {}
+    seen: set[str] = set()
     duplicates: list[str] = []
     for slot in slots:
         normalized = normalize_slot_id(slot.slot_id)
@@ -81,7 +81,7 @@ def detect_duplicate_slots(slots: list[ModelSlot]) -> list[str]:
             if normalized not in duplicates:
                 duplicates.append(normalized)
         else:
-            seen[normalized] = 1
+            seen.add(normalized)
     return duplicates
 
 

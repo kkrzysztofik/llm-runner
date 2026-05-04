@@ -211,7 +211,10 @@ _INTEL_ONEAPI_BIN = Path("/opt/intel/oneapi/compiler/latest/bin")
 
 
 def _extract_version(output: str, tool_name: str) -> str | None:
-    """Extract version string from tool --version output."""
+    """Extract version string from tool --version output.
+
+    Returns ``None`` when *output* is empty or whitespace-only.
+    """
     if tool_name == "nvcc":
         release_match = re.search(r"release\s+(\d+(?:\.\d+){0,2})", output)
         if release_match:
@@ -219,7 +222,9 @@ def _extract_version(output: str, tool_name: str) -> str | None:
     version_match = re.search(r"\d+(?:\.\d+){0,2}", output)
     if version_match:
         return version_match.group(0)
-    return output.split("\n")[0] if output else None
+    # Return None for empty or whitespace-only output
+    stripped = output.strip() if output else ""
+    return None if not stripped else stripped.split("\n")[0]
 
 
 def _try_tool(cmd: list[str], name: str, timeout: int) -> tuple[bool, str | None]:

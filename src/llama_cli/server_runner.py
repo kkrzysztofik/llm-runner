@@ -16,6 +16,7 @@ from llama_manager import (
     ErrorCode,
     ErrorDetail,
     ServerConfig,
+    gpu_index_for_config,
     require_executable,
     require_model,
     validate_port,
@@ -131,10 +132,13 @@ def _resolve_port(ports: list[int], index: int, default: int) -> int:
     return ports[index] if len(ports) > index else default
 
 
-def _build_tui_mode_configs(cfg: Config, parsed: argparse.Namespace) -> dict:
+def _build_tui_mode_configs(
+    cfg: Config,
+    parsed: argparse.Namespace,
+) -> dict[str, tuple[list[str], list[str], list[ServerConfig], list[int]]]:
     """Build the mode configuration dict for TUI launch."""
     registry = create_default_profile_registry(cfg)
-    mode_configs = {}
+    mode_configs: dict[str, tuple[list[str], list[str], list[ServerConfig], list[int]]] = {}
     for group in registry.run_groups:
         if not group.tui_enabled:
             continue
@@ -143,7 +147,7 @@ def _build_tui_mode_configs(cfg: Config, parsed: argparse.Namespace) -> dict:
             [server_cfg.server_bin for server_cfg in configs],
             [_server_name_for_config(server_cfg) for server_cfg in configs],
             configs,
-            [_gpu_index_for_config(server_cfg) for server_cfg in configs],
+            [gpu_index_for_config(server_cfg) for server_cfg in configs],
         )
     return mode_configs
 
@@ -180,13 +184,6 @@ def _server_name_for_config(server_cfg: ServerConfig) -> str:
     return NVIDIA_SERVER_NAME
 
 
-def _gpu_index_for_config(server_cfg: ServerConfig) -> int:
-    """Return the TUI GPU index for a resolved server config."""
-    if server_cfg.device.startswith("SYCL"):
-        return 1
-    return 0
-
-
 def _validate_tui_configs(configs: list[ServerConfig]) -> None:
     """Validate ports and models for all TUI server configs."""
     for server_cfg in configs:
@@ -217,7 +214,7 @@ def _run_tui(parsed: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for failure).
     """
-    from llama_cli.tui import TUIApp
+    from llama_cli.tui import DashboardController
 
     cfg = Config()
 
@@ -235,7 +232,7 @@ def _run_tui(parsed: argparse.Namespace) -> int:
 
         _validate_tui_configs(configs)
 
-    app = TUIApp(configs, gpu_indices)
+    app = DashboardController(configs, gpu_indices)
     app.run(acknowledged=parsed.acknowledge_risky)
     return 0
 

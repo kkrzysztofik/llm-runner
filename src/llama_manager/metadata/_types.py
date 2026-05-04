@@ -18,6 +18,10 @@ _GENERAL_NAME_PATTERN = re.compile(
 # Invalid filename character pattern (NFKC normalization applied)
 _INVALID_FILENAME_CHARS = re.compile(r"[\x00-\x1f\x7f/\\:\*\?\"<>\|]")
 
+# Pre-compiled patterns for normalize_filename to avoid recompilation
+_WHITESPACE_PATTERN = re.compile(r"\s+")
+_MULTI_UNDERSCORE_PATTERN = re.compile(r"_+")
+
 
 @dataclass
 class GGUFMetadataRecord:
@@ -60,13 +64,13 @@ def normalize_filename(filename: str) -> str:
     normalized = unicodedata.normalize("NFKC", filename)
 
     # Replace whitespace sequences with underscore
-    normalized = re.sub(r"\s+", "_", normalized)
+    normalized = _WHITESPACE_PATTERN.sub("_", normalized)
 
     # Remove invalid filename characters
     normalized = _INVALID_FILENAME_CHARS.sub("_", normalized)
 
     # Collapse multiple underscores
-    normalized = re.sub(r"_+", "_", normalized)
+    normalized = _MULTI_UNDERSCORE_PATTERN.sub("_", normalized)
 
     # Strip leading/trailing underscores
     normalized = normalized.strip("_")

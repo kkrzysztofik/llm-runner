@@ -14,6 +14,7 @@ from .models import (
     BuildProgress,
     BuildResult,
 )
+from .orchestration import run_build_for_backend
 from .pipeline import BuildPipeline
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "BuildResult",
     # Pipeline
     "BuildPipeline",
+    "run_build_for_backend",
     # Lock utilities
     "acquire_lock",
     "get_lock_error_message",

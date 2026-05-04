@@ -208,6 +208,24 @@ dependencies.
 
 Pre-commit hooks run the same ruff and pyright checks locally on every commit.
 
+### Agent Guardrail: Mandatory Local Gate Before Commit/Push
+
+If you are an AI agent making code changes, you **must** run this exact gate
+before any `git commit` or `git push`:
+
+```bash
+uv run pre-commit run --all-files
+uv run pytest
+```
+
+Hard rules for agents:
+
+1. **Do not commit or push if either command fails.**
+2. **Fix failures first, then re-run both commands until green.**
+3. **Report in your final message that the gate was run and passed.**
+4. If the user explicitly instructs you to skip this gate, quote that instruction
+   in your final message and call out the risk.
+
 ---
 
 ## Dependency Security Policy

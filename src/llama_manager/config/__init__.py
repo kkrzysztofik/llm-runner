@@ -1,6 +1,7 @@
 """Config subpackage — public API re-exported from focused submodules."""
 
 from .builder import (
+    apply_profile_overrides,
     create_default_profile_registry,
     create_default_run_groups,
     create_default_run_profiles,
@@ -100,6 +101,7 @@ __all__ = [
     "read_profile",
     "write_profile",
     # builder
+    "apply_profile_overrides",
     "create_default_profile_registry",
     "create_default_run_groups",
     "create_default_run_profiles",

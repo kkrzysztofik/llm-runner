@@ -46,7 +46,7 @@ Default mapping:
 - `qwen35` → NVIDIA CUDA / GPU 0 / port `8081`
 
 Launch modes are data-driven: profiles and run groups are defined in
-`config_builder.py` and resolved at runtime. The `both` group launches two
+`src/llama_manager/config/builder.py` and resolved at runtime. The `both` group launches two
 profiles simultaneously; single-profile modes (`summary-balanced`,
 `summary-fast`, `qwen35`) launch one server in the foreground.
 

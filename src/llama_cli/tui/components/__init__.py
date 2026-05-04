@@ -1,31 +1,40 @@
-"""llama_cli.tui.components — pure panel-builder functions."""
+"""Named Textual widgets and renderers for the TUI."""
 
-from .alerts import (
-    build_gpu_telemetry_panel,
-    build_profile_status_panel,
-    build_risk_panel_acknowledged,
-    build_risk_panel_required,
-    build_status_messages_panel,
-    build_status_panel,
-)
-from .menu import build_command_menu
-from .panels import (
-    build_column_panel,
-    build_placeholder_panel,
-    build_slot_section,
-    build_slot_status_panel,
-)
+from .gpu_stats import GPUStatsPanel
+from .gpu_telemetry import GPUTelemetryLineRenderer, GPUTelemetryPanelRenderer, GPUTelemetryWidget
+from .launch_status import LaunchStatusPanelRenderer
+from .menu import CommandMenu, CommandMenuRenderer
+from .modal import AddSlotModal
+from .notices import NoticesRenderer, NoticesWidget
+from .profile_status import ProfileStatusPanelRenderer
+from .risk import RiskPanelRenderer
+from .server_column import ServerColumnPanel
+from .server_log import ServerLogPanel
+from .slot_status import SlotStatusPanel
+from .status_messages import StatusMessagesRenderer
+from .system_health import SystemHealthRenderer, SystemHealthWidget
+from .system_status import SystemStatusPanelRenderer, SystemStatusWidget
 
 __all__ = [
-    "build_column_panel",
-    "build_command_menu",
-    "build_gpu_telemetry_panel",
-    "build_placeholder_panel",
-    "build_profile_status_panel",
-    "build_risk_panel_acknowledged",
-    "build_risk_panel_required",
-    "build_slot_section",
-    "build_slot_status_panel",
-    "build_status_messages_panel",
-    "build_status_panel",
+    # Widgets
+    "AddSlotModal",
+    "CommandMenu",
+    "CommandMenuRenderer",
+    "GPUStatsPanel",
+    "GPUTelemetryLineRenderer",
+    "GPUTelemetryPanelRenderer",
+    "GPUTelemetryWidget",
+    "LaunchStatusPanelRenderer",
+    "NoticesRenderer",
+    "NoticesWidget",
+    "ProfileStatusPanelRenderer",
+    "RiskPanelRenderer",
+    "ServerColumnPanel",
+    "ServerLogPanel",
+    "SlotStatusPanel",
+    "StatusMessagesRenderer",
+    "SystemHealthRenderer",
+    "SystemHealthWidget",
+    "SystemStatusPanelRenderer",
+    "SystemStatusWidget",
 ]

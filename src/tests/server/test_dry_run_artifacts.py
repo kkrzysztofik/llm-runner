@@ -45,12 +45,13 @@ class TestFR007ArtifactRequiredFields:
         """FR-007: Artifact should contain model_path field."""
         data = self._valid_artifact_data()
         data["resolved_command"] = {
-            "cmd": ["echo", "test"],
-            "model_path": "/models/model.gguf",
+            "slot1": {
+                "cmd": ["echo", "test"],
+                "model_path": "/models/model.gguf",
+            },
         }
-        # write_artifact expects specific structure
-        # Verify that artifact data can contain model_path
-        assert "model_path" in str(data).lower()
+        # Verify model_path is present in resolved_command
+        assert data["resolved_command"]["slot1"]["model_path"] == "/models/model.gguf"
 
     def test_artifact_contains_port_field(self) -> None:
         """FR-007: Artifact should contain port information."""
@@ -63,7 +64,7 @@ class TestFR007ArtifactRequiredFields:
         data = self._valid_artifact_data()
         assert "resolved_command" in data
         assert isinstance(data["resolved_command"], dict)
-        assert "cmd" in data["resolved_command"]
+        assert "cmd" in data["resolved_command"]["slot1"]
 
     def test_artifact_required_fields_list(self) -> None:
         """FR-007: verify all required FR-007 fields are present."""

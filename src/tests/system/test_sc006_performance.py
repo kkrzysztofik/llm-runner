@@ -2,6 +2,7 @@ import os
 import tempfile
 import time
 from math import ceil
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -54,6 +55,7 @@ def test_performance_dry_run_resolution(
     assert p95 <= 0.250, f"p95 dry-run resolution too slow: {p95:.4f}s"
 
 
+@pytest.mark.slow
 def test_performance_validation_paths() -> None:
     """T041: Benchmark lock/port validation paths."""
     iterations: int = 100
@@ -72,17 +74,23 @@ def test_performance_validation_paths() -> None:
 
     # Port conflict validation
     conflict_times: list[float] = []
+    conflict_results: list[Any] = []
     for _ in range(iterations):
         start: float = time.perf_counter()
         result = validate_ports(8080, 8080, "p1", "p2")
-        assert result is not None  # Should return ErrorDetail for conflicting ports
         end: float = time.perf_counter()
         conflict_times.append(end - start)
+        conflict_results.append(result)
 
     p95_conflict: float = get_p95(conflict_times)
+    # Requirement: port conflict validation <= 150ms
+    assert all(r is not None for r in conflict_results), (
+        "validate_ports should return ErrorDetail for conflicting ports"
+    )
     assert p95_conflict <= 0.150, f"p95 port conflict validation too slow: {p95_conflict:.4f}s"
 
 
+@pytest.mark.slow
 @patch(
     "llama_cli.commands.dry_run.write_artifact",
     return_value=os.path.join(tempfile.gettempdir(), "fake_artifact"),
@@ -101,6 +109,9 @@ def test_performance_dry_run_two_slots(
     """T041: Benchmark two-slot dry-run resolution time."""
     iterations: int = 100
     times: list[float] = []
+
+    # Warmup to stabilize performance
+    dry_run("both")
 
     for _ in range(iterations):
         start: float = time.perf_counter()

@@ -67,15 +67,21 @@ class TestSmokeCliParsing:
         result = parse_args(["smoke", "both", "--timeout", "60"])
         assert result.timeout == 60
 
-    def test_smoke_invalid_mode_rejected(self) -> None:
+    def test_smoke_invalid_mode_rejected(self, capsys: pytest.CaptureFixture[str]) -> None:
         """parse_args should reject invalid smoke mode."""
-        with pytest.raises(SystemExit):
+        with pytest.raises(SystemExit) as exc_info:
             parse_args(["smoke", "invalid"])
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "invalid" in captured.err.lower() or "usage" in captured.err.lower()
 
-    def test_smoke_missing_mode_rejected(self) -> None:
+    def test_smoke_missing_mode_rejected(self, capsys: pytest.CaptureFixture[str]) -> None:
         """parse_args should reject smoke without mode argument."""
-        with pytest.raises(SystemExit):
+        with pytest.raises(SystemExit) as exc_info:
             parse_args(["smoke"])
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "usage" in captured.err.lower() or "requires" in captured.err.lower()
 
     def test_valid_modes_accepted(self) -> None:
         """parse_args should accept all valid command modes."""
@@ -1166,11 +1172,11 @@ class TestRunSmoke:
             patch("llama_cli.commands.smoke._run_probes", return_value=[mock_result]),
             patch("llama_cli.commands.smoke._print_report_json") as mock_json_printer,
         ):
-            mock_cfg.inter_slot_delay_s = 0
-            mock_cfg.listen_timeout_s = 5
-            mock_cfg.max_tokens = 16
-            mock_cfg.prompt = "test"
-            mock_cfg.model_id_override = None
+            mock_cfg.return_value.inter_slot_delay_s = 0
+            mock_cfg.return_value.listen_timeout_s = 5
+            mock_cfg.return_value.max_tokens = 16
+            mock_cfg.return_value.prompt = "test"
+            mock_cfg.return_value.model_id_override = None
 
             exit_code = run_smoke(["both", "--json"])
 
@@ -1199,19 +1205,19 @@ class TestRunSmoke:
             patch("llama_cli.commands.smoke._run_probes", return_value=[mock_fail_result]),
             patch("llama_cli.commands.smoke._print_report_human") as mock_human_printer,
             patch("llama_cli.commands.smoke.resolve_runtime_dir") as mock_runtime,
-            patch("llama_cli.commands.smoke._ensure_report_dir") as mock_ensure,
+            patch("llama_cli.commands.smoke._ensure_report_dir") as mock_ensure_dir,
         ):
-            mock_cfg.inter_slot_delay_s = 0
-            mock_cfg.listen_timeout_s = 5
-            mock_cfg.max_tokens = 16
-            mock_cfg.prompt = "test"
-            mock_cfg.model_id_override = None
+            mock_cfg.return_value.inter_slot_delay_s = 0
+            mock_cfg.return_value.listen_timeout_s = 5
+            mock_cfg.return_value.max_tokens = 16
+            mock_cfg.return_value.prompt = "test"
+            mock_cfg.return_value.model_id_override = None
             mock_runtime.return_value = MagicMock()
 
             run_smoke(["both"])
 
-        mock_ensure.assert_called_once()
         mock_human_printer.assert_called_once()
+        mock_ensure_dir.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

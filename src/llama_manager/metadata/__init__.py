@@ -8,24 +8,12 @@ key constants and optional timeout.
 from queue import Empty, Queue
 from threading import Event, Thread
 
-from ._binary import (
-    _detect_gguf_version,
-    _extract_from_raw_bytes,
-    _parse_architecture,
-    _parse_general_name,
-    _parse_numeric_field,
-    _parse_tokenizer_type,
-)
+from ._binary import _extract_from_raw_bytes
 from ._reader import _extract_from_gguf_reader, _try_gguf_reader
 from ._types import GGUFMetadataRecord, normalize_filename
 
 __all__ = [
     "GGUFMetadataRecord",
-    "_detect_gguf_version",
-    "_parse_architecture",
-    "_parse_general_name",
-    "_parse_numeric_field",
-    "_parse_tokenizer_type",
     "extract_gguf_metadata",
     "normalize_filename",
 ]
@@ -109,11 +97,19 @@ def extract_gguf_metadata(
 
     """
     # Validate parameters before any reads or thread creation
-    if isinstance(prefix_cap_bytes, bool) or not isinstance(prefix_cap_bytes, int) or prefix_cap_bytes <= 0:
+    if (
+        isinstance(prefix_cap_bytes, bool)
+        or not isinstance(prefix_cap_bytes, int)
+        or prefix_cap_bytes <= 0
+    ):
         raise ValueError(
             f"prefix_cap_bytes must be a positive integer, got: {prefix_cap_bytes}",
         )
-    if isinstance(parse_timeout_s, bool) or not isinstance(parse_timeout_s, int | float) or parse_timeout_s <= 0:
+    if (
+        isinstance(parse_timeout_s, bool)
+        or not isinstance(parse_timeout_s, int | float)
+        or parse_timeout_s <= 0
+    ):
         raise ValueError(
             f"parse_timeout_s must be a positive number, got: {parse_timeout_s}",
         )

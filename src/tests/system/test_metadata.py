@@ -17,13 +17,15 @@ from unittest.mock import patch
 import pytest
 
 from llama_manager.metadata import (
+    extract_gguf_metadata,
+    normalize_filename,
+)
+from llama_manager.metadata._binary import (
     _detect_gguf_version,
     _parse_architecture,
     _parse_general_name,
     _parse_numeric_field,
     _parse_tokenizer_type,
-    extract_gguf_metadata,
-    normalize_filename,
 )
 from tests.support.runtime import fixture_path
 

@@ -1,13 +1,25 @@
 # ServerConfig creation helpers
 
+import dataclasses
+import logging
 import os
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from typing import Any
 
+from ..gpu_stats import get_gpu_identifier
 from .defaults import Config, SmokeProbeConfiguration
-from .profile_cache import PROFILE_OVERRIDE_FIELDS, StalenessResult
+from .profile_cache import (
+    PROFILE_OVERRIDE_FIELDS,
+    ProfileFlavor,
+    StalenessResult,
+    load_profile_with_staleness,
+    profile_to_override_dict,
+)
 from .profiles import RunGroupSpec, RunProfileError, RunProfileRegistry, RunProfileSpec
 from .server import ServerConfig
+
+_logger = logging.getLogger(__name__)
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -16,6 +28,10 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     FR-006: Priority order is defaults < slot/workstation < profile < override.
     This function implements the merge logic where override values take precedence
     over base values, recursively merging nested dicts.
+
+    List values are merged by concatenation: base list items are preserved first,
+    then override list items are appended.  All values are deep-copied to prevent
+    shared mutable state between caller and result.
 
     Args:
         base: Base dictionary (lower precedence).
@@ -53,7 +69,7 @@ def _validate_merged_config(
         raise ValueError(f"threads must be greater than 0, got: {threads}")
 
     model_overridden = any(
-        isinstance(layer, dict) and "model" in layer
+        isinstance(layer, Mapping) and "model" in layer
         for layer in (slot_config, workstation_config, profile_config, override_config)
     )
     if model_overridden:
@@ -77,8 +93,8 @@ def _validate_port_override_count(group: RunGroupSpec, port_overrides: tuple[int
 
 def _validate_resolved_profile_data(data: dict[str, Any]) -> None:
     port = data.get("port")
-    if not isinstance(port, int) or not (1 <= port <= 65535):
-        raise ValueError(f"port must be between 1 and 65535, got: {port}")
+    if not isinstance(port, int) or not (1024 <= port <= 65535):
+        raise ValueError(f"port must be between 1024 and 65535, got: {port}")
 
     threads = data.get("threads")
     if not isinstance(threads, int) or threads <= 0:
@@ -221,6 +237,7 @@ def create_summary_balanced_cfg(
     threads: int | None = None,
     cache_k: str | None = None,
     cache_v: str | None = None,
+    registry: RunProfileRegistry | None = None,
 ) -> ServerConfig:
     """Create a ServerConfig for the summary-balanced model profile.
 
@@ -231,12 +248,16 @@ def create_summary_balanced_cfg(
         threads: Number of threads (defaults to Config.default_threads_summary_balanced).
         cache_k: K cache type.
         cache_v: V cache type.
+        registry: Optional pre-built ProfileRegistry to reuse across calls.
+            When omitted, a fresh registry is created via
+            ``create_default_profile_registry()``.
 
     Returns:
         A configured ServerConfig instance.
 
     """
-    registry = create_default_profile_registry()
+    if registry is None:
+        registry = create_default_profile_registry()
     return resolve_profile_config(
         registry,
         "summary-balanced",
@@ -260,6 +281,7 @@ def create_summary_fast_cfg(
     threads: int | None = None,
     cache_k: str | None = None,
     cache_v: str | None = None,
+    registry: RunProfileRegistry | None = None,
 ) -> ServerConfig:
     """Create a ServerConfig for the summary-fast model profile.
 
@@ -270,12 +292,16 @@ def create_summary_fast_cfg(
         threads: Number of threads (defaults to Config.default_threads_summary_fast).
         cache_k: K cache type.
         cache_v: V cache type.
+        registry: Optional pre-built ProfileRegistry to reuse across calls.
+            When omitted, a fresh registry is created via
+            ``create_default_profile_registry()``.
 
     Returns:
         A configured ServerConfig instance.
 
     """
-    registry = create_default_profile_registry()
+    if registry is None:
+        registry = create_default_profile_registry()
     return resolve_profile_config(
         registry,
         "summary-fast",
@@ -303,6 +329,7 @@ def create_qwen35_cfg(
     model: str | None = None,
     server_bin: str = "",
     backend: str = "llama_cpp",
+    registry: RunProfileRegistry | None = None,
 ) -> ServerConfig:
     """Create a ServerConfig for the qwen35-coding model profile.
 
@@ -317,12 +344,16 @@ def create_qwen35_cfg(
         model: Specific model path (defaults to Config.model_qwen35).
         server_bin: Path to llama-server binary (defaults to Config.llama_server_bin_nvidia).
         backend: Inference backend (defaults to 'llama_cpp').
+        registry: Optional pre-built ProfileRegistry to reuse across calls.
+            When omitted, a fresh registry is created via
+            ``create_default_profile_registry()``.
 
     Returns:
         A configured ServerConfig instance.
 
     """
-    registry = create_default_profile_registry()
+    if registry is None:
+        registry = create_default_profile_registry()
     return resolve_profile_config(
         registry,
         "qwen35",
@@ -604,6 +635,108 @@ def merge_config_overrides(
         backend=merged["backend"],
         risky_acknowledged=merged["risky_acknowledged"],
     )
+
+
+def apply_profile_overrides(
+    configs: list[ServerConfig],
+    base_config: Config,
+    get_driver_version: Callable[[str], str],
+) -> tuple[list[ServerConfig], list[str]]:
+    """Apply cached profile overrides to configs.
+
+    For each config, attempts to load a cached profile. If found and fresh,
+    applies the whitelisted profile parameters via merge_config_overrides.
+    Identity fields (model, alias, device, port, backend, etc.) are preserved
+    from the original config.
+
+    Args:
+        configs: List of ServerConfig objects to apply overrides to.
+        base_config: Base Config with profiles_dir, staleness settings, etc.
+        get_driver_version: Callable that accepts a backend string and returns
+            the driver version string.
+
+    Returns:
+        Tuple of (updated_configs, status_messages).
+    """
+    updated_configs: list[ServerConfig] = []
+    messages: list[str] = []
+
+    for cfg in configs:
+        try:
+            gpu_identifier = get_gpu_identifier(cfg.backend)
+            driver_version = get_driver_version(cfg.backend)
+            binary_version = base_config.server_binary_version or "unknown"
+
+            record, staleness = load_profile_with_staleness(
+                profiles_dir=base_config.profiles_dir,
+                gpu_identifier=gpu_identifier,
+                backend=cfg.backend,
+                flavor=ProfileFlavor.BALANCED,
+                current_driver_version=driver_version,
+                current_binary_version=binary_version,
+                staleness_days=base_config.profile_staleness_days,
+            )
+        except (OSError, FileNotFoundError, ValueError, KeyError):
+            _logger.info("No profile found for %s; falling back to defaults", cfg.alias)
+            messages.append(f"No profile found for {cfg.alias}; using defaults")
+            updated_configs.append(cfg)
+            continue
+        except Exception:
+            _logger.exception("Unexpected error loading profile for %s", cfg.alias)
+            raise
+
+        if record is None:
+            messages.append(f"No profile found for {cfg.alias}; using defaults")
+            updated_configs.append(cfg)
+            continue
+
+        if staleness is not None and staleness.is_stale:
+            reasons = "; ".join(r.value.replace("_", " ").title() for r in staleness.reasons)
+            messages.append(f"Profile stale for {cfg.alias}: {reasons}; using defaults")
+            updated_configs.append(cfg)
+            continue
+
+        profile_overrides = profile_to_override_dict(record)
+
+        if not profile_overrides:
+            messages.append(f"Profile empty for {cfg.alias}; using defaults")
+            updated_configs.append(cfg)
+            continue
+
+        slot_config = dataclasses.asdict(cfg)
+        slot_config.pop("model", None)
+        merged = merge_config_overrides(
+            defaults=base_config,
+            slot_config=slot_config,
+            workstation_config=None,
+            profile_config=profile_overrides,
+            override_config=None,
+        )
+
+        # Preserve identity fields that shouldn't come from profile
+        merged.model = cfg.model
+        merged.alias = cfg.alias
+        merged.device = cfg.device
+        merged.port = cfg.port
+        merged.bind_address = cfg.bind_address
+        merged.server_bin = cfg.server_bin
+        merged.backend = cfg.backend
+        merged.tensor_split = cfg.tensor_split
+        merged.reasoning_mode = cfg.reasoning_mode
+        merged.reasoning_format = cfg.reasoning_format
+        merged.chat_template_kwargs = cfg.chat_template_kwargs
+        merged.reasoning_budget = cfg.reasoning_budget
+        merged.use_jinja = cfg.use_jinja
+        merged.n_gpu_layers = cfg.n_gpu_layers
+        merged.risky_acknowledged = cfg.risky_acknowledged
+
+        messages.append(
+            f"Applied profile: {cfg.alias} (balanced) "
+            f"[threads={merged.threads}, ctx={merged.ctx_size}]"
+        )
+        updated_configs.append(merged)
+
+    return updated_configs, messages
 
 
 def create_smoke_config(

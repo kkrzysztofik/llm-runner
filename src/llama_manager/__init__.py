@@ -83,11 +83,13 @@ from .metadata import (
 from .process_manager import (
     ArtifactMetadata,
     DryRunArtifactPayload,
+    LaunchOrchestrationResult,
     LaunchResult,
     LockMetadata,
     ServerManager,
     ValidationException,
     create_lock,
+    launch_orchestrate,
     read_lock,
     release_lock,
     resolve_runtime_dir,
@@ -100,6 +102,12 @@ from .reports import (
     redact_sensitive,
     rotate_reports,
     write_failure_report,
+)
+from .risk_ack import (
+    RISK_ACK_LABEL,
+    RiskAckResult,
+    evaluate_risks,
+    resolve_risk_action,
 )
 from .server import (
     DryRunSlotPayload,
@@ -122,6 +130,16 @@ from .setup_venv import (
     create_venv,
     get_venv_path,
 )
+from .slot_manager import (
+    add_slot_from_form,
+    device_class_for_config,
+    gpu_index_for_config,
+    normalize_slot_port,
+    register_and_start_slot,
+    remove_slot_runtime_state,
+    upsert_profile_slot,
+)
+from .slot_state import compute_slot_transition
 from .smoke import (
     ConsecutiveFailureCounter,
     ProvenanceRecord,
@@ -198,6 +216,16 @@ __all__ = [
     "require_model",
     "require_executable",
     "redact_sensitive",
+    # Slot state
+    "compute_slot_transition",
+    # Slot manager
+    "normalize_slot_port",
+    "device_class_for_config",
+    "gpu_index_for_config",
+    "remove_slot_runtime_state",
+    "register_and_start_slot",
+    "upsert_profile_slot",
+    "add_slot_from_form",
     # Security helpers
     "redact_env_value",
     "is_sensitive_key",
@@ -241,10 +269,12 @@ __all__ = [
     # Lockfile and artifacts
     "ArtifactMetadata",
     "DryRunArtifactPayload",
+    "LaunchOrchestrationResult",
     "LaunchResult",
     "LockMetadata",
     "ValidationException",
     "create_lock",
+    "launch_orchestrate",
     "read_lock",
     "release_lock",
     "resolve_runtime_dir",
@@ -288,4 +318,9 @@ __all__ = [
     "check_staleness",
     "load_profile_with_staleness",
     "profile_to_override_dict",
+    # Risk acknowledgement
+    "RISK_ACK_LABEL",
+    "RiskAckResult",
+    "evaluate_risks",
+    "resolve_risk_action",
 ]

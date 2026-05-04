@@ -78,30 +78,13 @@ def write_provenance(artifact: BuildArtifact, output_dir: Path) -> bool:
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        artifact_data = {
-            "artifact_type": artifact.artifact_type,
-            "backend": artifact.backend,
-            "created_at": artifact.created_at,
-            "git_remote_url": artifact.git_remote_url,
-            "git_commit_sha": artifact.git_commit_sha,
-            "git_branch": artifact.git_branch,
-            "build_command": artifact.build_command,
-            "build_duration_seconds": artifact.build_duration_seconds,
-            "exit_code": artifact.exit_code,
-            "binary_path": str(artifact.binary_path) if artifact.binary_path else None,
-            "binary_size_bytes": artifact.binary_size_bytes,
-            "build_log_path": str(artifact.build_log_path) if artifact.build_log_path else None,
-            "failure_report_path": str(artifact.failure_report_path)
-            if artifact.failure_report_path
-            else None,
-        }
-
+        artifact_data = artifact.to_dict()
         final_file = output_dir / "build-artifact.json"
         atomic_write_json(final_file, artifact_data, verify_permissions=True)
 
         logger.debug("[provenance] atomically wrote %s", final_file)
         return True
 
-    except Exception as e:
+    except (OSError, ValueError, TypeError) as e:
         logger.warning("[provenance] failed to write: %s", e)
         return False

@@ -6,143 +6,139 @@ from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal
-from textual.events import Key, Resize
-from textual.widgets import Footer, Header, Static
+from textual.containers import Container
+
+from llama_manager.config import create_default_profile_registry
+
+from .components.gpu_telemetry import GPUTelemetryWidget
+from .components.menu import CommandMenu
+from .components.modal import AddSlotModal
+from .components.notices import NoticesWidget
+from .components.server_log import ServerLogPanel
+from .components.system_health import SystemHealthWidget
+from .components.system_status import SystemStatusWidget
 
 if TYPE_CHECKING:
-    from .controller import TUIApp
+    from .controller import DashboardController
 
 
-class TextualDashboardApp(App[None]):
+class DashboardApp(App[None]):
     """Textual shell for the llm-runner dashboard."""
 
     TITLE = "llm-runner"
-    _LEFT_PANEL_ID = "#left"
-    CSS = """
-    Screen {
-        layout: vertical;
-    }
-
-    #dashboard {
-        height: 1fr;
-        layout: vertical;
-    }
-
-    #alerts {
-        height: auto;
-        max-height: 35%;
-    }
-
-    #content {
-        height: 1fr;
-    }
-
-    #content.horizontal {
-        layout: horizontal;
-    }
-
-    #content.vertical {
-        layout: vertical;
-    }
-
-    .column {
-        width: 1fr;
-        height: 1fr;
-    }
-
-    #menu {
-        height: 1;
-    }
-    """
+    CSS_PATH = "textual_app.tcss"
     BINDINGS = [
         Binding("q", "quit_dashboard", "Quit", priority=True),
-        Binding("ctrl+c", "interrupt_dashboard", "Stop", priority=True),
+        Binding("ctrl+c", "cancel_pending_prompt", "Cancel", priority=True),
+        Binding("escape", "cancel_pending_prompt", "Cancel"),
         Binding("r", "refresh_dashboard", "Refresh"),
-        Binding("a", "add_slot", "Add slot"),
         Binding("p", "profile", "Profile"),
+        Binding("P", "profile", "Profile"),
         Binding("b", "build", "Build"),
         Binding("s", "smoke", "Smoke"),
+        Binding("a", "add_slot", "Add Slot"),
         Binding("y", "confirm", "Confirm"),
         Binding("n", "reject", "Abort"),
-        Binding("1", "select_flavor('1')", "Balanced"),
-        Binding("2", "select_flavor('2')", "Fast"),
-        Binding("3", "select_flavor('3')", "Quality"),
     ]
 
-    def __init__(self, controller: TUIApp) -> None:
+    def __init__(self, controller: DashboardController) -> None:
         super().__init__()
         self.controller = controller
+        self.view_model = controller.view_model
+        self._last_notified_status_ts: float = 0.0
+        self._profile_options_cache: list[tuple[str, str]] | None = None
+        self._profile_cache_config_id: int | None = None
 
     def compose(self) -> ComposeResult:
-        yield Header()
         with Container(id="dashboard"):
-            yield Static(id="alerts")
-            with Horizontal(id="content", classes="horizontal"):
-                yield Static(id="left", classes="column")
-                yield Static(id="right", classes="column")
-            yield Static(id="menu")
-        yield Footer()
+            yield SystemStatusWidget(self.view_model)
+            with Container(id="content"):
+                for i in range(len(self.view_model.model.configs)):
+                    yield ServerLogPanel(i, self.view_model)
+            yield CommandMenu(self.view_model)
 
     def on_mount(self) -> None:
         self.refresh_dashboard()
         self.set_interval(0.25, self.refresh_dashboard)
 
-    def on_resize(self, event: Resize) -> None:
-        self.controller.width = event.size.width
-        self.controller.height = event.size.height
-        self.refresh_dashboard()
-
-    def on_key(self, event: Key) -> None:
-        key = self._textual_key_to_controller_key(event)
-        if key is None:
-            return
-        self.controller.handle_keypress(key)
-        self.refresh_dashboard()
-        event.stop()
-
     def action_quit_dashboard(self) -> None:
-        self.controller.handle_keypress("q")
+        self.controller.request_quit()
         if not self.controller.running:
             self.exit()
 
     def action_interrupt_dashboard(self) -> None:
-        self.controller.handle_keypress("^C")
+        self.controller.interrupt()
         if not self.controller.running:
             self.exit()
 
     def action_refresh_dashboard(self) -> None:
-        self.controller.handle_keypress("r")
+        self.controller.refresh_display()
         self.refresh_dashboard()
 
     def action_add_slot(self) -> None:
-        self.controller.handle_keypress("a")
+        self.push_screen(
+            AddSlotModal(profile_options=self._build_profile_options()),
+            self._handle_add_slot_modal_result,
+        )
+
+    def _handle_add_slot_modal_result(self, result: dict[str, str] | None) -> None:
+        if result is None:
+            self.controller.cancel_add_slot_form()
+        else:
+            self.controller.add_slot_from_form(result)
+            self._reconcile_server_log_panels()
         self.refresh_dashboard()
 
+    def _reconcile_server_log_panels(self) -> None:
+        """Ensure ServerLogPanel widgets match the current slot count."""
+        container = self.query_one("#content", Container)
+        current_panels = list(container.query(ServerLogPanel))
+        needed = len(self.view_model.model.configs)
+        for i in range(len(current_panels), needed):
+            container.mount(ServerLogPanel(i, self.view_model))
+
+    def _build_profile_options(self) -> list[tuple[str, str]]:
+        config_id = id(self.controller.config)
+        if self._profile_options_cache is not None and self._profile_cache_config_id == config_id:
+            return self._profile_options_cache
+
+        registry = create_default_profile_registry(self.controller.config)
+        self._profile_options_cache = [
+            (
+                f"{profile.profile_id} - {profile.description}",
+                profile.profile_id,
+            )
+            for profile in registry.profiles
+        ]
+        self._profile_cache_config_id = config_id
+        return self._profile_options_cache
+
     def action_build(self) -> None:
-        self.controller.handle_keypress("b")
+        self.controller.request_build()
         self.refresh_dashboard()
 
     def action_smoke(self) -> None:
-        self.controller.handle_keypress("s")
+        self.controller.request_smoke()
         self.refresh_dashboard()
 
     def action_profile(self) -> None:
-        self.controller.handle_keypress("P")
+        self.controller.request_profile()
         self.refresh_dashboard()
 
     def action_confirm(self) -> None:
-        self.controller.handle_keypress("y")
+        self.controller.acknowledge_risk()
         self.refresh_dashboard()
 
     def action_reject(self) -> None:
-        self.controller.handle_keypress("n")
+        self.controller.reject_risk()
         if not self.controller.running:
             self.exit()
         self.refresh_dashboard()
 
-    def action_select_flavor(self, key: str) -> None:
-        self.controller.handle_keypress(key)
+    def action_cancel_pending_prompt(self) -> None:
+        cancelled = self.controller.cancel_pending_prompt()
+        if not cancelled:
+            self.controller.interrupt()
         self.refresh_dashboard()
 
     def refresh_dashboard(self) -> None:
@@ -150,29 +146,21 @@ class TextualDashboardApp(App[None]):
             self.exit()
             return
 
-        snapshot = self.controller.render()
-        content = self.query_one("#content", Horizontal)
-        content_orientation = self.controller.build_layout().content_orientation
-        content.set_classes(content_orientation)
+        self._emit_status_toasts()
 
-        self.query_one("#alerts", Static).update(snapshot.alerts)
-        if snapshot.left is not None:
-            self.query_one(self._LEFT_PANEL_ID, Static).display = True
-            self.query_one(self._LEFT_PANEL_ID, Static).update(snapshot.left)
-        else:
-            self.query_one(self._LEFT_PANEL_ID, Static).display = False
-        self.query_one("#right", Static).update(snapshot.right)
-        self.query_one("#menu", Static).update(snapshot.menu)
+        # Refresh each leaf widget.  SystemStatusWidget uses compose() so it
+        # is just a layout container — its children own their own repaints.
+        self.query_one(SystemHealthWidget).refresh()
+        self.query_one(GPUTelemetryWidget).refresh()
+        self.query_one(NoticesWidget).refresh()
+        for panel in self.query(ServerLogPanel):
+            panel.refresh()
+        self.query_one(CommandMenu).refresh()
 
-    def _textual_key_to_controller_key(self, event: Key) -> str | None:
-        if event.key in {"enter", "return"}:
-            return "\n"
-        if event.key == "escape":
-            return "\x1b"
-        if event.key in {"backspace", "delete_left", "delete"}:
-            return "\x7f"
-        if event.key == "ctrl+c":
-            return "^C"
-        if event.character is not None and len(event.character) == 1:
-            return event.character
-        return None
+    def _emit_status_toasts(self) -> None:
+        updates = self.controller.get_status_messages_since(self._last_notified_status_ts)
+        if not updates:
+            return
+        for ts, message in updates:
+            self.notify(message, title="Status", severity="information")
+            self._last_notified_status_ts = max(self._last_notified_status_ts, ts)

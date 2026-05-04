@@ -70,7 +70,9 @@ def _write_gguf_v3(
     version: int = 3,
 ) -> None:
     kv_count = struct.pack("<Q", _count_kv_pairs(kv_section))
-    header = magic + struct.pack("<I", version) + kv_count
+    # GGUF v3 header: magic(4) + version(4) + tensor_count(8) + kv_count(8)
+    tensor_count = struct.pack("<Q", 0)
+    header = magic + struct.pack("<I", version) + tensor_count + kv_count
     path.write_bytes(header + kv_section)
 
 
@@ -102,7 +104,7 @@ def _generate_v4_unsupported(path: Path) -> None:
 def test_generate_gguf_fixtures(tmp_path: Path) -> None:
     """Generate all GGUF test fixtures for metadata extraction tests.
 
-    Creates 5 synthetic GGUF files under src/tests/fixtures/:
+    Creates 5 synthetic GGUF files under tmp_path / "fixtures/" (ephemeral):
     - gguf_v3_valid.gguf: valid GGUF v3 with all required keys
     - gguf_v3_no_name.gguf: valid GGUF v3 missing general.name
     - gguf_corrupt.gguf: corrupt file (bad magic bytes)

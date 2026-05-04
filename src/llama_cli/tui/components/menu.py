@@ -1,46 +1,83 @@
-"""Bottom command menu builder for the TUI."""
+"""Command menu renderer and widget for the TUI."""
 
-from rich.panel import Panel
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from rich.text import Text
+from textual.app import RenderResult
+from textual.widget import Widget
+
+if TYPE_CHECKING:
+    from llama_cli.tui.types import CommandMenuState
+    from llama_cli.tui.viewmodel import DashboardViewModel
 
 
-def build_command_menu(
-    profile_request: str | None,
-    slot_config_state: dict[str, str],
-    risk_panel: Panel | None,
-    active_risk_kind: str | None,
-) -> Text:
-    """Build an htop-style bottom command menu.
+class CommandMenuRenderer:
+    """Builds the htop-style bottom command menu."""
 
-    Context-aware: shows different commands based on active TUI state.
+    def render(self, state: CommandMenuState) -> Text:
+        """Render the command menu for the current UI state."""
+        menu = Text()
+
+        def add_item(key: str, desc: str) -> None:
+            menu.append(f" {key} ", style="bold cyan reverse")
+            menu.append(f" {desc} ", style="white")
+
+        if state.build_request:
+            add_item("1", "SYCL")
+            add_item("2", "CUDA")
+            add_item("3", "Both")
+            add_item("^C", "Cancel")
+        elif state.smoke_request:
+            add_item("1", "Both")
+            add_item("2", "Active Slot")
+            add_item("^C", "Cancel")
+        elif state.profile_request is not None:
+            add_item("1", "Balanced")
+            add_item("2", "Fast")
+            add_item("3", "Quality")
+            add_item("^C", "Cancel")
+        elif state.risk_prompt is not None:
+            add_item("y", "Confirm")
+            add_item("n", "Abort")
+            if state.risk_prompt.kind != "vram":
+                add_item("q", "Quit")
+        else:
+            add_item("q", "Quit")
+            add_item("r", "Refresh")
+            add_item("a", "Add slot")
+            add_item("b", "Build")
+            add_item("s", "Smoke")
+            add_item("P", "Profile")
+            add_item("^C", "Stop")
+
+        return menu
+
+
+# ---------------------------------------------------------------------------
+# Compound Widget
+# ---------------------------------------------------------------------------
+
+
+class CommandMenu(Widget):
+    """Bottom command menu bar — context-aware hotkey display.
+
+    Replaces the anonymous ``Static(id="menu")`` widget.  Renders different
+    key hints depending on the current TUI mode (normal / profile-select /
+    risk-acknowledgement).
     """
-    menu = Text()
 
-    def _add_item(key: str, desc: str) -> None:
-        menu.append(f" {key} ", style="bold cyan reverse")
-        menu.append(f" {desc} ", style="white")
+    DEFAULT_CSS = """
+    CommandMenu {
+        height: 1;
+    }
+    """
 
-    if profile_request is not None:
-        _add_item("1", "Balanced")
-        _add_item("2", "Fast")
-        _add_item("3", "Quality")
-        _add_item("^C", "Cancel")
-    elif slot_config_state:
-        _add_item("Enter", "Next")
-        _add_item("Backspace", "Edit")
-        _add_item("Esc", "Cancel")
-    elif risk_panel is not None:
-        _add_item("y", "Confirm")
-        _add_item("n", "Abort")
-        if active_risk_kind != "vram":
-            _add_item("q", "Quit")
-    else:
-        _add_item("q", "Quit")
-        _add_item("r", "Refresh")
-        _add_item("a", "Add slot")
-        _add_item("b", "Build")
-        _add_item("s", "Smoke")
-        _add_item("P", "Profile")
-        _add_item("^C", "Stop")
+    def __init__(self, view_model: DashboardViewModel) -> None:
+        super().__init__(id="menu")
+        self._view_model = view_model
+        self._renderer = CommandMenuRenderer()
 
-    return menu
+    def render(self) -> RenderResult:
+        return self._renderer.render(self._view_model.command_menu())

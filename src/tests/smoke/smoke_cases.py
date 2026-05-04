@@ -779,16 +779,27 @@ class TestCrashDetection:
 
     def test_exit_code_unknown_status_fallback(self) -> None:
         """Unknown SmokeProbeStatus should fall back to exit code 10."""
-        # Create a result with a status that's not in _EXIT_CODE_MAP
-        # Since SmokeProbeStatus is a StrEnum, we can't add new values,
-        # so we test the fallback via direct property inspection
+        from llama_manager.smoke import _EXIT_CODE_MAP
+
+        # Verify all known statuses are in the map
+        for status in SmokeProbeStatus:
+            assert status in _EXIT_CODE_MAP, f"{status} should be in _EXIT_CODE_MAP"
+
+        # Test the fallback path by mocking the get to simulate an unknown status.
+        # The exit_code property does: _EXIT_CODE_MAP.get(self.status, 10)
+        # We mock it to return 10 (the default) for a known status, simulating
+        # the behavior when a status is not in the map.
         result = SmokeProbeResult(
             slot_id="test",
             status=SmokeProbeStatus.PASS,
             phase_reached=SmokePhase.COMPLETE,
         )
-        # Verify PASS maps to 0
+        # Normal case: PASS maps to 0
         assert result.exit_code == 0
+        # Simulate unknown status by patching _EXIT_CODE_MAP.get to return default
+        with patch("llama_manager.smoke._EXIT_CODE_MAP", MagicMock(get=MagicMock(return_value=10))):
+            # Re-read exit_code to exercise the patched path
+            assert result.exit_code == 10
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,13 @@
-"""llama_cli.tui — TUI submodule for llm-runner.
+"""Public TUI API for llm-runner."""
 
-Public API re-exported from submodules for convenience.
-"""
+from .controller import DashboardController
+from .model import DashboardModel
+from .textual_app import DashboardApp
+from .viewmodel import DashboardViewModel
 
-from .controller import TUIApp
-from .textual_app import TextualDashboardApp
-from .types import DashboardSnapshot, TextualLayoutSpec
-
-__all__ = ["DashboardSnapshot", "TextualDashboardApp", "TextualLayoutSpec", "TUIApp"]
+__all__ = [
+    "DashboardApp",
+    "DashboardController",
+    "DashboardModel",
+    "DashboardViewModel",
+]

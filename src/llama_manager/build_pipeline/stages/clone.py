@@ -8,7 +8,6 @@ from .._context import _BuildContext
 from ..models import BuildProgress
 from ..utils import (
     MSG_SOURCES_ALREADY_EXIST,
-    MSG_SOURCES_NOT_GIT_REPO,
     _format_command,
     _redact_build_text,
     _tail_lines,
@@ -107,7 +106,21 @@ def _execute_clone(
         cmd.extend([ctx.config.git_remote_url, str(ctx.config.source_dir)])
 
         logger.debug("[clone] running: %s", _format_command(cmd))
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        clone_timeout = getattr(ctx.config, "clone_timeout", 120)
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, check=False, timeout=clone_timeout
+            )
+        except subprocess.TimeoutExpired as e:
+            ctx.append_command_output(
+                stage="clone",
+                command=cmd,
+                returncode=-1,
+                stdout="",
+                stderr=f"Git clone timed out after {clone_timeout}s: {e}",
+            )
+            raise
+
         ctx.append_command_output(
             stage="clone",
             command=cmd,
@@ -130,8 +143,6 @@ def _execute_clone(
             if progress.status != "success":
                 return progress
 
-    except subprocess.SubprocessError as e:
-        return _handle_clone_error(ctx, progress, e, source_existed_before_clone)
     except Exception as e:
         return _handle_clone_error(ctx, progress, e, source_existed_before_clone)
 

@@ -59,7 +59,9 @@ class _BuildContext:
         )
         reports_dir = self.build_reports_dir()
         reports_dir.mkdir(parents=True, exist_ok=True)
-        build_log_path = reports_dir / f"{int(time.time())}-{backend_name}.log"
+        build_log_path = (
+            reports_dir / f"{int(time.time())}-{time.monotonic_ns()}-{backend_name}.log"
+        )
         build_log_path.write_text(_redact_build_text(self.build_output))
         return build_log_path
 

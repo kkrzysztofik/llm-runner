@@ -9,6 +9,7 @@ import time
 from typing import Any, NoReturn
 
 from llama_manager import (
+    RISK_ACK_LABEL,
     Config,
     DryRunSlotPayload,
     ServerConfig,
@@ -25,7 +26,6 @@ from llama_manager.config import (
 )
 from llama_manager.server import detect_risky_operations
 
-RISK_ACK_LABEL = "warning_bypass"
 RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
 ELIGIBLE_LABEL = "    Eligible"
 REASON_LABEL = "    Reason"
@@ -139,7 +139,7 @@ def _print_smoke_probe_info(cfg: Config) -> None:
 def _build_payload(
     server_cfg: ServerConfig,
     slot_id: str,
-    slot_payloads: list[Any],
+    slot_payloads: list[DryRunSlotPayload],
 ) -> bool:
     backend_error = validate_server_config(server_cfg)
     if backend_error is not None:

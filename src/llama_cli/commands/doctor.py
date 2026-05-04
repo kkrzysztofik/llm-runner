@@ -76,6 +76,7 @@ class RepairAction:
     dry_run_command: str | None
     requires_confirmation: bool = False
     args: list[str] | None = None
+    prerequisite_index: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -86,6 +87,7 @@ class RepairAction:
             "dry_run_command": self.dry_run_command,
             "requires_confirmation": self.requires_confirmation,
             "args": self.args,
+            "prerequisite_index": self.prerequisite_index,
         }
 
 
@@ -597,23 +599,26 @@ def _collect_directories_repair_actions(result: DoctorRepairResult, config: Conf
             )
         elif dir_path.exists() and not dir_path.is_dir():
             # Conflict: path exists but is not a directory (file or symlink)
+            # Step 1: Remove conflicting file
+            remove_index = len(result.actions)
             result.actions.append(
                 RepairAction(
-                    action_type="remove_and_create_directory",
-                    description=f"Remove conflicting {name} file and create directory: {dir_path}",
-                    command=[
-                        "rm",
-                        "-rf",
-                        str(dir_path),
-                        "&&",
-                        "mkdir",
-                        "-m",
-                        "700",
-                        "-p",
-                        str(dir_path),
-                    ],
-                    dry_run_command=f"# rm -rf '{dir_path}' && mkdir -m 700 -p '{dir_path}'",
+                    action_type="remove_file_or_directory",
+                    description=f"Remove conflicting {name} file: {dir_path}",
+                    command=["rm", "-rf", str(dir_path)],
+                    dry_run_command=f"rm -rf '{dir_path}'",
                     requires_confirmation=True,
+                )
+            )
+            # Step 2: Create directory (linked to removal)
+            result.actions.append(
+                RepairAction(
+                    action_type="create_directory",
+                    description=f"Create directory: {dir_path}",
+                    command=["mkdir", "-m", "700", "-p", str(dir_path)],
+                    dry_run_command=f"mkdir -m 700 -p '{dir_path}'",
+                    requires_confirmation=False,
+                    prerequisite_index=remove_index,
                 )
             )
 
@@ -771,7 +776,42 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
     )
 
     if not dry_run:
-        _execute_repair_actions(result)
+        skip_confirmation = getattr(parsed, "yes", False)
+        if skip_confirmation:
+            _execute_repair_actions(result)
+        else:
+            # Prompt interactively for confirmation-required actions
+            declined: set[int] = set()
+            for idx, action in enumerate(result.actions):
+                # Skip actions whose prerequisite was declined
+                if action.prerequisite_index is not None and action.prerequisite_index in declined:
+                    result.warnings.append(
+                        f"Skipped '{action.description}' because prerequisite action was declined"
+                    )
+                    continue
+                if action.requires_confirmation:
+                    # When emitting JSON, interactive prompts break the output stream;
+                    # skip destructive actions rather than prompting.
+                    if json_output:
+                        result.warnings.append(
+                            f"Skipped '{action.description}' (requires confirmation; use --yes to auto-accept)"
+                        )
+                        declined.add(idx)
+                        continue
+                    print(f"\nAction: {action.description}")
+                    if action.dry_run_command:
+                        print(Colors.dim(f"  Command: {action.dry_run_command}"))
+                    try:
+                        response = input("Confirm? [y/N]: ").strip().lower()
+                    except EOFError:
+                        print(f"Skipping action (no terminal input): {action.description}")
+                        declined.add(idx)
+                        continue
+                    if response != "y":
+                        print(f"Skipping action: {action.description}")
+                        declined.add(idx)
+                        continue
+                _execute_repair_action(action, result)
 
     if json_output:
         _print_json(result.to_dict())
@@ -857,8 +897,12 @@ FR-004.7: doctor --repair command for failed staging cleanup
     )
     repair_parser.set_defaults(func=cmd_doctor_repair)
 
-    # Default: show help
-    parser.set_defaults(func=lambda args: parser.print_help())
+    # Default: show help and return exit code
+    def _show_help(args: argparse.Namespace) -> int:
+        parser.print_help()
+        return 1
+
+    parser.set_defaults(func=_show_help)
 
     return parser
 

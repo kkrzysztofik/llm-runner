@@ -63,7 +63,37 @@ def run_configure(ctx: _BuildContext) -> BuildProgress:
         logger.debug("[configure] command: %s", _format_command(cmd))
 
         started_at = time.monotonic()
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=ctx.config.build_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as e:
+            duration = _format_duration(time.monotonic() - started_at)
+            logger.error("[configure] cmake timed out after %s", duration)
+            progress.status = "failed"
+            progress.message = f"Configure timed out after {ctx.config.build_timeout_seconds}s"
+            stdout_str = (
+                e.stdout.decode(errors="replace")
+                if isinstance(e.stdout, bytes)
+                else (e.stdout or "")
+            )
+            stderr_str = (
+                e.stderr.decode(errors="replace")
+                if isinstance(e.stderr, bytes)
+                else (e.stderr or f"Timed out after {ctx.config.build_timeout_seconds}s")
+            )
+            ctx.append_command_output(
+                stage="configure",
+                command=cmd,
+                returncode=-1,
+                stdout=stdout_str,
+                stderr=stderr_str,
+            )
+            return progress
         duration = _format_duration(time.monotonic() - started_at)
 
         logger.debug("[configure] cmake exited with rc=%s in %s", result.returncode, duration)
