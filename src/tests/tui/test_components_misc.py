@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
-from textual.widgets import Input, Select
+from rich.text import Text
+from textual.widgets import Select
 
 from llama_cli.tui.components import alerts, panels
 from llama_cli.tui.components.modal import AddSlotModal
@@ -44,7 +46,7 @@ def test_profile_status_renderer_renders_all_status_variants() -> None:
 
     assert panel is not None
     assert panel.title == "Profile Status"
-    body = panel.renderable.plain
+    body = cast(Text, panel.renderable).plain
     assert "Profiling slot-a: fast [running...]" in body
     assert "Profile slot-b: balanced [done]" in body
     assert "Profile slot-c: deep [failed]" in body
@@ -126,17 +128,17 @@ def test_add_slot_modal_on_button_pressed_paths() -> None:
     modal = AddSlotModal([("Qwen", "qwen")])
     modal.dismiss = MagicMock()  # type: ignore[method-assign]
 
-    modal.on_button_pressed(SimpleNamespace(button=SimpleNamespace(id="cancel-slot")))
+    modal.on_button_pressed(cast(Any, SimpleNamespace(button=SimpleNamespace(id="cancel-slot"))))
     modal.dismiss.assert_called_once_with(None)
 
     modal.dismiss.reset_mock()
     modal._collect_values = MagicMock(return_value={"profile": "qwen", "port": "8080"})  # type: ignore[method-assign]
-    modal.on_button_pressed(SimpleNamespace(button=SimpleNamespace(id="submit-slot")))
+    modal.on_button_pressed(cast(Any, SimpleNamespace(button=SimpleNamespace(id="submit-slot"))))
     modal.dismiss.assert_called_once_with({"profile": "qwen", "port": "8080"})
 
     modal.dismiss.reset_mock()
     modal._collect_values = MagicMock(return_value=None)  # type: ignore[method-assign]
-    modal.on_button_pressed(SimpleNamespace(button=SimpleNamespace(id="submit-slot")))
+    modal.on_button_pressed(cast(Any, SimpleNamespace(button=SimpleNamespace(id="submit-slot"))))
     modal.dismiss.assert_not_called()
 
 
@@ -145,8 +147,8 @@ def test_add_slot_modal_on_input_submitted_only_for_slot_port() -> None:
     modal.dismiss = MagicMock()  # type: ignore[method-assign]
     modal._collect_values = MagicMock(return_value={"profile": "qwen", "port": "8080"})  # type: ignore[method-assign]
 
-    modal.on_input_submitted(SimpleNamespace(input=SimpleNamespace(id="other-input")))
+    modal.on_input_submitted(cast(Any, SimpleNamespace(input=SimpleNamespace(id="other-input"))))
     modal.dismiss.assert_not_called()
 
-    modal.on_input_submitted(SimpleNamespace(input=SimpleNamespace(id="slot-port")))
+    modal.on_input_submitted(cast(Any, SimpleNamespace(input=SimpleNamespace(id="slot-port"))))
     modal.dismiss.assert_called_once_with({"profile": "qwen", "port": "8080"})
