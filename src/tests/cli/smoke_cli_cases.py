@@ -13,7 +13,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llama_cli.cli_parser import parse_args
-from llama_manager.smoke import probe_slot
+from llama_manager.config import SmokePhase, SmokeProbeStatus
+from llama_manager.probe import probe_slot
 
 # ---------------------------------------------------------------------------
 # T033 — CLI argument parsing for smoke subcommand
@@ -578,7 +579,7 @@ class TestSmokeProbeResultExitCodeMapping:
 
     def test_exit_code_pass_is_zero(self) -> None:
         """PASS should map to exit code 0."""
-        from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         result = SmokeProbeResult(
             slot_id="test",
@@ -589,7 +590,7 @@ class TestSmokeProbeResultExitCodeMapping:
 
     def test_exit_code_fail_is_ten(self) -> None:
         """FAIL should map to exit code 10."""
-        from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         result = SmokeProbeResult(
             slot_id="test",
@@ -600,7 +601,7 @@ class TestSmokeProbeResultExitCodeMapping:
 
     def test_exit_code_timeout_is_thirteen(self) -> None:
         """TIMEOUT should map to exit code 13 (less severe than MODEL_NOT_FOUND=14)."""
-        from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         result = SmokeProbeResult(
             slot_id="test",
@@ -611,7 +612,7 @@ class TestSmokeProbeResultExitCodeMapping:
 
     def test_exit_code_model_not_found_is_fourteen(self) -> None:
         """MODEL_NOT_FOUND should map to exit code 14 (more severe than TIMEOUT=13)."""
-        from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         result = SmokeProbeResult(
             slot_id="test",
@@ -622,7 +623,7 @@ class TestSmokeProbeResultExitCodeMapping:
 
     def test_exit_code_auth_failure_is_fifteen(self) -> None:
         """AUTH_FAILURE should map to exit code 15."""
-        from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         result = SmokeProbeResult(
             slot_id="test",
@@ -633,7 +634,7 @@ class TestSmokeProbeResultExitCodeMapping:
 
     def test_exit_code_crashed_is_nineteen(self) -> None:
         """CRASHED should map to exit code 19."""
-        from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         result = SmokeProbeResult(
             slot_id="test",
@@ -648,7 +649,6 @@ class TestSmokeProbeStatusEnum:
 
     def test_all_status_values(self) -> None:
         """SmokeProbeStatus should have all expected values."""
-        from llama_manager.config import SmokeProbeStatus
 
         values = {s.value for s in SmokeProbeStatus}
         expected = {"pass", "fail", "timeout", "crashed", "model_not_found", "auth_failure"}
@@ -656,7 +656,6 @@ class TestSmokeProbeStatusEnum:
 
     def test_status_comparison_with_string(self) -> None:
         """SmokeProbeStatus members should compare equal to their string values."""
-        from llama_manager.config import SmokeProbeStatus
 
         assert SmokeProbeStatus.PASS == "pass"  # noqa: S105
         assert SmokeProbeStatus.FAIL == "fail"
@@ -667,7 +666,6 @@ class TestSmokeProbeStatusEnum:
 
     def test_status_not_equal_to_other(self) -> None:
         """SmokeProbeStatus members should not compare equal to unrelated strings."""
-        from llama_manager.config import SmokeProbeStatus
 
         assert SmokeProbeStatus.PASS != "fail"  # noqa: S105
         assert SmokeProbeStatus.FAIL != "pass"  # noqa: S105
@@ -679,7 +677,6 @@ class TestSmokePhaseEnum:
 
     def test_all_phase_values(self) -> None:
         """SmokePhase should have all expected values."""
-        from llama_manager.config import SmokePhase
 
         values = {s.value for s in SmokePhase}
         expected = {"listen", "models", "chat", "complete"}
@@ -687,7 +684,6 @@ class TestSmokePhaseEnum:
 
     def test_phase_comparison_with_string(self) -> None:
         """SmokePhase members should compare equal to their string values."""
-        from llama_manager.config import SmokePhase
 
         assert SmokePhase.LISTEN == "listen"
         assert SmokePhase.MODELS == "models"
@@ -889,7 +885,7 @@ class TestProbeServer:
         from unittest.mock import MagicMock, patch
 
         from llama_cli.commands.smoke import _probe_server
-        from llama_manager.smoke import SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         model_path = "/path/to/model.gguf"
         host = "127.0.0.1"
@@ -1059,7 +1055,7 @@ class TestRunProbes:
         from unittest.mock import MagicMock, patch
 
         from llama_cli.commands.smoke import _run_probes
-        from llama_manager.smoke import SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         targets = [
             ("slot1", "/model1.gguf", "127.0.0.1", 8080),
@@ -1089,7 +1085,7 @@ class TestRunProbes:
         from unittest.mock import MagicMock, patch
 
         from llama_cli.commands.smoke import _run_probes
-        from llama_manager.smoke import SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         targets = [
             ("slot1", "/model1.gguf", "127.0.0.1", 8080),
@@ -1118,7 +1114,7 @@ class TestRunProbes:
         from unittest.mock import MagicMock, patch
 
         from llama_cli.commands.smoke import _run_probes
-        from llama_manager.smoke import SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         targets = [
             ("slot1", "/model1.gguf", "127.0.0.1", 8080),
@@ -1155,7 +1151,7 @@ class TestRunSmoke:
         from unittest.mock import MagicMock, patch
 
         from llama_cli.commands.smoke import run_smoke
-        from llama_manager.smoke import SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         mock_result = SmokeProbeResult(
             slot_id="test",
@@ -1188,7 +1184,7 @@ class TestRunSmoke:
         from unittest.mock import MagicMock, patch
 
         from llama_cli.commands.smoke import run_smoke
-        from llama_manager.smoke import SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         mock_fail_result = SmokeProbeResult(
             slot_id="test",
@@ -1231,7 +1227,7 @@ class TestPrintReportHuman:
     def test_print_report_human_pass(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Human report should print header, pass count, and passing slot."""
         from llama_cli.commands.smoke import _print_report_human
-        from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         result = SmokeProbeResult(
             slot_id="test",
@@ -1255,7 +1251,7 @@ class TestPrintReportHuman:
         """Human report should print failure_phase when present."""
         from llama_cli.commands.smoke import _print_report_human
         from llama_manager.config import SmokeFailurePhase
-        from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         result = SmokeProbeResult(
             slot_id="test",
@@ -1277,7 +1273,7 @@ class TestPrintReportHuman:
     def test_print_report_human_with_model_id(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Human report should print model_id when present."""
         from llama_cli.commands.smoke import _print_report_human
-        from llama_manager.smoke import SmokePhase, SmokeProbeResult, SmokeProbeStatus
+        from llama_manager.probe import SmokeProbeResult
 
         result = SmokeProbeResult(
             slot_id="test",
@@ -1308,11 +1304,9 @@ class TestPrintReportJson:
         from unittest.mock import patch
 
         from llama_cli.commands.smoke import _print_report_json
-        from llama_manager.smoke import (
+        from llama_manager.probe import (
             ProvenanceRecord,
-            SmokePhase,
             SmokeProbeResult,
-            SmokeProbeStatus,
         )
 
         provenance = ProvenanceRecord(sha="abc1234", version="1.0.0")
@@ -1341,11 +1335,9 @@ class TestPrintReportJson:
         from unittest.mock import patch
 
         from llama_cli.commands.smoke import _print_report_json
-        from llama_manager.smoke import (
+        from llama_manager.probe import (
             ProvenanceRecord,
-            SmokePhase,
             SmokeProbeResult,
-            SmokeProbeStatus,
         )
 
         provenance = ProvenanceRecord(sha="def5678", version="dev")

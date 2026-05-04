@@ -26,7 +26,7 @@ from llama_manager.config import (
     detect_duplicate_slots,
     normalize_slot_id,
 )
-from llama_manager.process_manager import (
+from llama_manager.orchestration import (
     ArtifactMetadata,
     LockMetadata,
     ValidationException,
@@ -37,7 +37,7 @@ from llama_manager.process_manager import (
     update_lock,
     write_artifact,
 )
-from llama_manager.server import (
+from llama_manager.validation import (
     validate_slots,
 )
 from tests.support.runtime import valid_artifact_data

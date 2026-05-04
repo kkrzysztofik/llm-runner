@@ -23,11 +23,11 @@ import pytest
 from llama_manager.config import (
     MultiValidationError,
 )
-from llama_manager.process_manager import (
+from llama_manager.orchestration import (
     ValidationException,
     write_artifact,
 )
-from llama_manager.server import (
+from llama_manager.validation import (
     ValidationResults,
     build_dry_run_slot_payload,
 )
@@ -382,7 +382,7 @@ class TestFR007ArtifactValidation:
 
     def test_write_artifact_raises_on_missing_required_fields(self, tmp_path: Path) -> None:
         """FR-007: write_artifact should raise ValidationException for missing fields."""
-        from llama_manager.process_manager import ValidationException
+        from llama_manager.orchestration import ValidationException
 
         data = {
             "timestamp": "2026-04-12T00:00:00Z",

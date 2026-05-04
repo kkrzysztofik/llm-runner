@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from llama_manager.config import ModelSlot
-from llama_manager.process_manager import (
+from llama_manager.orchestration import (
     LockMetadata,
     check_lockfile_integrity,
     create_lock,
@@ -176,7 +176,7 @@ class TestServerManagerLaunchAllSlots:
         This test will fail until T017-T019 implement the LaunchResult dataclass
         and ServerManager.launch_all_slots() method.
         """
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
 
@@ -201,7 +201,7 @@ class TestServerManagerLaunchAllSlots:
                     result = manager.launch_all_slots([])
 
                 # Assert LaunchResult exists and has expected structure
-                from llama_manager.process_manager import LaunchResult
+                from llama_manager.orchestration import LaunchResult
 
                 assert isinstance(result, LaunchResult)
                 assert hasattr(result, "status")
@@ -214,7 +214,7 @@ class TestServerManagerLaunchAllSlots:
 
         This test will fail until T017-T019 implement the LaunchResult dataclass.
         """
-        from llama_manager.process_manager import LaunchResult, ServerManager
+        from llama_manager.orchestration import LaunchResult, ServerManager
 
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
@@ -253,7 +253,7 @@ class TestServerManagerLaunchAllSlots:
         This test will fail until T017-T019 implement the LaunchResult dataclass
         and proper blocking logic.
         """
-        from llama_manager.process_manager import LaunchResult, ServerManager
+        from llama_manager.orchestration import LaunchResult, ServerManager
 
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
@@ -300,7 +300,7 @@ class TestServerManagerLaunchAllSlots:
         This test will fail until T017-T019 implement the LaunchResult dataclass
         and proper degraded logic.
         """
-        from llama_manager.process_manager import LaunchResult, ServerManager
+        from llama_manager.orchestration import LaunchResult, ServerManager
 
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
@@ -344,7 +344,7 @@ class TestLaunchOrchestrate:
 
     def test_empty_configs_returns_empty_result(self) -> None:
         """Empty configs should return empty=True with guidance message."""
-        from llama_manager.process_manager import (
+        from llama_manager.orchestration import (
             LaunchOrchestrationResult,
             launch_orchestrate,
         )
@@ -370,7 +370,7 @@ class TestLaunchOrchestrate:
 
     def test_success_path_returns_processes_and_slot_states(self) -> None:
         """Happy path should return processes, slot_states, and success result."""
-        from llama_manager.process_manager import LaunchResult, launch_orchestrate
+        from llama_manager.orchestration import LaunchResult, launch_orchestrate
         from tests.support.factories import make_server_config
 
         cfg = make_server_config(alias="test", port=8080)
@@ -413,7 +413,7 @@ class TestLaunchOrchestrate:
 
     def test_blocked_launch_returns_no_processes(self) -> None:
         """Blocked launch should return empty processes/dict and status messages."""
-        from llama_manager.process_manager import LaunchResult, launch_orchestrate
+        from llama_manager.orchestration import LaunchResult, launch_orchestrate
         from tests.support.factories import make_server_config
 
         cfg = make_server_config(alias="test", port=8080)
@@ -454,7 +454,7 @@ class TestLaunchOrchestrate:
 
     def test_degraded_launch_returns_partial_processes(self) -> None:
         """Degraded launch should return partial processes and warning messages."""
-        from llama_manager.process_manager import LaunchResult, launch_orchestrate
+        from llama_manager.orchestration import LaunchResult, launch_orchestrate
         from tests.support.factories import make_server_config
 
         cfg1 = make_server_config(alias="slot1", port=8080)
@@ -501,7 +501,7 @@ class TestLaunchOrchestrate:
 
     def test_risk_evaluation_result_included(self) -> None:
         """Risk evaluation result should be included in the orchestration result."""
-        from llama_manager.process_manager import LaunchResult, launch_orchestrate
+        from llama_manager.orchestration import LaunchResult, launch_orchestrate
         from tests.support.factories import make_server_config
 
         cfg = make_server_config(alias="test", port=8080)

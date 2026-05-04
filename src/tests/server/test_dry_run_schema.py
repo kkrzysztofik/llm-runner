@@ -20,7 +20,7 @@ Contract:
 from typing import Any
 
 from llama_manager.config import ErrorCode, ServerConfig
-from llama_manager.server import (
+from llama_manager.validation import (
     ValidationResults,
     VllmEligibility,
     build_dry_run_slot_payload,

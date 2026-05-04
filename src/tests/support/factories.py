@@ -12,8 +12,8 @@ from llama_manager.config import (
     SmokePhase,
     SmokeProbeStatus,
 )
+from llama_manager.probe import ProvenanceRecord, SmokeProbeResult
 from llama_manager.reports import FailureReport
-from llama_manager.smoke import ProvenanceRecord, SmokeProbeResult
 
 
 def make_server_config(**overrides: object) -> ServerConfig:

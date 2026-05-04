@@ -1,6 +1,6 @@
 """probe package — smoke testing for llama.cpp inference servers."""
 
-from .provenance import ProvenanceRecord, resolve_provenance
+from .provenance import ProvenanceRecord, _resolve_sha, resolve_provenance
 from .smoke import (
     _EXIT_CODE_MAP,
     ConsecutiveFailureCounter,
@@ -38,4 +38,5 @@ __all__ = [
     "_probe_chat",
     "_handle_models_status",
     "_models_failure_result",
+    "_resolve_sha",
 ]

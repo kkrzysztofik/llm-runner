@@ -1,7 +1,7 @@
 import json
 
 from llama_manager.config import Config, merge_config_overrides
-from llama_manager.server import build_server_cmd
+from llama_manager.validation import build_server_cmd
 
 
 def test_resolution_is_deterministic() -> None:

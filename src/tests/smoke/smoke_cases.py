@@ -27,7 +27,7 @@ from llama_manager.config import (
     SmokeProbeConfiguration,
     SmokeProbeStatus,
 )
-from llama_manager.smoke import (
+from llama_manager.probe import (
     ConsecutiveFailureCounter,
     ProvenanceRecord,
     SmokeCompositeReport,
@@ -779,7 +779,7 @@ class TestCrashDetection:
 
     def test_exit_code_unknown_status_fallback(self) -> None:
         """Unknown SmokeProbeStatus should fall back to exit code 10."""
-        from llama_manager.smoke import _EXIT_CODE_MAP
+        from llama_manager.probe import _EXIT_CODE_MAP
 
         # Verify all known statuses are in the map
         for status in SmokeProbeStatus:
@@ -820,7 +820,8 @@ class TestProvenanceResolution:
         with (
             patch("llama_manager.probe.provenance.Path.exists", return_value=True),
             patch(
-                "llama_manager.probe.provenance.Path.read_text", side_effect=[sha_content, ref_content]
+                "llama_manager.probe.provenance.Path.read_text",
+                side_effect=[sha_content, ref_content],
             ),
             patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
         ):
@@ -857,7 +858,8 @@ class TestProvenanceResolution:
         with (
             patch("llama_manager.probe.provenance.Path.exists", return_value=True),
             patch(
-                "llama_manager.probe.provenance.Path.read_text", side_effect=OSError("permission denied")
+                "llama_manager.probe.provenance.Path.read_text",
+                side_effect=OSError("permission denied"),
             ),
             patch("llama_manager.probe.provenance.run") as mock_run,
             patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
@@ -877,7 +879,8 @@ class TestProvenanceResolution:
         with (
             patch("llama_manager.probe.provenance.Path.exists", return_value=True),
             patch(
-                "llama_manager.probe.provenance.Path.read_text", side_effect=OSError("permission denied")
+                "llama_manager.probe.provenance.Path.read_text",
+                side_effect=OSError("permission denied"),
             ),
             patch("llama_manager.probe.provenance.run") as mock_run,
             patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
@@ -894,7 +897,10 @@ class TestProvenanceResolution:
         """resolve_provenance should return 'dev' version when importlib.metadata fails."""
         with (
             patch("llama_manager.probe.provenance.Path.exists", return_value=False),
-            patch("llama_manager.probe.provenance._importlib_version", side_effect=Exception("not installed")),
+            patch(
+                "llama_manager.probe.provenance._importlib_version",
+                side_effect=Exception("not installed"),
+            ),
         ):
             record = resolve_provenance()
 
@@ -909,7 +915,7 @@ class TestProvenanceResolution:
             patch("llama_manager.probe.provenance.Path.exists", return_value=True),
             patch("llama_manager.probe.provenance.Path.read_text", return_value=long_sha),
         ):
-            from llama_manager.smoke import _resolve_sha
+            from llama_manager.probe import _resolve_sha
 
             sha = _resolve_sha()
 
@@ -924,7 +930,7 @@ class TestProvenanceResolution:
             patch("llama_manager.probe.provenance.Path.exists", return_value=True),
             patch("llama_manager.probe.provenance.Path.read_text", return_value=short_sha),
         ):
-            from llama_manager.smoke import _resolve_sha
+            from llama_manager.probe import _resolve_sha
 
             sha = _resolve_sha()
 
@@ -1193,7 +1199,7 @@ class TestApiKeyHeaderPrecedence:
             mock_client_instance.get.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_models
+            from llama_manager.probe import _probe_models
 
             _result = _probe_models("127.0.0.1", 8080, 10, "sk-secret", "test-model")
 
@@ -1219,7 +1225,7 @@ class TestApiKeyHeaderPrecedence:
             mock_client_instance.get.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_models
+            from llama_manager.probe import _probe_models
 
             _result = _probe_models("127.0.0.1", 8080, 10, "", "test-model")
 
@@ -1244,7 +1250,7 @@ class TestApiKeyHeaderPrecedence:
             mock_client_instance.post.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_chat
+            from llama_manager.probe import _probe_chat
 
             _result = _probe_chat("127.0.0.1", 8080, smoke_cfg, "test-model", "sk-chat-key")
 
@@ -1271,7 +1277,7 @@ class TestApiKeyHeaderPrecedence:
             mock_client_instance.post.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_chat
+            from llama_manager.probe import _probe_chat
 
             _result = _probe_chat("127.0.0.1", 8080, smoke_cfg, "test-model", "")
 
@@ -1865,7 +1871,7 @@ class TestTcpConnect:
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
 
-            from llama_manager.smoke import _tcp_connect
+            from llama_manager.probe import _tcp_connect
 
             _tcp_connect("127.0.0.1", 8080, 5)
 
@@ -1880,7 +1886,7 @@ class TestTcpConnect:
             mock_sock.connect.side_effect = TimeoutError()
             mock_sock.close.return_value = None
 
-            from llama_manager.smoke import _tcp_connect
+            from llama_manager.probe import _tcp_connect
 
             with pytest.raises(TimeoutError):
                 _tcp_connect("127.0.0.1", 8080, 5)
@@ -1895,7 +1901,7 @@ class TestTcpConnect:
             mock_sock.connect.side_effect = ConnectionRefusedError()
             mock_sock.close.return_value = None
 
-            from llama_manager.smoke import _tcp_connect
+            from llama_manager.probe import _tcp_connect
 
             with pytest.raises(OSError):
                 _tcp_connect("127.0.0.1", 8080, 5)
@@ -1910,7 +1916,7 @@ class TestTcpConnect:
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
 
-            from llama_manager.smoke import _tcp_connect
+            from llama_manager.probe import _tcp_connect
 
             _tcp_connect("127.0.0.1", 8080, 30)
 
@@ -1924,7 +1930,7 @@ class TestTcpConnect:
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
 
-            from llama_manager.smoke import _tcp_connect
+            from llama_manager.probe import _tcp_connect
 
             _tcp_connect("127.0.0.1", 8080, 5)
 
@@ -2117,28 +2123,28 @@ class TestResolveApiKeyWhitespace:
 
     def test_explicit_key_stripped(self) -> None:
         """resolve_api_key should strip whitespace from explicit key."""
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("  sk-test-key-123  ")
         assert result == "sk-test-key-123"
 
     def test_explicit_key_only_leading_whitespace(self) -> None:
         """resolve_api_key should strip leading whitespace from explicit key."""
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("  sk-test-key")
         assert result == "sk-test-key"
 
     def test_explicit_key_only_trailing_whitespace(self) -> None:
         """resolve_api_key should strip trailing whitespace from explicit key."""
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("sk-test-key  ")
         assert result == "sk-test-key"
 
     def test_explicit_key_only_newlines(self) -> None:
         """resolve_api_key should strip newlines from explicit key."""
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("\n\t sk-test-key \n\t")
         assert result == "sk-test-key"
@@ -2147,7 +2153,7 @@ class TestResolveApiKeyWhitespace:
         """resolve_api_key should strip whitespace from env var value."""
         monkeypatch.setenv("LLM_RUNNER_API_KEY", "  sk-env-key  ")
 
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("")
         assert result == "sk-env-key"
@@ -2156,7 +2162,7 @@ class TestResolveApiKeyWhitespace:
         """resolve_api_key should prefer explicit key over env var."""
         monkeypatch.setenv("LLM_RUNNER_API_KEY", "sk-env-key")
 
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("  sk-explicit  ")
         assert result == "sk-explicit"
@@ -2165,7 +2171,7 @@ class TestResolveApiKeyWhitespace:
         """resolve_api_key should fall back to env when explicit is empty."""
         monkeypatch.setenv("LLM_RUNNER_API_KEY", "sk-env-key")
 
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("")
         assert result == "sk-env-key"
@@ -2174,7 +2180,7 @@ class TestResolveApiKeyWhitespace:
         """resolve_api_key should return empty string when no key available."""
         monkeypatch.delenv("LLM_RUNNER_API_KEY", raising=False)
 
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("")
         assert result == ""
@@ -2183,7 +2189,7 @@ class TestResolveApiKeyWhitespace:
         """Whitespace-only explicit key should fall back to env (not treated as non-empty)."""
         monkeypatch.setenv("LLM_RUNNER_API_KEY", "sk-env-key")
 
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         # "  " after strip becomes "", so it falls back to env
         result = resolve_api_key("  ")
@@ -2297,7 +2303,7 @@ class TestProbeModelsAllModelsCheck:
             mock_client_instance.get.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_models
+            from llama_manager.probe import _probe_models
 
             result, discovered_id = _probe_models("127.0.0.1", 8080, 10, "", "expected-model")
 
@@ -2323,7 +2329,7 @@ class TestProbeModelsAllModelsCheck:
             mock_client_instance.get.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_models
+            from llama_manager.probe import _probe_models
 
             result, discovered_id = _probe_models("127.0.0.1", 8080, 10, "", "expected-model")
 
@@ -2349,7 +2355,7 @@ class TestProbeModelsAllModelsCheck:
             mock_client_instance.get.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_models
+            from llama_manager.probe import _probe_models
 
             result, discovered_id = _probe_models("127.0.0.1", 8080, 10, "", "")
 

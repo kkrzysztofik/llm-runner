@@ -9,10 +9,10 @@ from llama_manager.config import (
     ErrorDetail,
     ModelSlot,
     MultiValidationError,
+    ServerConfig,
     ValidationResult,
 )
-from llama_manager.server import (
-    ServerConfig,
+from llama_manager.validation import (
     ValidationResults,
     build_dry_run_slot_payload,
     validate_slots,

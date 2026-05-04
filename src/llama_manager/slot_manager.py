@@ -12,7 +12,7 @@ from .config.builder import create_default_profile_registry, resolve_profile_con
 from .config.profiles import RunProfileError
 from .gpu_stats import GPUStats
 from .log_buffer import LogBuffer
-from .process_manager import ServerManager
+from .orchestration import ServerManager
 from .slot_state import compute_slot_transition
 
 

@@ -20,7 +20,8 @@ import pytest
 
 from llama_manager.config import SlotState
 from llama_manager.log_buffer import LogBuffer
-from llama_manager.process_manager import SlotRuntime  # noqa: T079
+from llama_manager.orchestration import SlotRuntime  # noqa: T079
+from llama_manager.orchestration import manager as orchestration_manager
 
 
 class TestStateMachineLifecycle:
@@ -161,7 +162,6 @@ class TestStateMachineLifecycle:
 
     def test_full_lifecycle_chain(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify the full chain: IDLE→LAUNCHING→RUNNING→DEGRADED→RUNNING→OFFLINE→IDLE."""
-        from llama_manager import process_manager
 
         time_values = [1000.0, 1000.1, 1000.2, 1000.3, 1000.4, 1000.5]
         call_count = 0
@@ -172,7 +172,7 @@ class TestStateMachineLifecycle:
             call_count += 1
             return val
 
-        monkeypatch.setattr(process_manager.time, "time", fake_time)
+        monkeypatch.setattr(orchestration_manager.time, "time", fake_time)
 
         runtime = SlotRuntime(
             slot_id="gpu0-slot1",
@@ -327,7 +327,6 @@ class TestStateMachineLifecycle:
 
     def test_transition_to_same_state_is_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Transitioning to the same state should still update start_time for LAUNCHING/RUNNING."""
-        from llama_manager import process_manager
 
         # Use fake clock pattern for deterministic timing
         time_values = [101.0, 102.0]
@@ -339,7 +338,7 @@ class TestStateMachineLifecycle:
             call_count += 1
             return val
 
-        monkeypatch.setattr(process_manager.time, "time", fake_time)
+        monkeypatch.setattr(orchestration_manager.time, "time", fake_time)
 
         runtime = SlotRuntime(
             slot_id="test",

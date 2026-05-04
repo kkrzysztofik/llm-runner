@@ -24,7 +24,7 @@ from llama_manager.config import (
     create_default_profile_registry,
     resolve_run_group_configs,
 )
-from llama_manager.server import detect_risky_operations
+from llama_manager.validation import detect_risky_operations
 
 RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
 ELIGIBLE_LABEL = "    Eligible"

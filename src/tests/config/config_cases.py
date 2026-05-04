@@ -30,7 +30,7 @@ from llama_manager.config import (
     validate_slot_port,
 )
 from llama_manager.log_buffer import LogBuffer
-from llama_manager.process_manager import ServerManager, write_artifact
+from llama_manager.orchestration import ServerManager, write_artifact
 from tests.support.runtime import valid_artifact_data
 
 

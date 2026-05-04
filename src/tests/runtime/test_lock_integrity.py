@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 import psutil
 
 from llama_manager.config import ErrorCode
-from llama_manager.process_manager import (
+from llama_manager.orchestration import (
     LockMetadata,
     check_lockfile_integrity,
     create_lock,

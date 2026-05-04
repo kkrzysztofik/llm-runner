@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 from llama_manager.config import SmokeFailurePhase, SmokePhase, SmokeProbeStatus
-from llama_manager.smoke import (
+from llama_manager.probe import (
     ProvenanceRecord,
     SmokeCompositeReport,
     SmokeProbeResult,

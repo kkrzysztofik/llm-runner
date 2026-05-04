@@ -19,7 +19,7 @@ import pytest
 
 from llama_manager.config import ErrorCode, ErrorDetail, SlotState
 from llama_manager.log_buffer import LogBuffer
-from llama_manager.process_manager import (
+from llama_manager.orchestration import (
     REDACTED_VALUE,
     LockMetadata,
     ServerManager,
@@ -147,7 +147,7 @@ class TestPipeStreaming:
 
     def test_stream_pipe_to_handler(self) -> None:
         """_stream_pipe should write to log handler when provided."""
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         buffer = LogBuffer()
@@ -168,7 +168,7 @@ class TestPipeStreaming:
 
     def test_stream_pipe_to_handler_stderr(self) -> None:
         """_stream_pipe should handle stderr to handler correctly."""
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         buffer = LogBuffer()
@@ -183,7 +183,7 @@ class TestPipeStreaming:
 
     def test_stream_pipe_null_pipe(self) -> None:
         """_stream_pipe should handle None pipe gracefully."""
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         buffer = LogBuffer()
@@ -194,7 +194,7 @@ class TestPipeStreaming:
 
     def test_stream_pipe_without_handler_prints(self, capsys) -> None:
         """_stream_pipe should print to stdout/stderr when no handler provided."""
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
 
@@ -210,7 +210,7 @@ class TestPipeStreaming:
 
     def test_start_server_background_with_handler(self) -> None:
         """start_server_background should accept and use log handler."""
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         buffer = LogBuffer()
@@ -243,7 +243,7 @@ class TestPipeStreaming:
     def test_start_servers_with_handlers(self) -> None:
         """start_servers should accept and distribute log handlers."""
         from llama_manager.config import ServerConfig
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
 
@@ -303,7 +303,7 @@ class TestPipeStreaming:
     def test_start_servers_backward_compatible_no_handlers(self) -> None:
         """start_servers should work without handlers for backward compatibility."""
         from llama_manager.config import ServerConfig
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
 
@@ -334,7 +334,7 @@ class TestPipeStreaming:
         """Ensure only ServerManager reads pipes when handlers provided."""
         from llama_manager.config import ServerConfig
         from llama_manager.log_buffer import LogBuffer
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         buffer = LogBuffer()
@@ -381,7 +381,7 @@ class TestCleanupServersIdempotency:
 
     def _make_manager_with_pids(self, pids: list[int]) -> ServerManager:
         """Create a ServerManager with given PIDs and matching metadata."""
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         manager.pids = list(pids)
@@ -890,7 +890,7 @@ class TestSlotRuntime:
         from llama_manager.log_buffer import LogBuffer
 
         try:
-            from llama_manager.process_manager import SlotRuntime  # type: ignore[attr-defined]
+            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
 
             runtime = SlotRuntime(
                 slot_id="test-slot",
@@ -917,7 +917,7 @@ class TestSlotRuntime:
         from llama_manager.log_buffer import LogBuffer
 
         try:
-            from llama_manager.process_manager import SlotRuntime  # type: ignore[attr-defined]
+            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
 
             logs = LogBuffer()
             gpu = GPUStats(device_index=0)
@@ -946,7 +946,7 @@ class TestSlotRuntime:
         from llama_manager.log_buffer import LogBuffer
 
         try:
-            from llama_manager.process_manager import SlotRuntime  # type: ignore[attr-defined]
+            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
 
             runtime = SlotRuntime(
                 slot_id="test",
@@ -974,7 +974,7 @@ class TestSlotRuntime:
         from llama_manager.log_buffer import LogBuffer
 
         try:
-            from llama_manager.process_manager import SlotRuntime  # type: ignore[attr-defined]
+            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
 
             runtime = SlotRuntime(
                 slot_id="test",
@@ -1002,7 +1002,7 @@ class TestSlotRuntime:
         from llama_manager.log_buffer import LogBuffer
 
         try:
-            from llama_manager.process_manager import SlotRuntime  # type: ignore[attr-defined]
+            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
 
             gpu = GPUStats(device_index=1)
             runtime = SlotRuntime(
@@ -1483,7 +1483,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_pid_does_not_exist(self) -> None:
         """_verify_shutdown_ownership should return False when PID doesn't exist."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
         with patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=False):
             result = _verify_shutdown_ownership(99999, 8080)
@@ -1492,7 +1492,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_process_creation_fails(self) -> None:
         """_verify_shutdown_ownership should return False on NoSuchProcess."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
         with (
             patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
@@ -1505,7 +1505,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_on_access_denied(self) -> None:
         """_verify_shutdown_ownership should return False on AccessDenied."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
         with (
             patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
@@ -1518,7 +1518,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_port_mismatch(self) -> None:
         """_verify_shutdown_ownership should return False when port doesn't match."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 4444  # Not 8080
@@ -1537,7 +1537,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_uid_mismatch(self) -> None:
         """_verify_shutdown_ownership should return False when UID doesn't match."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 8080
@@ -1560,7 +1560,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_true_when_port_and_uid_match(self) -> None:
         """_verify_shutdown_ownership should return True when port + UID match."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 8080
@@ -1583,7 +1583,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_net_connections_access_denied_returns_false(self) -> None:
         """_verify_shutdown_ownership should return False when net_connections raises AccessDenied."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
         with (
             patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
@@ -1602,7 +1602,7 @@ class TestAuditLogRotationPermissions:
 
     def test_rotate_sets_owner_only_permissions(self, tmp_path: Path) -> None:
         """_rotate_audit_log should chmod rotated files to 0600."""
-        from llama_manager.process_manager import _rotate_audit_log
+        from llama_manager.orchestration import _rotate_audit_log
 
         # Create initial log file
         log_path = tmp_path / "audit.log"
@@ -1620,7 +1620,7 @@ class TestAuditLogRotationPermissions:
 
     def test_rotate_multiple_files_all_chmod(self, tmp_path: Path) -> None:
         """_rotate_audit_log should chmod all existing rotated files."""
-        from llama_manager.process_manager import _rotate_audit_log
+        from llama_manager.orchestration import _rotate_audit_log
 
         log_path = tmp_path / "audit.log"
 
@@ -1648,7 +1648,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_api_key_value(self) -> None:
         """API_KEY=secret should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("API_KEY=secret123")
         assert result == "[REDACTED]"
@@ -1656,7 +1656,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_api_key_with_spaces(self) -> None:
         """API_KEY = secret (with spaces around =) should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("API_KEY = mysecret")
         assert result == "[REDACTED]"
@@ -1664,7 +1664,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_quoted_double_value(self) -> None:
         """password="secret" should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive('DB_PASSWORD="supersecret"')
         assert result == "[REDACTED]"
@@ -1672,7 +1672,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_quoted_single_value(self) -> None:
         """password='secret' should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("API_KEY='mytoken'")
         assert result == "[REDACTED]"
@@ -1680,7 +1680,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_authorization_bearer(self) -> None:
         """Authorization: Bearer token should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("Authorization: Bearer mytoken123")
         assert result == "[REDACTED]"
@@ -1688,7 +1688,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_multiple_secrets_in_line(self) -> None:
         """Multiple secrets in one line should all be redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive(
             "API_KEY=abc123 and AUTH=xyz789 in same line",
@@ -1700,7 +1700,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_token_value(self) -> None:
         """TOKEN=value should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("auth_token=jwt-here-abc")
         assert result == "[REDACTED]"
@@ -1708,7 +1708,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_secret_value(self) -> None:
         """SECRET=value should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("database_secret=postgres_pass")
         assert result == "[REDACTED]"
@@ -1716,7 +1716,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_password_value(self) -> None:
         """PASSWORD=value should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("PASSWORD=letmein")
         assert result == "[REDACTED]"
@@ -1724,7 +1724,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_auth_value(self) -> None:
         """AUTH=value should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("AUTH=bearer-token-abc")
         assert result == "[REDACTED]"
@@ -1732,7 +1732,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_auth_header_value(self) -> None:
         """AUTH_HEADER=mysecret should be fully redacted (prefixed auth key)."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("AUTH_HEADER=mysecret")
         assert result == "[REDACTED]"
@@ -1740,7 +1740,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_my_auth_value(self) -> None:
         """MY_AUTH=token should be fully redacted (auth as suffix prefix)."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("MY_AUTH=token")
         assert result == "[REDACTED]"
@@ -1748,7 +1748,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_auth_header_with_spaces(self) -> None:
         """AUTH_HEADER = mysecret (with spaces) should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("AUTH_HEADER = mysecret")
         assert result == "[REDACTED]"
@@ -1756,7 +1756,7 @@ class TestRedactSensitiveValues:
 
     def test_safe_text_unchanged(self) -> None:
         """Text with no sensitive patterns should be unchanged."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("normal text with no secrets")
         assert result == "normal text with no secrets"
@@ -1764,7 +1764,7 @@ class TestRedactSensitiveValues:
     def test_safe_text_with_word_containing_key(self) -> None:
         """Words that contain KEY as a substring but are not standalone key identifiers
         should not be redacted — e.g. 'nokey' is a plain word, not a secret."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         # "nokey" contains KEY but is not an uppercase identifier with KEY as a
         # boundary-aligned keyword — the tightened pattern no longer redacts it.
@@ -1773,7 +1773,7 @@ class TestRedactSensitiveValues:
 
     def test_safe_text_with_word_containing_secret(self) -> None:
         """Text containing a word that has SECRET as substring should not match."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         # "secrets" contains SECRET but word boundary prevents match
         result = _redact_sensitive("no secrets here")

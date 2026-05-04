@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .config import ServerConfig
-from .process_manager import ServerManager
+from .orchestration import ServerManager
 
 RISK_ACK_LABEL: str = "warning_bypass"
 
@@ -57,7 +57,7 @@ def evaluate_risks(
         returned with ``risky_acknowledged`` updated; the original
         ``ServerConfig`` objects are not mutated.
     """
-    from .server import detect_risky_operations
+    from .validation import detect_risky_operations
 
     has_risks = False
     risk_details: list[dict[str, Any]] = []
