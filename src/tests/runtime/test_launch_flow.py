@@ -195,7 +195,7 @@ class TestServerManagerLaunchAllSlots:
                 # This will fail until T017-T019 implement launch_all_slots
                 # and return a LaunchResult object
                 with patch(
-                    "llama_manager.process_manager.resolve_runtime_dir",
+                    "llama_manager.orchestration.lockfile.resolve_runtime_dir",
                     return_value=tmp_path,
                 ):
                     result = manager.launch_all_slots([])
@@ -350,7 +350,7 @@ class TestLaunchOrchestrate:
         )
 
         with patch(
-            "llama_manager.process_manager.apply_profile_overrides",
+            "llama_manager.orchestration.manager.apply_profile_overrides",
             return_value=([], ["No profile found"]),
         ):
             mock_sm = Mock()
@@ -387,7 +387,7 @@ class TestLaunchOrchestrate:
 
         with (
             patch(
-                "llama_manager.process_manager.apply_profile_overrides",
+                "llama_manager.orchestration.manager.apply_profile_overrides",
                 return_value=([cfg], ["Applied profile"]),
             ),
             patch(
@@ -429,7 +429,7 @@ class TestLaunchOrchestrate:
 
         with (
             patch(
-                "llama_manager.process_manager.apply_profile_overrides",
+                "llama_manager.orchestration.manager.apply_profile_overrides",
                 return_value=([cfg], []),
             ),
             patch(
@@ -476,7 +476,7 @@ class TestLaunchOrchestrate:
 
         with (
             patch(
-                "llama_manager.process_manager.apply_profile_overrides",
+                "llama_manager.orchestration.manager.apply_profile_overrides",
                 return_value=([cfg1, cfg2], []),
             ),
             patch(
@@ -528,7 +528,7 @@ class TestLaunchOrchestrate:
 
         with (
             patch(
-                "llama_manager.process_manager.apply_profile_overrides",
+                "llama_manager.orchestration.manager.apply_profile_overrides",
                 return_value=([cfg], []),
             ),
             patch(

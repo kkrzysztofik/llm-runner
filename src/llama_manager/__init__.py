@@ -80,7 +80,7 @@ from .metadata import (
     extract_gguf_metadata,
     normalize_filename,
 )
-from .process_manager import (
+from .orchestration import (
     ArtifactMetadata,
     DryRunArtifactPayload,
     LaunchOrchestrationResult,
@@ -96,6 +96,15 @@ from .process_manager import (
     update_lock,
     write_artifact,
 )
+from .probe import (
+    ConsecutiveFailureCounter,
+    ProvenanceRecord,
+    SmokeCompositeReport,
+    SmokeProbeResult,
+    compute_overall_exit_code,
+    probe_slot,
+    resolve_provenance,
+)
 from .reports import (
     FailureReport,
     MutatingActionLogEntry,
@@ -108,21 +117,6 @@ from .risk_ack import (
     RiskAckResult,
     evaluate_risks,
     resolve_risk_action,
-)
-from .server import (
-    DryRunSlotPayload,
-    ValidationResults,
-    VllmEligibility,
-    build_dry_run_slot_payload,
-    build_server_cmd,
-    require_executable,
-    require_model,
-    validate_backend_eligibility,
-    validate_port,
-    validate_ports,
-    validate_server_config,
-    validate_slots,
-    validate_threads,
 )
 from .setup_venv import (
     VenvResult,
@@ -140,15 +134,6 @@ from .slot_manager import (
     upsert_profile_slot,
 )
 from .slot_state import compute_slot_transition
-from .smoke import (
-    ConsecutiveFailureCounter,
-    ProvenanceRecord,
-    SmokeCompositeReport,
-    SmokeProbeResult,
-    compute_overall_exit_code,
-    probe_slot,
-    resolve_provenance,
-)
 from .toolchain import (
     CMAKE_HINT,
     CMAKE_MINIMUM_VERSION,
@@ -167,6 +152,21 @@ from .toolchain import (
     get_toolchain_hints,
     parse_version,
     version_at_least,
+)
+from .validation import (
+    DryRunSlotPayload,
+    ValidationResults,
+    VllmEligibility,
+    build_dry_run_slot_payload,
+    build_server_cmd,
+    require_executable,
+    require_model,
+    validate_backend_eligibility,
+    validate_port,
+    validate_ports,
+    validate_server_config,
+    validate_slots,
+    validate_threads,
 )
 
 # Re-export redact_sensitive from reports module

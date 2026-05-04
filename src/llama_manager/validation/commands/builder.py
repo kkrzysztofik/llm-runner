@@ -1,0 +1,417 @@
+"""Server command building and dry-run payload construction."""
+
+import hashlib
+import json
+import os
+from dataclasses import dataclass, field
+from typing import Any, Final, Literal
+
+from ...common.security import redact_env_value
+from ...config import (
+    Config,
+    ServerConfig,
+    ValidationResult,
+    VRamRecommendation,
+)
+
+# ---------------------------------------------------------------------------
+# Doctor diagnostics (T069)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DoctorCheckResult:
+    """Result of a single doctor diagnostic check."""
+
+    name: str
+    status: Literal["pass", "warn", "fail"]
+    message: str = ""
+
+
+@dataclass
+class DoctorReport:
+    """Aggregated doctor diagnostic report."""
+
+    checks: list[DoctorCheckResult]
+    config: dict[str, Any] = field(default_factory=dict)
+    hardware: dict[str, Any] = field(default_factory=dict)
+
+    def to_json(self) -> str:
+        """Return JSON string representation."""
+        return json.dumps(
+            {
+                "checks": [
+                    {
+                        "name": c.name,
+                        "status": c.status,
+                        "message": c.message,
+                    }
+                    for c in self.checks
+                ],
+                "config": self.config,
+                "hardware": self.hardware,
+            },
+            indent=2,
+        )
+
+    def to_text(self) -> str:
+        """Return human-readable text representation."""
+        lines: list[str] = ["=== DOCTOR DIAGNOSTIC REPORT ==="]
+        for check in self.checks:
+            icon = {"pass": "\u2713", "warn": "\u26a0", "fail": "\u2717"}.get(check.status, "?")
+            lines.append(f"  [{icon}] {check.name}: {check.message}")
+        return "\n".join(lines)
+
+
+# FR-003: Canonical dry-run payload types
+@dataclass
+class VllmEligibility:
+    """FR-003: vLLM eligibility status for a slot."""
+
+    eligible: bool
+    reason: str
+
+
+@dataclass
+class ValidationResults:
+    """FR-003: Aggregated validation results for a slot."""
+
+    passed: bool
+    checks: list[dict[str, Any]]
+
+
+@dataclass
+class DryRunSlotPayload:
+    """FR-003: Canonical dry-run slot payload with deterministic field ordering."""
+
+    slot_id: str
+    binary_path: str
+    command_args: list[str]
+    model_path: str
+    bind_address: str
+    port: int
+    environment_redacted: dict[str, str]
+    openai_flag_bundle: dict[str, str | int | bool | None]
+    hardware_notes: dict[str, str | None]
+    vllm_eligibility: VllmEligibility
+    warnings: list[str]
+    validation_results: ValidationResults
+
+
+def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[str]:
+    """Build llama-server command arguments."""
+    if cfg.server_bin:
+        server_bin = cfg.server_bin
+    elif default_bin:
+        server_bin = default_bin
+    else:
+        server_bin = Config().llama_server_bin_intel
+
+    cmd = [
+        server_bin,
+        "--model",
+        cfg.model,
+        "--alias",
+        cfg.alias,
+        "--n-gpu-layers",
+        str(cfg.n_gpu_layers),
+        "--split-mode",
+        "layer",
+        "--ctx-size",
+        str(cfg.ctx_size),
+        "--flash-attn",
+        "on",
+        "--cache-type-k",
+        cfg.cache_type_k,
+        "--cache-type-v",
+        cfg.cache_type_v,
+        "--batch-size",
+        "2048",
+        "--ubatch-size",
+        str(cfg.ubatch_size),
+        "--threads",
+        str(cfg.threads),
+        "--poll",
+        "50",
+        "--mmap",
+        "--host",
+        Config().host,
+        "--port",
+        str(cfg.port),
+        "--no-webui",
+    ]
+
+    if cfg.device:
+        cmd.extend(["--device", cfg.device])
+    if cfg.reasoning_mode:
+        cmd.extend(["--reasoning", cfg.reasoning_mode])
+    if cfg.reasoning_format:
+        cmd.extend(["--reasoning-format", cfg.reasoning_format])
+    if cfg.tensor_split:
+        cmd.extend(["--tensor-split", cfg.tensor_split])
+    if cfg.chat_template_kwargs:
+        cmd.extend(["--chat-template-kwargs", cfg.chat_template_kwargs])
+    if cfg.reasoning_budget:
+        cmd.extend(["--reasoning-budget", cfg.reasoning_budget])
+    if cfg.use_jinja:
+        cmd.append("--jinja")
+
+    return cmd
+
+
+def sort_validation_errors(
+    results: list[ValidationResult],
+) -> list[ValidationResult]:
+    """Sort validation errors deterministically for T003 stable ordering."""
+    slot_order: dict[str, int] = {}
+    for i, r in enumerate(results):
+        if r.slot_id not in slot_order:
+            slot_order[r.slot_id] = i
+
+    def sort_key(r: ValidationResult) -> tuple[int, str]:
+        slot_idx = slot_order[r.slot_id]
+        failed_check = r.failed_check or ""
+        return (slot_idx, failed_check)
+
+    return sorted(results, key=sort_key)
+
+
+def build_dry_run_slot_payload(
+    cfg: ServerConfig,
+    slot_id: str,
+    bind_address: str = "127.0.0.1",
+    validation_results: ValidationResults | None = None,
+    warnings: list[str] | None = None,
+) -> DryRunSlotPayload:
+    """FR-003: Build canonical dry-run slot payload from ServerConfig + slot_id."""
+    cmd = build_server_cmd(cfg)
+    command_args = cmd[1:]
+
+    environment_redacted = _build_environment_redacted()
+    openai_flag_bundle = _build_openai_flag_bundle(cfg)
+    hardware_notes = _build_hardware_notes(cfg)
+
+    vllm_eligibility = VllmEligibility(
+        eligible=False,
+        reason="vllm is not launch-eligible in PRD M1 - only llama_cpp supported",
+    )
+
+    if validation_results is None:
+        validation_results = ValidationResults(
+            passed=True,
+            checks=[],
+        )
+
+    if warnings is None:
+        warnings = []
+
+    return DryRunSlotPayload(
+        slot_id=slot_id,
+        binary_path=cmd[0],
+        command_args=command_args,
+        model_path=cfg.model,
+        bind_address=bind_address,
+        port=cfg.port,
+        environment_redacted=environment_redacted,
+        openai_flag_bundle=openai_flag_bundle,
+        hardware_notes=hardware_notes,
+        vllm_eligibility=vllm_eligibility,
+        warnings=warnings,
+        validation_results=validation_results,
+    )
+
+
+def _build_environment_redacted() -> dict[str, str]:
+    """FR-007: Build environment variable map with sensitive values redacted."""
+    env_vars_to_check = [
+        "PATH",
+        "HOME",
+        "LD_LIBRARY_PATH",
+        "CUDA_VISIBLE_DEVICES",
+        "ONEAPI_DEVICE_SELECTOR",
+        "SYCL_DEVICE_SELECTOR",
+        "HF_HOME",
+        "HF_HUB_CACHE",
+    ]
+
+    result: dict[str, str] = {}
+
+    for key in env_vars_to_check:
+        value = os.environ.get(key, "")
+        result[key] = redact_env_value(value, key)
+
+    for key, value in os.environ.items():
+        if key not in result:
+            result[key] = redact_env_value(value, key)
+
+    return result
+
+
+def _build_openai_flag_bundle(cfg: ServerConfig) -> dict[str, str | int | bool | None]:
+    """Build OpenAI API compatibility flag bundle."""
+    chat_completion_supported = cfg.reasoning_mode in ("auto", "enabled")
+
+    bundle: dict[str, str | int | bool | None] = {
+        "--chat-format": "chatml" if chat_completion_supported else None,
+        "--host": "127.0.0.1",
+        "--openai": True,
+        "--port": cfg.port,
+    }
+
+    return dict(sorted(bundle.items()))
+
+
+def _build_hardware_notes(cfg: ServerConfig) -> dict[str, str | None]:
+    """Build hardware notes dict describing backend and hardware."""
+    backend = cfg.backend or "llama_cpp"
+    device = cfg.device or "auto"
+    device_id, device_name = _parse_device_details(device)
+
+    return {
+        "backend": backend,
+        "device_id": device_id,
+        "device_name": device_name,
+        "driver_version": None,
+        "runtime_version": None,
+    }
+
+
+def _parse_device_details(device: str) -> tuple[str | None, str]:
+    if device == "auto":
+        return (None, device)
+
+    if device.startswith("cuda:"):
+        parts = device.split(":", maxsplit=1)
+        if len(parts) == 2 and parts[1]:
+            return (parts[1], "NVIDIA GPU")
+        return (None, device)
+
+    if device.startswith("sycl:"):
+        parts = device.split(":")
+        if len(parts) >= 3:
+            return (f"{parts[1]}:{parts[2]}", f"SYCL Device {parts[1]}")
+        if len(parts) > 1:
+            return (":".join(parts[1:]), device)
+
+    return (None, device)
+
+
+def _get_lspci_output() -> str | None:
+    """Run lspci and return stdout, or None on failure."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["lspci"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def _get_cpu_model() -> str | None:
+    """Extract CPU model name from /proc/cpuinfo."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["cat", "/proc/cpuinfo"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            for line in result.stdout.splitlines():
+                if line.startswith("model name"):
+                    return "cpu:" + line.split(":", 1)[1].strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def _get_os_name() -> str | None:
+    """Extract OS name from /etc/os-release."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["cat", "/etc/os-release"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            for line in result.stdout.splitlines():
+                if line.startswith("NAME="):
+                    return "os:" + line.split("=", 1)[1].strip().strip('"')
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def compute_machine_fingerprint() -> str | None:
+    """Compute a deterministic machine fingerprint from hardware identifiers."""
+    parts: list[str] = []
+
+    gpu_output = _get_lspci_output()
+    if gpu_output is not None:
+        parts.append("gpu:" + gpu_output)
+
+    cpu_model = _get_cpu_model()
+    if cpu_model is not None:
+        parts.append(cpu_model)
+
+    os_name = _get_os_name()
+    if os_name is not None:
+        parts.append(os_name)
+
+    if not parts:
+        return None
+
+    raw = "|".join(parts)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def check_hardware_allowlist(
+    fingerprint: str,
+    allowlist: list[str] | None = None,
+) -> str:
+    """Check a machine fingerprint against a hardware allowlist."""
+    if allowlist is None:
+        raw = os.environ.get("LLM_RUNNER_HARDWARE_ALLOWLIST", "")
+        allowlist = [f.strip() for f in raw.split(",") if f.strip()] if raw else []
+
+    if not allowlist:
+        return "invalidated"
+
+    if fingerprint in allowlist:
+        return "match"
+
+    return "mismatch"
+
+
+def assess_vram_risk(
+    vram_free_gb: float,
+    model_size_gb: float,
+) -> VRamRecommendation:
+    """Assess VRAM risk for loading a model."""
+    from ...config import VRamRecommendation
+
+    if model_size_gb <= 0:
+        return VRamRecommendation.PROCEED
+
+    _WARN_THRESHOLD: Final[float] = 1.2 / 0.85
+    _PROCEED_THRESHOLD: Final[float] = 1.5
+
+    ratio = vram_free_gb / model_size_gb
+
+    if ratio >= _PROCEED_THRESHOLD:
+        return VRamRecommendation.PROCEED
+    if ratio >= _WARN_THRESHOLD:
+        return VRamRecommendation.WARN
+    return VRamRecommendation.CONFIRM_REQUIRED

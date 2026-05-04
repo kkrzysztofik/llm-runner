@@ -723,8 +723,8 @@ class TestProbeSlotHostPortFormatting:
         smoke_cfg = self._make_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke.resolve_provenance") as mock_resolve,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.provenance.resolve_provenance") as mock_resolve,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -741,8 +741,8 @@ class TestProbeSlotHostPortFormatting:
         smoke_cfg = self._make_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke.resolve_provenance") as mock_resolve,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.provenance.resolve_provenance") as mock_resolve,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock

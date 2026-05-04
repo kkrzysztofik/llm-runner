@@ -371,7 +371,7 @@ class TestProcessOwnershipVerification:
         manager = ServerManager()
 
         # Mock subprocess.Popen to avoid actually starting a process
-        with patch("llama_manager.process_manager.subprocess.Popen") as mock_popen:
+        with patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
@@ -379,7 +379,7 @@ class TestProcessOwnershipVerification:
             mock_proc.wait.return_value = 0
 
             # Mock psutil.Process to return a creation time
-            with patch("llama_manager.process_manager.psutil.Process") as mock_psutil:
+            with patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil:
                 mock_proc_obj = mock_psutil.return_value
                 mock_proc_obj.create_time.return_value = 1234567890.123
 
@@ -392,14 +392,14 @@ class TestProcessOwnershipVerification:
         """ServerManager should fall back to PID existence check when metadata unavailable."""
         manager = ServerManager()
 
-        with patch("llama_manager.process_manager.subprocess.Popen") as mock_popen:
+        with patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
             mock_proc.stderr = None
 
             # Simulate psutil failure (AccessDenied)
-            with patch("llama_manager.process_manager.psutil.Process") as mock_psutil:
+            with patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil:
                 mock_psutil.side_effect = psutil.AccessDenied(12345, "denied")
 
                 manager.start_server_background("test", ["cmd"])
@@ -461,9 +461,9 @@ class TestProcessOwnershipVerification:
         manager.pid_metadata[12345] = 1234567890.0
 
         with (
-            patch("llama_manager.process_manager.subprocess.Popen") as mock_popen,
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen,
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
             patch("os.kill") as mock_kill,
         ):
             mock_proc = mock_popen.return_value
@@ -490,14 +490,14 @@ class TestProcessOwnershipVerification:
         manager.pids = [12345]
         manager.pid_metadata[12345] = 1234567890.0
 
-        with patch("llama_manager.process_manager.subprocess.Popen") as mock_popen:
+        with patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
             mock_proc.stderr = None
             mock_proc.wait.return_value = 0
 
-            with patch("llama_manager.process_manager.psutil.Process") as mock_psutil:
+            with patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil:
                 mock_proc_obj = mock_psutil.return_value
                 mock_proc_obj.create_time.return_value = 1234567890.05  # matches
 
@@ -541,7 +541,9 @@ class TestArtifactFilenameUniqueness:
         runtime_dir.mkdir()
 
         # Mock time so all writes happen in the same second, forcing collision handling
-        with patch("llama_manager.process_manager.time.strftime", return_value="20240101-120000"):
+        with patch(
+            "llama_manager.orchestration.manager.time.strftime", return_value="20240101-120000"
+        ):
             paths = []
             for i in range(5):
                 data = self._valid_artifact_data()
@@ -753,13 +755,13 @@ class TestLifecycleAuditTrail:
         """start_server_background should record start event in audit trail."""
         manager = ServerManager()
 
-        with patch("llama_manager.process_manager.subprocess.Popen") as mock_popen:
+        with patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
             mock_proc.stderr = None
 
-            with patch("llama_manager.process_manager.psutil.Process") as mock_psutil:
+            with patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil:
                 mock_proc_obj = mock_psutil.return_value
                 mock_proc_obj.create_time.return_value = 1234567890.123
 
@@ -778,14 +780,14 @@ class TestLifecycleAuditTrail:
         manager.pids = [12345]
         manager.pid_metadata[12345] = 1234567890.0
 
-        with patch("llama_manager.process_manager.subprocess.Popen") as mock_popen:
+        with patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
             mock_proc.stderr = None
             mock_proc.wait.return_value = 0
 
-            with patch("llama_manager.process_manager.psutil.Process") as mock_psutil:
+            with patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil:
                 mock_proc_obj = mock_psutil.return_value
                 mock_proc_obj.create_time.return_value = 1234567890.05
 
@@ -808,9 +810,9 @@ class TestLifecycleAuditTrail:
         manager.pid_metadata[12345] = 1234567890.0
 
         with (
-            patch("llama_manager.process_manager.subprocess.Popen") as mock_popen,
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen,
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
             patch("os.kill") as mock_kill,
         ):
             mock_proc = mock_popen.return_value
@@ -844,9 +846,9 @@ class TestLifecycleAuditTrail:
         manager.pid_metadata[12345] = 1234567890.0
 
         with (
-            patch("llama_manager.process_manager.subprocess.Popen") as mock_popen,
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen,
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
             patch("os.kill") as mock_kill,
         ):
             mock_proc = mock_popen.return_value
