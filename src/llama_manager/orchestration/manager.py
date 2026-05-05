@@ -38,10 +38,12 @@ __all__ = ["ServerManager", "launch_orchestrate"]
 if TYPE_CHECKING:
     from ..risk_ack import RiskAckResult
 
-from ..orchestration.lockfile import ValidationException
+from ..orchestration.lockfile import (
+    LOCKFILE_CHECK_NAME,
+    ValidationException,
+)
 
 # Module-local string constants (process_manager-specific).
-LOCKFILE_CHECK_NAME: Final[str] = "lockfile_integrity"
 ARTIFACT_CHECK_NAME: Final[str] = "artifact_persistence"
 OWNER_ONLY_PERMISSIONS_FAILURE: Final[str] = (
     "artifact persistence failed to enforce required owner-only permissions"
@@ -51,12 +53,6 @@ PERMISSION_SUPPORT_HINT: Final[str] = (
 )
 PERMISSION_WRITABILITY_HINT: Final[str] = (
     "verify runtime path writability and filesystem permission support/chmod limitations"
-)
-INDETERMINATE_OWNER_MESSAGE: Final[str] = (
-    "indeterminate_owner: lock exists but ownership verification is not definitive"
-)
-INDETERMINATE_OWNER_FIX: Final[str] = (
-    "verify owning process and clear lock only after confirmed stale ownership"
 )
 MAX_COLLISION_RETRIES: Final[int] = 10
 
@@ -349,7 +345,7 @@ def launch_orchestrate(
             empty=False,
         )
 
-    launch_result = server_manager.launch_all_slots(slots)
+    launch_result = server_manager.launch_all_slots(slots, configs=updated_configs)
 
     status_messages: list[str] = list(profile_messages)
 
@@ -730,7 +726,10 @@ class ServerManager:
         return processes
 
     def launch_all_slots(
-        self, slots: list[ModelSlot], runtime_dir: Path | None = None
+        self,
+        slots: list[ModelSlot],
+        runtime_dir: Path | None = None,
+        configs: list[ServerConfig] | None = None,
     ) -> LaunchResult:
         """Launch model slots with lock collision detection (T017-T019)."""
         from .lockfile import check_lockfile_integrity, resolve_runtime_dir
@@ -741,6 +740,10 @@ class ServerManager:
         warnings: list[str] = []
         errors: list[ErrorDetail] = []
 
+        config_map: dict[str, ServerConfig] = {}
+        if configs:
+            config_map = {cfg.alias: cfg for cfg in configs}
+
         for slot in slots:
             block = check_lockfile_integrity(runtime_dir, slot.slot_id)
 
@@ -749,7 +752,22 @@ class ServerManager:
                 warnings.append(error_msg)
                 errors.append(block)
             else:
-                launched.append(slot.slot_id)
+                cfg = config_map.get(slot.slot_id)
+                port = cfg.port if cfg is not None else 0
+                try:
+                    self.acquire_lock(slot.slot_id, port)
+                    launched.append(slot.slot_id)
+                except Exception as exc:
+                    error_msg = f"slot {slot.slot_id}: lock_acquire_failed - {exc}"
+                    warnings.append(error_msg)
+                    errors.append(
+                        ErrorDetail(
+                            error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+                            failed_check=LOCKFILE_CHECK_NAME,
+                            why_blocked=error_msg,
+                            how_to_fix="verify the owning process or clear the lockfile",
+                        )
+                    )
 
         if not launched:
             if errors:

@@ -274,9 +274,6 @@ def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | N
         return metadata_result
     if metadata_result is None:
         return None
-    if not isinstance(metadata_result, LockMetadata):
-        _clear_lockfile(runtime_dir, slot_id)
-        return None
     metadata: LockMetadata = metadata_result
 
     if not psutil.pid_exists(metadata.pid):

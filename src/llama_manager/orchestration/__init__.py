@@ -1,5 +1,6 @@
 """orchestration package — process management, lockfiles, and artifacts."""
 
+from ..common.security import REDACTED_VALUE
 from .artifact import (
     ArtifactMetadata,
     DryRunArtifactPayload,
@@ -22,7 +23,6 @@ from .lockfile import (
     update_lock,
 )
 from .manager import (
-    REDACTED_VALUE,
     LaunchOrchestrationResult,
     LaunchResult,
     ProcessMetadata,

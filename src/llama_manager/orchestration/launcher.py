@@ -10,7 +10,6 @@ Exports:
 from __future__ import annotations
 
 import subprocess
-from abc import abstractmethod
 from io import TextIOWrapper
 from typing import Protocol
 
@@ -41,7 +40,6 @@ class ProcessHandle(Protocol):
 class ProcessLauncher(Protocol):
     """Protocol for objects that can launch a process and return a handle."""
 
-    @abstractmethod
     def launch(self, cmd: list[str]) -> ProcessHandle: ...
 
 

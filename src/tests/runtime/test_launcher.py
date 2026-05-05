@@ -406,7 +406,7 @@ class TestServerManagerForeground:
 class TestServerManagerSignalHandlers:
     """Tests for signal handler methods (on_interrupt, on_terminate)."""
 
-    def test_on_interrupt_calls_cleanup_and_exits(self, capsys) -> None:
+    def test_on_interrupt_calls_cleanup_and_exits(self, capsys: pytest.CaptureFixture[str]) -> None:
         """on_interrupt should call cleanup_servers then exit with 130."""
         from llama_manager.orchestration import ServerManager
 
@@ -419,7 +419,7 @@ class TestServerManagerSignalHandlers:
         assert exc_info.value.code == 130
         assert manager.shutting_down is True
 
-    def test_on_terminate_calls_cleanup_and_exits(self, capsys) -> None:
+    def test_on_terminate_calls_cleanup_and_exits(self, capsys: pytest.CaptureFixture[str]) -> None:
         """on_terminate should call cleanup_servers then exit with 143."""
         from llama_manager.orchestration import ServerManager
 

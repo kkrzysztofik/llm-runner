@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from importlib.metadata import version as _importlib_version
 from pathlib import Path
-from subprocess import CalledProcessError, TimeoutExpired, run
 
 from ..config import Config
 
@@ -66,6 +65,8 @@ def _resolve_sha() -> str:
         pass
 
     # Fallback: try git rev-parse
+    from subprocess import CalledProcessError, TimeoutExpired, run
+
     try:
         result = run(
             ["git", "-C", llama_cpp_root, "rev-parse", "HEAD"],

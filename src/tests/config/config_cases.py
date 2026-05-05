@@ -542,7 +542,7 @@ class TestArtifactFilenameUniqueness:
 
         # Mock time so all writes happen in the same second, forcing collision handling
         with patch(
-            "llama_manager.orchestration.manager.time.strftime", return_value="20240101-120000"
+            "llama_manager.orchestration.artifact.time.strftime", return_value="20240101-120000"
         ):
             paths = []
             for i in range(5):
