@@ -3,7 +3,7 @@
 from .artifact import (
     ArtifactMetadata,
     DryRunArtifactPayload,
-    _redact_sensitive_in_dict,
+    _redact_sensitive_in_dict,  # noqa: F401 — re-exported for tests
     write_artifact,
 )
 from .lockfile import (
@@ -23,6 +23,7 @@ from .manager import (
     ServerManager,
     SlotRuntime,
     ValidationException,
+    _append_audit_log,
     _redact_sensitive,
     _rotate_audit_log,
     _verify_shutdown_ownership,
@@ -42,7 +43,6 @@ __all__ = [
     "write_artifact",
     "DryRunArtifactPayload",
     "ArtifactMetadata",
-    "_redact_sensitive_in_dict",
     # Server lifecycle
     "ServerManager",
     "SlotRuntime",
@@ -52,6 +52,7 @@ __all__ = [
     "launch_orchestrate",
     # Internal (exported for tests)
     "REDACTED_VALUE",
+    "_append_audit_log",
     "_redact_sensitive",
     "_rotate_audit_log",
     "_verify_shutdown_ownership",

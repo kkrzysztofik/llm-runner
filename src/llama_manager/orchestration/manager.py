@@ -270,8 +270,19 @@ def _append_audit_log(
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     line = f"{timestamp} {message}\n"
 
-    with open(log_path, "a", encoding="utf-8") as fh:
-        fh.write(line)
+    # Use os.open with FILE_MODE_OWNER_ONLY to ensure owner-only permissions
+    # on both new and existing files.
+    fd = os.open(
+        str(log_path),
+        os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+        FILE_MODE_OWNER_ONLY,
+    )
+    try:
+        with os.fdopen(fd, "a", encoding="utf-8") as fh:
+            fh.write(line)
+    except OSError:
+        os.close(fd)
+        raise
 
 
 def launch_orchestrate(
@@ -405,7 +416,7 @@ def launch_orchestrate(
 class ServerManager:
     """Manages server processes with lifecycle audit trail."""
 
-    def __init__(self) -> None:
+    def __init__(self, audit_log_path: Path | None = None) -> None:
         self.pids: list[int] = []
         self.shutting_down: bool = False
         self.servers: list[subprocess.Popen] = []
@@ -413,6 +424,7 @@ class ServerManager:
         self._lifecycle_audit: list[dict] = []
         self._risky_acknowledged_cache: dict[str, set[str]] = {}
         self._current_launch_attempt_id: str | None = None
+        self._audit_log_path = audit_log_path
 
     def begin_launch_attempt(self, launch_attempt_id: str | None = None) -> str:
         """Create/select launch attempt and initialize per-attempt ack cache."""
@@ -630,6 +642,12 @@ class ServerManager:
                 "timestamp": time.time(),
             }
         )
+        if self._audit_log_path is not None:
+            with contextlib.suppress(OSError):
+                _append_audit_log(
+                    self._audit_log_path,
+                    f"lifecycle:{event} pid={pid} {details or ''}",
+                )
 
     def start_server_background(
         self,

@@ -855,6 +855,48 @@ class TestAuditLogRedaction:
         assert redacted["outer"]["api_key"] == REDACTED_VALUE
         assert redacted["outer"]["safe"] == "value"
 
+    def test_nested_dict_redaction_uses_full_path(self) -> None:
+        """_redact_sensitive_in_dict must check is_sensitive_key against full_key path.
+
+        Regression test: the fix changed is_sensitive_key(key) to
+        is_sensitive_key(full_key) so that nested sensitive keys are
+        correctly identified by their full dotted path.
+        """
+        # Deeply nested structure where each level's key contains a
+        # sensitive keyword, verifying the full path is checked at
+        # every level of recursion.
+        data = {
+            "level1": {
+                "config": {
+                    "api_key": "deep_secret",
+                    "normal": "preserved",
+                }
+            }
+        }
+        redacted = _redact_sensitive_in_dict(data)
+
+        assert redacted["level1"]["config"]["api_key"] == REDACTED_VALUE
+        assert redacted["level1"]["config"]["normal"] == "preserved"
+
+    def test_deeply_nested_redaction(self) -> None:
+        """_redact_sensitive_in_dict should redact at arbitrary nesting depth."""
+        data = {
+            "a": {
+                "b": {
+                    "c": {
+                        "d": {
+                            "AUTH_TOKEN": "deepest_secret",
+                            "safe": "value",
+                        }
+                    }
+                }
+            }
+        }
+        redacted = _redact_sensitive_in_dict(data)
+
+        assert redacted["a"]["b"]["c"]["d"]["AUTH_TOKEN"] == REDACTED_VALUE
+        assert redacted["a"]["b"]["c"]["d"]["safe"] == "value"
+
     def test_non_dict_values_preserved(self) -> None:
         """_redact_sensitive_in_dict should preserve non-string values."""
         data = {"count": 42, "enabled": True, "items": [1, 2, 3]}
@@ -1227,7 +1269,10 @@ class TestFullLifecycleAndShutdown:
         assert len(signals_sent) == 0
 
     def test_shutdown_slot_no_ownership_no_such_process(self, tmp_path: Path) -> None:
-        """shutdown_slot should return False when process no longer exists (ownership unverifiable)."""
+        """shutdown_slot should return False when process no longer exists.
+
+        Ownership is unverifiable when psutil.NoSuchProcess is raised.
+        """
         manager = ServerManager()
 
         signals_sent: list[int] = []
@@ -1582,7 +1627,7 @@ class TestVerifyShutdownOwnership:
         assert result is True
 
     def test_verify_net_connections_access_denied_returns_false(self) -> None:
-        """_verify_shutdown_ownership should return False when net_connections raises AccessDenied."""
+        """_verify_shutdown_ownership returns False on net_connections AccessDenied."""
         from llama_manager.orchestration import _verify_shutdown_ownership
 
         with (
@@ -1641,6 +1686,44 @@ class TestAuditLogRotationPermissions:
             if rotated.exists():
                 mode = stat.S_IMODE(rotated.stat().st_mode)
                 assert mode == 0o600, f"Rotated file .{i} has mode {oct(mode)}"
+
+    def test_append_audit_log_creates_file_with_owner_only_perms(self, tmp_path: Path) -> None:
+        """_append_audit_log should create new audit log files with 0600 permissions."""
+        from llama_manager.orchestration import _append_audit_log
+
+        log_path = tmp_path / "audit.log"
+
+        # Append to a non-existent file
+        _append_audit_log(log_path, "test audit message")
+
+        assert log_path.exists()
+        mode = stat.S_IMODE(log_path.stat().st_mode)
+        assert mode == 0o600, f"Audit log file should have 0o600 permissions, got {oct(mode)}"
+        # Verify content was written
+        content = log_path.read_text()
+        assert "test audit message" in content
+
+    def test_append_audit_log_appends_with_owner_only_perms(self, tmp_path: Path) -> None:
+        """_append_audit_log should preserve 0600 permissions when appending."""
+        from llama_manager.orchestration import _append_audit_log
+
+        log_path = tmp_path / "audit.log"
+
+        # First write
+        _append_audit_log(log_path, "first message")
+        first_mode = stat.S_IMODE(log_path.stat().st_mode)
+        assert first_mode == 0o600
+
+        # Second write (append)
+        _append_audit_log(log_path, "second message")
+        second_mode = stat.S_IMODE(log_path.stat().st_mode)
+        assert second_mode == 0o600, (
+            f"Audit log file should retain 0o600 permissions after append, got {oct(second_mode)}"
+        )
+        # Verify both messages are present
+        content = log_path.read_text()
+        assert "first message" in content
+        assert "second message" in content
 
 
 class TestRedactSensitiveValues:

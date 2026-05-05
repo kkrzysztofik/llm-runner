@@ -20,11 +20,10 @@ if TYPE_CHECKING:
 
 # Module-local string constants (lockfile-specific).
 LOCKFILE_CHECK_NAME: str = "lockfile_integrity"
-MAX_COLLISION_RETRIES: int = 10
-INDENTERRMINATE_OWNER_MESSAGE: str = (
+INDETERMINATE_OWNER_MESSAGE: str = (
     "indeterminate_owner: lock exists but ownership verification is not definitive"
 )
-INDENTERRMINATE_OWNER_FIX: str = (
+INDETERMINATE_OWNER_FIX: str = (
     "verify owning process and clear lock only after confirmed stale ownership"
 )
 
@@ -249,13 +248,13 @@ def _clear_lockfile(runtime_dir: Path, slot_id: str) -> None:
 
 
 def _build_indeterminate_owner_error(
-    why_blocked: str = INDENTERRMINATE_OWNER_MESSAGE,
+    why_blocked: str = INDETERMINATE_OWNER_MESSAGE,
 ) -> ErrorDetail:
     return ErrorDetail(
         error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
         failed_check=LOCKFILE_CHECK_NAME,
         why_blocked=why_blocked,
-        how_to_fix=INDENTERRMINATE_OWNER_FIX,
+        how_to_fix=INDETERMINATE_OWNER_FIX,
     )
 
 

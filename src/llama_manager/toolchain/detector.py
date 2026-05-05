@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -37,7 +38,7 @@ def _get_oneapi_bin() -> Path:
 
 
 # Look up detect_tool from the package so tests can patch via llama_manager.toolchain.detect_tool
-def _get_detect_tool():
+def _get_detect_tool() -> Callable[..., tuple[bool, str | None]]:
     """Get detect_tool from the package namespace for testability."""
     toolchain_pkg = sys.modules.get("llama_manager.toolchain")
     if toolchain_pkg is not None and hasattr(toolchain_pkg, "detect_tool"):

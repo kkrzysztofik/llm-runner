@@ -147,7 +147,7 @@ def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
         full_key = f"{env_key_prefix}_{key}" if env_key_prefix else key
         if isinstance(value, dict):
             result[key] = _redact_sensitive_in_dict(value, full_key)
-        elif isinstance(value, str) and is_sensitive_key(key):
+        elif isinstance(value, str) and is_sensitive_key(full_key):
             result[key] = REDACTED_VALUE
         else:
             result[key] = value
