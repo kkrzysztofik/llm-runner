@@ -271,13 +271,14 @@ def _append_audit_log(
     line = f"{timestamp} {message}\n"
 
     # Use os.open with FILE_MODE_OWNER_ONLY to ensure owner-only permissions
-    # on both new and existing files.
+    # on new files; also enforce on existing files via fchmod.
     fd = os.open(
         str(log_path),
         os.O_WRONLY | os.O_CREAT | os.O_APPEND,
         FILE_MODE_OWNER_ONLY,
     )
     try:
+        os.fchmod(fd, FILE_MODE_OWNER_ONLY)
         with os.fdopen(fd, "a", encoding="utf-8") as fh:
             fh.write(line)
     except OSError:

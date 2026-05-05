@@ -35,7 +35,7 @@ class DryRunArtifactPayload(TypedDict):
     slot_scope: list[str]
     resolved_command: dict[str, Any]
     validation_results: dict[str, Any]
-    warnings: list[Any]
+    warnings: list[str]
     environment_redacted: dict[str, Any]
 
 
@@ -47,21 +47,36 @@ class ArtifactMetadata:
         artifact_type: str,
         created_at: float,
         slot_id: str | None = None,
-        additional_fields: dict | None = None,
+        additional_fields: dict[str, Any] | None = None,
     ) -> None:
         self.artifact_type = artifact_type
         self.created_at = created_at
         self.slot_id = slot_id
-        self.additional_fields: dict = additional_fields if additional_fields is not None else {}
+        self.additional_fields: dict[str, Any] = (
+            additional_fields if additional_fields is not None else {}
+        )
 
 
 def write_artifact(runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload | dict) -> Path:
     """T012: Write artifact with JSON serialization and 0700/0600 permission enforcement."""
     _validate_artifact_fields(data)
     artifact_dir = runtime_dir / "artifacts"
-    artifact_dir.mkdir(parents=True, exist_ok=True, mode=DIR_MODE_OWNER_ONLY)
+    try:
+        artifact_dir.mkdir(parents=True, exist_ok=True, mode=DIR_MODE_OWNER_ONLY)
+    except OSError as e:
+        raise _artifact_error(
+            f"failed to create artifact directory: {e}",
+            "verify runtime path writability and filesystem permission support",
+        ) from e
 
-    dir_mode = stat.S_IMODE(os.stat(artifact_dir).st_mode)
+    try:
+        dir_mode = stat.S_IMODE(os.stat(artifact_dir).st_mode)
+    except OSError as e:
+        raise _artifact_error(
+            f"failed to stat artifact directory: {e}",
+            "verify runtime path and permission support/chmod limitations",
+        ) from e
+
     if dir_mode != DIR_MODE_OWNER_ONLY:
         raise _artifact_error(OWNER_ONLY_PERMISSIONS_FAILURE, PERMISSION_WRITABILITY_HINT)
 
@@ -123,6 +138,16 @@ def _validate_artifact_fields(data: DryRunArtifactPayload | dict) -> None:
             check="artifact_validation",
         )
 
+    # timestamp must be a string (ISO 8601)
+    timestamp = data.get("timestamp")
+    if not isinstance(timestamp, str):
+        raise _artifact_error(
+            "timestamp must be an ISO 8601 string",
+            "provide timestamp as an ISO 8601 formatted string (e.g. 2026-04-12T00:00:00Z)",
+            check="artifact_validation",
+        )
+
+    # slot_scope must be list[str]
     slot_scope = data.get("slot_scope")
     if not isinstance(slot_scope, list) or not all(isinstance(item, str) for item in slot_scope):
         raise _artifact_error(
@@ -131,11 +156,54 @@ def _validate_artifact_fields(data: DryRunArtifactPayload | dict) -> None:
             check="artifact_validation",
         )
 
+    # resolved_command must be dict[str, <slot_data>] with str keys and str slot_id keys
     resolved_command = data.get("resolved_command")
     if not isinstance(resolved_command, dict):
         raise _artifact_error(
             "resolved_command must be an object mapping",
             "provide resolved_command as a mapping keyed by slot ID",
+            check="artifact_validation",
+        )
+    for cmd_key, cmd_val in resolved_command.items():
+        if not isinstance(cmd_key, str):
+            raise _artifact_error(
+                "resolved_command keys must be strings (slot IDs)",
+                "provide resolved_command with string keys for each slot ID",
+                check="artifact_validation",
+            )
+        if isinstance(cmd_val, dict):
+            for slot_id in cmd_val:
+                if not isinstance(slot_id, str):
+                    raise _artifact_error(
+                        "resolved_command slot IDs must be strings",
+                        "ensure all slot identifiers in resolved_command are strings",
+                        check="artifact_validation",
+                    )
+
+    # validation_results must be a dict/mapping
+    validation_results = data.get("validation_results")
+    if not isinstance(validation_results, dict):
+        raise _artifact_error(
+            "validation_results must be an object mapping",
+            "provide validation_results as a mapping of check names to results",
+            check="artifact_validation",
+        )
+
+    # warnings must be list[str]
+    warnings = data.get("warnings")
+    if not isinstance(warnings, list) or not all(isinstance(item, str) for item in warnings):
+        raise _artifact_error(
+            "warnings must be list[str]",
+            "provide warnings as a list of string messages",
+            check="artifact_validation",
+        )
+
+    # environment_redacted must be a dict/mapping (redacted env var values)
+    environment_redacted = data.get("environment_redacted")
+    if not isinstance(environment_redacted, dict):
+        raise _artifact_error(
+            "environment_redacted must be an object mapping",
+            "provide environment_redacted as a mapping of environment variable names to redacted values",
             check="artifact_validation",
         )
 

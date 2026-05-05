@@ -268,16 +268,9 @@ validate_ports() {
   return 0
 }
 
-# Append Qwen35 speculative-decoding flags to a command array (by nameref).
-append_qwen35_spec_flags() {
-  local -n _target="$1"
-  _target+=(
-    --spec-type "$DEFAULT_SPEC_TYPE_QWEN_MTP"
-    --spec-draft-n-max "$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP"
-  )
-}
-
-append_qwen27b_spec_flags() {
+# Append Qwen MTP speculative-decoding flags to a command array (by nameref).
+# shellcheck disable=SC2178
+append_qwen_mtp_spec_flags() {
   local -n _target="$1"
   _target+=(
     --spec-type "$DEFAULT_SPEC_TYPE_QWEN_MTP"
@@ -533,7 +526,7 @@ start_qwen27b() {
   cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN27B")
-  append_qwen27b_spec_flags cmd
+  append_qwen_mtp_spec_flags cmd
 
   exec_server "qwen27b-coding" cmd
 }
@@ -605,7 +598,7 @@ start_both_qwen35() {
   qwen35_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   qwen35_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   qwen35_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN35_BOTH")
-  append_qwen35_spec_flags qwen35_cmd
+  append_qwen_mtp_spec_flags qwen35_cmd
 
   # Setup signal handlers BEFORE launching servers
   trap on_interrupt INT
@@ -920,7 +913,7 @@ dry_run() {
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN27B")
-      append_qwen27b_spec_flags tmp_cmd
+      append_qwen_mtp_spec_flags tmp_cmd
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
@@ -967,7 +960,7 @@ dry_run() {
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN35_BOTH")
-      append_qwen35_spec_flags tmp_cmd
+      append_qwen_mtp_spec_flags tmp_cmd
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;

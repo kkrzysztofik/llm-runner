@@ -135,7 +135,7 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         "50",
         "--mmap",
         "--host",
-        Config().host,
+        cfg.bind_address,
         "--port",
         str(cfg.port),
         "--no-webui",

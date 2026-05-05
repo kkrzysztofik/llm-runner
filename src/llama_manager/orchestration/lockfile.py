@@ -13,7 +13,7 @@ import psutil
 
 from ..common.constants import DIR_MODE_OWNER_ONLY, FILE_MODE_OWNER_ONLY
 from ..common.file_ops import atomic_exclusive_create_json, atomic_write_json
-from ..config import Config, ErrorCode, ErrorDetail
+from ..config import ErrorCode, ErrorDetail
 
 if TYPE_CHECKING:
     from ..config import MultiValidationError
@@ -159,6 +159,18 @@ def create_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> Path:
         ) from e
 
 
+def _coerce_lock_data(lock_data: dict) -> LockMetadata | None:
+    """Coerce raw lock data dict to LockMetadata, returning None on bad types."""
+    try:
+        return LockMetadata(
+            pid=int(lock_data["pid"]),
+            port=int(lock_data["port"]),
+            started_at=float(lock_data["started_at"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def read_lock(
     runtime_dir: Path, slot_id: str, require_valid: bool = False
 ) -> LockMetadata | ErrorDetail | None:
@@ -170,12 +182,7 @@ def read_lock(
 
     try:
         lock_data = json.loads(lock_path.read_text())
-        return LockMetadata(
-            pid=lock_data["pid"],
-            port=lock_data["port"],
-            started_at=lock_data["started_at"],
-        )
-    except (json.JSONDecodeError, KeyError, OSError) as e:
+    except (json.JSONDecodeError, OSError) as e:
         if require_valid:
             return ErrorDetail(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
@@ -184,6 +191,46 @@ def read_lock(
                 how_to_fix="remove or repair the lockfile to proceed",
             )
         return None
+
+    # Explicit type validation before coercion (require_valid=True)
+    if require_valid:
+        raw_pid = lock_data.get("pid")
+        raw_port = lock_data.get("port")
+        raw_started_at = lock_data.get("started_at")
+
+        if not isinstance(raw_pid, int) or isinstance(raw_pid, bool):
+            return ErrorDetail(
+                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+                failed_check=LOCKFILE_CHECK_NAME,
+                why_blocked="malformed_content: lock 'pid' must be an integer",
+                how_to_fix="remove or repair the lockfile to proceed",
+            )
+        if not isinstance(raw_port, int) or isinstance(raw_port, bool):
+            return ErrorDetail(
+                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+                failed_check=LOCKFILE_CHECK_NAME,
+                why_blocked="malformed_content: lock 'port' must be an integer",
+                how_to_fix="remove or repair the lockfile to proceed",
+            )
+        if not isinstance(raw_started_at, (int, float)) or isinstance(raw_started_at, bool):
+            return ErrorDetail(
+                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+                failed_check=LOCKFILE_CHECK_NAME,
+                why_blocked="malformed_content: lock 'started_at' must be a numeric value",
+                how_to_fix="remove or repair the lockfile to proceed",
+            )
+
+    metadata = _coerce_lock_data(lock_data)
+    if metadata is None:
+        if require_valid:
+            return ErrorDetail(
+                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+                failed_check=LOCKFILE_CHECK_NAME,
+                why_blocked="malformed_content: lock data has invalid field types",
+                how_to_fix="remove or repair the lockfile to proceed",
+            )
+        return None
+    return metadata
 
 
 def update_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> None:
@@ -227,11 +274,10 @@ def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | N
         return metadata_result
     if metadata_result is None:
         return None
-    metadata: LockMetadata = metadata_result
-
-    if time.time() - metadata.started_at > Config().lock_stale_threshold_s:
+    if not isinstance(metadata_result, LockMetadata):
         _clear_lockfile(runtime_dir, slot_id)
         return None
+    metadata: LockMetadata = metadata_result
 
     if not psutil.pid_exists(metadata.pid):
         _clear_lockfile(runtime_dir, slot_id)

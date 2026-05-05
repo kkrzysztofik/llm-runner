@@ -30,7 +30,16 @@ def redact_sensitive(text: str) -> str:
         return f"{full_key}: {REDACTED_VALUE}"
 
     # First pass: replace key=value and key: value constructs.
-    pattern = r"(?<!\w)(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)([=:]\s*\S+)"
+    # Match quoted values (single or double quotes) or unquoted values.
+    # Unquoted values stop before the next key=value pattern or end of string.
+    pattern = (
+        r"(?<!\w)(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)"
+        r"([=:]\s*)"
+        r'(?:"[^"]*"|'
+        r"'[^']*'"
+        r'|(\S+(?:\s+\S+)*?)(?=\s+(?:[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH)[A-Z_]*'
+        r'\s*=|\s*$))'
+    )
     result = re.sub(pattern, replace_key_value, text, flags=re.IGNORECASE)
 
     # Second pass: replace standalone sensitive words that have no value after them.

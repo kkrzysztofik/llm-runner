@@ -38,11 +38,11 @@ def _get_oneapi_bin() -> Path:
 
 
 # Look up detect_tool from the package so tests can patch via llama_manager.toolchain.detect_tool
-def _get_detect_tool() -> Callable[..., tuple[bool, str | None]]:
+def _get_detect_tool() -> Callable[[str, int | None], tuple[bool, str | None]]:
     """Get detect_tool from the package namespace for testability."""
     toolchain_pkg = sys.modules.get("llama_manager.toolchain")
     if toolchain_pkg is not None and hasattr(toolchain_pkg, "detect_tool"):
-        return toolchain_pkg.detect_tool
+        return toolchain_pkg.detect_tool  # type: ignore[return-value]
     return detect_tool
 
 
@@ -173,7 +173,7 @@ def get_toolchain_hints(backend: str) -> list[ToolchainErrorDetail]:
 
     _detect_tool = _get_detect_tool()
     for tool in required_tools:
-        found, _ = _detect_tool(tool)
+        found, _ = _detect_tool(tool, None)
         if not found:
             hint = hints_map.get(tool, ToolchainHint(tool, f"install {tool}"))
             missing.append(
@@ -343,23 +343,23 @@ def detect_toolchain() -> ToolchainStatus:
     status = ToolchainStatus()
 
     # Common tools
-    _, version = _detect_tool("gcc")
+    _, version = _detect_tool("gcc", None)
     status.gcc = version
-    _, version = _detect_tool("make")
+    _, version = _detect_tool("make", None)
     status.make = version
-    _, version = _detect_tool("git")
+    _, version = _detect_tool("git", None)
     status.git = version
-    _, version = _detect_tool("cmake")
+    _, version = _detect_tool("cmake", None)
     status.cmake = version
 
     # SYCL-specific tools
-    _, version = _detect_tool("icpx")
+    _, version = _detect_tool("icpx", None)
     status.sycl_compiler = version
 
     # CUDA-specific tools
-    _, version = _detect_tool("nvcc")
+    _, version = _detect_tool("nvcc", None)
     status.cuda_toolkit = version
-    _, version = _detect_tool("nvtop")
+    _, version = _detect_tool("nvtop", None)
     status.nvtop = version
 
     return status
