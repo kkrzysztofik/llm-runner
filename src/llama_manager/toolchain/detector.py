@@ -311,21 +311,24 @@ class ToolchainStatus:
         if self.cmake is None:
             missing.append("cmake")
 
-        # If no backend specified, return all missing tools (backward compatible)
+        # If no backend specified, return all missing tools (backward compatible).
+        # nvtop is optional (not required for either backend) — do NOT add it
+        # in the global None check; it is only surfaced for the CUDA backend.
         if backend is None:
             if self.sycl_compiler is None:
                 missing.append("sycl_compiler")
             if self.cuda_toolkit is None:
                 missing.append("cuda_toolkit")
-            if self.nvtop is None:
-                missing.append("nvtop")
             return missing
 
         # Check backend-specific tools
         if backend == BuildBackend.SYCL and self.sycl_compiler is None:
             missing.append("sycl_compiler")
-        elif backend == BuildBackend.CUDA and self.cuda_toolkit is None:
-            missing.append("cuda_toolkit")
+        elif backend == BuildBackend.CUDA:
+            if self.cuda_toolkit is None:
+                missing.append("cuda_toolkit")
+            if self.nvtop is None:
+                missing.append("nvtop")
 
         return missing
 
@@ -352,9 +355,13 @@ def detect_toolchain() -> ToolchainStatus:
     _, version = _detect_tool("cmake", None)
     status.cmake = version
 
-    # SYCL-specific tools
-    _, version = _detect_tool("icpx", None)
-    status.sycl_compiler = version
+    # SYCL-specific tools — probe icpx first, then icx, then dpcpp;
+    # set status.sycl_compiler to the version of the first found compiler.
+    for _sycl_cand in ("icpx", "icx", "dpcpp"):
+        _, version = _detect_tool(_sycl_cand, None)
+        if version is not None:
+            status.sycl_compiler = version
+            break
 
     # CUDA-specific tools
     _, version = _detect_tool("nvcc", None)

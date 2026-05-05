@@ -57,10 +57,10 @@ def _resolve_sha() -> str:
             ref_path = git_head.parent / head_content[5:]
             if ref_path.exists():
                 sha = ref_path.read_text().strip()
-                return sha[:7] if len(sha) > 7 else sha
+                return sha
         else:
             # Direct SHA reference
-            return head_content[:7] if len(head_content) > 7 else head_content
+            return head_content
     except OSError:
         pass
 
@@ -76,7 +76,7 @@ def _resolve_sha() -> str:
         )
         if result.returncode == 0:
             sha = result.stdout.strip()
-            return sha[:7] if len(sha) > 7 else sha
+            return sha
     except (FileNotFoundError, CalledProcessError, TimeoutExpired):
         pass
 

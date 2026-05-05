@@ -69,6 +69,7 @@ DEFAULT_CTX_SIZE_BOTH_SUMMARY=262144      # Keep summarizer at 256k in dual-run 
 DEFAULT_CTX_SIZE_BOTH_QWEN35=262144      # Match NVIDIA qwen35 dual-run config
 DEFAULT_CTX_SIZE_BOTH_GEMMA4_27B=262144   # Same as single-GPU 27B when paired with E4B on Intel
 DEFAULT_N_GPU_LAYERS_QWEN35=all
+DEFAULT_N_GPU_LAYERS_QWEN27B=all
 DEFAULT_N_GPU_LAYERS_QWEN35_BOTH=all
 DEFAULT_N_GPU_LAYERS_GEMMA4_27B=99
 DEFAULT_N_GPU_LAYERS_GEMMA4_27B_BOTH=99
@@ -900,7 +901,7 @@ dry_run() {
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_QWEN27B"
       echo "  Parallel slots: $DEFAULT_PARALLEL_QWEN27B"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_QWEN27B_K/$DEFAULT_CACHE_TYPE_QWEN27B_V"
-      echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN35"
+     echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN27B"
       echo "  Reasoning: on"
       echo "  Reasoning Format: deepseek"
       echo "  Chat Template Kwargs: {\"preserve_thinking\":true}"
@@ -909,7 +910,7 @@ dry_run() {
       build_server_cmd tmp_cmd "$MODEL_QWEN27B_MTP" "qwen27b-coding" "" "$qwen27b_port_single" \
         "$DEFAULT_CTX_SIZE_QWEN27B" "$DEFAULT_UBATCH_SIZE_QWEN27B" "$DEFAULT_THREADS_QWEN27B" \
         "" on deepseek '{"preserve_thinking":true}' "" "false" \
-        "$DEFAULT_CACHE_TYPE_QWEN27B_K" "$DEFAULT_CACHE_TYPE_QWEN27B_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN27B"
+        "$DEFAULT_CACHE_TYPE_QWEN27B_K" "$DEFAULT_CACHE_TYPE_QWEN27B_V" "$DEFAULT_N_GPU_LAYERS_QWEN27B" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN27B"
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN27B")

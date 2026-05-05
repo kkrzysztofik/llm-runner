@@ -57,7 +57,9 @@ class ArtifactMetadata:
         )
 
 
-def write_artifact(runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload | dict) -> Path:
+def write_artifact(
+    runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload | dict[str, Any]
+) -> Path:
     """T012: Write artifact with JSON serialization and 0700/0600 permission enforcement."""
     _validate_artifact_fields(data)
     artifact_dir = runtime_dir / "artifacts"
@@ -209,12 +211,26 @@ def _validate_artifact_fields(data: DryRunArtifactPayload | dict) -> None:
 
 
 def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
-    """Recursively redact sensitive environment variable values in a nested dict."""
-    result = {}
+    """Recursively redact sensitive environment variable values in a nested dict.
+
+    Also recurses into lists: dict items are recursed, string items are
+    redacted when ``is_sensitive_key(full_key)`` is true, and all other
+    list items are preserved as-is.
+    """
+    result: dict[str, Any] = {}
     for key, value in data.items():
         full_key = f"{env_key_prefix}_{key}" if env_key_prefix else key
         if isinstance(value, dict):
             result[key] = _redact_sensitive_in_dict(value, full_key)
+        elif isinstance(value, list):
+            result[key] = [
+                _redact_sensitive_in_dict(item, full_key)
+                if isinstance(item, dict)
+                else REDACTED_VALUE
+                if isinstance(item, str) and is_sensitive_key(full_key)
+                else item
+                for item in value
+            ]
         elif isinstance(value, str) and is_sensitive_key(full_key):
             result[key] = REDACTED_VALUE
         else:

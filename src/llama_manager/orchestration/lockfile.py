@@ -307,6 +307,9 @@ def _verify_lock_owner(
     metadata: LockMetadata,
 ) -> ErrorDetail | None:
     try:
+        # NOTE: pid_exists is racy (TOCTOU) — the process may have exited between
+        # this check and the Process() call below.  We handle that by catching
+        # NoSuchProcess after the fact, which is why we verify twice.
         if not psutil.pid_exists(metadata.pid):
             _clear_lockfile(runtime_dir, slot_id)
             return None

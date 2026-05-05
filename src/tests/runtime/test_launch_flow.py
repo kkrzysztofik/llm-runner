@@ -316,11 +316,14 @@ class TestServerManagerLaunchAllSlots:
         # Block slot1
         create_lock(runtime_dir, "slot1", pid=99999, port=8080)
 
-        # Mock subprocess
+        # Mock subprocess and runtime dir resolution so acquire_lock uses the test dir
         with (
             patch("subprocess.Popen") as mock_popen,
             patch("psutil.pid_exists") as mock_exists,
             patch("psutil.Process") as mock_process,
+            patch(
+                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=runtime_dir
+            ),
         ):
             mock_popen.return_value = Mock(pid=12345, stdout=None, stderr=None)
             mock_exists.return_value = True

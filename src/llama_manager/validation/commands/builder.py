@@ -210,7 +210,7 @@ def build_dry_run_slot_payload(
         binary_path=cmd[0],
         command_args=command_args,
         model_path=cfg.model,
-        bind_address=bind_address,
+        bind_address=cfg.bind_address,
         port=cfg.port,
         environment_redacted=environment_redacted,
         openai_flag_bundle=openai_flag_bundle,
@@ -240,9 +240,9 @@ def _build_environment_redacted() -> dict[str, str]:
         value = os.environ.get(key, "")
         result[key] = redact_env_value(value, key)
 
-    for key, value in os.environ.items():
+    for key in sorted(os.environ):
         if key not in result:
-            result[key] = redact_env_value(value, key)
+            result[key] = redact_env_value(os.environ[key], key)
 
     return result
 

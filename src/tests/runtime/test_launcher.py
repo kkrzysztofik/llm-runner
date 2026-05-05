@@ -28,7 +28,9 @@ class MockProcessHandle:
     def __init__(self, pid: int = 12345) -> None:
         self.pid = pid
         self.stdout = MagicMock()
+        self.stdout.readline.side_effect = [""]
         self.stderr = MagicMock()
+        self.stderr.readline.side_effect = [""]
         self._poll_return: int | None = None
         self._wait_return: int = 0
 

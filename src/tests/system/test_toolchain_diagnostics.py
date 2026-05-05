@@ -120,11 +120,10 @@ class TestToolchainStatusContract:
         # Verify is_complete is False
         assert status.is_complete is False
 
-        # Verify missing_tools returns missing tools
+        # Verify missing_tools returns missing tools (nvtop excluded from None check)
         missing = status.missing_tools()
         assert "sycl_compiler" in missing
         assert "cuda_toolkit" in missing
-        assert "nvtop" in missing
 
     def test_toolchain_status_contract_all_missing(self) -> None:
         """ToolchainStatus should handle all tools missing."""
@@ -135,16 +134,15 @@ class TestToolchainStatusContract:
         assert status.is_cuda_ready is False
         assert status.is_complete is False
 
-        # Verify missing_tools returns all tools
+        # Verify missing_tools returns all tools (nvtop excluded from None check)
         missing = status.missing_tools()
-        assert len(missing) == 7
+        assert len(missing) == 6
         assert "gcc" in missing
         assert "make" in missing
         assert "git" in missing
         assert "cmake" in missing
         assert "sycl_compiler" in missing
         assert "cuda_toolkit" in missing
-        assert "nvtop" in missing
 
 
 class TestVenvResultContract:
@@ -295,20 +293,19 @@ class TestToolchainStatusFields:
         assert status.nvtop is None
 
     def test_toolchain_status_missing_tools_all_missing(self) -> None:
-        """missing_tools should return all tool names when all are missing."""
+        """missing_tools should return all tool names when all are missing (nvtop excluded)."""
         status = ToolchainStatus()
         missing = status.missing_tools()
-        assert len(missing) == 7
+        assert len(missing) == 6
         assert "gcc" in missing
         assert "make" in missing
         assert "git" in missing
         assert "cmake" in missing
         assert "sycl_compiler" in missing
         assert "cuda_toolkit" in missing
-        assert "nvtop" in missing
 
     def test_toolchain_status_missing_tools_some_present(self) -> None:
-        """missing_tools should only return missing tool names."""
+        """missing_tools should only return missing tool names (nvtop excluded from None check)."""
         status = ToolchainStatus(
             gcc="11.4.0",
             make="4.3",
@@ -319,10 +316,9 @@ class TestToolchainStatusFields:
             nvtop=None,
         )
         missing = status.missing_tools()
-        assert len(missing) == 3
+        assert len(missing) == 2
         assert "sycl_compiler" in missing
         assert "cuda_toolkit" in missing
-        assert "nvtop" in missing
         # Common tools should not be in missing list
         assert "gcc" not in missing
         assert "make" not in missing

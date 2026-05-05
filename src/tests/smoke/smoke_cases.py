@@ -827,19 +827,22 @@ class TestProvenanceResolution:
         ):
             record = resolve_provenance()
 
-        assert record.sha == "abcdef1"
+        assert record.sha == "abcdef1234567890abcdef1234567890abcdef12"
         assert record.version == "24.12.0"
 
     def test_resolve_provenance_direct_sha(self) -> None:
         """resolve_provenance should use direct SHA from .git/HEAD when not a ref."""
         with (
             patch("llama_manager.probe.provenance.Path.exists", return_value=True),
-            patch("llama_manager.probe.provenance.Path.read_text", return_value="abcdef1234567890"),
+            patch(
+                "llama_manager.probe.provenance.Path.read_text",
+                return_value="abcdef1234567890abcdef1234567890abcdef12",
+            ),
             patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
         ):
             record = resolve_provenance()
 
-        assert record.sha == "abcdef1"
+        assert record.sha == "abcdef1234567890abcdef1234567890abcdef12"
         assert record.version == "24.12.0"
 
     def test_resolve_provenance_missing_git_head(self) -> None:
@@ -855,40 +858,38 @@ class TestProvenanceResolution:
 
     def test_resolve_provenance_git_fallback(self) -> None:
         """resolve_provenance should fall back to git rev-parse when .git/HEAD read fails."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "fedcba0987654321fedcba0987654321fedcba09\n"
+
         with (
             patch("llama_manager.probe.provenance.Path.exists", return_value=True),
             patch(
                 "llama_manager.probe.provenance.Path.read_text",
                 side_effect=OSError("permission denied"),
             ),
-            patch("llama_manager.probe.provenance.run") as mock_run,
+            patch("subprocess.run", return_value=mock_result),
             patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
         ):
-            mock_result = MagicMock()
-            mock_result.returncode = 0
-            mock_result.stdout = "fedcba0987654321fedcba0987654321fedcba09\n"
-            mock_run.return_value = mock_result
-
             record = resolve_provenance()
 
-        assert record.sha == "fedcba0"
+        assert record.sha == "fedcba0987654321fedcba0987654321fedcba09"
         assert record.version == "24.12.0"
 
     def test_resolve_provenance_git_fallback_failure(self) -> None:
         """resolve_provenance should return 'unknown' when git rev-parse also fails."""
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+
         with (
             patch("llama_manager.probe.provenance.Path.exists", return_value=True),
             patch(
                 "llama_manager.probe.provenance.Path.read_text",
                 side_effect=OSError("permission denied"),
             ),
-            patch("llama_manager.probe.provenance.run") as mock_run,
+            patch("subprocess.run", return_value=mock_result),
             patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
         ):
-            mock_result = MagicMock()
-            mock_result.returncode = 1
-            mock_run.return_value = mock_result
-
             record = resolve_provenance()
 
         assert record.sha == "unknown"
@@ -907,23 +908,8 @@ class TestProvenanceResolution:
         assert record.sha == "unknown"
         assert record.version == "dev"
 
-    def test_resolve_sha_short_sha_truncated(self) -> None:
-        """_resolve_sha should truncate long SHAs to first 7 characters."""
-        long_sha = "abcdef1234567890abcdef1234567890abcdef12"
-
-        with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
-            patch("llama_manager.probe.provenance.Path.read_text", return_value=long_sha),
-        ):
-            from llama_manager.probe import _resolve_sha
-
-            sha = _resolve_sha()
-
-        assert len(sha) == 7
-        assert sha == "abcdef1"
-
     def test_resolve_sha_short_sha_preserved(self) -> None:
-        """_resolve_sha should preserve short SHAs without truncation."""
+        """_resolve_sha should return short SHAs as-is (no truncation)."""
         short_sha = "abcdef1"
 
         with (

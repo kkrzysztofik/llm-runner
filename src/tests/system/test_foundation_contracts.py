@@ -544,14 +544,16 @@ class TestWriteArtifact:
         assert loaded["password"] == "[REDACTED]"  # noqa: S105
 
     def test_unwritable_dir_raises_permission_error(self, tmp_path: Path) -> None:
-        """Should raise PermissionError for unwritable directory."""
+        """Should raise ValidationException for unwritable directory."""
         # Create a read-only directory
         readonly_dir = tmp_path / "readonly"
         readonly_dir.mkdir(mode=0o444)
         try:
-            # The error happens when trying to create artifact subdirectory
-            with pytest.raises(PermissionError):
+            # The error happens when trying to create artifact subdirectory;
+            # production code wraps OSError/PermissionError in ValidationException
+            with pytest.raises(ValidationException) as exc_info:
                 write_artifact(readonly_dir, "slot", self._valid_artifact_data())
+            assert "failed to create artifact directory" in str(exc_info.value)
         finally:
             readonly_dir.chmod(0o755)  # Restore for cleanup
 
