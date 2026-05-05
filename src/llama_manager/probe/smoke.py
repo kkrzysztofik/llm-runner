@@ -1,6 +1,6 @@
 """Smoke probe for verifying llama.cpp inference server health.
 
-Performs sequential phase-based probing (TCP connect → /v1/models →
+Performs sequential phase-based probing (TCP connect -> /v1/models ->
 /v1/chat/completions) and produces structured results suitable for
 CLI output, JSON export, or TUI integration.
 
@@ -15,13 +15,14 @@ from pathlib import Path
 
 import httpx
 
-from .config import (
+from ..config import (
     SmokeFailurePhase,
     SmokePhase,
     SmokeProbeConfiguration,
     SmokeProbeStatus,
 )
-from .metadata import extract_gguf_metadata, normalize_filename
+from ..metadata import extract_gguf_metadata, normalize_filename
+from .provenance import ProvenanceRecord, resolve_provenance
 
 # ---------------------------------------------------------------------------
 # API key resolution (env fallback — pure library)
@@ -36,7 +37,7 @@ def resolve_api_key(explicit_key: str = "") -> str:
     Strips ``explicit_key`` first; if the stripped result is empty,
     falls back to the ``LLM_RUNNER_API_KEY`` environment variable
     (stripped).  This provides a consistent resolution order (explicit
-    → env) without importing CLI modules.
+    -> env) without importing CLI modules.
 
     Args:
         explicit_key: API key passed explicitly by the caller.
@@ -102,19 +103,6 @@ _EXIT_CODE_MAP: dict[SmokeProbeStatus, int] = {
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
-
-
-@dataclass
-class ProvenanceRecord:
-    """Git provenance for the running server binary.
-
-    Attributes:
-        sha: Full git SHA of the llama.cpp HEAD at build time.
-        version: Package version from ``importlib.metadata``.
-    """
-
-    sha: str
-    version: str
 
 
 @dataclass
@@ -291,7 +279,7 @@ def probe_slot(
     start_time = time.monotonic()
     provenance = resolve_provenance()
 
-    # Determine model ID for probe — precedence: explicit → override → expected → GGUF
+    # Determine model ID for probe — precedence: explicit -> override -> expected -> GGUF
     resolved_model_id = model_id or smoke_cfg.model_id_override or expected_model_id or ""
     if not resolved_model_id and model_path:
         resolved_model_id = resolve_model_id_from_gguf(model_path) or ""
@@ -321,7 +309,7 @@ def probe_slot(
             provenance=provenance,
         )
 
-    # Resolve API key once — consistent stripping for all phases (explicit → env)
+    # Resolve API key once — consistent stripping for all phases (explicit -> env)
     resolved_api_key = resolve_api_key(smoke_cfg.api_key)
 
     # Phase 2: Models discovery
@@ -337,7 +325,7 @@ def probe_slot(
         )
         if result is not None:
             return result
-        # Phase 2 passed or was skipped (404 → proceed to Phase 3)
+        # Phase 2 passed or was skipped (404 -> proceed to Phase 3)
         # Use discovered model ID if no model ID was resolved yet
         if not resolved_model_id and discovered_model_id:
             resolved_model_id = discovered_model_id
@@ -662,86 +650,6 @@ def _probe_chat(
         )
 
     return None  # Phase 3 passed
-
-
-def resolve_provenance() -> ProvenanceRecord:
-    """Resolve git provenance for the running server binary.
-
-    Reads the SHA from ``.git/HEAD`` in the llama.cpp root directory
-    and the package version from ``importlib.metadata``.
-
-    Returns:
-        A ProvenanceRecord with sha and version.
-
-    """
-    sha = _resolve_sha()
-    version = _resolve_version()
-    return ProvenanceRecord(sha=sha, version=version)
-
-
-def _resolve_sha() -> str:
-    """Resolve the git SHA from the llama.cpp repository.
-
-    Reads ``.git/HEAD`` and runs ``git rev-parse`` to get the full SHA.
-
-    Returns:
-        Full git SHA, or 'unknown' if resolution fails.
-
-    """
-    from subprocess import CalledProcessError, run
-
-    from llama_manager.config import Config
-
-    cfg = Config()
-    llama_cpp_root = cfg.llama_cpp_root
-    git_head = Path(llama_cpp_root) / ".git" / "HEAD"
-    if not git_head.exists():
-        return "unknown"
-
-    try:
-        head_content = git_head.read_text().strip()
-        # .git/HEAD can contain a ref (ref: refs/heads/main) or a direct SHA
-        if head_content.startswith("ref: "):
-            ref_path = git_head.parent / head_content[5:]
-            if ref_path.exists():
-                sha = ref_path.read_text().strip()
-                return sha[:7] if len(sha) > 7 else sha
-        else:
-            # Direct SHA reference
-            return head_content[:7] if len(head_content) > 7 else head_content
-    except OSError:
-        pass
-
-    # Fallback: try git rev-parse
-    try:
-        result = run(
-            ["git", "-C", llama_cpp_root, "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            sha = result.stdout.strip()
-            return sha[:7] if len(sha) > 7 else sha
-    except (FileNotFoundError, CalledProcessError, TimeoutError):
-        pass
-
-    return "unknown"
-
-
-def _resolve_version() -> str:
-    """Resolve the package version from importlib.metadata.
-
-    Returns:
-        Package version string, or 'dev' if unavailable.
-
-    """
-    try:
-        from importlib.metadata import version as _version
-
-        return _version("llm_runner")
-    except Exception:
-        return "dev"
 
 
 def compute_overall_exit_code(results: list[SmokeProbeResult]) -> int:

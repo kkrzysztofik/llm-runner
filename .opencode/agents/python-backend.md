@@ -4,27 +4,6 @@ description: Python backend development for llm-runner - core library (llama_man
 mode: subagent
 model: llama.cpp/qwen35-coding
 temperature: 0.1
-permission:
-  bash:
-    "*": "deny"
-    "uv run pytest*": "allow"
-    "uv run ruff*": "allow"
-    "uv run pyright": "allow"
-  edit:
-    "src/llama_manager/**/*.py": "allow"
-    "src/tests/**/*.py": "allow"
-    "**/*.env*": "deny"
-    "**/*.key": "deny"
-    "**/*.secret": "deny"
-    "node_modules/**": "deny"
-    ".git/**": "deny"
-  task:
-    "*": "deny"
-    contextscout: "allow"
-  skill:
-    "*": "deny"
-    "python-code-quality": "allow"
-    "python-expert-best-practices-code-review": "allow"
 ---
 
 <context>

@@ -16,7 +16,7 @@ from __future__ import annotations
 import contextlib
 from unittest.mock import patch
 
-from llama_manager.server import DryRunSlotPayload, VllmEligibility
+from llama_manager.validation import DryRunSlotPayload, VllmEligibility
 from tests.support.factories import make_server_config
 
 _make_minimal_server_config = make_server_config
@@ -31,7 +31,7 @@ class TestDryRunFlagBundlesParity:
 
     def test_summary_balanced_has_openai_flag_bundle(self) -> None:
         """dry-run summary-balanced must include openai_flag_bundle in payload."""
-        from llama_manager.server import build_dry_run_slot_payload
+        from llama_manager.validation import build_dry_run_slot_payload
 
         server_cfg = _make_minimal_server_config(
             alias="summary-balanced",
@@ -50,7 +50,7 @@ class TestDryRunFlagBundlesParity:
 
     def test_qwen35_has_openai_flag_bundle(self) -> None:
         """dry-run qwen35 must include openai_flag_bundle in payload."""
-        from llama_manager.server import build_dry_run_slot_payload
+        from llama_manager.validation import build_dry_run_slot_payload
 
         server_cfg = _make_minimal_server_config(
             alias="qwen35",
@@ -70,7 +70,7 @@ class TestDryRunFlagBundlesParity:
 
     def test_both_mode_has_openai_flag_bundle_for_each_slot(self) -> None:
         """dry-run both mode must include openai_flag_bundle for all slots."""
-        from llama_manager.server import build_dry_run_slot_payload
+        from llama_manager.validation import build_dry_run_slot_payload
 
         configs = [
             _make_minimal_server_config(
@@ -107,7 +107,7 @@ class TestDryRunFlagBundlesParity:
 
     def test_summary_balanced_has_vllm_eligibility(self) -> None:
         """dry-run summary-balanced must include vllm_eligibility in payload."""
-        from llama_manager.server import build_dry_run_slot_payload
+        from llama_manager.validation import build_dry_run_slot_payload
 
         server_cfg = _make_minimal_server_config(
             alias="summary-balanced",
@@ -126,7 +126,7 @@ class TestDryRunFlagBundlesParity:
 
     def test_qwen35_has_vllm_eligibility(self) -> None:
         """dry-run qwen35 must include vllm_eligibility in payload."""
-        from llama_manager.server import build_dry_run_slot_payload
+        from llama_manager.validation import build_dry_run_slot_payload
 
         server_cfg = _make_minimal_server_config(
             alias="qwen35",
@@ -150,7 +150,7 @@ class TestDryRunFlagBundlesParity:
 
     def test_openai_flag_bundle_keys_are_deterministic(self) -> None:
         """openai_flag_bundle keys must be deterministic (sorted on serialization)."""
-        from llama_manager.server import build_dry_run_slot_payload
+        from llama_manager.validation import build_dry_run_slot_payload
 
         server_cfg = _make_minimal_server_config(
             alias="test",
@@ -171,7 +171,7 @@ class TestDryRunFlagBundlesParity:
 
     def test_multiple_payloads_have_consistent_bundle_structure(self) -> None:
         """All payloads from the same mode should have consistent bundle structure."""
-        from llama_manager.server import build_dry_run_slot_payload
+        from llama_manager.validation import build_dry_run_slot_payload
 
         configs = [
             _make_minimal_server_config(
@@ -277,7 +277,7 @@ class TestDryRunFlagBundlesParity:
     def test_dry_run_summary_balanced_integration(self, capsys) -> None:
         """dry-run summary-balanced integration test without mocking mode handlers."""
         from llama_cli.commands.dry_run import _print_common_payload_sections
-        from llama_manager.server import build_dry_run_slot_payload
+        from llama_manager.validation import build_dry_run_slot_payload
 
         server_cfg = _make_minimal_server_config(
             alias="summary-balanced",
@@ -299,7 +299,7 @@ class TestDryRunFlagBundlesParity:
     def test_dry_run_both_integration(self, capsys) -> None:
         """dry-run both mode integration test checking both bundles appear."""
         from llama_cli.commands.dry_run import _print_common_payload_sections
-        from llama_manager.server import build_dry_run_slot_payload
+        from llama_manager.validation import build_dry_run_slot_payload
 
         configs = [
             _make_minimal_server_config(
@@ -333,7 +333,7 @@ class TestDryRunFlagBundlesParity:
 
     def test_tui_and_cli_use_same_payload_structure(self) -> None:
         """TUI (via ServerManager) and CLI (via dry_run) must use same payload structure."""
-        from llama_manager.server import build_dry_run_slot_payload
+        from llama_manager.validation import build_dry_run_slot_payload
 
         server_cfg = _make_minimal_server_config(
             alias="test-slot",
@@ -358,7 +358,7 @@ class TestDryRunFlagBundlesParity:
 
     def test_vllm_eligibility_has_required_fields(self) -> None:
         """vllm_eligibility must include eligible and reason fields."""
-        from llama_manager.server import build_dry_run_slot_payload
+        from llama_manager.validation import build_dry_run_slot_payload
 
         server_cfg = _make_minimal_server_config(
             alias="test",
@@ -380,7 +380,7 @@ class TestDryRunFlagBundlesParity:
 
     def test_openai_flag_bundle_contains_expected_keys(self) -> None:
         """openai_flag_bundle should contain OpenAI-compatible flag keys."""
-        from llama_manager.server import build_dry_run_slot_payload
+        from llama_manager.validation import build_dry_run_slot_payload
 
         server_cfg = _make_minimal_server_config(
             alias="test",

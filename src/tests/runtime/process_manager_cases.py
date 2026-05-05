@@ -19,7 +19,7 @@ import pytest
 
 from llama_manager.config import ErrorCode, ErrorDetail, SlotState
 from llama_manager.log_buffer import LogBuffer
-from llama_manager.process_manager import (
+from llama_manager.orchestration import (
     REDACTED_VALUE,
     LockMetadata,
     ServerManager,
@@ -147,7 +147,7 @@ class TestPipeStreaming:
 
     def test_stream_pipe_to_handler(self) -> None:
         """_stream_pipe should write to log handler when provided."""
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         buffer = LogBuffer()
@@ -168,7 +168,7 @@ class TestPipeStreaming:
 
     def test_stream_pipe_to_handler_stderr(self) -> None:
         """_stream_pipe should handle stderr to handler correctly."""
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         buffer = LogBuffer()
@@ -183,7 +183,7 @@ class TestPipeStreaming:
 
     def test_stream_pipe_null_pipe(self) -> None:
         """_stream_pipe should handle None pipe gracefully."""
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         buffer = LogBuffer()
@@ -194,7 +194,7 @@ class TestPipeStreaming:
 
     def test_stream_pipe_without_handler_prints(self, capsys) -> None:
         """_stream_pipe should print to stdout/stderr when no handler provided."""
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
 
@@ -210,7 +210,7 @@ class TestPipeStreaming:
 
     def test_start_server_background_with_handler(self) -> None:
         """start_server_background should accept and use log handler."""
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         buffer = LogBuffer()
@@ -223,7 +223,7 @@ class TestPipeStreaming:
         mock_proc.stderr = MagicMock()
         mock_proc.stderr.readline.side_effect = ["error line\n", ""]
 
-        with patch("subprocess.Popen", return_value=mock_proc):
+        with patch("llama_manager.orchestration.launcher.subprocess.Popen", return_value=mock_proc):
             cmd = ["echo", "test"]
             proc = manager.start_server_background("test_server", cmd, buffer.add_line)
 
@@ -243,7 +243,7 @@ class TestPipeStreaming:
     def test_start_servers_with_handlers(self) -> None:
         """start_servers should accept and distribute log handlers."""
         from llama_manager.config import ServerConfig
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
 
@@ -284,7 +284,9 @@ class TestPipeStreaming:
             mock.stderr.readline.side_effect = ["err line\n", ""]
             return mock
 
-        with patch("subprocess.Popen", side_effect=create_mock_proc):
+        with patch(
+            "llama_manager.orchestration.launcher.subprocess.Popen", side_effect=create_mock_proc
+        ):
             processes = manager.start_servers([config1, config2], handlers)
 
             # Wait for threads to process with polling (deterministic sync)
@@ -303,7 +305,7 @@ class TestPipeStreaming:
     def test_start_servers_backward_compatible_no_handlers(self) -> None:
         """start_servers should work without handlers for backward compatibility."""
         from llama_manager.config import ServerConfig
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
 
@@ -325,7 +327,7 @@ class TestPipeStreaming:
         mock_proc.stderr = MagicMock()
         mock_proc.stderr.readline.side_effect = ["err line\n", ""]
 
-        with patch("subprocess.Popen", return_value=mock_proc):
+        with patch("llama_manager.orchestration.launcher.subprocess.Popen", return_value=mock_proc):
             # Call without handlers - should not raise
             processes = manager.start_servers([config], None)
             assert len(processes) == 1
@@ -334,7 +336,7 @@ class TestPipeStreaming:
         """Ensure only ServerManager reads pipes when handlers provided."""
         from llama_manager.config import ServerConfig
         from llama_manager.log_buffer import LogBuffer
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         buffer = LogBuffer()
@@ -359,7 +361,7 @@ class TestPipeStreaming:
         mock_proc.stdout = mock_stdout
         mock_proc.stderr = mock_stderr
 
-        with patch("subprocess.Popen", return_value=mock_proc):
+        with patch("llama_manager.orchestration.launcher.subprocess.Popen", return_value=mock_proc):
             manager.start_servers([config], {"test_server": buffer.add_line})
 
             # Wait for thread to process with polling (deterministic sync)
@@ -381,7 +383,7 @@ class TestCleanupServersIdempotency:
 
     def _make_manager_with_pids(self, pids: list[int]) -> ServerManager:
         """Create a ServerManager with given PIDs and matching metadata."""
-        from llama_manager.process_manager import ServerManager
+        from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         manager.pids = list(pids)
@@ -396,8 +398,8 @@ class TestCleanupServersIdempotency:
         manager = self._make_manager_with_pids([12345])
 
         with (
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
             patch("os.kill"),
         ):
             mock_proc_obj = mock_psutil.return_value
@@ -420,8 +422,8 @@ class TestCleanupServersIdempotency:
             signals_sent.append(sig)
 
         with (
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
         ):
             mock_proc_obj = mock_psutil.return_value
@@ -454,8 +456,8 @@ class TestCleanupServersIdempotency:
             signals_sent.append((pid, sig))
 
         with (
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
         ):
             mock_proc_obj = mock_psutil.return_value
@@ -483,8 +485,8 @@ class TestCleanupServersIdempotency:
             signals_sent.append(sig)
 
         with (
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
         ):
             mock_proc_obj = mock_psutil.return_value
@@ -523,10 +525,10 @@ class TestCleanupServersIdempotency:
 
         with (
             patch(
-                "llama_manager.process_manager.psutil.pid_exists",
+                "llama_manager.orchestration.manager.psutil.pid_exists",
                 side_effect=selective_pid_exists,
             ),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
         ):
             mock_proc_obj = mock_psutil.return_value
@@ -549,7 +551,7 @@ class TestCleanupServersIdempotency:
         manager = self._make_manager_with_pids([12345])
 
         with (
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
             patch("os.kill"),
         ):
             manager.cleanup_servers()
@@ -578,7 +580,7 @@ class TestCleanupServersIdempotency:
         manager.shutting_down = True
 
         with (
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
             patch("os.kill"),
         ):
             manager.cleanup_servers()
@@ -855,6 +857,48 @@ class TestAuditLogRedaction:
         assert redacted["outer"]["api_key"] == REDACTED_VALUE
         assert redacted["outer"]["safe"] == "value"
 
+    def test_nested_dict_redaction_uses_full_path(self) -> None:
+        """_redact_sensitive_in_dict must check is_sensitive_key against full_key path.
+
+        Regression test: the fix changed is_sensitive_key(key) to
+        is_sensitive_key(full_key) so that nested sensitive keys are
+        correctly identified by their full dotted path.
+        """
+        # Deeply nested structure where each level's key contains a
+        # sensitive keyword, verifying the full path is checked at
+        # every level of recursion.
+        data = {
+            "level1": {
+                "config": {
+                    "api_key": "deep_secret",
+                    "normal": "preserved",
+                }
+            }
+        }
+        redacted = _redact_sensitive_in_dict(data)
+
+        assert redacted["level1"]["config"]["api_key"] == REDACTED_VALUE
+        assert redacted["level1"]["config"]["normal"] == "preserved"
+
+    def test_deeply_nested_redaction(self) -> None:
+        """_redact_sensitive_in_dict should redact at arbitrary nesting depth."""
+        data = {
+            "a": {
+                "b": {
+                    "c": {
+                        "d": {
+                            "AUTH_TOKEN": "deepest_secret",
+                            "safe": "value",
+                        }
+                    }
+                }
+            }
+        }
+        redacted = _redact_sensitive_in_dict(data)
+
+        assert redacted["a"]["b"]["c"]["d"]["AUTH_TOKEN"] == REDACTED_VALUE
+        assert redacted["a"]["b"]["c"]["d"]["safe"] == "value"
+
     def test_non_dict_values_preserved(self) -> None:
         """_redact_sensitive_in_dict should preserve non-string values."""
         data = {"count": 42, "enabled": True, "items": [1, 2, 3]}
@@ -890,7 +934,7 @@ class TestSlotRuntime:
         from llama_manager.log_buffer import LogBuffer
 
         try:
-            from llama_manager.process_manager import SlotRuntime  # type: ignore[attr-defined]
+            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
 
             runtime = SlotRuntime(
                 slot_id="test-slot",
@@ -917,7 +961,7 @@ class TestSlotRuntime:
         from llama_manager.log_buffer import LogBuffer
 
         try:
-            from llama_manager.process_manager import SlotRuntime  # type: ignore[attr-defined]
+            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
 
             logs = LogBuffer()
             gpu = GPUStats(device_index=0)
@@ -946,7 +990,7 @@ class TestSlotRuntime:
         from llama_manager.log_buffer import LogBuffer
 
         try:
-            from llama_manager.process_manager import SlotRuntime  # type: ignore[attr-defined]
+            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
 
             runtime = SlotRuntime(
                 slot_id="test",
@@ -974,7 +1018,7 @@ class TestSlotRuntime:
         from llama_manager.log_buffer import LogBuffer
 
         try:
-            from llama_manager.process_manager import SlotRuntime  # type: ignore[attr-defined]
+            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
 
             runtime = SlotRuntime(
                 slot_id="test",
@@ -1002,7 +1046,7 @@ class TestSlotRuntime:
         from llama_manager.log_buffer import LogBuffer
 
         try:
-            from llama_manager.process_manager import SlotRuntime  # type: ignore[attr-defined]
+            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
 
             gpu = GPUStats(device_index=1)
             runtime = SlotRuntime(
@@ -1135,14 +1179,17 @@ class TestFullLifecycleAndShutdown:
         mock_net_conn.pid = 12345
 
         with (
-            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
-            patch("llama_manager.process_manager.psutil.pid_exists", side_effect=pid_exists),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.process_manager.psutil.net_connections", return_value=[mock_net_conn]
+                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+            ),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", side_effect=pid_exists),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.orchestration.manager.psutil.net_connections",
+                return_value=[mock_net_conn],
             ),
             patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
@@ -1167,8 +1214,8 @@ class TestFullLifecycleAndShutdown:
             cleanup_signals.append(sig)
 
         with (
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_cleanup_kill),
             patch("time.sleep", lambda x: None),
         ):
@@ -1204,11 +1251,13 @@ class TestFullLifecycleAndShutdown:
             signals_sent.append(sig)
 
         with (
-            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+            ),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
@@ -1222,7 +1271,10 @@ class TestFullLifecycleAndShutdown:
         assert len(signals_sent) == 0
 
     def test_shutdown_slot_no_ownership_no_such_process(self, tmp_path: Path) -> None:
-        """shutdown_slot should return False when process no longer exists (ownership unverifiable)."""
+        """shutdown_slot should return False when process no longer exists.
+
+        Ownership is unverifiable when psutil.NoSuchProcess is raised.
+        """
         manager = ServerManager()
 
         signals_sent: list[int] = []
@@ -1231,11 +1283,13 @@ class TestFullLifecycleAndShutdown:
             signals_sent.append(sig)
 
         with (
-            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+            ),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
@@ -1271,14 +1325,17 @@ class TestFullLifecycleAndShutdown:
         mock_net_conn.pid = 12345
 
         with (
-            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
-            patch("llama_manager.process_manager.psutil.pid_exists", side_effect=pid_exists),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.process_manager.psutil.net_connections", return_value=[mock_net_conn]
+                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+            ),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", side_effect=pid_exists),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.orchestration.manager.psutil.net_connections",
+                return_value=[mock_net_conn],
             ),
             patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
@@ -1303,15 +1360,17 @@ class TestFullLifecycleAndShutdown:
             signals_sent.append(sig)
 
         with (
-            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.process_manager.psutil.net_connections",
+                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+            ),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.orchestration.manager.psutil.net_connections",
                 return_value=[MagicMock(laddr=MagicMock(port=4444), pid=99999)],
             ),
             patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
@@ -1336,15 +1395,17 @@ class TestFullLifecycleAndShutdown:
             signals_sent.append(sig)
 
         with (
-            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.process_manager.psutil.net_connections",
+                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+            ),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.orchestration.manager.psutil.net_connections",
                 return_value=[MagicMock(laddr=MagicMock(port=8080), pid=99999)],
             ),
             patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
@@ -1368,11 +1429,13 @@ class TestFullLifecycleAndShutdown:
             signals_sent.append(sig)
 
         with (
-            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+            ),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
@@ -1395,11 +1458,13 @@ class TestFullLifecycleAndShutdown:
             signals_sent.append(sig)
 
         with (
-            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+            ),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
@@ -1434,14 +1499,17 @@ class TestFullLifecycleAndShutdown:
         mock_net_conn.pid = 12345
 
         with (
-            patch("llama_manager.process_manager.resolve_runtime_dir", return_value=tmp_path),
-            patch("llama_manager.process_manager.psutil.pid_exists", side_effect=pid_exists),
-            patch("llama_manager.process_manager.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.process_manager.psutil.net_connections", return_value=[mock_net_conn]
+                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+            ),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", side_effect=pid_exists),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.orchestration.manager.psutil.net_connections",
+                return_value=[mock_net_conn],
             ),
             patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.process_manager.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
@@ -1462,20 +1530,20 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_pid_does_not_exist(self) -> None:
         """_verify_shutdown_ownership should return False when PID doesn't exist."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
-        with patch("llama_manager.process_manager.psutil.pid_exists", return_value=False):
+        with patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=False):
             result = _verify_shutdown_ownership(99999, 8080)
 
         assert result is False
 
     def test_verify_returns_false_when_process_creation_fails(self) -> None:
         """_verify_shutdown_ownership should return False on NoSuchProcess."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
         with (
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_proc,
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_proc,
         ):
             mock_proc.side_effect = psutil.NoSuchProcess(pid=99999)
             result = _verify_shutdown_ownership(99999, 8080)
@@ -1484,11 +1552,11 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_on_access_denied(self) -> None:
         """_verify_shutdown_ownership should return False on AccessDenied."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
         with (
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_proc,
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_proc,
         ):
             mock_proc.side_effect = psutil.AccessDenied(pid=99999)
             result = _verify_shutdown_ownership(99999, 8080)
@@ -1497,15 +1565,18 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_port_mismatch(self) -> None:
         """_verify_shutdown_ownership should return False when port doesn't match."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 4444  # Not 8080
         mock_conn.pid = 99999
 
         with (
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.net_connections", return_value=[mock_conn]),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch(
+                "llama_manager.orchestration.manager.psutil.net_connections",
+                return_value=[mock_conn],
+            ),
         ):
             result = _verify_shutdown_ownership(99999, 8080)
 
@@ -1513,7 +1584,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_uid_mismatch(self) -> None:
         """_verify_shutdown_ownership should return False when UID doesn't match."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 8080
@@ -1522,9 +1593,12 @@ class TestVerifyShutdownOwnership:
         mock_uids.real = 9999  # Different from current process
 
         with (
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_proc,
-            patch("llama_manager.process_manager.psutil.net_connections", return_value=[mock_conn]),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_proc,
+            patch(
+                "llama_manager.orchestration.manager.psutil.net_connections",
+                return_value=[mock_conn],
+            ),
         ):
             mock_proc.return_value.uids.return_value = mock_uids
             result = _verify_shutdown_ownership(99999, 8080)
@@ -1533,7 +1607,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_true_when_port_and_uid_match(self) -> None:
         """_verify_shutdown_ownership should return True when port + UID match."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 8080
@@ -1542,9 +1616,12 @@ class TestVerifyShutdownOwnership:
         mock_uids.real = os.getuid()
 
         with (
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.process_manager.psutil.Process") as mock_proc,
-            patch("llama_manager.process_manager.psutil.net_connections", return_value=[mock_conn]),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.Process") as mock_proc,
+            patch(
+                "llama_manager.orchestration.manager.psutil.net_connections",
+                return_value=[mock_conn],
+            ),
         ):
             mock_proc.return_value.uids.return_value = mock_uids
             result = _verify_shutdown_ownership(99999, 8080)
@@ -1552,13 +1629,13 @@ class TestVerifyShutdownOwnership:
         assert result is True
 
     def test_verify_net_connections_access_denied_returns_false(self) -> None:
-        """_verify_shutdown_ownership should return False when net_connections raises AccessDenied."""
-        from llama_manager.process_manager import _verify_shutdown_ownership
+        """_verify_shutdown_ownership returns False on net_connections AccessDenied."""
+        from llama_manager.orchestration import _verify_shutdown_ownership
 
         with (
-            patch("llama_manager.process_manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
             patch(
-                "llama_manager.process_manager.psutil.net_connections",
+                "llama_manager.orchestration.manager.psutil.net_connections",
                 side_effect=psutil.AccessDenied(pid=99999),
             ),
         ):
@@ -1572,7 +1649,7 @@ class TestAuditLogRotationPermissions:
 
     def test_rotate_sets_owner_only_permissions(self, tmp_path: Path) -> None:
         """_rotate_audit_log should chmod rotated files to 0600."""
-        from llama_manager.process_manager import _rotate_audit_log
+        from llama_manager.orchestration import _rotate_audit_log
 
         # Create initial log file
         log_path = tmp_path / "audit.log"
@@ -1590,7 +1667,7 @@ class TestAuditLogRotationPermissions:
 
     def test_rotate_multiple_files_all_chmod(self, tmp_path: Path) -> None:
         """_rotate_audit_log should chmod all existing rotated files."""
-        from llama_manager.process_manager import _rotate_audit_log
+        from llama_manager.orchestration import _rotate_audit_log
 
         log_path = tmp_path / "audit.log"
 
@@ -1612,13 +1689,51 @@ class TestAuditLogRotationPermissions:
                 mode = stat.S_IMODE(rotated.stat().st_mode)
                 assert mode == 0o600, f"Rotated file .{i} has mode {oct(mode)}"
 
+    def test_append_audit_log_creates_file_with_owner_only_perms(self, tmp_path: Path) -> None:
+        """_append_audit_log should create new audit log files with 0600 permissions."""
+        from llama_manager.orchestration import _append_audit_log
+
+        log_path = tmp_path / "audit.log"
+
+        # Append to a non-existent file
+        _append_audit_log(log_path, "test audit message")
+
+        assert log_path.exists()
+        mode = stat.S_IMODE(log_path.stat().st_mode)
+        assert mode == 0o600, f"Audit log file should have 0o600 permissions, got {oct(mode)}"
+        # Verify content was written
+        content = log_path.read_text()
+        assert "test audit message" in content
+
+    def test_append_audit_log_appends_with_owner_only_perms(self, tmp_path: Path) -> None:
+        """_append_audit_log should preserve 0600 permissions when appending."""
+        from llama_manager.orchestration import _append_audit_log
+
+        log_path = tmp_path / "audit.log"
+
+        # First write
+        _append_audit_log(log_path, "first message")
+        first_mode = stat.S_IMODE(log_path.stat().st_mode)
+        assert first_mode == 0o600
+
+        # Second write (append)
+        _append_audit_log(log_path, "second message")
+        second_mode = stat.S_IMODE(log_path.stat().st_mode)
+        assert second_mode == 0o600, (
+            f"Audit log file should retain 0o600 permissions after append, got {oct(second_mode)}"
+        )
+        # Verify both messages are present
+        content = log_path.read_text()
+        assert "first message" in content
+        assert "second message" in content
+
 
 class TestRedactSensitiveValues:
     """T016c: _redact_sensitive should redact secret VALUES, not just key names."""
 
     def test_redacts_api_key_value(self) -> None:
         """API_KEY=secret should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("API_KEY=secret123")
         assert result == "[REDACTED]"
@@ -1626,7 +1741,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_api_key_with_spaces(self) -> None:
         """API_KEY = secret (with spaces around =) should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("API_KEY = mysecret")
         assert result == "[REDACTED]"
@@ -1634,7 +1749,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_quoted_double_value(self) -> None:
         """password="secret" should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive('DB_PASSWORD="supersecret"')
         assert result == "[REDACTED]"
@@ -1642,7 +1757,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_quoted_single_value(self) -> None:
         """password='secret' should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("API_KEY='mytoken'")
         assert result == "[REDACTED]"
@@ -1650,7 +1765,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_authorization_bearer(self) -> None:
         """Authorization: Bearer token should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("Authorization: Bearer mytoken123")
         assert result == "[REDACTED]"
@@ -1658,7 +1773,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_multiple_secrets_in_line(self) -> None:
         """Multiple secrets in one line should all be redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive(
             "API_KEY=abc123 and AUTH=xyz789 in same line",
@@ -1670,7 +1785,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_token_value(self) -> None:
         """TOKEN=value should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("auth_token=jwt-here-abc")
         assert result == "[REDACTED]"
@@ -1678,7 +1793,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_secret_value(self) -> None:
         """SECRET=value should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("database_secret=postgres_pass")
         assert result == "[REDACTED]"
@@ -1686,7 +1801,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_password_value(self) -> None:
         """PASSWORD=value should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("PASSWORD=letmein")
         assert result == "[REDACTED]"
@@ -1694,7 +1809,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_auth_value(self) -> None:
         """AUTH=value should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("AUTH=bearer-token-abc")
         assert result == "[REDACTED]"
@@ -1702,7 +1817,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_auth_header_value(self) -> None:
         """AUTH_HEADER=mysecret should be fully redacted (prefixed auth key)."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("AUTH_HEADER=mysecret")
         assert result == "[REDACTED]"
@@ -1710,7 +1825,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_my_auth_value(self) -> None:
         """MY_AUTH=token should be fully redacted (auth as suffix prefix)."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("MY_AUTH=token")
         assert result == "[REDACTED]"
@@ -1718,7 +1833,7 @@ class TestRedactSensitiveValues:
 
     def test_redacts_auth_header_with_spaces(self) -> None:
         """AUTH_HEADER = mysecret (with spaces) should be fully redacted."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("AUTH_HEADER = mysecret")
         assert result == "[REDACTED]"
@@ -1726,7 +1841,7 @@ class TestRedactSensitiveValues:
 
     def test_safe_text_unchanged(self) -> None:
         """Text with no sensitive patterns should be unchanged."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         result = _redact_sensitive("normal text with no secrets")
         assert result == "normal text with no secrets"
@@ -1734,7 +1849,7 @@ class TestRedactSensitiveValues:
     def test_safe_text_with_word_containing_key(self) -> None:
         """Words that contain KEY as a substring but are not standalone key identifiers
         should not be redacted — e.g. 'nokey' is a plain word, not a secret."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         # "nokey" contains KEY but is not an uppercase identifier with KEY as a
         # boundary-aligned keyword — the tightened pattern no longer redacts it.
@@ -1743,7 +1858,7 @@ class TestRedactSensitiveValues:
 
     def test_safe_text_with_word_containing_secret(self) -> None:
         """Text containing a word that has SECRET as substring should not match."""
-        from llama_manager.process_manager import _redact_sensitive
+        from llama_manager.orchestration import _redact_sensitive
 
         # "secrets" contains SECRET but word boundary prevents match
         result = _redact_sensitive("no secrets here")

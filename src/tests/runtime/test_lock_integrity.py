@@ -10,12 +10,13 @@ These tests target real check_lockfile_integrity() API which is already implemen
 
 import json
 import time
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import psutil
 
-from llama_manager.config import ErrorCode
-from llama_manager.process_manager import (
+from llama_manager.config import ErrorCode, ErrorDetail
+from llama_manager.orchestration import (
     LockMetadata,
     check_lockfile_integrity,
     create_lock,
@@ -80,16 +81,16 @@ class TestStaleLock:
         assert not (runtime_dir / "slot-slot1.lock").exists()
 
     def test_stale_lock_by_age_auto_clears(self, tmp_path) -> None:
-        """Stale lock (age > 300s) should be auto-cleared.
+        """Stale lock (PID gone) should be auto-cleared.
 
-        T017: Lock age check - treat lock as stale when
-        time.time() - metadata.started_at > 300 seconds (wall-clock timebase).
+        Locks are only cleared when PID doesn't exist or ownership is invalid.
+        Age alone does NOT clear a lock.
         """
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
 
         # Create a lock with a valid PID but old timestamp
-        valid_pid = 12345  # Will be mocked as existing
+        valid_pid = 12345
         create_lock(runtime_dir, "slot1", pid=valid_pid, port=8080)
 
         # Manually update the lock's started_at to be > 300 seconds old
@@ -103,20 +104,24 @@ class TestStaleLock:
         # Verify lock exists initially
         assert read_lock(runtime_dir, "slot1") is not None
 
-        # Mock psutil to simulate process exists
+        # Mock psutil to simulate process DOES NOT exist (PID gone)
         with patch("psutil.pid_exists") as mock_exists:
-            mock_exists.return_value = True
+            mock_exists.return_value = False
 
-            # Check integrity - should auto-clear due to age
+            # Check integrity - should auto-clear because PID is gone
             result = check_lockfile_integrity(runtime_dir, "slot1")
 
-            # Stale lock (by age) should be cleared and return None
+            # Stale lock (PID gone) should be cleared and return None
             assert result is None
             # Lockfile should be deleted
             assert not (runtime_dir / "slot-slot1.lock").exists()
 
     def test_stale_lock_by_age_with_live_process(self, tmp_path) -> None:
-        """Stale lock (age > 300s) should be cleared even if PID exists and port matches."""
+        """Old lock (age > 300s) should NOT be cleared if PID exists and port matches.
+
+        Locks are only cleared when PID is gone or ownership/port is invalid.
+        Age alone does not clear a lock.
+        """
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
 
@@ -131,21 +136,23 @@ class TestStaleLock:
         lock_path.write_text(json.dumps(lock_data))
 
         # Mock psutil to simulate process exists with matching port
-        with patch("psutil.pid_exists") as mock_exists, patch("psutil.Process") as mock_process:
+        mock_conn = Mock()
+        mock_conn.laddr.port = 8080  # Matching port
+        mock_conn.pid = valid_pid
+
+        with (
+            patch("psutil.pid_exists") as mock_exists,
+            patch("psutil.Process"),
+            patch("psutil.net_connections", return_value=[mock_conn]),
+        ):
             mock_exists.return_value = True
 
-            mock_proc = Mock()
-            mock_conn = Mock()
-            mock_conn.laddr.port = 8080  # Matching port
-            mock_proc.connections.return_value = [mock_conn]
-            mock_process.return_value = mock_proc
-
-            # Check integrity - should auto-clear due to age (before port check)
+            # Check integrity - should NOT clear (live process with valid ownership)
             result = check_lockfile_integrity(runtime_dir, "slot1")
 
-            # Should be cleared as stale by age
+            # Should NOT be cleared - live process with valid ownership
             assert result is None
-            assert not (runtime_dir / "slot-slot1.lock").exists()
+            assert (runtime_dir / "slot-slot1.lock").exists()
 
 
 class TestLiveLock:
@@ -397,3 +404,155 @@ class TestLockIntegrityEdgeCases:
             result = check_lockfile_integrity(runtime_dir, "slot1")
             # Should return None (stale lock auto-cleared)
             assert result is None
+
+
+class TestLockMetadataTypeValidation:
+    """Tests for explicit type validation of lock metadata fields."""
+
+    def test_read_lock_rejects_string_pid(self, tmp_path: Path) -> None:
+        """read_lock should reject pid as string when require_valid=True."""
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+
+        lock_path = runtime_dir / "slot-bad.lock"
+        lock_data = {
+            "pid": "12345",  # string instead of int
+            "port": 8080,
+            "started_at": time.time(),
+            "version": "1.0",
+        }
+        lock_path.write_text(json.dumps(lock_data))
+
+        result = read_lock(runtime_dir, "bad", require_valid=True)
+        assert isinstance(result, ErrorDetail)
+        assert result.error_code == ErrorCode.LOCKFILE_INTEGRITY_FAILURE
+        assert "lock 'pid' must be an integer" in result.why_blocked
+
+    def test_read_lock_rejects_string_port(self, tmp_path: Path) -> None:
+        """read_lock should reject port as string when require_valid=True."""
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+
+        lock_path = runtime_dir / "slot-bad.lock"
+        lock_data = {
+            "pid": 12345,
+            "port": "8080",  # string instead of int
+            "started_at": time.time(),
+            "version": "1.0",
+        }
+        lock_path.write_text(json.dumps(lock_data))
+
+        result = read_lock(runtime_dir, "bad", require_valid=True)
+        assert isinstance(result, ErrorDetail)
+        assert "lock 'port' must be an integer" in result.why_blocked
+
+    def test_read_lock_rejects_string_started_at(self, tmp_path: Path) -> None:
+        """read_lock should reject started_at as string when require_valid=True."""
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+
+        lock_path = runtime_dir / "slot-bad.lock"
+        lock_data = {
+            "pid": 12345,
+            "port": 8080,
+            "started_at": "not a number",  # string instead of numeric
+            "version": "1.0",
+        }
+        lock_path.write_text(json.dumps(lock_data))
+
+        result = read_lock(runtime_dir, "bad", require_valid=True)
+        assert isinstance(result, ErrorDetail)
+        assert "lock 'started_at' must be a numeric value" in result.why_blocked
+
+    def test_read_lock_rejects_boolean_pid(self, tmp_path: Path) -> None:
+        """read_lock should reject pid as bool (bool is subclass of int)."""
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+
+        lock_path = runtime_dir / "slot-bad.lock"
+        lock_data = {
+            "pid": True,  # bool, not int
+            "port": 8080,
+            "started_at": time.time(),
+            "version": "1.0",
+        }
+        lock_path.write_text(json.dumps(lock_data))
+
+        result = read_lock(runtime_dir, "bad", require_valid=True)
+        assert isinstance(result, ErrorDetail)
+        assert "lock 'pid' must be an integer" in result.why_blocked
+
+    def test_read_lock_accepts_float_started_at(self, tmp_path: Path) -> None:
+        """read_lock should accept started_at as float."""
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+
+        lock_path = runtime_dir / "slot-good.lock"
+        lock_data = {
+            "pid": 12345,
+            "port": 8080,
+            "started_at": 1234567890.5,  # float
+            "version": "1.0",
+        }
+        lock_path.write_text(json.dumps(lock_data))
+
+        result = read_lock(runtime_dir, "good", require_valid=True)
+        assert isinstance(result, LockMetadata)
+        assert result.started_at == 1234567890.5
+
+    def test_read_lock_accepts_int_started_at(self, tmp_path: Path) -> None:
+        """read_lock should accept started_at as int."""
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+
+        lock_path = runtime_dir / "slot-good.lock"
+        lock_data = {
+            "pid": 12345,
+            "port": 8080,
+            "started_at": 1234567890,  # int
+            "version": "1.0",
+        }
+        lock_path.write_text(json.dumps(lock_data))
+
+        result = read_lock(runtime_dir, "good", require_valid=True)
+        assert isinstance(result, LockMetadata)
+        assert result.started_at == 1234567890.0
+
+    def test_read_lock_permissive_mode_allows_string_types(self, tmp_path: Path) -> None:
+        """read_lock with require_valid=False should allow string types (coerced via int())."""
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+
+        lock_path = runtime_dir / "slot-coerce.lock"
+        lock_data = {
+            "pid": "12345",  # string - will be coerced
+            "port": "8080",  # string - will be coerced
+            "started_at": "1234567890.0",  # string - will be coerced
+            "version": "1.0",
+        }
+        lock_path.write_text(json.dumps(lock_data))
+
+        result = read_lock(runtime_dir, "coerce", require_valid=False)
+        # In permissive mode, coercion should work
+        assert isinstance(result, LockMetadata)
+        assert result.pid == 12345
+        assert result.port == 8080
+
+    def test_check_lockfile_integrity_rejects_malformed_metadata(self, tmp_path: Path) -> None:
+        """check_lockfile_integrity should return ErrorDetail for malformed lock metadata."""
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+
+        lock_path = runtime_dir / "slot-bad.lock"
+        lock_data = {
+            "pid": "not_a_number",  # invalid
+            "port": 8080,
+            "started_at": time.time(),
+            "version": "1.0",
+        }
+        lock_path.write_text(json.dumps(lock_data))
+
+        result = check_lockfile_integrity(runtime_dir, "bad")
+        assert isinstance(result, ErrorDetail)
+        assert result.error_code == ErrorCode.LOCKFILE_INTEGRITY_FAILURE
+        assert "lock 'pid' must be an integer" in result.why_blocked

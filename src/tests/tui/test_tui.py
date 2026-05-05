@@ -244,7 +244,7 @@ class TestSlotStateTransitionHandling:
         """_build_status_panel should create error panel for blocked launch."""
         from llama_cli.tui import DashboardController
         from llama_manager.config import ErrorCode, ErrorDetail, MultiValidationError
-        from llama_manager.process_manager import LaunchResult
+        from llama_manager.orchestration import LaunchResult
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -269,7 +269,7 @@ class TestSlotStateTransitionHandling:
     def test_tui_status_panel_on_degraded(self) -> None:
         """_build_status_panel should create warning panel for degraded launch."""
         from llama_cli.tui import DashboardController
-        from llama_manager.process_manager import LaunchResult
+        from llama_manager.orchestration import LaunchResult
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
 
@@ -285,7 +285,7 @@ class TestSlotStateTransitionHandling:
     def test_tui_status_panel_clears_on_success(self) -> None:
         """_build_status_panel should clear panel on successful launch."""
         from llama_cli.tui import DashboardController
-        from llama_manager.process_manager import LaunchResult
+        from llama_manager.orchestration import LaunchResult
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
 

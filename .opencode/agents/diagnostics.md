@@ -4,23 +4,6 @@ description: Doctor/setup/smoke owner for llm-runner - diagnostics, repair flows
 mode: subagent
 model: llama.cpp/qwen35-coding
 temperature: 0.1
-permission:
-  bash:
-    "*": "deny"
-    "uv run llm-runner doctor*": "allow"
-    "uv run llm-runner setup*": "allow"
-    "uv run llm-runner smoke*": "allow"
-  edit:
-    "**/*.env*": "deny"
-    "**/*.key": "deny"
-    "**/*.secret": "deny"
-    "node_modules/**": "deny"
-    ".git/**": "deny"
-  task:
-    "*": "deny"
-    contextscout: "allow"
-  skill:
-    "*": "deny"
 ---
 
 <context>

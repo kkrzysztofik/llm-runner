@@ -4,24 +4,6 @@ description: GPU expert for llm-runner - hardware diagnostics, nvtop, psutil, SY
 mode: subagent
 model: llama.cpp/qwen35-coding
 temperature: 0.1
-permission:
-  bash:
-    "*": "deny"
-    "nvtop*": "allow"
-    "nvidia-smi*": "allow"
-    "clinfo*": "allow"
-    "which*": "allow"
-  edit:
-    "**/*.env*": "deny"
-    "**/*.key": "deny"
-    "**/*.secret": "deny"
-    "node_modules/**": "deny"
-    ".git/**": "deny"
-  task:
-    "*": "deny"
-    contextscout: "allow"
-  skill:
-    "*": "deny"
 ---
 
 <context>

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from llama_manager.config import ErrorCode, ServerConfig, ValidationResult
-from llama_manager.server import (
+from llama_manager.validation import (
     build_server_cmd,
     sort_validation_errors,
     validate_port,
@@ -295,7 +295,7 @@ class TestComputeMachineFingerprint:
 
     def test_fingerprint_with_all_hardware_info(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """compute_machine_fingerprint should include GPU, CPU, and OS info."""
-        from llama_manager.server import compute_machine_fingerprint
+        from llama_manager.validation import compute_machine_fingerprint
 
         mock_result = self._make_mock_subprocess_result(
             stdout="00:01.0 VGA compatible controller: Intel Corporation Arc B580\n"
@@ -331,7 +331,7 @@ class TestComputeMachineFingerprint:
 
     def test_fingerprint_with_no_lspci(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """compute_machine_fingerprint should return partial fingerprint when lspci fails."""
-        from llama_manager.server import compute_machine_fingerprint
+        from llama_manager.validation import compute_machine_fingerprint
 
         mock_result = self._make_mock_subprocess_result(
             stdout="",
@@ -363,7 +363,7 @@ class TestComputeMachineFingerprint:
 
     def test_fingerprint_all_tools_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """compute_machine_fingerprint should return None when all tools fail."""
-        from llama_manager.server import compute_machine_fingerprint
+        from llama_manager.validation import compute_machine_fingerprint
 
         def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
             return self._make_mock_subprocess_result(
@@ -380,7 +380,7 @@ class TestComputeMachineFingerprint:
 
     def test_fingerprint_deterministic(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """compute_machine_fingerprint should produce the same output for the same hardware."""
-        from llama_manager.server import compute_machine_fingerprint
+        from llama_manager.validation import compute_machine_fingerprint
 
         mock_result = self._make_mock_subprocess_result(
             stdout="00:01.0 VGA compatible controller: Intel Corporation Arc B580\n",
@@ -415,7 +415,7 @@ class TestCheckHardwareAllowlist:
 
     def test_allowlist_match(self) -> None:
         """check_hardware_allowlist should return 'match' when fingerprint is in allowlist."""
-        from llama_manager.server import check_hardware_allowlist
+        from llama_manager.validation import check_hardware_allowlist
 
         fingerprint = "abc123def456"
         allowlist = ["abc123def456", "other_hash"]
@@ -426,7 +426,7 @@ class TestCheckHardwareAllowlist:
 
     def test_allowlist_mismatch(self) -> None:
         """check_hardware_allowlist should return 'mismatch' when fingerprint is not in allowlist."""
-        from llama_manager.server import check_hardware_allowlist
+        from llama_manager.validation import check_hardware_allowlist
 
         fingerprint = "unknown_hash"
         allowlist = ["abc123def456", "other_hash"]
@@ -437,7 +437,7 @@ class TestCheckHardwareAllowlist:
 
     def test_allowlist_invalidated(self) -> None:
         """check_hardware_allowlist should return 'invalidated' when allowlist is empty."""
-        from llama_manager.server import check_hardware_allowlist
+        from llama_manager.validation import check_hardware_allowlist
 
         fingerprint = "abc123def456"
         allowlist: list[str] = []
@@ -448,7 +448,7 @@ class TestCheckHardwareAllowlist:
 
     def test_allowlist_single_entry_match(self) -> None:
         """check_hardware_allowlist should handle single-entry allowlist."""
-        from llama_manager.server import check_hardware_allowlist
+        from llama_manager.validation import check_hardware_allowlist
 
         fingerprint = "only_hash"
         allowlist = ["only_hash"]
@@ -459,7 +459,7 @@ class TestCheckHardwareAllowlist:
 
     def test_allowlist_single_entry_mismatch(self) -> None:
         """check_hardware_allowlist should handle single-entry allowlist mismatch."""
-        from llama_manager.server import check_hardware_allowlist
+        from llama_manager.validation import check_hardware_allowlist
 
         fingerprint = "different_hash"
         allowlist = ["only_hash"]
@@ -472,7 +472,7 @@ class TestCheckHardwareAllowlist:
         """check_hardware_allowlist should strip whitespace from env-var allowlist entries."""
         import os
 
-        from llama_manager.server import check_hardware_allowlist
+        from llama_manager.validation import check_hardware_allowlist
 
         fingerprint = "fp2"
         os.environ["LLM_RUNNER_HARDWARE_ALLOWLIST"] = "fp1, fp2, fp3"
@@ -487,7 +487,7 @@ class TestCheckHardwareAllowlist:
         """check_hardware_allowlist should ignore empty entries from env-var allowlist."""
         import os
 
-        from llama_manager.server import check_hardware_allowlist
+        from llama_manager.validation import check_hardware_allowlist
 
         os.environ["LLM_RUNNER_HARDWARE_ALLOWLIST"] = "fp1,,fp2"
         try:
@@ -504,7 +504,7 @@ class TestAssessVramRisk:
     def test_vram_sufficient_proceed(self) -> None:
         """assess_vram_risk should return PROCEED when free VRAM >= 1.5x model size."""
         from llama_manager.config import VRamRecommendation
-        from llama_manager.server import assess_vram_risk
+        from llama_manager.validation import assess_vram_risk
 
         result = assess_vram_risk(vram_free_gb=20, model_size_gb=10)
 
@@ -513,7 +513,7 @@ class TestAssessVramRisk:
     def test_vram_boundary_1_5x(self) -> None:
         """assess_vram_risk should return PROCEED at exactly 1.5x ratio."""
         from llama_manager.config import VRamRecommendation
-        from llama_manager.server import assess_vram_risk
+        from llama_manager.validation import assess_vram_risk
 
         # 15 / 10 = 1.5x exactly
         result = assess_vram_risk(vram_free_gb=15, model_size_gb=10)
@@ -523,7 +523,7 @@ class TestAssessVramRisk:
     def test_vram_warn_1_45x(self) -> None:
         """assess_vram_risk should return WARN when free VRAM >= 1.411x model size (spec FR-013)."""
         from llama_manager.config import VRamRecommendation
-        from llama_manager.server import assess_vram_risk
+        from llama_manager.validation import assess_vram_risk
 
         # 14.5 / 10 = 1.45x (between 1.411 warn threshold and 1.5 proceed threshold)
         result = assess_vram_risk(vram_free_gb=14.5, model_size_gb=10)
@@ -533,7 +533,7 @@ class TestAssessVramRisk:
     def test_vram_boundary_warn_threshold(self) -> None:
         """assess_vram_risk should return WARN at exactly 1.2/0.85 ≈ 1.411x ratio (spec FR-013)."""
         from llama_manager.config import VRamRecommendation
-        from llama_manager.server import assess_vram_risk
+        from llama_manager.validation import assess_vram_risk
 
         # 14.12 / 10 = 1.412x (just above 1.2/0.85 ≈ 1.41176)
         result = assess_vram_risk(vram_free_gb=14.12, model_size_gb=10)
@@ -543,7 +543,7 @@ class TestAssessVramRisk:
     def test_vram_insufficient_confirm_required(self) -> None:
         """assess_vram_risk should return CONFIRM_REQUIRED when free VRAM < 1.1x model size."""
         from llama_manager.config import VRamRecommendation
-        from llama_manager.server import assess_vram_risk
+        from llama_manager.validation import assess_vram_risk
 
         # 10 / 10 = 1.0x
         result = assess_vram_risk(vram_free_gb=10, model_size_gb=10)
@@ -553,7 +553,7 @@ class TestAssessVramRisk:
     def test_vram_zero_free(self) -> None:
         """assess_vram_risk should return CONFIRM_REQUIRED when no free VRAM."""
         from llama_manager.config import VRamRecommendation
-        from llama_manager.server import assess_vram_risk
+        from llama_manager.validation import assess_vram_risk
 
         result = assess_vram_risk(vram_free_gb=0, model_size_gb=10)
 
@@ -562,7 +562,7 @@ class TestAssessVramRisk:
     def test_vram_large_buffer(self) -> None:
         """assess_vram_risk should return PROCEED with large VRAM buffer."""
         from llama_manager.config import VRamRecommendation
-        from llama_manager.server import assess_vram_risk
+        from llama_manager.validation import assess_vram_risk
 
         # 20 / 10 = 2.0x
         result = assess_vram_risk(vram_free_gb=20, model_size_gb=10)

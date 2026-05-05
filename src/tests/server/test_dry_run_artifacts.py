@@ -23,11 +23,11 @@ import pytest
 from llama_manager.config import (
     MultiValidationError,
 )
-from llama_manager.process_manager import (
+from llama_manager.orchestration import (
     ValidationException,
     write_artifact,
 )
-from llama_manager.server import (
+from llama_manager.validation import (
     ValidationResults,
     build_dry_run_slot_payload,
 )
@@ -382,7 +382,7 @@ class TestFR007ArtifactValidation:
 
     def test_write_artifact_raises_on_missing_required_fields(self, tmp_path: Path) -> None:
         """FR-007: write_artifact should raise ValidationException for missing fields."""
-        from llama_manager.process_manager import ValidationException
+        from llama_manager.orchestration import ValidationException
 
         data = {
             "timestamp": "2026-04-12T00:00:00Z",
@@ -512,3 +512,93 @@ class TestFR007ArtifactPersistence:
         # Should be in artifacts subdir under tmp_path
         assert artifact_path.parent.name == "artifacts"
         assert artifact_path.parent.parent == tmp_path
+
+
+class TestFR007FieldTypeValidation:
+    """FR-007: Type validation for artifact fields."""
+
+    def test_timestamp_must_be_string(self, tmp_path: Path) -> None:
+        """timestamp must be a string (ISO 8601)."""
+        data = {
+            "timestamp": 12345,  # type: ignore[dict-item]
+            "slot_scope": ["slot1"],
+            "resolved_command": {},
+            "validation_results": {},
+            "warnings": [],
+            "environment_redacted": {},
+        }
+        with pytest.raises(ValidationException) as exc_info:
+            write_artifact(tmp_path, "slot1", data)
+        assert "timestamp must be an ISO 8601 string" in str(exc_info.value)
+
+    def test_validation_results_must_be_dict(self, tmp_path: Path) -> None:
+        """validation_results must be a dict/mapping."""
+        data = {
+            "timestamp": "2026-04-12T00:00:00Z",
+            "slot_scope": ["slot1"],
+            "resolved_command": {},
+            "validation_results": "not a dict",  # type: ignore[dict-item]
+            "warnings": [],
+            "environment_redacted": {},
+        }
+        with pytest.raises(ValidationException) as exc_info:
+            write_artifact(tmp_path, "slot1", data)
+        assert "validation_results must be an object mapping" in str(exc_info.value)
+
+    def test_warnings_must_be_list_of_strings(self, tmp_path: Path) -> None:
+        """warnings must be list[str]."""
+        data = {
+            "timestamp": "2026-04-12T00:00:00Z",
+            "slot_scope": ["slot1"],
+            "resolved_command": {},
+            "validation_results": {},
+            "warnings": ["ok", 123],  # type: ignore[list-item]
+            "environment_redacted": {},
+        }
+        with pytest.raises(ValidationException) as exc_info:
+            write_artifact(tmp_path, "slot1", data)
+        assert "warnings must be list[str]" in str(exc_info.value)
+
+    def test_environment_redacted_must_be_dict(self, tmp_path: Path) -> None:
+        """environment_redacted must be a dict/mapping."""
+        data = {
+            "timestamp": "2026-04-12T00:00:00Z",
+            "slot_scope": ["slot1"],
+            "resolved_command": {},
+            "validation_results": {},
+            "warnings": [],
+            "environment_redacted": "not a dict",  # type: ignore[dict-item]
+        }
+        with pytest.raises(ValidationException) as exc_info:
+            write_artifact(tmp_path, "slot1", data)
+        assert "environment_redacted must be an object mapping" in str(exc_info.value)
+
+    def test_resolved_command_keys_must_be_strings(self, tmp_path: Path) -> None:
+        """resolved_command keys must be strings."""
+        data = {
+            "timestamp": "2026-04-12T00:00:00Z",
+            "slot_scope": ["slot1"],
+            "resolved_command": {42: {"cmd": ["echo"]}},  # type: ignore[dict-item]
+            "validation_results": {},
+            "warnings": [],
+            "environment_redacted": {},
+        }
+        with pytest.raises(ValidationException) as exc_info:
+            write_artifact(tmp_path, "slot1", data)
+        assert "resolved_command keys must be strings" in str(exc_info.value)
+
+    def test_resolved_command_slot_ids_must_be_strings(self, tmp_path: Path) -> None:
+        """resolved_command inner dict keys (slot IDs) must be strings."""
+        data = {
+            "timestamp": "2026-04-12T00:00:00Z",
+            "slot_scope": ["slot1"],
+            "resolved_command": {
+                "slot1": {123: "value"},  # type: ignore[dict-item]
+            },
+            "validation_results": {},
+            "warnings": [],
+            "environment_redacted": {},
+        }
+        with pytest.raises(ValidationException) as exc_info:
+            write_artifact(tmp_path, "slot1", data)
+        assert "resolved_command slot IDs must be strings" in str(exc_info.value)

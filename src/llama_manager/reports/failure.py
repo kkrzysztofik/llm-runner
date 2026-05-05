@@ -1,65 +1,18 @@
-# Build failure reporting and logging for M2
+"""Failure report — structured build failure reporting."""
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
-import re
-import shutil
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from .common.security import REDACTED_VALUE
-
-if TYPE_CHECKING:
-    from .config import Config
+from .redaction import redact_sensitive
+from .rotation import _rotate_mutating_log
 
 
-def redact_sensitive(text: str) -> str:
-    """Redact sensitive information from text.
-
-    Replaces values for KEY|TOKEN|SECRET|PASSWORD|AUTH with ``[REDACTED]``.
-    The key name is preserved for readability; only the value is replaced.
-    Uses case-insensitive regex matching.
-
-    Args:
-        text: Input text to redact.
-
-    Returns:
-        Text with sensitive values replaced by ``[REDACTED]``.
-
-    Examples:
-        >>> redact_sensitive("API_KEY=abc123")
-        'API_KEY: [REDACTED]'
-        >>> redact_sensitive("password: secret123")
-        'password: [REDACTED]'
-    """
-
-    def replace_key_value(match: re.Match) -> str:
-        full_key = match.group(1)
-        return f"{full_key}: {REDACTED_VALUE}"
-
-    # First pass: replace key=value and key: value constructs.
-    pattern = r"(?<!\w)(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)([=:]\s*\S+)"
-    result = re.sub(pattern, replace_key_value, text, flags=re.IGNORECASE)
-
-    # Second pass: replace standalone sensitive words that have no value after them.
-    result = re.sub(
-        r"(?<!\w)(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)(?![=:]\s*\S+)(?![:\s]*"
-        + re.escape(REDACTED_VALUE)
-        + r")(?!\w)",
-        REDACTED_VALUE,
-        result,
-        flags=re.IGNORECASE,
-    )
-
-    return result
-
-
-# Note: redact_sensitive is also used in build_pipeline.py for failure reports
 @dataclass
 class FailureReport:
     """Structured report of a failed build attempt.
@@ -206,7 +159,7 @@ def write_failure_report(
     Raises:
         IOError: If the report cannot be written
     """
-    from .config import Config
+    from ..config import Config
 
     config = Config()
     if report_dir is None:
@@ -291,7 +244,7 @@ def log_mutating_action(
         >>> entry.is_success
         True
     """
-    from .config import Config
+    from ..config import Config
 
     config = Config()
     timestamp = datetime.now(UTC)
@@ -330,74 +283,3 @@ def log_mutating_action(
     _rotate_mutating_log(log_path, max_entries=1000)
 
     return entry
-
-
-def _rotate_mutating_log(log_path: Path, max_entries: int = 1000) -> None:
-    """Rotate mutating action log if it exceeds max entries.
-
-    Deletes the oldest entry when the log file exceeds the maximum number
-    of entries. Uses simple line-based rotation.
-
-    Args:
-        log_path: Path to the log file
-        max_entries: Maximum number of entries before rotation
-    """
-    if not log_path.exists():
-        return
-
-    try:
-        with open(log_path, encoding="utf-8") as f:
-            lines = f.readlines()
-
-        if len(lines) <= max_entries:
-            return
-
-        # Keep only the last max_entries lines
-        with open(log_path, "w", encoding="utf-8") as f:
-            f.writelines(lines[-max_entries:])
-
-    except OSError:
-        # Log but don't fail on rotation errors
-        pass
-
-
-def rotate_reports(config: Config | None = None) -> None:
-    """Rotate old report directories.
-
-    Scans the reports directory and deletes oldest report directories
-    when count exceeds Config.build_max_reports. Uses FIFO rotation
-    (oldest first).
-
-    Args:
-        config: Optional Config instance. If not provided, creates default.
-    """
-    from .config import Config
-
-    cfg = config if config is not None else Config()
-
-    reports_path = cfg.reports_dir
-
-    if not reports_path.exists():
-        return
-
-    # Get all report directories (directories starting with timestamp pattern)
-    report_dirs: list[Path] = []
-    for entry in reports_path.iterdir():
-        if entry.is_dir() and entry.name.startswith("20"):
-            # Check if it looks like a timestamp directory (YYYYMMDD_HHMMSS)
-            try:
-                datetime.strptime(entry.name, "%Y%m%d_%H%M%S")
-                report_dirs.append(entry)
-            except ValueError:
-                continue
-
-    # Sort by directory name (timestamp-based, oldest first)
-    report_dirs.sort(key=lambda p: p.name)
-
-    # Delete oldest directories if count exceeds max
-    max_reports = cfg.build_max_reports
-    if len(report_dirs) > max_reports:
-        to_delete = report_dirs[: len(report_dirs) - max_reports]
-        for report_dir in to_delete:
-            with contextlib.suppress(OSError):
-                shutil.rmtree(report_dir)

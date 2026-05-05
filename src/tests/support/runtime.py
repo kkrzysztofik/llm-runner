@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from pathlib import Path
 
-from llama_manager.process_manager import create_lock
+from llama_manager.orchestration import create_lock
 
 
 def make_runtime_dir(tmp_path: Path) -> Path:

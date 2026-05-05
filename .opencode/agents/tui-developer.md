@@ -4,24 +4,6 @@ description: TUI and CLI development for llm-runner - Textual TUI, argument pars
 mode: subagent
 model: llama.cpp/qwen35-coding
 temperature: 0.1
-permission:
-  bash:
-    "*": "deny"
-    "uv run llm-runner*": "allow"
-  edit:
-    "src/llama_cli/**/*.py": "allow"
-    "run_*.py": "allow"
-    "**/*.env*": "deny"
-    "**/*.key": "deny"
-    "**/*.secret": "deny"
-    "node_modules/**": "deny"
-    ".git/**": "deny"
-  task:
-    "*": "deny"
-    contextscout: "allow"
-  skill:
-    "*": "deny"
-    "vercel-react-best-practices": "allow"
 ---
 
 <context>

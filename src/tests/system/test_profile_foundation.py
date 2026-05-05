@@ -57,13 +57,16 @@ class TestDetectToolchainIntegration:
         """detect_toolchain should handle partial tool availability."""
         with patch("llama_manager.toolchain.detect_tool") as mock_detect:
             # Simulate some tools present, some missing
+            # Calls: gcc, make, git, cmake, icpx, icx, dpcpp, nvcc, nvtop
             mock_detect.side_effect = [
                 (True, "11.4.0"),  # gcc
                 (True, "4.3"),  # make
                 (True, "2.37.0"),  # git
                 (True, "3.25.0"),  # cmake
-                (False, None),  # sycl_compiler missing
-                (True, "12.2.0"),  # cuda_toolkit
+                (False, None),  # icpx (SYCL candidate 1)
+                (False, None),  # icx (SYCL candidate 2)
+                (False, None),  # dpcpp (SYCL candidate 3)
+                (True, "12.2.0"),  # nvcc (CUDA toolkit)
                 (True, "2.1.0"),  # nvtop
             ]
 

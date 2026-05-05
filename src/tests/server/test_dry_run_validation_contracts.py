@@ -32,8 +32,8 @@ from pathlib import Path
 import pytest
 
 from llama_manager.config import ErrorCode, ErrorDetail, MultiValidationError, ServerConfig
-from llama_manager.process_manager import ValidationException, write_artifact
-from llama_manager.server import (
+from llama_manager.orchestration import ValidationException, write_artifact
+from llama_manager.validation import (
     ValidationResults,
     VllmEligibility,
     build_dry_run_slot_payload,

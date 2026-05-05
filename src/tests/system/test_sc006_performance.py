@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llama_cli.commands.dry_run import dry_run
-from llama_manager.server import validate_port, validate_ports
+from llama_manager.validation import validate_port, validate_ports
 
 
 def get_p95(data: list[float]) -> float:

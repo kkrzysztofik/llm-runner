@@ -26,11 +26,8 @@ from llama_manager import (
     resolve_runtime_dir,
 )
 from llama_manager.config import create_smoke_config
-from llama_manager.smoke import (
-    SmokeProbeResult,
-    _ensure_report_dir,
-    probe_slot,
-)
+from llama_manager.probe import SmokeProbeResult, probe_slot
+from llama_manager.probe.smoke import _ensure_report_dir
 
 # Canonical slot registry — single source of truth for slot config
 _SLOT_REGISTRY: dict[str, dict[str, str]] = {

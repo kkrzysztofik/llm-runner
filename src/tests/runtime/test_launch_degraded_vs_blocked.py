@@ -8,7 +8,7 @@ Tests T016: Degraded one-slot vs full-block behavior tests:
 from unittest.mock import Mock, patch
 
 from llama_manager.config import ErrorDetail, MultiValidationError
-from llama_manager.process_manager import (
+from llama_manager.orchestration import (
     check_lockfile_integrity,
     create_lock,
 )

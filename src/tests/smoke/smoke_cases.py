@@ -27,7 +27,7 @@ from llama_manager.config import (
     SmokeProbeConfiguration,
     SmokeProbeStatus,
 )
-from llama_manager.smoke import (
+from llama_manager.probe import (
     ConsecutiveFailureCounter,
     ProvenanceRecord,
     SmokeCompositeReport,
@@ -86,9 +86,9 @@ class TestPhase1ListenTimeout:
         smoke_cfg = _make_smoke_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke.time.monotonic") as mock_monotonic,
-            patch("llama_manager.smoke._probe_models") as mock_probe_models,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke.time.monotonic") as mock_monotonic,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe_models,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -112,7 +112,7 @@ class TestPhase1ListenTimeout:
         """probe_slot should return FAIL with LISTEN failure on connection refused."""
         smoke_cfg = _make_smoke_cfg()
 
-        with patch("llama_manager.smoke.socket.socket") as mock_socket_cls:
+        with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.side_effect = ConnectionRefusedError("connection refused")
@@ -129,8 +129,8 @@ class TestPhase1ListenTimeout:
         smoke_cfg = _make_smoke_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe_models,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe_models,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -147,7 +147,7 @@ class TestPhase1ListenTimeout:
         """probe_slot should return FAIL with LISTEN failure on generic OSError."""
         smoke_cfg = _make_smoke_cfg()
 
-        with patch("llama_manager.smoke.socket.socket") as mock_socket_cls:
+        with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.side_effect = OSError(111, "Network is unreachable")
@@ -163,8 +163,8 @@ class TestPhase1ListenTimeout:
         smoke_cfg = _make_smoke_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke.resolve_provenance") as mock_resolve,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke.resolve_provenance") as mock_resolve,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -194,7 +194,7 @@ class TestPhase1ListenTimeout:
 
         monkeypatch.setattr(time, "monotonic", fake_monotonic)
 
-        with patch("llama_manager.smoke.socket.socket") as mock_socket_cls:
+        with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.side_effect = TimeoutError()
@@ -210,7 +210,7 @@ class TestPhase1ListenTimeout:
         """probe_slot should use host:port as slot_id on failure."""
         smoke_cfg = _make_smoke_cfg()
 
-        with patch("llama_manager.smoke.socket.socket") as mock_socket_cls:
+        with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.side_effect = OSError()
@@ -246,9 +246,9 @@ class TestPhase2ModelsDiscovery:
         smoke_cfg = _make_smoke_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat") as mock_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -288,8 +288,8 @@ class TestPhase2ModelsDiscovery:
             )
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models", side_effect=probe_models_side_effect),
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models", side_effect=probe_models_side_effect),
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -320,8 +320,8 @@ class TestPhase2ModelsDiscovery:
             )
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models", side_effect=probe_models_side_effect),
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models", side_effect=probe_models_side_effect),
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -338,9 +338,9 @@ class TestPhase2ModelsDiscovery:
         smoke_cfg = _make_smoke_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat") as mock_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -373,8 +373,8 @@ class TestPhase2ModelsDiscovery:
             )
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models", side_effect=probe_models_side_effect),
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models", side_effect=probe_models_side_effect),
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -404,8 +404,8 @@ class TestPhase2ModelsDiscovery:
             )
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models", side_effect=probe_models_side_effect),
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models", side_effect=probe_models_side_effect),
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -434,8 +434,8 @@ class TestPhase2ModelsDiscovery:
             )
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models", side_effect=probe_models_side_effect),
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models", side_effect=probe_models_side_effect),
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -452,9 +452,9 @@ class TestPhase2ModelsDiscovery:
         smoke_cfg = _make_smoke_cfg(skip_models_discovery=True)
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat") as mock_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -486,8 +486,8 @@ class TestPhase2ModelsDiscovery:
             )
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models", side_effect=probe_models_side_effect),
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models", side_effect=probe_models_side_effect),
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -517,8 +517,8 @@ class TestPhase2ModelsDiscovery:
             )
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models", side_effect=probe_models_side_effect),
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models", side_effect=probe_models_side_effect),
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -547,8 +547,8 @@ class TestPhase2ModelsDiscovery:
             )
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models", side_effect=probe_models_side_effect),
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models", side_effect=probe_models_side_effect),
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -577,8 +577,8 @@ class TestPhase2ModelsDiscovery:
             )
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models", side_effect=probe_models_side_effect),
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models", side_effect=probe_models_side_effect),
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -603,9 +603,9 @@ class TestPhase3ChatCompletion:
         smoke_cfg = _make_smoke_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat") as mock_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -639,9 +639,9 @@ class TestPhase3ChatCompletion:
             )
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat", side_effect=probe_chat_side_effect),
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat", side_effect=probe_chat_side_effect),
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -669,9 +669,9 @@ class TestPhase3ChatCompletion:
             )
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat", side_effect=probe_chat_side_effect),
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat", side_effect=probe_chat_side_effect),
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -698,9 +698,9 @@ class TestPhase3ChatCompletion:
             )
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat", side_effect=probe_chat_side_effect),
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat", side_effect=probe_chat_side_effect),
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -727,9 +727,9 @@ class TestPhase3ChatCompletion:
             )
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat", side_effect=probe_chat_side_effect),
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat", side_effect=probe_chat_side_effect),
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -779,7 +779,7 @@ class TestCrashDetection:
 
     def test_exit_code_unknown_status_fallback(self) -> None:
         """Unknown SmokeProbeStatus should fall back to exit code 10."""
-        from llama_manager.smoke import _EXIT_CODE_MAP
+        from llama_manager.probe import _EXIT_CODE_MAP
 
         # Verify all known statuses are in the map
         for status in SmokeProbeStatus:
@@ -797,7 +797,9 @@ class TestCrashDetection:
         # Normal case: PASS maps to 0
         assert result.exit_code == 0
         # Simulate unknown status by patching _EXIT_CODE_MAP.get to return default
-        with patch("llama_manager.smoke._EXIT_CODE_MAP", MagicMock(get=MagicMock(return_value=10))):
+        with patch(
+            "llama_manager.probe.smoke._EXIT_CODE_MAP", MagicMock(get=MagicMock(return_value=10))
+        ):
             # Re-read exit_code to exercise the patched path
             assert result.exit_code == 10
 
@@ -816,32 +818,38 @@ class TestProvenanceResolution:
         ref_content = "abcdef1234567890abcdef1234567890abcdef12"
 
         with (
-            patch("llama_manager.smoke.Path.exists", return_value=True),
-            patch("llama_manager.smoke.Path.read_text", side_effect=[sha_content, ref_content]),
-            patch("importlib.metadata.version", return_value="24.12.0"),
+            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
+            patch(
+                "llama_manager.probe.provenance.Path.read_text",
+                side_effect=[sha_content, ref_content],
+            ),
+            patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
         ):
             record = resolve_provenance()
 
-        assert record.sha == "abcdef1"
+        assert record.sha == "abcdef1234567890abcdef1234567890abcdef12"
         assert record.version == "24.12.0"
 
     def test_resolve_provenance_direct_sha(self) -> None:
         """resolve_provenance should use direct SHA from .git/HEAD when not a ref."""
         with (
-            patch("llama_manager.smoke.Path.exists", return_value=True),
-            patch("llama_manager.smoke.Path.read_text", return_value="abcdef1234567890"),
-            patch("importlib.metadata.version", return_value="24.12.0"),
+            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
+            patch(
+                "llama_manager.probe.provenance.Path.read_text",
+                return_value="abcdef1234567890abcdef1234567890abcdef12",
+            ),
+            patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
         ):
             record = resolve_provenance()
 
-        assert record.sha == "abcdef1"
+        assert record.sha == "abcdef1234567890abcdef1234567890abcdef12"
         assert record.version == "24.12.0"
 
     def test_resolve_provenance_missing_git_head(self) -> None:
         """resolve_provenance should return 'unknown' SHA when .git/HEAD doesn't exist."""
         with (
-            patch("llama_manager.smoke.Path.exists", return_value=False),
-            patch("importlib.metadata.version", return_value="24.12.0"),
+            patch("llama_manager.probe.provenance.Path.exists", return_value=False),
+            patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
         ):
             record = resolve_provenance()
 
@@ -850,34 +858,38 @@ class TestProvenanceResolution:
 
     def test_resolve_provenance_git_fallback(self) -> None:
         """resolve_provenance should fall back to git rev-parse when .git/HEAD read fails."""
-        with (
-            patch("llama_manager.smoke.Path.exists", return_value=True),
-            patch("llama_manager.smoke.Path.read_text", side_effect=OSError("permission denied")),
-            patch("subprocess.run") as mock_run,
-            patch("importlib.metadata.version", return_value="24.12.0"),
-        ):
-            mock_result = MagicMock()
-            mock_result.returncode = 0
-            mock_result.stdout = "fedcba0987654321fedcba0987654321fedcba09\n"
-            mock_run.return_value = mock_result
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "fedcba0987654321fedcba0987654321fedcba09\n"
 
+        with (
+            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
+            patch(
+                "llama_manager.probe.provenance.Path.read_text",
+                side_effect=OSError("permission denied"),
+            ),
+            patch("subprocess.run", return_value=mock_result),
+            patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
+        ):
             record = resolve_provenance()
 
-        assert record.sha == "fedcba0"
+        assert record.sha == "fedcba0987654321fedcba0987654321fedcba09"
         assert record.version == "24.12.0"
 
     def test_resolve_provenance_git_fallback_failure(self) -> None:
         """resolve_provenance should return 'unknown' when git rev-parse also fails."""
-        with (
-            patch("llama_manager.smoke.Path.exists", return_value=True),
-            patch("llama_manager.smoke.Path.read_text", side_effect=OSError("permission denied")),
-            patch("subprocess.run") as mock_run,
-            patch("importlib.metadata.version", return_value="24.12.0"),
-        ):
-            mock_result = MagicMock()
-            mock_result.returncode = 1
-            mock_run.return_value = mock_result
+        mock_result = MagicMock()
+        mock_result.returncode = 1
 
+        with (
+            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
+            patch(
+                "llama_manager.probe.provenance.Path.read_text",
+                side_effect=OSError("permission denied"),
+            ),
+            patch("subprocess.run", return_value=mock_result),
+            patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
+        ):
             record = resolve_provenance()
 
         assert record.sha == "unknown"
@@ -885,38 +897,26 @@ class TestProvenanceResolution:
     def test_resolve_provenance_no_metadata_version(self) -> None:
         """resolve_provenance should return 'dev' version when importlib.metadata fails."""
         with (
-            patch("llama_manager.smoke.Path.exists", return_value=False),
-            patch("importlib.metadata.version", side_effect=Exception("not installed")),
+            patch("llama_manager.probe.provenance.Path.exists", return_value=False),
+            patch(
+                "llama_manager.probe.provenance._importlib_version",
+                side_effect=Exception("not installed"),
+            ),
         ):
             record = resolve_provenance()
 
         assert record.sha == "unknown"
         assert record.version == "dev"
 
-    def test_resolve_sha_short_sha_truncated(self) -> None:
-        """_resolve_sha should truncate long SHAs to first 7 characters."""
-        long_sha = "abcdef1234567890abcdef1234567890abcdef12"
-
-        with (
-            patch("llama_manager.smoke.Path.exists", return_value=True),
-            patch("llama_manager.smoke.Path.read_text", return_value=long_sha),
-        ):
-            from llama_manager.smoke import _resolve_sha
-
-            sha = _resolve_sha()
-
-        assert len(sha) == 7
-        assert sha == "abcdef1"
-
     def test_resolve_sha_short_sha_preserved(self) -> None:
-        """_resolve_sha should preserve short SHAs without truncation."""
+        """_resolve_sha should return short SHAs as-is (no truncation)."""
         short_sha = "abcdef1"
 
         with (
-            patch("llama_manager.smoke.Path.exists", return_value=True),
-            patch("llama_manager.smoke.Path.read_text", return_value=short_sha),
+            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
+            patch("llama_manager.probe.provenance.Path.read_text", return_value=short_sha),
         ):
-            from llama_manager.smoke import _resolve_sha
+            from llama_manager.probe import _resolve_sha
 
             sha = _resolve_sha()
 
@@ -1085,9 +1085,9 @@ class TestApiKeyHeaderPrecedence:
         smoke_cfg = _make_smoke_cfg(api_key="")
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat") as mock_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -1108,9 +1108,9 @@ class TestApiKeyHeaderPrecedence:
         smoke_cfg = _make_smoke_cfg(api_key="sk-test-key-123")
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat") as mock_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -1130,9 +1130,9 @@ class TestApiKeyHeaderPrecedence:
         smoke_cfg = _make_smoke_cfg(api_key="  sk-whitespace-key  ")
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat") as mock_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -1153,9 +1153,9 @@ class TestApiKeyHeaderPrecedence:
         smoke_cfg = _make_smoke_cfg(api_key="  sk-unified-key  ")
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat") as mock_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -1172,7 +1172,7 @@ class TestApiKeyHeaderPrecedence:
 
     def test_probe_models_includes_auth_header(self) -> None:
         """_probe_models should include Authorization header with Bearer prefix."""
-        with patch("llama_manager.smoke.httpx.Client") as mock_client_cls:
+        with patch("llama_manager.probe.smoke.httpx.Client") as mock_client_cls:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -1185,7 +1185,7 @@ class TestApiKeyHeaderPrecedence:
             mock_client_instance.get.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_models
+            from llama_manager.probe import _probe_models
 
             _result = _probe_models("127.0.0.1", 8080, 10, "sk-secret", "test-model")
 
@@ -1198,7 +1198,7 @@ class TestApiKeyHeaderPrecedence:
 
     def test_probe_models_no_auth_header_when_empty(self) -> None:
         """_probe_models should not include Authorization header when api_key is empty."""
-        with patch("llama_manager.smoke.httpx.Client") as mock_client_cls:
+        with patch("llama_manager.probe.smoke.httpx.Client") as mock_client_cls:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -1211,7 +1211,7 @@ class TestApiKeyHeaderPrecedence:
             mock_client_instance.get.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_models
+            from llama_manager.probe import _probe_models
 
             _result = _probe_models("127.0.0.1", 8080, 10, "", "test-model")
 
@@ -1223,7 +1223,7 @@ class TestApiKeyHeaderPrecedence:
         """_probe_chat should include Authorization header when api_key is set."""
         smoke_cfg = _make_smoke_cfg(api_key="")
 
-        with patch("llama_manager.smoke.httpx.Client") as mock_client_cls:
+        with patch("llama_manager.probe.smoke.httpx.Client") as mock_client_cls:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -1236,7 +1236,7 @@ class TestApiKeyHeaderPrecedence:
             mock_client_instance.post.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_chat
+            from llama_manager.probe import _probe_chat
 
             _result = _probe_chat("127.0.0.1", 8080, smoke_cfg, "test-model", "sk-chat-key")
 
@@ -1250,7 +1250,7 @@ class TestApiKeyHeaderPrecedence:
         """_probe_chat should not include Authorization header when api_key is empty."""
         smoke_cfg = _make_smoke_cfg(api_key="")
 
-        with patch("llama_manager.smoke.httpx.Client") as mock_client_cls:
+        with patch("llama_manager.probe.smoke.httpx.Client") as mock_client_cls:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -1263,7 +1263,7 @@ class TestApiKeyHeaderPrecedence:
             mock_client_instance.post.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_chat
+            from llama_manager.probe import _probe_chat
 
             _result = _probe_chat("127.0.0.1", 8080, smoke_cfg, "test-model", "")
 
@@ -1704,9 +1704,9 @@ class TestProbeSlotFullFlow:
         smoke_cfg = _make_smoke_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe_models,
-            patch("llama_manager.smoke._probe_chat") as mock_probe_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe_models,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_probe_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -1734,9 +1734,9 @@ class TestProbeSlotFullFlow:
         smoke_cfg = _make_smoke_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe_models,
-            patch("llama_manager.smoke._probe_chat") as mock_probe_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe_models,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_probe_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -1763,9 +1763,9 @@ class TestProbeSlotFullFlow:
         smoke_cfg = _make_smoke_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe_models,
-            patch("llama_manager.smoke._probe_chat") as mock_probe_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe_models,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_probe_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -1791,10 +1791,10 @@ class TestProbeSlotFullFlow:
         smoke_cfg = _make_smoke_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe_models,
-            patch("llama_manager.smoke._probe_chat") as mock_probe_chat,
-            patch("llama_manager.smoke.resolve_provenance") as mock_resolve,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe_models,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_probe_chat,
+            patch("llama_manager.probe.smoke.resolve_provenance") as mock_resolve,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -1817,8 +1817,8 @@ class TestProbeSlotFullFlow:
         smoke_cfg = _make_smoke_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe_models,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe_models,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -1851,13 +1851,13 @@ class TestTcpConnect:
 
     def test_tcp_connect_success(self) -> None:
         """_tcp_connect should return None on successful connection."""
-        with patch("llama_manager.smoke.socket.socket") as mock_socket_cls:
+        with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
 
-            from llama_manager.smoke import _tcp_connect
+            from llama_manager.probe import _tcp_connect
 
             _tcp_connect("127.0.0.1", 8080, 5)
 
@@ -1866,13 +1866,13 @@ class TestTcpConnect:
 
     def test_tcp_connect_timeout_raises(self) -> None:
         """_tcp_connect should raise TimeoutError when socket times out."""
-        with patch("llama_manager.smoke.socket.socket") as mock_socket_cls:
+        with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.side_effect = TimeoutError()
             mock_sock.close.return_value = None
 
-            from llama_manager.smoke import _tcp_connect
+            from llama_manager.probe import _tcp_connect
 
             with pytest.raises(TimeoutError):
                 _tcp_connect("127.0.0.1", 8080, 5)
@@ -1881,13 +1881,13 @@ class TestTcpConnect:
 
     def test_tcp_connect_refused_raises(self) -> None:
         """_tcp_connect should raise OSError when connection is refused."""
-        with patch("llama_manager.smoke.socket.socket") as mock_socket_cls:
+        with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.side_effect = ConnectionRefusedError()
             mock_sock.close.return_value = None
 
-            from llama_manager.smoke import _tcp_connect
+            from llama_manager.probe import _tcp_connect
 
             with pytest.raises(OSError):
                 _tcp_connect("127.0.0.1", 8080, 5)
@@ -1896,13 +1896,13 @@ class TestTcpConnect:
 
     def test_tcp_connect_sets_timeout(self) -> None:
         """_tcp_connect should set socket timeout to the specified value."""
-        with patch("llama_manager.smoke.socket.socket") as mock_socket_cls:
+        with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
 
-            from llama_manager.smoke import _tcp_connect
+            from llama_manager.probe import _tcp_connect
 
             _tcp_connect("127.0.0.1", 8080, 30)
 
@@ -1910,13 +1910,13 @@ class TestTcpConnect:
 
     def test_tcp_connect_socket_created_with_correct_family(self) -> None:
         """_tcp_connect should create socket with AF_INET and SOCK_STREAM."""
-        with patch("llama_manager.smoke.socket.socket") as mock_socket_cls:
+        with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
 
-            from llama_manager.smoke import _tcp_connect
+            from llama_manager.probe import _tcp_connect
 
             _tcp_connect("127.0.0.1", 8080, 5)
 
@@ -2109,28 +2109,28 @@ class TestResolveApiKeyWhitespace:
 
     def test_explicit_key_stripped(self) -> None:
         """resolve_api_key should strip whitespace from explicit key."""
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("  sk-test-key-123  ")
         assert result == "sk-test-key-123"
 
     def test_explicit_key_only_leading_whitespace(self) -> None:
         """resolve_api_key should strip leading whitespace from explicit key."""
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("  sk-test-key")
         assert result == "sk-test-key"
 
     def test_explicit_key_only_trailing_whitespace(self) -> None:
         """resolve_api_key should strip trailing whitespace from explicit key."""
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("sk-test-key  ")
         assert result == "sk-test-key"
 
     def test_explicit_key_only_newlines(self) -> None:
         """resolve_api_key should strip newlines from explicit key."""
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("\n\t sk-test-key \n\t")
         assert result == "sk-test-key"
@@ -2139,7 +2139,7 @@ class TestResolveApiKeyWhitespace:
         """resolve_api_key should strip whitespace from env var value."""
         monkeypatch.setenv("LLM_RUNNER_API_KEY", "  sk-env-key  ")
 
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("")
         assert result == "sk-env-key"
@@ -2148,7 +2148,7 @@ class TestResolveApiKeyWhitespace:
         """resolve_api_key should prefer explicit key over env var."""
         monkeypatch.setenv("LLM_RUNNER_API_KEY", "sk-env-key")
 
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("  sk-explicit  ")
         assert result == "sk-explicit"
@@ -2157,7 +2157,7 @@ class TestResolveApiKeyWhitespace:
         """resolve_api_key should fall back to env when explicit is empty."""
         monkeypatch.setenv("LLM_RUNNER_API_KEY", "sk-env-key")
 
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("")
         assert result == "sk-env-key"
@@ -2166,7 +2166,7 @@ class TestResolveApiKeyWhitespace:
         """resolve_api_key should return empty string when no key available."""
         monkeypatch.delenv("LLM_RUNNER_API_KEY", raising=False)
 
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         result = resolve_api_key("")
         assert result == ""
@@ -2175,7 +2175,7 @@ class TestResolveApiKeyWhitespace:
         """Whitespace-only explicit key should fall back to env (not treated as non-empty)."""
         monkeypatch.setenv("LLM_RUNNER_API_KEY", "sk-env-key")
 
-        from llama_manager.smoke import resolve_api_key
+        from llama_manager.probe import resolve_api_key
 
         # "  " after strip becomes "", so it falls back to env
         result = resolve_api_key("  ")
@@ -2195,9 +2195,9 @@ class TestModelIdOverridePrecedence:
         smoke_cfg = _make_smoke_cfg(model_id_override="override-model")
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat") as mock_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -2217,9 +2217,9 @@ class TestModelIdOverridePrecedence:
         smoke_cfg = _make_smoke_cfg(model_id_override="override-model")
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat") as mock_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -2242,9 +2242,9 @@ class TestModelIdOverridePrecedence:
         smoke_cfg = _make_smoke_cfg()
 
         with (
-            patch("llama_manager.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.smoke._probe_models") as mock_probe,
-            patch("llama_manager.smoke._probe_chat") as mock_chat,
+            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
+            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
+            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
         ):
             mock_sock = MagicMock()
             mock_socket_cls.return_value = mock_sock
@@ -2273,7 +2273,7 @@ class TestProbeModelsAllModelsCheck:
 
     def test_non_matching_first_model_with_second_match(self) -> None:
         """_probe_models should find expected_model_id even if not in first position."""
-        with patch("llama_manager.smoke.httpx.Client") as mock_client_cls:
+        with patch("llama_manager.probe.smoke.httpx.Client") as mock_client_cls:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -2289,7 +2289,7 @@ class TestProbeModelsAllModelsCheck:
             mock_client_instance.get.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_models
+            from llama_manager.probe import _probe_models
 
             result, discovered_id = _probe_models("127.0.0.1", 8080, 10, "", "expected-model")
 
@@ -2299,7 +2299,7 @@ class TestProbeModelsAllModelsCheck:
 
     def test_no_match_returns_model_not_found(self) -> None:
         """_probe_models should return MODEL_NOT_FOUND when no model matches."""
-        with patch("llama_manager.smoke.httpx.Client") as mock_client_cls:
+        with patch("llama_manager.probe.smoke.httpx.Client") as mock_client_cls:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -2315,7 +2315,7 @@ class TestProbeModelsAllModelsCheck:
             mock_client_instance.get.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_models
+            from llama_manager.probe import _probe_models
 
             result, discovered_id = _probe_models("127.0.0.1", 8080, 10, "", "expected-model")
 
@@ -2326,7 +2326,7 @@ class TestProbeModelsAllModelsCheck:
 
     def test_empty_expected_id_accepts_any_model(self) -> None:
         """_probe_models should accept any model when expected_model_id is empty."""
-        with patch("llama_manager.smoke.httpx.Client") as mock_client_cls:
+        with patch("llama_manager.probe.smoke.httpx.Client") as mock_client_cls:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -2341,7 +2341,7 @@ class TestProbeModelsAllModelsCheck:
             mock_client_instance.get.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.smoke import _probe_models
+            from llama_manager.probe import _probe_models
 
             result, discovered_id = _probe_models("127.0.0.1", 8080, 10, "", "")
 

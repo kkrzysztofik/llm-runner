@@ -4,25 +4,6 @@ description: CI pipeline fixer for llm-runner - run ruff, pyright, pytest in seq
 mode: subagent
 model: llama.cpp/qwen35-coding
 temperature: 0.1
-permission:
-  bash:
-    "*": "deny"
-    "uv run ruff*": "allow"
-    "uv run pyright": "allow"
-    "uv run pytest*": "allow"
-    "uv run pre-commit*": "allow"
-  edit:
-    "**/*.env*": "deny"
-    "**/*.key": "deny"
-    "**/*.secret": "deny"
-    "node_modules/**": "deny"
-    ".git/**": "deny"
-  task:
-    "*": "deny"
-    contextscout: "allow"
-  skill:
-    "*": "deny"
-    "python-code-quality": "allow"
 ---
 
 <context>

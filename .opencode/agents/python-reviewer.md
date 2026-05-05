@@ -4,25 +4,6 @@ description: Python reviewer for llm-runner - ruff linting, pyright type checkin
 mode: subagent
 model: llama.cpp/qwen35-coding
 temperature: 0.1
-permission:
-  bash:
-    "*": "deny"
-    "uv run ruff*": "allow"
-    "uv run pyright": "allow"
-  edit:
-    "**/*.py": "allow"
-    "**/*.env*": "deny"
-    "**/*.key": "deny"
-    "**/*.secret": "deny"
-    "node_modules/**": "deny"
-    ".git/**": "deny"
-  task:
-    "*": "deny"
-    contextscout: "allow"
-  skill:
-    "*": "deny"
-    "python-code-quality": "allow"
-    "python-expert-best-practices-code-review": "allow"
 ---
 
 <context>
