@@ -4,34 +4,6 @@ description: Top-level task orchestrator for llm-runner - decompose goals and de
 mode: primary
 model: llama.cpp/qwen35-coding
 temperature: 1
-permission:
-  bash:
-    "*": "deny"
-  edit:
-    "**/*.env*": "deny"
-    "**/*.key": "deny"
-    "**/*.secret": "deny"
-    "node_modules/**": "deny"
-    ".git/**": "deny"
-  task:
-    architect: "allow"
-    buildengineer: "allow"
-    cifixer: "allow"
-    contextscout: "allow"
-    debugger: "allow"
-    diagnostics: "allow"
-    documentation: "allow"
-    externalscout: "allow"
-    gpuexpert: "allow"
-    profileengineer: "allow"
-    pythonbackend: "allow"
-    pythonqa: "allow"
-    pythonreviewer: "allow"
-    releaseengineer: "allow"
-    securityreviewer: "allow"
-    tuideveloper: "allow"
-  skill:
-    "*": "deny"
 ---
 
 <context>

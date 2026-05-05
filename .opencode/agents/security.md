@@ -4,23 +4,6 @@ description: Security review for llm-runner - OWASP Top 10 checklist applied to 
 mode: subagent
 model: llama.cpp/qwen35-coding
 temperature: 0.1
-permission:
-  bash:
-    "*": "deny"
-    "uv run pip-audit*": "allow"
-  edit:
-    "**/*.py": "allow"
-    "**/*.env*": "deny"
-    "**/*.key": "deny"
-    "**/*.secret": "deny"
-    "node_modules/**": "deny"
-    ".git/**": "deny"
-  task:
-    "*": "deny"
-    contextscout: "allow"
-  skill:
-    "*": "deny"
-    "code-security-audit": "allow"
 ---
 
 <context>

@@ -4,27 +4,6 @@ description: Debugger for llm-runner - Python debugging, process lifecycle, TUI 
 mode: subagent
 model: llama.cpp/qwen35-coding
 temperature: 0.1
-permission:
-  bash:
-    "*": "deny"
-    "uv run pytest*": "allow"
-    "uv run llm-runner*": "allow"
-    "uv run ruff check*": "allow"
-    "uv run ruff format --check*": "allow"
-    "uv run pyright*": "allow"
-    "ps aux*": "allow"
-    "grep*": "allow"
-  edit:
-    "**/*.env*": "deny"
-    "**/*.key": "deny"
-    "**/*.secret": "deny"
-    "node_modules/**": "deny"
-    ".git/**": "deny"
-  task:
-    "*": "deny"
-    contextscout: "allow"
-  skill:
-    "*": "deny"
 ---
 
 <context>

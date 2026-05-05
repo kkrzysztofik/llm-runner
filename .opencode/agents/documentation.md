@@ -4,24 +4,6 @@ description: Documentation authoring agent for llm-runner - Python docstrings, p
 mode: subagent
 model: llama.cpp/qwen35-coding
 temperature: 0.1
-permission:
-  bash:
-    "*": "deny"
-    "uv run ruff*": "allow"
-    "uv run pyright": "allow"
-  edit:
-    "**/*.py": "allow"
-    "**/*.md": "allow"
-    "**/*.env*": "deny"
-    "**/*.key": "deny"
-    "**/*.secret": "deny"
-    "node_modules/**": "deny"
-    ".git/**": "deny"
-  task:
-    "*": "deny"
-    contextscout: "allow"
-  skill:
-    "*": "deny"
 ---
 
 <context>

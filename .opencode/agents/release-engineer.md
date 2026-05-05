@@ -4,23 +4,6 @@ description: Release and docs automation owner for llm-runner - gendoc, README m
 mode: subagent
 model: llama.cpp/qwen35-coding
 temperature: 0.1
-permission:
-  bash:
-    "*": "deny"
-    "uv run gendoc*": "allow"
-  edit:
-    "README.md": "allow"
-    "**/*.md": "allow"
-    "**/*.env*": "deny"
-    "**/*.key": "deny"
-    "**/*.secret": "deny"
-    "node_modules/**": "deny"
-    ".git/**": "deny"
-  task:
-    "*": "deny"
-    contextscout: "allow"
-  skill:
-    "*": "deny"
 ---
 
 <context>

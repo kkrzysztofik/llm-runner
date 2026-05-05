@@ -4,25 +4,6 @@ description: Python QA for llm-runner - pytest, subprocess mocking, coverage, ty
 mode: subagent
 model: llama.cpp/qwen35-coding
 temperature: 0.1
-permission:
-  bash:
-    "*": "deny"
-    "uv run pytest*": "allow"
-    "uv run ruff*": "allow"
-    "uv run pyright": "allow"
-  edit:
-    "src/tests/**/*.py": "allow"
-    "**/*.env*": "deny"
-    "**/*.key": "deny"
-    "**/*.secret": "deny"
-    "node_modules/**": "deny"
-    ".git/**": "deny"
-  task:
-    "*": "deny"
-    contextscout: "allow"
-  skill:
-    "*": "deny"
-    "pytest-advanced": "allow"
 ---
 
 <context>
