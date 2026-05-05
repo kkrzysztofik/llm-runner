@@ -212,7 +212,7 @@ def read_lock(
                 why_blocked="malformed_content: lock 'port' must be an integer",
                 how_to_fix="remove or repair the lockfile to proceed",
             )
-        if not isinstance(raw_started_at, (int, float)) or isinstance(raw_started_at, bool):
+        if not isinstance(raw_started_at, int | float) or isinstance(raw_started_at, bool):
             return ErrorDetail(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,

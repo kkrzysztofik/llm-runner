@@ -4,7 +4,6 @@ import contextlib
 import os
 import re
 import signal
-import subprocess
 import sys
 import threading
 import time
@@ -32,6 +31,9 @@ from ..config import (
 )
 from ..gpu_stats import GPUStats
 from ..log_buffer import LogBuffer
+from .launcher import ProcessHandle, ProcessLauncher, ProcessTimeoutError
+
+__all__ = ["ServerManager", "launch_orchestrate"]
 
 if TYPE_CHECKING:
     from ..risk_ack import RiskAckResult
@@ -199,6 +201,8 @@ def _rotate_audit_log(log_path: Path) -> None:
 
 def _redact_sensitive(text: str) -> str:
     """Redact sensitive patterns from text using module-level patterns."""
+    if not isinstance(text, str):
+        return text
     text = SENSITIVE_WORD_PATTERN.sub(REDACTED_VALUE, text)
     text = re.sub(
         r'(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\s*=\s*"[^"]*"',
@@ -417,11 +421,16 @@ def launch_orchestrate(
 class ServerManager:
     """Manages server processes with lifecycle audit trail."""
 
-    def __init__(self, audit_log_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        audit_log_path: Path | None = None,
+        process_launcher: ProcessLauncher | None = None,
+    ) -> None:
         self.pids: list[int] = []
         self.shutting_down: bool = False
-        self.servers: list[subprocess.Popen] = []
+        self.servers: list[ProcessHandle] = []
         self.pid_metadata: dict[int, float] = {}
+        self._launcher = process_launcher
         self._lifecycle_audit: list[dict] = []
         self._risky_acknowledged_cache: dict[str, set[str]] = {}
         self._current_launch_attempt_id: str | None = None
@@ -509,11 +518,10 @@ class ServerManager:
         for proc in self.servers:
             try:
                 proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
+            except ProcessTimeoutError:
                 pass
             except Exception as e:
                 pid = proc.pid
-                args = proc.args if proc.args else []
                 tb_str = traceback.format_exc()
                 self._lifecycle_audit.append(
                     {
@@ -521,7 +529,6 @@ class ServerManager:
                         "pid": pid,
                         "details": f"{type(e).__name__}: {e}",
                         "traceback": tb_str,
-                        "proc_args": str(args),
                     }
                 )
 
@@ -583,7 +590,8 @@ class ServerManager:
             return
         try:
             for line in iter(pipe.readline, ""):
-                formatted = self._format_output(server_name, line.rstrip("\n"))
+                redacted = _redact_sensitive(line.rstrip("\n"))
+                formatted = self._format_output(server_name, redacted)
                 if log_handler is not None:
                     log_handler(formatted)
                 else:
@@ -655,11 +663,15 @@ class ServerManager:
         server_name: str,
         cmd: list[str],
         log_handler: Callable[[str], None] | None = None,
-    ) -> subprocess.Popen:
+    ) -> ProcessHandle:
         """Start a server in background with output redirection."""
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1
-        )
+        launcher = self._launcher
+        if launcher is None:
+            from .launcher import DefaultProcessLauncher
+
+            launcher = DefaultProcessLauncher()
+
+        proc = launcher.launch(cmd)
 
         self.pids.append(proc.pid)
         self.servers.append(proc)
@@ -704,7 +716,7 @@ class ServerManager:
         self,
         configs: list["ServerConfig"],
         log_handlers: dict[str, Callable[[str], None]] | None = None,
-    ) -> list[subprocess.Popen]:
+    ) -> list[ProcessHandle]:
         """Start multiple servers and return their processes."""
         from ..validation.commands import build_server_cmd
 

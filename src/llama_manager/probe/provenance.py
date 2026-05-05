@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from importlib.metadata import version as _importlib_version
 from pathlib import Path
-from subprocess import CalledProcessError
+from subprocess import CalledProcessError, TimeoutExpired, run
 
 from ..config import Config
 
@@ -45,8 +45,6 @@ def _resolve_sha() -> str:
         Full git SHA, or 'unknown' if resolution fails.
 
     """
-    import subprocess
-
     cfg = Config()
     llama_cpp_root = cfg.llama_cpp_root
     git_head = Path(llama_cpp_root) / ".git" / "HEAD"
@@ -69,7 +67,7 @@ def _resolve_sha() -> str:
 
     # Fallback: try git rev-parse
     try:
-        result = subprocess.run(
+        result = run(
             ["git", "-C", llama_cpp_root, "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
@@ -78,7 +76,7 @@ def _resolve_sha() -> str:
         if result.returncode == 0:
             sha = result.stdout.strip()
             return sha[:7] if len(sha) > 7 else sha
-    except (FileNotFoundError, CalledProcessError, subprocess.TimeoutExpired, TimeoutError):
+    except (FileNotFoundError, CalledProcessError, TimeoutExpired):
         pass
 
     return "unknown"

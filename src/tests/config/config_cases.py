@@ -371,7 +371,7 @@ class TestProcessOwnershipVerification:
         manager = ServerManager()
 
         # Mock subprocess.Popen to avoid actually starting a process
-        with patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen:
+        with patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
@@ -392,7 +392,7 @@ class TestProcessOwnershipVerification:
         """ServerManager should fall back to PID existence check when metadata unavailable."""
         manager = ServerManager()
 
-        with patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen:
+        with patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
@@ -461,7 +461,7 @@ class TestProcessOwnershipVerification:
         manager.pid_metadata[12345] = 1234567890.0
 
         with (
-            patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen,
+            patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen,
             patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
             patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
             patch("os.kill") as mock_kill,
@@ -490,7 +490,7 @@ class TestProcessOwnershipVerification:
         manager.pids = [12345]
         manager.pid_metadata[12345] = 1234567890.0
 
-        with patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen:
+        with patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
@@ -755,7 +755,7 @@ class TestLifecycleAuditTrail:
         """start_server_background should record start event in audit trail."""
         manager = ServerManager()
 
-        with patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen:
+        with patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
@@ -780,7 +780,7 @@ class TestLifecycleAuditTrail:
         manager.pids = [12345]
         manager.pid_metadata[12345] = 1234567890.0
 
-        with patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen:
+        with patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen:
             mock_proc = mock_popen.return_value
             mock_proc.pid = 12345
             mock_proc.stdout = None
@@ -810,7 +810,7 @@ class TestLifecycleAuditTrail:
         manager.pid_metadata[12345] = 1234567890.0
 
         with (
-            patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen,
+            patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen,
             patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
             patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
             patch("os.kill") as mock_kill,
@@ -846,7 +846,7 @@ class TestLifecycleAuditTrail:
         manager.pid_metadata[12345] = 1234567890.0
 
         with (
-            patch("llama_manager.orchestration.manager.subprocess.Popen") as mock_popen,
+            patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen,
             patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
             patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
             patch("os.kill") as mock_kill,

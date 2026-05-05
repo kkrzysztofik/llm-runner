@@ -223,7 +223,7 @@ class TestPipeStreaming:
         mock_proc.stderr = MagicMock()
         mock_proc.stderr.readline.side_effect = ["error line\n", ""]
 
-        with patch("subprocess.Popen", return_value=mock_proc):
+        with patch("llama_manager.orchestration.launcher.subprocess.Popen", return_value=mock_proc):
             cmd = ["echo", "test"]
             proc = manager.start_server_background("test_server", cmd, buffer.add_line)
 
@@ -284,7 +284,9 @@ class TestPipeStreaming:
             mock.stderr.readline.side_effect = ["err line\n", ""]
             return mock
 
-        with patch("subprocess.Popen", side_effect=create_mock_proc):
+        with patch(
+            "llama_manager.orchestration.launcher.subprocess.Popen", side_effect=create_mock_proc
+        ):
             processes = manager.start_servers([config1, config2], handlers)
 
             # Wait for threads to process with polling (deterministic sync)
@@ -325,7 +327,7 @@ class TestPipeStreaming:
         mock_proc.stderr = MagicMock()
         mock_proc.stderr.readline.side_effect = ["err line\n", ""]
 
-        with patch("subprocess.Popen", return_value=mock_proc):
+        with patch("llama_manager.orchestration.launcher.subprocess.Popen", return_value=mock_proc):
             # Call without handlers - should not raise
             processes = manager.start_servers([config], None)
             assert len(processes) == 1
@@ -359,7 +361,7 @@ class TestPipeStreaming:
         mock_proc.stdout = mock_stdout
         mock_proc.stderr = mock_stderr
 
-        with patch("subprocess.Popen", return_value=mock_proc):
+        with patch("llama_manager.orchestration.launcher.subprocess.Popen", return_value=mock_proc):
             manager.start_servers([config], {"test_server": buffer.add_line})
 
             # Wait for thread to process with polling (deterministic sync)

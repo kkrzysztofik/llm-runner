@@ -82,10 +82,14 @@ from .metadata import (
 )
 from .orchestration import (
     ArtifactMetadata,
+    DefaultProcessLauncher,
     DryRunArtifactPayload,
     LaunchOrchestrationResult,
     LaunchResult,
     LockMetadata,
+    ProcessHandle,
+    ProcessLauncher,
+    ProcessTimeoutError,
     ServerManager,
     ValidationException,
     create_lock,
@@ -266,6 +270,11 @@ __all__ = [
     "GPUStats",
     "get_gpu_identifier",
     "ServerManager",
+    # Process launcher
+    "ProcessHandle",
+    "ProcessLauncher",
+    "ProcessTimeoutError",
+    "DefaultProcessLauncher",
     # Lockfile and artifacts
     "ArtifactMetadata",
     "DryRunArtifactPayload",

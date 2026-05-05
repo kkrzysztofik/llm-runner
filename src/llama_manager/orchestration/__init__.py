@@ -6,6 +6,12 @@ from .artifact import (
     _redact_sensitive_in_dict,  # noqa: F401 — re-exported for tests
     write_artifact,
 )
+from .launcher import (
+    DefaultProcessLauncher,
+    ProcessHandle,
+    ProcessLauncher,
+    ProcessTimeoutError,
+)
 from .lockfile import (
     LockMetadata,
     check_lockfile_integrity,
@@ -43,6 +49,11 @@ __all__ = [
     "write_artifact",
     "DryRunArtifactPayload",
     "ArtifactMetadata",
+    # Process launcher
+    "ProcessHandle",
+    "ProcessLauncher",
+    "ProcessTimeoutError",
+    "DefaultProcessLauncher",
     # Server lifecycle
     "ServerManager",
     "SlotRuntime",
