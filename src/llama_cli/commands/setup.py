@@ -9,96 +9,30 @@ All commands support --json output for programmatic access.
 """
 
 import argparse
-import json
 import shutil
-import sys
 from pathlib import Path
 from typing import Any
 
 from llama_cli.colors import Colors
-from llama_manager.build_pipeline import BuildBackend
+from llama_cli.commands._output import (
+    print_error,
+    print_header,
+    print_json,
+    print_success,
+)
+from llama_cli.commands._toolchain import (
+    filter_optional_tools,
+    get_backend_hints,
+    resolve_backend_enum,
+)
 from llama_manager.setup_venv import (
     check_venv_integrity,
     create_venv,
     get_venv_path,
 )
-from llama_manager.toolchain import (
-    detect_toolchain,
-    get_toolchain_hints,
-)
+from llama_manager.toolchain import detect_toolchain
 
 JSON_OUTPUT_HELP = "Output in JSON format"
-
-
-def _print_error(message: str) -> None:
-    """Print error message to stderr in red.
-
-    Args:
-        message: Error message to print.
-    """
-    print(Colors.red(f"error: {message}"), file=sys.stderr)
-
-
-def _print_success(message: str) -> None:
-    """Print success message to stdout.
-
-    Args:
-        message: Success message to print.
-    """
-    print(message)
-
-
-def _print_header(message: str) -> None:
-    """Print a bold blue header message."""
-    print(Colors.bold(Colors.blue(message)))
-
-
-def _print_json(data: dict[str, Any]) -> None:
-    """Print JSON data to stdout.
-
-    Args:
-        data: Dictionary to serialize to JSON.
-    """
-    print(json.dumps(data, indent=2, default=str))
-
-
-def _deduplicate_hints(hints: list[Any]) -> list[Any]:
-    """Deduplicate hints by install command + docs URL.
-
-    Args:
-        hints: List of toolchain hints
-
-    Returns:
-        Deduplicated list of hints
-    """
-    seen: set[tuple[str, str | None]] = set()
-    result: list[Any] = []
-    for hint in hints:
-        key = (hint.how_to_fix, hint.docs_ref)
-        if key not in seen:
-            seen.add(key)
-            result.append(hint)
-    return result
-
-
-def _get_hints(backend: str) -> list[Any]:
-    """Get toolchain hints for specified backend with deduplication.
-
-    Args:
-        backend: Backend filter (sycl, cuda, or all)
-
-    Returns:
-        List of toolchain hints
-    """
-    if backend == "sycl":
-        return _deduplicate_hints(get_toolchain_hints("sycl"))
-    elif backend == "cuda":
-        return _deduplicate_hints(get_toolchain_hints("cuda"))
-    elif backend == "all":
-        sycl_hints = get_toolchain_hints("sycl")
-        cuda_hints = get_toolchain_hints("cuda")
-        return _deduplicate_hints(sycl_hints + cuda_hints)
-    return []
 
 
 def _build_status_output(status: Any) -> dict[str, Any]:
@@ -131,7 +65,7 @@ def _print_status(status: Any) -> None:
     no = Colors.bright_red("✗ NO")
     missing = Colors.bright_red("MISSING")
 
-    _print_header("Toolchain Status:")
+    print_header("Toolchain Status:")
     tools = [
         ("gcc", status.gcc),
         ("make", status.make),
@@ -144,29 +78,17 @@ def _print_status(status: Any) -> None:
     for name, value in tools:
         display = Colors.green(value) if value else missing
         print(f"  {Colors.cyan(name)}: {display}")
-    _print_success("")
-    _print_success(f"SYCL ready: {yes if status.is_sycl_ready else no}")
-    _print_success(f"CUDA ready: {yes if status.is_cuda_ready else no}")
-    _print_success(f"Complete: {yes if status.is_complete else no}")
+    print_success("")
+    print_success(f"SYCL ready: {yes if status.is_sycl_ready else no}")
+    print_success(f"CUDA ready: {yes if status.is_cuda_ready else no}")
+    print_success(f"Complete: {yes if status.is_complete else no}")
 
 
-def _resolve_backend_enum(backend: str | None) -> BuildBackend | None:
-    """Convert backend string to BuildBackend enum."""
-    if backend == "sycl":
-        return BuildBackend.SYCL
-    if backend == "cuda":
-        return BuildBackend.CUDA
-    return None
-
-
-def _filter_optional_tools(missing: list[str], backend: str | None, is_complete: bool) -> list[str]:
-    """Filter out optional tools when all backends are complete."""
-    if (backend == "all" or backend is None) and is_complete:
-        return [t for t in missing if t != "nvtop"]
-    return missing
-
-
-def _handle_missing_tools(status: Any, hints: list[Any], backend: str | None = None) -> int:
+def _handle_missing_tools(
+    status: Any,
+    hints: list[Any],
+    backend: str | None = None,
+) -> int:
     """Handle and display missing tools information with colors.
 
     Args:
@@ -177,22 +99,20 @@ def _handle_missing_tools(status: Any, hints: list[Any], backend: str | None = N
     Returns:
         Exit code (1 for failure)
     """
-    backend_enum = _resolve_backend_enum(backend)
+    backend_enum = resolve_backend_enum(backend)
 
-    missing = _filter_optional_tools(
-        status.missing_tools(backend_enum), backend, status.is_complete
-    )
+    missing = filter_optional_tools(status.missing_tools(backend_enum), backend, status.is_complete)
 
     if not missing:
-        _print_success("")
+        print_success("")
         print(Colors.bold(Colors.bright_green("All required tools are available!")))
         return 0
 
-    _print_success("")
-    _print_error(f"Missing tools: {', '.join(missing)}")
+    print_success("")
+    print_error(f"Missing tools: {', '.join(missing)}")
 
     if hints:
-        _print_success("")
+        print_success("")
         print(Colors.yellow("Installation hints:"))
         for hint in hints:
             print(f"  {Colors.yellow('-')} {hint.how_to_fix}")
@@ -216,10 +136,10 @@ def cmd_check(args: argparse.Namespace) -> int:
     """
     try:
         status = detect_toolchain()
-        hints = _get_hints(args.backend)
+        hints = get_backend_hints(args.backend)
 
         if args.json:
-            _print_json(_build_status_output(status))
+            print_json(_build_status_output(status))
             # Use backend-aware exit code logic (without printing)
             if args.backend == "sycl":
                 return 0 if status.is_sycl_ready else 1
@@ -231,7 +151,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         _print_status(status)
         return _handle_missing_tools(status, hints, args.backend)
     except Exception as e:
-        _print_error(f"Toolchain detection failed: {e}")
+        print_error(f"Toolchain detection failed: {e}")
         return 1
 
 
@@ -258,12 +178,12 @@ def cmd_venv(args: argparse.Namespace) -> int:
         if args.check_integrity:
             is_valid, error = check_venv_integrity(venv_path)
             if not is_valid:
-                _print_error(f"Venv integrity check failed: {error}")
+                print_error(f"Venv integrity check failed: {error}")
                 return 1
 
         # Print JSON output if requested (VenvResult fields only)
         if args.json:
-            _print_json(
+            print_json(
                 {
                     "venv_path": str(result.venv_path),
                     "created": result.created,
@@ -275,15 +195,15 @@ def cmd_venv(args: argparse.Namespace) -> int:
 
         # Print human-readable output
         if result.was_created:
-            _print_success(f"Created virtual environment at: {venv_path}")
+            print_success(f"Created virtual environment at: {venv_path}")
         elif result.was_reused:
-            _print_success(f"Reused existing virtual environment at: {venv_path}")
+            print_success(f"Reused existing virtual environment at: {venv_path}")
 
-        _print_success(f"Activation command: {result.activation_command}")
+        print_success(f"Activation command: {result.activation_command}")
 
         return 0
     except Exception as e:
-        _print_error(f"Venv creation failed: {e}")
+        print_error(f"Venv creation failed: {e}")
         return 1
 
 
@@ -298,9 +218,9 @@ def _handle_venv_not_found(venv_path: Path, json_output: bool) -> int:
         Exit code (0)
     """
     if json_output:
-        _print_json({"status": "not_found", "venv_path": str(venv_path)})
+        print_json({"status": "not_found", "venv_path": str(venv_path)})
     else:
-        _print_success(f"Virtual environment does not exist at: {venv_path}")
+        print_success(f"Virtual environment does not exist at: {venv_path}")
     return 0
 
 
@@ -315,7 +235,7 @@ def _handle_confirmation_required(venv_path: Path, json_output: bool) -> int:
         Exit code (1)
     """
     if json_output:
-        _print_json(
+        print_json(
             {
                 "status": "exists",
                 "venv_path": str(venv_path),
@@ -323,8 +243,8 @@ def _handle_confirmation_required(venv_path: Path, json_output: bool) -> int:
             }
         )
     else:
-        _print_error(f"Virtual environment exists at: {venv_path}")
-        _print_error("Use --yes to confirm removal, or run without --yes to see this message")
+        print_error(f"Virtual environment exists at: {venv_path}")
+        print_error("Use --yes to confirm removal, or run without --yes to see this message")
     return 1
 
 
@@ -341,22 +261,22 @@ def _remove_env(venv_path: Path, json_output: bool) -> int:
     try:
         shutil.rmtree(venv_path)
         if json_output:
-            _print_json({"status": "removed", "venv_path": str(venv_path)})
+            print_json({"status": "removed", "venv_path": str(venv_path)})
         else:
-            _print_success(f"Removed virtual environment at: {venv_path}")
+            print_success(f"Removed virtual environment at: {venv_path}")
         return 0
     except PermissionError as e:
         if json_output:
-            _print_json({"status": "error", "error": str(e)})
+            print_json({"status": "error", "error": str(e)})
         else:
-            _print_error(f"Permission denied removing virtual environment: {e}")
-            _print_error("Check file ownership/permissions, consult system documentation")
+            print_error(f"Permission denied removing virtual environment: {e}")
+            print_error("Check file ownership/permissions, consult system documentation")
         return 1
     except Exception as e:
         if json_output:
-            _print_json({"status": "error", "error": str(e)})
+            print_json({"status": "error", "error": str(e)})
         else:
-            _print_error(f"Error removing virtual environment: {e}")
+            print_error(f"Error removing virtual environment: {e}")
         return 1
 
 

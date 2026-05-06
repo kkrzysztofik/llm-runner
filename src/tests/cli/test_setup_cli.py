@@ -162,7 +162,7 @@ class TestSetupCheck:
 
         with (
             patch("llama_cli.commands.setup.detect_toolchain") as mock_detect,
-            patch("llama_cli.commands.setup.get_toolchain_hints") as mock_hints,
+            patch("llama_cli.commands._toolchain.get_toolchain_hints") as mock_hints,
         ):
             mock_detect.return_value = ToolchainStatus(
                 gcc=None,
