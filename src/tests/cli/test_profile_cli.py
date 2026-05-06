@@ -1,18 +1,7 @@
-"""Tests for profile_cli — GPU benchmark subcommand.
-
-Test coverage targets:
-- require_executable: file existence + permission checks
-- _detect_backend: CUDA vs SYCL auto-detection
-- get_driver_version: nvidia-smi / sycl-ls parsing
-- cmd_profile: success path, benchmark failure, JSON output
-- main: argument validation (missing args, empty slot_id, path traversal,
-  invalid flavor, --json flag)
-"""
-
-from __future__ import annotations
-
 import json
 import stat
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -72,12 +61,12 @@ class TestRequireExecutable:
 class TestDetectBackend:
     """Tests for _detect_backend."""
 
-    def test_cuda_binary_returns_cuda(self) -> None:
-        """_detect_backend should return 'cuda' when NVIDIA binary exists."""
+    def test_cuda_backend_returns_cuda(self) -> None:
+        """_detect_backend should return 'cuda' for profiles with empty device."""
         cfg = ServerConfig(
             model="/model.gguf",
             alias="qwen35-coding",
-            device="cuda",
+            device="",
             port=8080,
             ctx_size=4096,
             ubatch_size=512,
@@ -86,8 +75,8 @@ class TestDetectBackend:
         result = _detect_backend(cfg)
         assert result == "cuda"
 
-    def test_sycl_fallback(self) -> None:
-        """_detect_backend should return 'sycl' when no NVIDIA binary exists."""
+    def test_sycl_backend_returns_sycl(self) -> None:
+        """_detect_backend should return 'sycl' for profiles with non-empty device."""
         cfg = ServerConfig(
             model="/model.gguf",
             alias="summary-balanced",
@@ -100,8 +89,8 @@ class TestDetectBackend:
         result = _detect_backend(cfg)
         assert result == "sycl"
 
-    def test_empty_cuda_path_fallback(self) -> None:
-        """_detect_backend should return 'sycl' when nvidia path is empty."""
+    def test_sycl_fallback_for_summary_slot(self) -> None:
+        """_detect_backend should return 'sycl' for summary-balanced slot."""
         cfg = ServerConfig(
             model="/model.gguf",
             alias="slot0",
@@ -338,6 +327,150 @@ def _make_benchmark_result(
     )
 
 
+def _build_test_registry(
+    tmp_path: Path,
+    summary_port: int = 8080,
+    fast_port: int = 8082,
+    qwen35_port: int = 8081,
+) -> tuple[Any, Any]:
+    """Build a real profile registry with test-configured ports.
+
+    Returns a tuple of (mock config, registry) where the mock Config
+    has all the attributes needed by cmd_profile.
+    """
+    import os
+
+    from llama_manager import (
+        Config,
+        RunGroupSpec,
+        RunProfileRegistry,
+        RunProfileSpec,
+    )
+
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+
+    # Set XDG_RUNTIME_DIR to control profiles_dir
+    old_runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    os.environ["XDG_RUNTIME_DIR"] = str(tmp_path)
+
+    try:
+        # Create a real Config with test values
+        cfg = Config()
+        cfg.model_summary_balanced = str(tmp_path / "model_summary.gguf")
+        cfg.model_summary_fast = str(tmp_path / "model_fast.gguf")
+        cfg.model_qwen35 = str(tmp_path / "model_qwen35.gguf")
+        cfg.summary_balanced_port = summary_port
+        cfg.summary_fast_port = fast_port
+        cfg.qwen35_port = qwen35_port
+        cfg.default_threads_summary_balanced = 8
+        cfg.default_threads_summary_fast = 4
+        cfg.default_threads_qwen35 = 16
+        cfg.default_ctx_size_summary = 16144
+        cfg.default_ctx_size_qwen35 = 32768
+        cfg.default_ubatch_size_summary_balanced = 1024
+        cfg.default_ubatch_size_summary_fast = 512
+        cfg.default_ubatch_size_qwen35 = 2048
+        cfg.default_cache_type_summary_k = "q8_0"
+        cfg.default_cache_type_summary_v = "q8_0"
+        cfg.default_cache_type_qwen35_k = "q8_0"
+        cfg.default_cache_type_qwen35_v = "q8_0"
+        cfg.default_n_gpu_layers = 99
+        cfg.default_n_gpu_layers_qwen35 = "all"
+        cfg.server_binary_version = "1.18.0"
+        cfg.llama_server_bin_intel = str(tmp_path / "llama-server")
+        cfg.llama_server_bin_nvidia = str(tmp_path / "llama-server-cuda")
+        cfg.summary_balanced_chat_template_kwargs = ""
+        cfg.summary_fast_chat_template_kwargs = ""
+
+        registry = RunProfileRegistry(
+            profiles=(
+                RunProfileSpec(
+                    profile_id="summary-balanced",
+                    description="Run summary-balanced model on Intel SYCL.",
+                    model=cfg.model_summary_balanced,
+                    alias="summary-balanced",
+                    device="SYCL0",
+                    port=summary_port,
+                    ctx_size=cfg.default_ctx_size_summary,
+                    ubatch_size=cfg.default_ubatch_size_summary_balanced,
+                    threads=cfg.default_threads_summary_balanced,
+                    reasoning_mode="off",
+                    reasoning_format="deepseek",
+                    chat_template_kwargs=cfg.summary_balanced_chat_template_kwargs,
+                    use_jinja=True,
+                    cache_type_k=cfg.default_cache_type_summary_k,
+                    cache_type_v=cfg.default_cache_type_summary_v,
+                    backend="llama_cpp",
+                ),
+                RunProfileSpec(
+                    profile_id="summary-fast",
+                    description="Run summary-fast model on Intel SYCL.",
+                    model=cfg.model_summary_fast,
+                    alias="summary-fast",
+                    device="SYCL0",
+                    port=fast_port,
+                    ctx_size=cfg.default_ctx_size_summary,
+                    ubatch_size=cfg.default_ubatch_size_summary_fast,
+                    threads=cfg.default_threads_summary_fast,
+                    reasoning_mode="off",
+                    reasoning_format="deepseek",
+                    chat_template_kwargs=cfg.summary_fast_chat_template_kwargs,
+                    use_jinja=True,
+                    cache_type_k=cfg.default_cache_type_summary_k,
+                    cache_type_v=cfg.default_cache_type_summary_v,
+                    backend="llama_cpp",
+                ),
+                RunProfileSpec(
+                    profile_id="qwen35",
+                    description="Run qwen35-coding model on NVIDIA CUDA.",
+                    model=cfg.model_qwen35,
+                    alias="qwen35-coding",
+                    device="",
+                    port=qwen35_port,
+                    ctx_size=cfg.default_ctx_size_qwen35,
+                    ubatch_size=cfg.default_ubatch_size_qwen35,
+                    threads=cfg.default_threads_qwen35,
+                    cache_type_k=cfg.default_cache_type_qwen35_k,
+                    cache_type_v=cfg.default_cache_type_qwen35_v,
+                    n_gpu_layers=cfg.default_n_gpu_layers_qwen35,
+                    server_bin=cfg.llama_server_bin_nvidia,
+                    backend="llama_cpp",
+                ),
+            ),
+            run_groups=(
+                RunGroupSpec(
+                    group_id="summary-balanced",
+                    profile_ids=("summary-balanced",),
+                    description="Launch the summary-balanced profile.",
+                ),
+                RunGroupSpec(
+                    group_id="summary-fast",
+                    profile_ids=("summary-fast",),
+                    description="Launch the summary-fast profile.",
+                ),
+                RunGroupSpec(
+                    group_id="qwen35",
+                    profile_ids=("qwen35",),
+                    description="Launch the qwen35 profile.",
+                ),
+                RunGroupSpec(
+                    group_id="both",
+                    profile_ids=("summary-balanced", "qwen35"),
+                    description="Launch summary-balanced and qwen35 profiles together.",
+                ),
+            ),
+        )
+
+        return cfg, registry
+    finally:
+        # Restore original XDG_RUNTIME_DIR
+        if old_runtime_dir is not None:
+            os.environ["XDG_RUNTIME_DIR"] = old_runtime_dir
+        else:
+            os.environ.pop("XDG_RUNTIME_DIR", None)
+
+
 def _populate_profile_mock_defaults(mock_cfg: Any, tmp_path: Path) -> None:
     """Populate a mock Config with the standard profile test defaults."""
     profiles_dir = tmp_path / "profiles"
@@ -359,58 +492,68 @@ def _populate_profile_mock_defaults(mock_cfg: Any, tmp_path: Path) -> None:
     mock_cfg.llama_server_bin_nvidia = ""
 
 
+@contextmanager
 def _build_mock_config(
     tmp_path: Path, cuda_exists: bool = False
-) -> tuple[MagicMock, str, Path, Any]:
-    """Build a mocked Config that makes cmd_profile succeed.
+) -> Generator[tuple[MagicMock, str, Path, Any], None, None]:
+    """Build a mocked Config and registry that makes cmd_profile succeed.
 
     Args:
         tmp_path: pytest tmp_path fixture.
         cuda_exists: Whether the CUDA binary should appear to exist.
 
-    Returns:
+    Yields:
         A tuple of (mock config, benchmark binary path, profiles directory,
-        patcher). The patcher must be stopped by the caller after cmd_profile
-        finishes to keep the Config substitution alive during execution.
+        registry). Config is only mocked for the duration of the context.
     """
     patcher = patch("llama_cli.commands.profile.Config")
     mock_cfg_cls = patcher.start()
+    try:
+        profiles_dir = tmp_path / "profiles"
+        profiles_dir.mkdir(parents=True, exist_ok=True)
 
-    profiles_dir = tmp_path / "profiles"
-    profiles_dir.mkdir(parents=True, exist_ok=True)
+        # Create the benchmark binary
+        bench_bin = tmp_path / "llama-bench"
+        bench_bin.write_text("#!/bin/sh")
+        bench_bin.chmod(0o755)
 
-    # Create the benchmark binary
-    bench_bin = tmp_path / "llama-bench"
-    bench_bin.write_text("#!/bin/sh")
-    bench_bin.chmod(0o755)
+        # Create the server binary (used for bench_bin derivation)
+        server_bin = tmp_path / "llama-server"
+        server_bin.write_text("#!/bin/sh")
+        server_bin.chmod(0o755)
 
-    # Create the server binary (used for bench_bin derivation)
-    server_bin = tmp_path / "llama-server"
-    server_bin.write_text("#!/bin/sh")
-    server_bin.chmod(0o755)
+        # Create CUDA binary if requested
+        if cuda_exists:
+            cuda_bin = tmp_path / "cuda-server"
+            cuda_bin.write_text("#!/bin/sh")
+            cuda_bin.chmod(0o755)
 
-    # Create CUDA binary if requested
-    if cuda_exists:
-        cuda_bin = tmp_path / "cuda-server"
-        cuda_bin.write_text("#!/bin/sh")
-        cuda_bin.chmod(0o755)
+        cfg = mock_cfg_cls.return_value
+        cfg.model_summary_balanced = str(tmp_path / "model.gguf")
+        cfg.summary_balanced_port = 8080
+        cfg.default_threads_summary_balanced = 8
+        cfg.default_ctx_size_summary = 16144
+        cfg.default_ubatch_size_summary_balanced = 1024
+        cfg.default_cache_type_summary_k = "q8_0"
+        cfg.default_cache_type_summary_v = "q8_0"
+        cfg.default_n_gpu_layers_qwen35 = "all"
+        cfg.default_n_gpu_layers = 99
+        cfg.server_binary_version = "1.18.0"
+        cfg.profiles_dir = profiles_dir
+        cfg.llama_server_bin_intel = str(server_bin)
+        cfg.llama_server_bin_nvidia = str(tmp_path / "cuda-server") if cuda_exists else ""
 
-    cfg = mock_cfg_cls.return_value
-    cfg.model_summary_balanced = str(tmp_path / "model.gguf")
-    cfg.summary_balanced_port = 8080
-    cfg.default_threads_summary_balanced = 8
-    cfg.default_ctx_size_summary = 16144
-    cfg.default_ubatch_size_summary_balanced = 1024
-    cfg.default_cache_type_summary_k = "q8_0"
-    cfg.default_cache_type_summary_v = "q8_0"
-    cfg.default_n_gpu_layers_qwen35 = "all"
-    cfg.default_n_gpu_layers = 99
-    cfg.server_binary_version = "1.18.0"
-    cfg.profiles_dir = profiles_dir
-    cfg.llama_server_bin_intel = str(server_bin)
-    cfg.llama_server_bin_nvidia = str(tmp_path / "cuda-server") if cuda_exists else ""
+        # Build a real registry for _resolve_slot_server_config
+        _, registry = _build_test_registry(
+            tmp_path,
+            summary_port=cfg.summary_balanced_port,
+            fast_port=cfg.summary_balanced_port + 2,
+            qwen35_port=cfg.summary_balanced_port + 1,
+        )
 
-    return mock_cfg_cls.return_value, str(bench_bin), profiles_dir, patcher
+        yield mock_cfg_cls.return_value, str(bench_bin), profiles_dir, registry
+    finally:
+        patcher.stop()
 
 
 class TestCmdProfile:
@@ -422,11 +565,9 @@ class TestCmdProfile:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """cmd_profile should succeed with a valid benchmark result."""
-        mock_cfg, bench_bin, profiles_dir, patcher = _build_mock_config(tmp_path)
+        with _build_mock_config(tmp_path) as (mock_cfg, bench_bin, profiles_dir, registry):
+            benchmark_result = _make_benchmark_result(tps=100.0, latency=10.0, vram=5120.0)
 
-        benchmark_result = _make_benchmark_result(tps=100.0, latency=10.0, vram=5120.0)
-
-        try:
             with (
                 patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
                 patch("llama_cli.commands.profile.require_executable"),
@@ -444,6 +585,10 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileFlavor"),
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
+                patch(
+                    "llama_cli.commands.profile.create_default_profile_registry",
+                    return_value=registry,
+                ),
             ):
                 mock_record = MagicMock()
                 mock_record.to_dict.return_value = {
@@ -476,8 +621,6 @@ class TestCmdProfile:
                 assert "test-gpu" in captured.out
                 assert "sycl" in captured.out
                 assert "balanced" in captured.out
-        finally:
-            patcher.stop()
 
     def test_benchmark_failure_returns_1(
         self,
@@ -485,34 +628,31 @@ class TestCmdProfile:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """cmd_profile should return 1 when benchmark returns None."""
-        _, _, _, patcher = _build_mock_config(tmp_path)
+        with (
+            _build_mock_config(tmp_path) as (_, _, _, registry),
+            patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
+            patch("llama_cli.commands.profile.require_executable"),
+            patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
+            patch("llama_cli.commands.profile.get_driver_version", return_value="unknown"),
+            patch(
+                "llama_cli.commands.profile.compute_driver_version_hash",
+                return_value="abc123",
+            ),
+            patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
+            patch("llama_cli.commands.profile.run_benchmark", return_value=None),
+            patch("llama_cli.commands.profile.ProfileFlavor"),
+            patch("llama_cli.commands.profile.ProfileRecord"),
+            patch("llama_cli.commands.profile.create_default_profile_registry"),
+        ):
+            exit_code = cmd_profile(
+                slot_id="test-slot",
+                flavor="balanced",
+                json_output=False,
+            )
 
-        try:
-            with (
-                patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
-                patch("llama_cli.commands.profile.require_executable"),
-                patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
-                patch("llama_cli.commands.profile.get_driver_version", return_value="unknown"),
-                patch(
-                    "llama_cli.commands.profile.compute_driver_version_hash",
-                    return_value="abc123",
-                ),
-                patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
-                patch("llama_cli.commands.profile.run_benchmark", return_value=None),
-                patch("llama_cli.commands.profile.ProfileFlavor"),
-                patch("llama_cli.commands.profile.ProfileRecord"),
-            ):
-                exit_code = cmd_profile(
-                    slot_id="test-slot",
-                    flavor="balanced",
-                    json_output=False,
-                )
-
-                assert exit_code == 1
-                captured = capsys.readouterr()
-                assert "benchmark failed" in captured.err
-        finally:
-            patcher.stop()
+            assert exit_code == 1
+            captured = capsys.readouterr()
+            assert "benchmark failed" in captured.err
 
     def test_benchmark_exit_code_nonzero(
         self,
@@ -520,36 +660,32 @@ class TestCmdProfile:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """cmd_profile should return 1 when benchmark subprocess exits non-zero."""
+        with (
+            _build_mock_config(tmp_path) as (_, _, _, registry),
+            patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
+            patch("llama_cli.commands.profile.require_executable"),
+            patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
+            patch("llama_cli.commands.profile.get_driver_version", return_value="unknown"),
+            patch(
+                "llama_cli.commands.profile.compute_driver_version_hash",
+                return_value="abc123",
+            ),
+            patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
+            patch(
+                "llama_cli.commands.profile.run_benchmark",
+                return_value=None,
+            ),
+            patch("llama_cli.commands.profile.ProfileFlavor"),
+            patch("llama_cli.commands.profile.ProfileRecord"),
+            patch("llama_cli.commands.profile.create_default_profile_registry"),
+        ):
+            exit_code = cmd_profile(
+                slot_id="test-slot",
+                flavor="balanced",
+                json_output=False,
+            )
 
-        _, _, _, patcher = _build_mock_config(tmp_path)
-
-        try:
-            with (
-                patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
-                patch("llama_cli.commands.profile.require_executable"),
-                patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
-                patch("llama_cli.commands.profile.get_driver_version", return_value="unknown"),
-                patch(
-                    "llama_cli.commands.profile.compute_driver_version_hash",
-                    return_value="abc123",
-                ),
-                patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
-                patch(
-                    "llama_cli.commands.profile.run_benchmark",
-                    return_value=None,
-                ),
-                patch("llama_cli.commands.profile.ProfileFlavor"),
-                patch("llama_cli.commands.profile.ProfileRecord"),
-            ):
-                exit_code = cmd_profile(
-                    slot_id="test-slot",
-                    flavor="balanced",
-                    json_output=False,
-                )
-
-                assert exit_code == 1
-        finally:
-            patcher.stop()
+            assert exit_code == 1
 
     def test_json_output_mode(
         self,
@@ -557,9 +693,7 @@ class TestCmdProfile:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """cmd_profile with json_output=True should print valid JSON."""
-        _, _, _, patcher = _build_mock_config(tmp_path)
-
-        try:
+        with _build_mock_config(tmp_path) as (_, _, _, registry):
             benchmark_result = _make_benchmark_result(tps=200.0, latency=5.0, vram=8192.0)
             mock_record = MagicMock()
             mock_record.to_dict.return_value = {
@@ -592,6 +726,10 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileFlavor"),
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
+                patch(
+                    "llama_cli.commands.profile.create_default_profile_registry",
+                    return_value=registry,
+                ),
             ):
                 mock_record_cls.return_value = mock_record
                 mock_write.return_value = tmp_path / "profiles" / "profile.json"
@@ -609,8 +747,6 @@ class TestCmdProfile:
                 assert parsed["backend"] == "sycl"
                 assert parsed["flavor"] == "balanced"
                 assert parsed["metrics"]["tokens_per_second"] == 200.0
-        finally:
-            patcher.stop()
 
     def test_benchmark_binary_unavailable(
         self,
@@ -618,38 +754,27 @@ class TestCmdProfile:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """cmd_profile should return 1 when the benchmark binary doesn't exist."""
-        with patch("llama_cli.commands.profile.Config") as mock_cfg_cls:
-            cfg = mock_cfg_cls.return_value
-            cfg.llama_server_bin_intel = ""
-            cfg.model_summary_balanced = str(tmp_path / "model.gguf")
-            cfg.summary_balanced_port = 8080
-            cfg.default_threads_summary_balanced = 8
-            cfg.default_ctx_size_summary = 16144
-            cfg.default_ubatch_size_summary_balanced = 1024
-            cfg.default_cache_type_summary_k = "q8_0"
-            cfg.default_cache_type_summary_v = "q8_0"
-            cfg.default_n_gpu_layers_qwen35 = "all"
-            cfg.default_n_gpu_layers = 99
-            cfg.server_binary_version = "1.18.0"
-            cfg.profiles_dir = tmp_path / "profiles"
-            cfg.profiles_dir.mkdir(parents=True, exist_ok=True)
+        with (
+            _build_mock_config(tmp_path) as (_, _, _, registry),
+            patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
+            patch(
+                "llama_cli.commands.profile.require_executable",
+                side_effect=FileNotFoundError("file not found: /no/such/binary"),
+            ),
+            patch(
+                "llama_cli.commands.profile.create_default_profile_registry",
+                return_value=registry,
+            ),
+        ):
+            exit_code = cmd_profile(
+                slot_id="test-slot",
+                flavor="balanced",
+                json_output=False,
+            )
 
-            with (
-                patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
-                patch(
-                    "llama_cli.commands.profile.require_executable",
-                    side_effect=FileNotFoundError("file not found: /no/such/binary"),
-                ),
-            ):
-                exit_code = cmd_profile(
-                    slot_id="test-slot",
-                    flavor="balanced",
-                    json_output=False,
-                )
-
-                assert exit_code == 1
-                captured = capsys.readouterr()
-                assert "benchmark binary unavailable" in captured.err
+            assert exit_code == 1
+            captured = capsys.readouterr()
+            assert "benchmark binary unavailable" in captured.err
 
     def test_lockfile_warning_printed(
         self,
@@ -657,11 +782,7 @@ class TestCmdProfile:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """cmd_profile should print a warning when a lockfile exists."""
-        with patch("llama_cli.commands.profile.Config") as mock_cfg_cls:
-            mock_cfg = mock_cfg_cls.return_value
-            _populate_profile_mock_defaults(mock_cfg, tmp_path)
-            profiles_dir = mock_cfg.profiles_dir
-
+        with _build_mock_config(tmp_path) as (_, _, _, registry):
             # Create lockfile in the parent of profiles_dir
             lockfile = tmp_path / "test-slot.lock"
             lockfile.touch()
@@ -686,11 +807,15 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileFlavor"),
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
+                patch(
+                    "llama_cli.commands.profile.create_default_profile_registry",
+                    return_value=registry,
+                ),
             ):
                 mock_record = MagicMock()
                 mock_record.to_dict.return_value = {"test": "data"}
                 mock_record_cls.return_value = mock_record
-                mock_write.return_value = profiles_dir / "profile.json"
+                mock_write.return_value = tmp_path / "profiles" / "profile.json"
 
                 exit_code = cmd_profile(
                     slot_id="test-slot",
@@ -732,9 +857,7 @@ class TestCmdProfile:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """cmd_profile should pass 'cuda' as backend when detected."""
-        _, _, _, patcher = _build_mock_config(tmp_path, cuda_exists=True)
-
-        try:
+        with _build_mock_config(tmp_path, cuda_exists=True) as (_, _, _, registry):
             benchmark_result = _make_benchmark_result()
             mock_record = MagicMock()
             mock_record.to_dict.return_value = {"test": "data"}
@@ -755,6 +878,10 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileFlavor"),
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
+                patch(
+                    "llama_cli.commands.profile.create_default_profile_registry",
+                    return_value=registry,
+                ),
             ):
                 mock_record_cls.return_value = mock_record
                 mock_write.return_value = tmp_path / "profiles" / "profile.json"
@@ -768,8 +895,6 @@ class TestCmdProfile:
                 assert exit_code == 0
                 captured = capsys.readouterr()
                 assert "cuda" in captured.out
-        finally:
-            patcher.stop()
 
     def test_all_flavors_accepted(
         self,
@@ -778,53 +903,53 @@ class TestCmdProfile:
     ) -> None:
         """cmd_profile should accept all valid flavors: balanced, fast, quality."""
         for flavor in ["balanced", "fast", "quality"]:
-            _, _, _, patcher = _build_mock_config(tmp_path)
+            with _build_mock_config(tmp_path) as (_, _, _, registry):
+                benchmark_result = _make_benchmark_result()
+                mock_record = MagicMock()
+                mock_record.to_dict.return_value = {"test": "data"}
 
-            benchmark_result = _make_benchmark_result()
-            mock_record = MagicMock()
-            mock_record.to_dict.return_value = {"test": "data"}
+                with (
+                    patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
+                    patch(
+                        "llama_cli.commands.profile._resolve_bench_bin",
+                        return_value="/fake/llama-bench",
+                    ),
+                    patch("llama_cli.commands.profile.require_executable"),
+                    patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
+                    patch("llama_cli.commands.profile.get_driver_version", return_value="unknown"),
+                    patch(
+                        "llama_cli.commands.profile.compute_driver_version_hash",
+                        return_value="abc123",
+                    ),
+                    patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
+                    patch(
+                        "llama_cli.commands.profile.run_benchmark", return_value=benchmark_result
+                    ),
+                    patch("llama_cli.commands.profile.ProfileFlavor"),
+                    patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
+                    patch("llama_cli.commands.profile.write_profile") as mock_write,
+                    patch(
+                        "llama_cli.commands.profile.create_default_profile_registry",
+                        return_value=registry,
+                    ),
+                ):
+                    mock_record_cls.return_value = mock_record
+                    mock_write.return_value = tmp_path / "profiles" / "profile.json"
 
-            with (
-                patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
-                patch(
-                    "llama_cli.commands.profile._resolve_bench_bin",
-                    return_value="/fake/llama-bench",
-                ),
-                patch("llama_cli.commands.profile.require_executable"),
-                patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
-                patch("llama_cli.commands.profile.get_driver_version", return_value="unknown"),
-                patch(
-                    "llama_cli.commands.profile.compute_driver_version_hash",
-                    return_value="abc123",
-                ),
-                patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
-                patch("llama_cli.commands.profile.run_benchmark", return_value=benchmark_result),
-                patch("llama_cli.commands.profile.ProfileFlavor"),
-                patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
-                patch("llama_cli.commands.profile.write_profile") as mock_write,
-            ):
-                mock_record_cls.return_value = mock_record
-                mock_write.return_value = tmp_path / "profiles" / "profile.json"
+                    exit_code = cmd_profile(
+                        slot_id=f"slot-{flavor}",
+                        flavor=flavor,
+                        json_output=False,
+                    )
 
-                exit_code = cmd_profile(
-                    slot_id=f"slot-{flavor}",
-                    flavor=flavor,
-                    json_output=False,
-                )
-
-                assert exit_code == 0, f"Failed for flavor: {flavor}"
-            patcher.stop()
+                    assert exit_code == 0, f"Failed for flavor: {flavor}"
 
     def test_write_profile_called_with_correct_dir(
         self,
         tmp_path: Path,
     ) -> None:
         """cmd_profile should call write_profile with the profiles_dir from config."""
-        with patch("llama_cli.commands.profile.Config") as mock_cfg_cls:
-            mock_cfg = mock_cfg_cls.return_value
-            _populate_profile_mock_defaults(mock_cfg, tmp_path)
-            profiles_dir = mock_cfg.profiles_dir
-
+        with _build_mock_config(tmp_path) as (_, _, _, registry):
             benchmark_result = _make_benchmark_result()
             mock_record = MagicMock()
             mock_record.to_dict.return_value = {"test": "data"}
@@ -847,9 +972,13 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileFlavor"),
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
+                patch(
+                    "llama_cli.commands.profile.create_default_profile_registry",
+                    return_value=registry,
+                ),
             ):
                 mock_record_cls.return_value = mock_record
-                mock_write.return_value = profiles_dir / "profile.json"
+                mock_write.return_value = tmp_path / "profiles" / "profile.json"
 
                 cmd_profile(
                     slot_id="test-slot",
@@ -859,4 +988,4 @@ class TestCmdProfile:
 
                 mock_write.assert_called_once()
                 call_args = mock_write.call_args
-                assert call_args[0][0] == profiles_dir
+                assert call_args[0][0] == tmp_path / "profiles"

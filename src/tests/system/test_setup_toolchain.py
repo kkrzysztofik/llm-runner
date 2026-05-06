@@ -1,3 +1,9 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 """T057-T063: Tests for Toolchain diagnostics and venv lifecycle.
 
 Test Tasks:
@@ -10,11 +16,9 @@ Test Tasks:
 - T063: Test venv path fallback to ~/.cache
 """
 
-import json
+
 import subprocess
 import sys
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 

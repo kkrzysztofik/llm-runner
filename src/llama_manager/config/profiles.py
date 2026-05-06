@@ -161,3 +161,97 @@ def _first_duplicate(values: Iterable[str]) -> str | None:
             return value
         seen.add(value)
     return None
+
+
+def _normalize_alias(alias: str) -> str:
+    """Normalize an alias string to profile_id form.
+
+    Handles common variations: underscores, hyphens, and short forms.
+    Converts the alias to a form that can be compared against profile_id values.
+
+    Args:
+        alias: The alias string to normalize.
+
+    Returns:
+        Normalized alias string with hyphens/underscores standardized.
+    """
+    return alias.strip().replace("_", "-")
+
+
+def _resolve_alias_to_profile_id(registry: RunProfileRegistry, alias: str) -> str | None:
+    """Resolve an alias string to a registered profile_id.
+
+    Matches the alias against profile aliases in the registry, handling
+    common normalization patterns (underscore/hyphen interchangeability).
+
+    Args:
+        registry: Profile registry containing profile definitions.
+        alias: Alias string to resolve (e.g. 'summary_balanced', 'balanced').
+
+    Returns:
+        The matching profile_id, or None if no match is found.
+    """
+    normalized = _normalize_alias(alias)
+
+    # Direct match against profile aliases
+    for profile in registry.profiles:
+        if _normalize_alias(profile.alias) == normalized:
+            return profile.profile_id
+
+    # Check against profile_id (for direct profile_id usage)
+    for profile in registry.profiles:
+        if _normalize_alias(profile.profile_id) == normalized:
+            return profile.profile_id
+
+    return None
+
+
+def resolve_profile_id(registry: RunProfileRegistry, slot_id: str) -> str | None:
+    """Resolve a slot_id or alias to a registered profile_id.
+
+    Resolution order:
+    1. Direct match against profile_ids
+    2. Alias match via registry lookup
+    3. Normalized slot_id match against profile_id
+    4. None (no match found)
+
+    Args:
+        registry: Profile registry containing profile definitions.
+        slot_id: Slot identifier or alias to resolve.
+
+    Returns:
+        The matching profile_id, or None if no match is found.
+    """
+    normalized = _normalize_alias(slot_id)
+
+    # Direct match against profile_ids
+    for profile in registry.profiles:
+        if profile.profile_id == slot_id:
+            return profile.profile_id
+
+    # Alias match
+    if result := _resolve_alias_to_profile_id(registry, slot_id):
+        return result
+
+    # Normalized slot_id match against profile_id
+    for profile in registry.profiles:
+        if _normalize_alias(profile.profile_id) == normalized:
+            return profile.profile_id
+
+    return None
+
+
+def resolve_backend_from_profile(profile: RunProfileSpec) -> str:
+    """Derive backend string from a profile spec.
+
+    Uses the device field to determine backend:
+    - Empty device field → 'cuda' (NVIDIA backend)
+    - Non-empty device field → 'sycl' (Intel SYCL backend)
+
+    Args:
+        profile: Run profile specification.
+
+    Returns:
+        Backend string: 'cuda' or 'sycl'.
+    """
+    return "cuda" if not profile.device.strip() else "sycl"

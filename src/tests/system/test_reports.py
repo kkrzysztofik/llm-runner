@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """T008, T012, T014, T022-T023, T069-T074: Tests for FailureReport, MutatingActionLogEntry, redact_sensitive, write_failure_report, rotate_reports.
 
 Test Tasks:
@@ -13,6 +15,7 @@ Test Tasks:
 - T073: rotate_reports() edge cases
 - T074: offline-continue path when network unavailable
 """
+
 
 import json
 import time

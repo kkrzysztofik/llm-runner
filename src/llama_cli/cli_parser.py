@@ -8,6 +8,7 @@ a second argument specifying the mode to preview.
 import argparse
 import sys
 
+from llama_cli.commands.smoke import _parse_smoke_args
 from llama_manager.config import create_default_profile_registry
 
 COMMAND_MODES = (
@@ -457,6 +458,9 @@ def _handle_tui_case(args: list[str]) -> argparse.Namespace | None:
 def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
     """Handle smoke subcommand special case.
 
+    Delegates to the canonical smoke parser in smoke.py for argument
+    parsing, ensuring a single source of truth for smoke flags.
+
     Args:
         args: List of command-line arguments.
 
@@ -476,170 +480,21 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
         )
         sys.exit(1)
 
-    mode = args[1]
-    if mode not in ("both", "slot"):
-        print(
-            f"error: invalid smoke mode '{mode}'. Valid modes: both, slot",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    # Delegate to the canonical smoke parser (args[1:] = after "smoke")
+    parsed = _parse_smoke_args(args[1:])
 
-    # Parse remaining args for slot_id (when mode is "slot") and flags.
-    # Strategy: slot_id is extracted ONLY from the first token if it exists
-    # and does NOT start with "--". Otherwise leave all args for parser/error
-    # handling. This prevents skipping leading flags to find slot_id.
-    slot_id: str | None = None
-    api_key: str = ""
-    model_id: str | None = None
-    max_tokens: int = 0
-    prompt: str = ""
-    delay: int = 0
-    timeout: int = 0
-    json_output: bool = False
-
-    remaining = args[2:]
-
-    # Check if slot_id can be extracted from remaining[0] BEFORE parsing flags
-    if mode == "slot" and remaining and not remaining[0].startswith("--"):
-        slot_id = remaining[0]
-        # Remove slot_id from remaining for flag parsing
-        remaining = remaining[1:]
-
-    i = 0
-
-    # Flags that take a value (consume the next token)
-    _FLAGS_WITH_VALUE: set[str] = {
-        "--api-key",
-        "--model-id",
-        "--max-tokens",
-        "--prompt",
-        "--delay",
-        "--timeout",
-    }
-
-    # Phase 1 — parse all flags, collecting known values and skipping
-    # unknown ones (with their values).  slot_id is extracted from the
-    # first non-flag token.
-    while i < len(remaining):
-        arg = remaining[i]
-        if arg.startswith("--"):
-            if "=" in arg:
-                # Handle --flag=value syntax
-                key, _, value = arg.partition("=")
-                if key == "--api-key":
-                    api_key = value
-                elif key == "--model-id":
-                    model_id = value
-                elif key == "--max-tokens":
-                    try:
-                        max_tokens = int(value)
-                    except ValueError:
-                        print(
-                            f"error: invalid --max-tokens value '{value}': must be an integer",
-                            file=sys.stderr,
-                        )
-                        sys.exit(1)
-                elif key == "--prompt":
-                    prompt = value
-                elif key == "--delay":
-                    try:
-                        delay = int(value)
-                    except ValueError:
-                        print(
-                            f"error: invalid --delay value '{value}': must be an integer",
-                            file=sys.stderr,
-                        )
-                        sys.exit(1)
-                elif key == "--timeout":
-                    try:
-                        timeout = int(value)
-                    except ValueError:
-                        print(
-                            f"error: invalid --timeout value '{value}': must be an integer",
-                            file=sys.stderr,
-                        )
-                        sys.exit(1)
-                else:
-                    # Unknown flag=value — hard error
-                    print(f"error: unknown flag '{key}'", file=sys.stderr)
-                    sys.exit(1)
-                i += 1
-            elif arg in _FLAGS_WITH_VALUE:
-                i += 1
-                if i < len(remaining):
-                    val = remaining[i]
-                    if arg == "--api-key":
-                        api_key = val
-                    elif arg == "--model-id":
-                        model_id = val
-                    elif arg == "--max-tokens":
-                        try:
-                            max_tokens = int(val)
-                        except ValueError:
-                            print(
-                                f"error: invalid --max-tokens value '{val}': must be an integer",
-                                file=sys.stderr,
-                            )
-                            sys.exit(1)
-                    elif arg == "--prompt":
-                        prompt = val
-                    elif arg == "--delay":
-                        try:
-                            delay = int(val)
-                        except ValueError:
-                            print(
-                                f"error: invalid --delay value '{val}': must be an integer",
-                                file=sys.stderr,
-                            )
-                            sys.exit(1)
-                    elif arg == "--timeout":
-                        try:
-                            timeout = int(val)
-                        except ValueError:
-                            print(
-                                f"error: invalid --timeout value '{val}': must be an integer",
-                                file=sys.stderr,
-                            )
-                            sys.exit(1)
-                    i += 1  # skip past the value
-                else:
-                    print(f"error: {arg} requires a value", file=sys.stderr)
-                    sys.exit(1)
-            elif arg == "--json":
-                json_output = True
-                i += 1
-            else:
-                # Unknown flag — hard error
-                print(f"error: unknown flag '{arg}'", file=sys.stderr)
-                sys.exit(1)
-        else:
-            # Unexpected positional argument after flags — reject it
-            print(
-                f"error: unexpected positional argument '{arg}' "
-                f"(expected only flags after slot ID)",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-    # Phase 2 — validate max_tokens range
-    if max_tokens != 0 and not (8 <= max_tokens <= 32):
-        print(
-            f"error: --max-tokens must be between 8 and 32, got: {max_tokens}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
+    # Map smoke parser output to cli_parser namespace format
     return argparse.Namespace(
         mode="smoke",
-        smoke_mode=mode,
-        slot_id=slot_id,
-        api_key=api_key,
-        model_id=model_id,
-        max_tokens=max_tokens,
-        prompt=prompt,
-        delay=delay,
-        timeout=timeout,
-        json=json_output,
+        smoke_mode=parsed.mode,
+        slot_id=parsed.slot_id,
+        api_key=parsed.api_key,
+        model_id=parsed.model_id,
+        max_tokens=parsed.max_tokens,
+        prompt=parsed.prompt,
+        delay=parsed.delay,
+        timeout=parsed.timeout,
+        json=parsed.json,
     )
 
 

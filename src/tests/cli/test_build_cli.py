@@ -1,11 +1,3 @@
-"""Tests for build CLI interface (build_cli.py).
-
-Covers:
-- parse_build_args: argument parsing for all options
-- run_build_command: success/failure paths, JSON output
-- main: entry point, KeyboardInterrupt handling
-"""
-
 import argparse
 import json
 import os

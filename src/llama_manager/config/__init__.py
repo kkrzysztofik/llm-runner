@@ -44,7 +44,14 @@ from .profile_cache import (
     read_profile,
     write_profile,
 )
-from .profiles import RunGroupSpec, RunProfileError, RunProfileRegistry, RunProfileSpec
+from .profiles import (
+    RunGroupSpec,
+    RunProfileError,
+    RunProfileRegistry,
+    RunProfileSpec,
+    resolve_backend_from_profile,
+    resolve_profile_id,
+)
 from .server import (
     ModelSlot,
     ServerConfig,
@@ -80,6 +87,8 @@ __all__ = [
     "RunProfileError",
     "RunProfileRegistry",
     "RunProfileSpec",
+    "resolve_backend_from_profile",
+    "resolve_profile_id",
     # defaults
     "Config",
     "SmokeProbeConfiguration",

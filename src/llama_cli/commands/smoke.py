@@ -17,6 +17,7 @@ import dataclasses
 import json
 import sys
 import time
+import typing
 from typing import Any
 
 from llama_manager import (
@@ -248,8 +249,7 @@ def run_smoke(args: list[str]) -> int:
     Returns:
         Exit code (0 for all pass, otherwise worst failure).
     """
-    parser = _build_smoke_parser()
-    parsed = parser.parse_args(args)
+    parsed = _parse_smoke_args(args)
 
     # Validate arguments
     validation_result = _validate_smoke_args(parsed)
@@ -286,13 +286,58 @@ def run_smoke(args: list[str]) -> int:
     return report.overall_exit_code
 
 
-def _build_smoke_parser() -> argparse.ArgumentParser:
+class _SmokeArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser subclass that exits with code 1 on errors.
+
+    The default argparse.ArgumentParser exits with code 2 on errors.
+    This project convention requires exit code 1 for user-input validation
+    failures.
+    """
+
+    def error(self, message: str) -> typing.NoReturn:
+        """Override to exit with code 1 instead of 2."""
+        self.print_usage(sys.stderr)
+        print(f"error: {message}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _parse_smoke_args(args: list[str]) -> argparse.Namespace:
+    """Parse smoke subcommand arguments using the canonical parser.
+
+    This is the single source of truth for smoke argument parsing.
+    Called by cli_parser._handle_smoke_case to validate and parse
+    smoke arguments.
+
+    Args:
+        args: Arguments after "smoke" (e.g., ["both"] or ["slot", "summary-balanced", "--json"]).
+
+    Returns:
+        Parsed argparse.Namespace.
+
+    Raises:
+        SystemExit: On invalid arguments (exit code 1).
+    """
+    parser = _build_smoke_parser()
+    parsed = parser.parse_args(args)
+
+    # Validate max_tokens range (8-32) — argparse doesn't do this natively
+    if parsed.max_tokens != 0 and not (8 <= parsed.max_tokens <= 32):
+        print(
+            f"error: --max-tokens must be between 8 and 32, got: {parsed.max_tokens}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    return parsed
+
+
+def _build_smoke_parser() -> _SmokeArgumentParser:
     """Build the argument parser for the smoke subcommand.
 
     Returns:
-        Configured ArgumentParser.
+        Configured _SmokeArgumentParser.
     """
-    parser = argparse.ArgumentParser(
+    parser = _SmokeArgumentParser(
         description="Run smoke tests against llama-server instances",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""

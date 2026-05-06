@@ -30,15 +30,17 @@ from llama_manager import (
     ProfileFlavor,
     ProfileMetrics,
     ProfileRecord,
+    RunProfileRegistry,
     ServerConfig,
     SubprocessResult,
     build_benchmark_cmd,
     compute_driver_version_hash,
-    create_qwen35_cfg,
+    create_default_profile_registry,
     create_summary_balanced_cfg,
-    create_summary_fast_cfg,
     get_gpu_identifier,
-    normalize_slot_id,
+    resolve_backend_from_profile,
+    resolve_profile_config,
+    resolve_profile_id,
     run_benchmark,
     write_profile,
 )
@@ -109,28 +111,59 @@ def require_executable(path: str) -> None:
 def _detect_backend(server_config: ServerConfig) -> str:
     """Resolve backend from the slot-specific server configuration.
 
+    Uses the profile's device field to determine backend:
+    - Empty device → 'cuda' (NVIDIA backend)
+    - Non-empty device → 'sycl' (Intel SYCL backend)
+
     Args:
         server_config: Slot-resolved server configuration.
 
     Returns:
-        ``"cuda"`` for qwen35 slot config, otherwise ``"sycl"``.
+        Backend string: 'cuda' or 'sycl'.
     """
-    if server_config.alias == "qwen35-coding":
-        return "cuda"
-    return "sycl"
+    # Create a temporary profile spec from server_config for resolution
+    from llama_manager.config.profiles import RunProfileSpec
+
+    temp_profile = RunProfileSpec(
+        profile_id=server_config.alias,
+        model=server_config.model,
+        alias=server_config.alias,
+        device=server_config.device,
+        port=server_config.port,
+        ctx_size=server_config.ctx_size,
+        ubatch_size=server_config.ubatch_size,
+        threads=server_config.threads,
+        backend=server_config.backend,
+    )
+    return resolve_backend_from_profile(temp_profile)
 
 
-def _resolve_slot_server_config(slot_id: str, config: Config) -> ServerConfig:
-    try:
-        normalized = normalize_slot_id(slot_id)
-    except ValueError:
-        normalized = ""
-    if normalized in {"slot0", "summary-balanced", "summary_balanced", "balanced"}:
-        return create_summary_balanced_cfg(config.summary_balanced_port)
-    if normalized in {"slot1", "summary-fast", "summary_fast", "fast"}:
-        return create_summary_fast_cfg(config.summary_fast_port)
-    if normalized in {"slot2", "qwen35", "qwen35-coding", "qwen35_coding"}:
-        return create_qwen35_cfg(config.qwen35_port)
+def _resolve_slot_server_config(
+    slot_id: str,
+    config: Config,
+    registry: RunProfileRegistry | None = None,
+) -> ServerConfig:
+    """Resolve a slot_id to a ServerConfig using registry-based resolution.
+
+    Uses the profile registry to resolve slot IDs and aliases to their
+    corresponding profile definitions, then creates a ServerConfig from
+    the resolved profile.
+
+    Args:
+        slot_id: Slot identifier (e.g. 'slot0', 'summary-balanced', 'qwen35').
+        config: Global configuration with port and model defaults.
+        registry: Optional pre-built profile registry. When omitted, a fresh
+            registry is created via ``create_default_profile_registry(config)``.
+
+    Returns:
+        ServerConfig for the resolved profile.
+    """
+    if registry is None:
+        registry = create_default_profile_registry(config)
+
+    if profile_id := resolve_profile_id(registry, slot_id):
+        return resolve_profile_config(registry, profile_id)
+
     # Unknown slot IDs default to summary-balanced profile parameters.
     server_config = create_summary_balanced_cfg(config.summary_balanced_port)
     server_config.alias = slot_id
@@ -199,10 +232,11 @@ def _resolve_benchmark_config(
     flavor_obj: ProfileFlavor,
     config: Config,
 ) -> tuple[str, int, int]:
-    """Resolve model, threads, and ubatch_size based on flavor.
+    """Resolve model, threads, and ubatch_size based on flavor and profile.
 
-    For the qwen35-coding alias, the server config values are used as-is.
-    For summary slots, the flavor overrides the defaults.
+    For CUDA profiles (empty device field), the server config values are
+    used as-is. For SYCL profiles (non-empty device), the flavor overrides
+    the defaults.
 
     Args:
         server_config: Slot-resolved server configuration.
@@ -212,9 +246,11 @@ def _resolve_benchmark_config(
     Returns:
         Tuple of (model, threads, ubatch_size).
     """
-    if server_config.alias == "qwen35-coding":
+    # CUDA profiles use their own config values
+    if not server_config.device.strip():
         return server_config.model, server_config.threads, server_config.ubatch_size
 
+    # SYCL profiles use flavor-based overrides
     if flavor_obj == ProfileFlavor.BALANCED:
         return (
             config.model_summary_balanced,
@@ -455,9 +491,7 @@ def cmd_profile(
     model, threads, ubatch_size = _resolve_benchmark_config(server_config, flavor_obj, config)
 
     # Determine n_gpu_layers based on backend
-    n_gpu_layers = (
-        config.default_n_gpu_layers_qwen35 if backend == "cuda" else server_config.n_gpu_layers
-    )
+    n_gpu_layers = server_config.n_gpu_layers
 
     # Build benchmark command
     cmd = _build_benchmark_command(

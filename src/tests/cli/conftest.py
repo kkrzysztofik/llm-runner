@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 """Shared CLI test fixtures."""
+
 
 from collections.abc import Generator
 

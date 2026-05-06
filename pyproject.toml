@@ -60,6 +60,7 @@ select = [
 ]
 ignore = [
     "D",             # docstring style checks are out of scope for this phase
+    "E402",          # module level import not at top — false positive with from __future__ + docstring
     "E501",          # line length — handled by formatter
     "B008",          # function call in default argument
     "B006",          # mutable default argument — intentional in config defaults

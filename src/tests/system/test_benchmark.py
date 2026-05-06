@@ -1,11 +1,13 @@
-"""Tests for llama_manager.benchmark — command building, parsing, and runner."""
-
 from __future__ import annotations
 
-import math
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
+
+"""Tests for llama_manager.benchmark — command building, parsing, and runner."""
+
+
+import math
+from typing import Any
 
 import pytest
 
