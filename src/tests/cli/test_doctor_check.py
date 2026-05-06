@@ -40,6 +40,7 @@ from llama_manager.config.profile_cache import (
     StalenessResult,
 )
 from llama_manager.toolchain import ToolchainStatus
+from tests.support.helpers import make_toolchain_status
 from tests.support.helpers import namespace as _make_namespace
 
 
@@ -67,15 +68,7 @@ def doctor_mocks(
     mock_config_cls = stack.enter_context(patch("llama_cli.commands.doctor.Config"))
 
     if toolchain is None:
-        toolchain = ToolchainStatus(
-            gcc="11.4.0",
-            make="4.3",
-            git="2.34.1",
-            cmake="3.25.0",
-            sycl_compiler="2023.1.0",
-            cuda_toolkit="12.2.0",
-            nvtop="3.1.0",
-        )
+        toolchain = make_toolchain_status()
     mock_detect.return_value = toolchain
 
     mock_venv_path.return_value = tmp_path / "venv"
@@ -205,11 +198,7 @@ class TestCmdDoctorCheck:
 
     def test_doctor_check_fails_with_incomplete_toolchain(self, tmp_path, capsys) -> None:
         """doctor check should fail when toolchain is incomplete."""
-        incomplete_toolchain = ToolchainStatus(
-            gcc="11.4.0",
-            make="4.3",
-            git="2.34.1",
-            cmake="3.25.0",
+        incomplete_toolchain = make_toolchain_status(
             sycl_compiler=None,
             cuda_toolkit=None,
             nvtop=None,
@@ -902,15 +891,7 @@ class TestCheckToolchainBackendBranches:
             staging_dirs_clean=False,
             reports_dir_exists=False,
         )
-        toolchain_status = ToolchainStatus(
-            gcc="11.4.0",
-            make="4.3",
-            git="2.34.1",
-            cmake="3.25.0",
-            sycl_compiler=None,
-            cuda_toolkit="12.2.0",
-            nvtop="3.1.0",
-        )
+        toolchain_status = make_toolchain_status(sycl_compiler=None)
         _check_toolchain(result, toolchain_status, BuildBackend.SYCL)
         assert result.toolchain_complete is False
         assert result.is_healthy is False
@@ -927,15 +908,7 @@ class TestCheckToolchainBackendBranches:
             staging_dirs_clean=False,
             reports_dir_exists=False,
         )
-        toolchain_status = ToolchainStatus(
-            gcc="11.4.0",
-            make="4.3",
-            git="2.34.1",
-            cmake="3.25.0",
-            sycl_compiler="2023.1.0",
-            cuda_toolkit=None,
-            nvtop=None,
-        )
+        toolchain_status = make_toolchain_status(cuda_toolkit=None, nvtop=None)
         _check_toolchain(result, toolchain_status, BuildBackend.CUDA)
         assert result.toolchain_complete is False
         assert result.is_healthy is False
@@ -952,7 +925,7 @@ class TestCheckToolchainBackendBranches:
             staging_dirs_clean=False,
             reports_dir_exists=False,
         )
-        toolchain_status = ToolchainStatus(
+        toolchain_status = make_toolchain_status(
             gcc=None,
             make=None,
             git=None,
@@ -1280,7 +1253,7 @@ class TestCollectToolchainRepairActions:
             patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect,
             patch("llama_cli.commands.doctor.get_toolchain_hints") as mock_hints,
         ):
-            mock_detect.return_value = ToolchainStatus(
+            mock_detect.return_value = make_toolchain_status(
                 gcc=None,
                 make=None,
                 git=None,
@@ -1303,15 +1276,7 @@ class TestCollectToolchainRepairActions:
         result = DoctorRepairResult(actions=[])
 
         with patch("llama_cli.commands.doctor.detect_toolchain") as mock_detect:
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
+            mock_detect.return_value = make_toolchain_status()
             _collect_toolchain_repair_actions(result)
 
         assert len(result.actions) == 0

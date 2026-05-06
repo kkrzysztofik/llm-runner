@@ -312,7 +312,7 @@ class TestPhase2ModelsDiscovery:
             *args: object, **kwargs: object
         ) -> tuple[SmokeProbeResult | None, str | None]:
             return (
-                SmokeProbeResult(
+                make_smoke_result(
                     slot_id="127.0.0.1:8080",
                     status=status,
                     phase_reached=SmokePhase.MODELS,
@@ -379,7 +379,7 @@ class TestPhase3ChatCompletion:
         smoke_cfg = _make_smoke_cfg()
 
         def probe_chat_side_effect(*args: object, **kwargs: object) -> SmokeProbeResult | None:
-            return SmokeProbeResult(
+            return make_smoke_result(
                 slot_id="127.0.0.1:8080",
                 status=SmokeProbeStatus.TIMEOUT,
                 phase_reached=SmokePhase.CHAT,
@@ -421,7 +421,7 @@ class TestPhase3ChatCompletion:
         smoke_cfg = _make_smoke_cfg()
 
         def probe_chat_side_effect(*args: object, **kwargs: object) -> SmokeProbeResult | None:
-            return SmokeProbeResult(
+            return make_smoke_result(
                 slot_id="127.0.0.1:8080",
                 status=status,
                 phase_reached=SmokePhase.CHAT,
@@ -456,7 +456,7 @@ class TestCrashDetection:
 
     def test_crashed_exit_code_is_19(self) -> None:
         """SmokeProbeResult.status == CRASHED → exit_code == 19."""
-        result = SmokeProbeResult(
+        result = make_smoke_result(
             slot_id="slot1",
             status=SmokeProbeStatus.CRASHED,
             phase_reached=SmokePhase.COMPLETE,
@@ -474,7 +474,7 @@ class TestCrashDetection:
             SmokeProbeStatus.AUTH_FAILURE: 15,
         }
         for status, expected_code in expected.items():
-            result = SmokeProbeResult(
+            result = make_smoke_result(
                 slot_id="test",
                 status=status,
                 phase_reached=SmokePhase.COMPLETE,
@@ -493,7 +493,7 @@ class TestCrashDetection:
         # The exit_code property does: _EXIT_CODE_MAP.get(self.status, 10)
         # We mock it to return 10 (the default) for a known status, simulating
         # the behavior when a status is not in the map.
-        result = SmokeProbeResult(
+        result = make_smoke_result(
             slot_id="test",
             status=SmokeProbeStatus.PASS,
             phase_reached=SmokePhase.COMPLETE,
@@ -748,9 +748,9 @@ class TestComputeOverallExitCode:
 class TestApiKeyHeaderPrecedence:
     """T031: API key precedence — empty key doesn't send Authorization header."""
 
-    def test_empty_api_key_no_auth_header(self) -> None:
-        """_probe_models should NOT send Authorization header when api_key is empty."""
-        smoke_cfg = _make_smoke_cfg(api_key="")
+    @staticmethod
+    def _run_probe_slot_with_api_key(api_key: str) -> tuple[MagicMock, MagicMock]:
+        smoke_cfg = _make_smoke_cfg(api_key=api_key)
 
         with (
             patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
@@ -766,178 +766,98 @@ class TestApiKeyHeaderPrecedence:
 
             probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="test")
 
-            # Verify _probe_models was called with empty api_key
-            call_args = mock_probe.call_args
-            assert call_args is not None
-            assert call_args[0][3] == ""  # api_key is the 4th positional arg
+        return mock_probe, mock_chat
 
-    def test_non_empty_api_key_sends_auth_header(self) -> None:
-        """_probe_models should send Authorization header when api_key is non-empty."""
-        smoke_cfg = _make_smoke_cfg(api_key="sk-test-key-123")
+    @staticmethod
+    def _configure_http_client(
+        mock_client_cls: MagicMock, response_json: dict[str, object]
+    ) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = response_json
+        mock_client_instance = MagicMock()
+        mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
+        mock_client_instance.__exit__ = MagicMock(return_value=False)
+        mock_client_instance.get.return_value = mock_response
+        mock_client_instance.post.return_value = mock_response
+        mock_client_cls.return_value = mock_client_instance
+        return mock_client_instance
 
-        with (
-            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
-            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
-        ):
-            mock_sock = MagicMock()
-            mock_socket_cls.return_value = mock_sock
-            mock_sock.connect.return_value = None
-            mock_sock.close.return_value = None
-            mock_probe.return_value = (None, None)
-            mock_chat.return_value = None
+    @pytest.mark.parametrize(
+        ("api_key", "expected_key"),
+        [
+            ("", ""),
+            ("sk-test-key-123", "sk-test-key-123"),
+            ("  sk-whitespace-key  ", "sk-whitespace-key"),
+        ],
+    )
+    def test_models_phase_receives_resolved_api_key(self, api_key: str, expected_key: str) -> None:
+        """_probe_models should receive the resolved API key."""
+        mock_probe, _mock_chat = self._run_probe_slot_with_api_key(api_key)
 
-            probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="test")
-
-            call_args = mock_probe.call_args
-            assert call_args is not None
-            assert call_args[0][3] == "sk-test-key-123"
-
-    def test_models_phase_receives_stripped_api_key(self) -> None:
-        """_probe_models should receive the whitespace-stripped key, not raw config value."""
-        smoke_cfg = _make_smoke_cfg(api_key="  sk-whitespace-key  ")
-
-        with (
-            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
-            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
-        ):
-            mock_sock = MagicMock()
-            mock_socket_cls.return_value = mock_sock
-            mock_sock.connect.return_value = None
-            mock_sock.close.return_value = None
-            mock_probe.return_value = (None, None)
-            mock_chat.return_value = None
-
-            probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="test")
-
-            call_args = mock_probe.call_args
-            assert call_args is not None
-            # Should be stripped, not the raw "  sk-whitespace-key  "
-            assert call_args[0][3] == "sk-whitespace-key"
+        call_args = mock_probe.call_args
+        assert call_args is not None
+        assert call_args[0][3] == expected_key  # api_key is the 4th positional arg
 
     def test_models_and_chat_receive_same_resolved_key(self) -> None:
         """Both _probe_models and _probe_chat should receive the identical resolved key."""
-        smoke_cfg = _make_smoke_cfg(api_key="  sk-unified-key  ")
+        mock_probe, mock_chat = self._run_probe_slot_with_api_key("  sk-unified-key  ")
 
-        with (
-            patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls,
-            patch("llama_manager.probe.smoke._probe_models") as mock_probe,
-            patch("llama_manager.probe.smoke._probe_chat") as mock_chat,
-        ):
-            mock_sock = MagicMock()
-            mock_socket_cls.return_value = mock_sock
-            mock_sock.connect.return_value = None
-            mock_sock.close.return_value = None
-            mock_probe.return_value = (None, None)
-            mock_chat.return_value = None
+        models_key = mock_probe.call_args[0][3]
+        chat_key = mock_chat.call_args[0][4]  # 5th positional arg in _probe_chat
+        assert models_key == chat_key == "sk-unified-key"
 
-            probe_slot("127.0.0.1", 8080, smoke_cfg, model_id="test")
-
-            models_key = mock_probe.call_args[0][3]
-            chat_key = mock_chat.call_args[0][4]  # 5th positional arg in _probe_chat
-            assert models_key == chat_key == "sk-unified-key"
-
-    def test_probe_models_includes_auth_header(self) -> None:
-        """_probe_models should include Authorization header with Bearer prefix."""
+    @pytest.mark.parametrize(
+        ("api_key", "expected_authorization"),
+        [("sk-secret", "Bearer sk-secret"), ("", None)],
+    )
+    def test_probe_models_auth_header(
+        self, api_key: str, expected_authorization: str | None
+    ) -> None:
+        """_probe_models should include Authorization only when api_key is non-empty."""
         with patch("llama_manager.probe.smoke.httpx.Client") as mock_client_cls:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "object": "list",
-                "data": [{"id": "test-model", "object": "model", "owned_by": "system"}],
-            }
-            mock_client_instance = MagicMock()
-            mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-            mock_client_instance.__exit__ = MagicMock(return_value=False)
-            mock_client_instance.get.return_value = mock_response
-            mock_client_cls.return_value = mock_client_instance
+            mock_client_instance = self._configure_http_client(
+                mock_client_cls,
+                {"object": "list", "data": [{"id": "test-model", "object": "model"}]},
+            )
 
             from llama_manager.probe import _probe_models
 
-            _result = _probe_models("127.0.0.1", 8080, 10, "sk-secret", "test-model")
+            _result = _probe_models("127.0.0.1", 8080, 10, api_key, "test-model")
 
-            # Verify get was called with proper headers
             mock_client_instance.get.assert_called_once()
             call_kwargs = mock_client_instance.get.call_args
             headers = call_kwargs.kwargs.get("headers", call_kwargs[1].get("headers", {}))
-            assert "Authorization" in headers
-            assert headers["Authorization"] == "Bearer sk-secret"
+            if expected_authorization is None:
+                assert "Authorization" not in headers
+            else:
+                assert headers["Authorization"] == expected_authorization
 
-    def test_probe_models_no_auth_header_when_empty(self) -> None:
-        """_probe_models should not include Authorization header when api_key is empty."""
-        with patch("llama_manager.probe.smoke.httpx.Client") as mock_client_cls:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "object": "list",
-                "data": [{"id": "test-model", "object": "model", "owned_by": "system"}],
-            }
-            mock_client_instance = MagicMock()
-            mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-            mock_client_instance.__exit__ = MagicMock(return_value=False)
-            mock_client_instance.get.return_value = mock_response
-            mock_client_cls.return_value = mock_client_instance
-
-            from llama_manager.probe import _probe_models
-
-            _result = _probe_models("127.0.0.1", 8080, 10, "", "test-model")
-
-            call_kwargs = mock_client_instance.get.call_args
-            headers = call_kwargs.kwargs.get("headers", call_kwargs[1].get("headers", {}))
-            assert "Authorization" not in headers
-
-    def test_probe_chat_includes_auth_header(self) -> None:
-        """_probe_chat should include Authorization header when api_key is set."""
+    @pytest.mark.parametrize(
+        ("api_key", "expected_authorization"),
+        [("sk-chat-key", "Bearer sk-chat-key"), ("", None)],
+    )
+    def test_probe_chat_auth_header(self, api_key: str, expected_authorization: str | None) -> None:
+        """_probe_chat should include Authorization only when api_key is non-empty."""
         smoke_cfg = _make_smoke_cfg(api_key="")
 
         with patch("llama_manager.probe.smoke.httpx.Client") as mock_client_cls:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "object": "list",
-                "choices": [{"message": {"content": "hello"}}],
-            }
-            mock_client_instance = MagicMock()
-            mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-            mock_client_instance.__exit__ = MagicMock(return_value=False)
-            mock_client_instance.post.return_value = mock_response
-            mock_client_cls.return_value = mock_client_instance
+            mock_client_instance = self._configure_http_client(
+                mock_client_cls,
+                {"object": "list", "choices": [{"message": {"content": "hello"}}]},
+            )
 
             from llama_manager.probe import _probe_chat
 
-            _result = _probe_chat("127.0.0.1", 8080, smoke_cfg, "test-model", "sk-chat-key")
+            _result = _probe_chat("127.0.0.1", 8080, smoke_cfg, "test-model", api_key)
 
             mock_client_instance.post.assert_called_once()
             call_kwargs = mock_client_instance.post.call_args
             headers = call_kwargs.kwargs.get("headers", call_kwargs[1].get("headers", {}))
-            assert "Authorization" in headers
-            assert headers["Authorization"] == "Bearer sk-chat-key"
-
-    def test_probe_chat_no_auth_header_when_empty(self) -> None:
-        """_probe_chat should not include Authorization header when api_key is empty."""
-        smoke_cfg = _make_smoke_cfg(api_key="")
-
-        with patch("llama_manager.probe.smoke.httpx.Client") as mock_client_cls:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "object": "list",
-                "choices": [{"message": {"content": "hello"}}],
-            }
-            mock_client_instance = MagicMock()
-            mock_client_instance.__enter__ = MagicMock(return_value=mock_client_instance)
-            mock_client_instance.__exit__ = MagicMock(return_value=False)
-            mock_client_instance.post.return_value = mock_response
-            mock_client_cls.return_value = mock_client_instance
-
-            from llama_manager.probe import _probe_chat
-
-            _result = _probe_chat("127.0.0.1", 8080, smoke_cfg, "test-model", "")
-
-            call_kwargs = mock_client_instance.post.call_args
-            headers = call_kwargs.kwargs.get("headers", call_kwargs[1].get("headers", {}))
-            assert "Authorization" not in headers
+            if expected_authorization is None:
+                assert "Authorization" not in headers
+            else:
+                assert headers["Authorization"] == expected_authorization
             assert "Content-Type" in headers
 
 
@@ -1068,12 +988,12 @@ class TestSmokeCompositeReport:
     def test_all_pass_results(self) -> None:
         """SmokeCompositeReport with all PASS results should have overall_status == PASS."""
         results = [
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot1",
                 status=SmokeProbeStatus.PASS,
                 phase_reached=SmokePhase.COMPLETE,
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot2",
                 status=SmokeProbeStatus.PASS,
                 phase_reached=SmokePhase.COMPLETE,
@@ -1087,12 +1007,12 @@ class TestSmokeCompositeReport:
     def test_worst_status_crashed(self) -> None:
         """SmokeCompositeReport should return CRASHED as worst status."""
         results = [
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot1",
                 status=SmokeProbeStatus.PASS,
                 phase_reached=SmokePhase.COMPLETE,
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot2",
                 status=SmokeProbeStatus.CRASHED,
                 phase_reached=SmokePhase.COMPLETE,
@@ -1106,12 +1026,12 @@ class TestSmokeCompositeReport:
     def test_worst_status_auth_failure(self) -> None:
         """SmokeCompositeReport should return AUTH_FAILURE over TIMEOUT."""
         results = [
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot1",
                 status=SmokeProbeStatus.TIMEOUT,
                 phase_reached=SmokePhase.MODELS,
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot2",
                 status=SmokeProbeStatus.AUTH_FAILURE,
                 phase_reached=SmokePhase.MODELS,
@@ -1123,12 +1043,12 @@ class TestSmokeCompositeReport:
     def test_worst_status_model_not_found(self) -> None:
         """SmokeCompositeReport should return MODEL_NOT_FOUND over TIMEOUT."""
         results = [
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot1",
                 status=SmokeProbeStatus.TIMEOUT,
                 phase_reached=SmokePhase.MODELS,
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot2",
                 status=SmokeProbeStatus.MODEL_NOT_FOUND,
                 phase_reached=SmokePhase.MODELS,
@@ -1140,12 +1060,12 @@ class TestSmokeCompositeReport:
     def test_worst_status_fail(self) -> None:
         """SmokeCompositeReport should return FAIL over PASS."""
         results = [
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot1",
                 status=SmokeProbeStatus.PASS,
                 phase_reached=SmokePhase.COMPLETE,
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot2",
                 status=SmokeProbeStatus.FAIL,
                 phase_reached=SmokePhase.LISTEN,
@@ -1157,12 +1077,12 @@ class TestSmokeCompositeReport:
     def test_overall_exit_code_delegates(self) -> None:
         """SmokeCompositeReport.overall_exit_code should delegate to compute_overall_exit_code."""
         results = [
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot1",
                 status=SmokeProbeStatus.PASS,
                 phase_reached=SmokePhase.COMPLETE,
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot2",
                 status=SmokeProbeStatus.CRASHED,
                 phase_reached=SmokePhase.COMPLETE,
@@ -1179,17 +1099,17 @@ class TestSmokeCompositeReport:
     def test_pass_count_mixed(self) -> None:
         """pass_count should count only PASS results."""
         results = [
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot1",
                 status=SmokeProbeStatus.PASS,
                 phase_reached=SmokePhase.COMPLETE,
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot2",
                 status=SmokeProbeStatus.FAIL,
                 phase_reached=SmokePhase.LISTEN,
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot3",
                 status=SmokeProbeStatus.PASS,
                 phase_reached=SmokePhase.COMPLETE,
@@ -1202,12 +1122,12 @@ class TestSmokeCompositeReport:
     def test_all_fail(self) -> None:
         """fail_count should equal total results when all fail."""
         results = [
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot1",
                 status=SmokeProbeStatus.FAIL,
                 phase_reached=SmokePhase.LISTEN,
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot2",
                 status=SmokeProbeStatus.TIMEOUT,
                 phase_reached=SmokePhase.MODELS,
@@ -1220,7 +1140,7 @@ class TestSmokeCompositeReport:
     def test_to_dict_serializable(self) -> None:
         """SmokeCompositeReport should be serializable to dict with all fields."""
         results = [
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot1",
                 status=SmokeProbeStatus.PASS,
                 phase_reached=SmokePhase.COMPLETE,
@@ -1265,7 +1185,7 @@ class TestSmokeCompositeReport:
     def test_to_json_roundtrip(self) -> None:
         """SmokeCompositeReport should survive JSON round-trip."""
         results = [
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot1",
                 status=SmokeProbeStatus.PASS,
                 phase_reached=SmokePhase.COMPLETE,
@@ -1273,7 +1193,7 @@ class TestSmokeCompositeReport:
                 latency_ms=500,
                 provenance=ProvenanceRecord(sha="deadbeef", version="24.12"),
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot2",
                 status=SmokeProbeStatus.CRASHED,
                 phase_reached=SmokePhase.COMPLETE,
@@ -1313,19 +1233,19 @@ class TestSmokeCompositeReport:
     def test_human_readable_summary(self) -> None:
         """SmokeCompositeReport should produce a human-readable summary string."""
         results = [
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot1",
                 status=SmokeProbeStatus.PASS,
                 phase_reached=SmokePhase.COMPLETE,
                 model_id="Qwen3.5-2B",
                 latency_ms=1234,
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot2",
                 status=SmokeProbeStatus.CRASHED,
                 phase_reached=SmokePhase.COMPLETE,
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot3",
                 status=SmokeProbeStatus.FAIL,
                 phase_reached=SmokePhase.LISTEN,
@@ -1411,7 +1331,7 @@ class TestProbeSlotFullFlow:
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
             mock_probe_models.return_value = (
-                SmokeProbeResult(
+                make_smoke_result(
                     slot_id="127.0.0.1:8080",
                     status=SmokeProbeStatus.FAIL,
                     phase_reached=SmokePhase.MODELS,
@@ -1440,7 +1360,7 @@ class TestProbeSlotFullFlow:
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
             mock_probe_models.return_value = (None, None)
-            mock_probe_chat.return_value = SmokeProbeResult(
+            mock_probe_chat.return_value = make_smoke_result(
                 slot_id="127.0.0.1:8080",
                 status=SmokeProbeStatus.FAIL,
                 phase_reached=SmokePhase.CHAT,
@@ -1493,7 +1413,7 @@ class TestProbeSlotFullFlow:
             mock_sock.connect.return_value = None
             mock_sock.close.return_value = None
             mock_probe_models.return_value = (
-                SmokeProbeResult(
+                make_smoke_result(
                     slot_id="127.0.0.1:8080",
                     status=SmokeProbeStatus.FAIL,
                     phase_reached=SmokePhase.MODELS,
@@ -1517,13 +1437,18 @@ class TestProbeSlotFullFlow:
 class TestTcpConnect:
     """Tests for _tcp_connect helper function."""
 
+    @staticmethod
+    def _mock_socket(mock_socket_cls: MagicMock) -> MagicMock:
+        mock_sock = MagicMock()
+        mock_socket_cls.return_value = mock_sock
+        mock_sock.connect.return_value = None
+        mock_sock.close.return_value = None
+        return mock_sock
+
     def test_tcp_connect_success(self) -> None:
         """_tcp_connect should return None on successful connection."""
         with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
-            mock_sock = MagicMock()
-            mock_socket_cls.return_value = mock_sock
-            mock_sock.connect.return_value = None
-            mock_sock.close.return_value = None
+            mock_sock = self._mock_socket(mock_socket_cls)
 
             from llama_manager.probe import _tcp_connect
 
@@ -1532,32 +1457,21 @@ class TestTcpConnect:
             mock_sock.connect.assert_called_once_with(("127.0.0.1", 8080))
             mock_sock.close.assert_called_once()
 
-    def test_tcp_connect_timeout_raises(self) -> None:
-        """_tcp_connect should raise TimeoutError when socket times out."""
+    @pytest.mark.parametrize(
+        ("side_effect", "expected_exception"),
+        [(TimeoutError(), TimeoutError), (ConnectionRefusedError(), OSError)],
+    )
+    def test_tcp_connect_errors_raise_and_close(
+        self, side_effect: Exception, expected_exception: type[Exception]
+    ) -> None:
+        """_tcp_connect should close the socket when connection errors occur."""
         with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
-            mock_sock = MagicMock()
-            mock_socket_cls.return_value = mock_sock
-            mock_sock.connect.side_effect = TimeoutError()
-            mock_sock.close.return_value = None
+            mock_sock = self._mock_socket(mock_socket_cls)
+            mock_sock.connect.side_effect = side_effect
 
             from llama_manager.probe import _tcp_connect
 
-            with pytest.raises(TimeoutError):
-                _tcp_connect("127.0.0.1", 8080, 5)
-
-            mock_sock.close.assert_called_once()
-
-    def test_tcp_connect_refused_raises(self) -> None:
-        """_tcp_connect should raise OSError when connection is refused."""
-        with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
-            mock_sock = MagicMock()
-            mock_socket_cls.return_value = mock_sock
-            mock_sock.connect.side_effect = ConnectionRefusedError()
-            mock_sock.close.return_value = None
-
-            from llama_manager.probe import _tcp_connect
-
-            with pytest.raises(OSError):
+            with pytest.raises(expected_exception):
                 _tcp_connect("127.0.0.1", 8080, 5)
 
             mock_sock.close.assert_called_once()
@@ -1565,10 +1479,7 @@ class TestTcpConnect:
     def test_tcp_connect_sets_timeout(self) -> None:
         """_tcp_connect should set socket timeout to the specified value."""
         with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
-            mock_sock = MagicMock()
-            mock_socket_cls.return_value = mock_sock
-            mock_sock.connect.return_value = None
-            mock_sock.close.return_value = None
+            mock_sock = self._mock_socket(mock_socket_cls)
 
             from llama_manager.probe import _tcp_connect
 
@@ -1579,10 +1490,7 @@ class TestTcpConnect:
     def test_tcp_connect_socket_created_with_correct_family(self) -> None:
         """_tcp_connect should create socket with AF_INET and SOCK_STREAM."""
         with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
-            mock_sock = MagicMock()
-            mock_socket_cls.return_value = mock_sock
-            mock_sock.connect.return_value = None
-            mock_sock.close.return_value = None
+            self._mock_socket(mock_socket_cls)
 
             from llama_manager.probe import _tcp_connect
 
@@ -1969,10 +1877,11 @@ def _to_report_dict(report: SmokeCompositeReport, capsys) -> dict:
 def base_report_dict(capsys) -> dict:
     """Create a base serialized report for schema tests."""
     results = [
-        SmokeProbeResult(
+        make_smoke_result(
             slot_id="slot1",
             status=SmokeProbeStatus.PASS,
             phase_reached=SmokePhase.COMPLETE,
+            latency_ms=None,
             provenance=ProvenanceRecord(sha="abc1234", version="1.0"),
         )
     ]
@@ -2018,7 +1927,7 @@ def test_schema_field_types(base_report_dict, field: str, expected_type: type) -
 @pytest.mark.parametrize("status", SmokeProbeStatus)
 def test_schema_status_enum_values(capsys, status: SmokeProbeStatus) -> None:
     """status must be one of the valid SmokeProbeStatus values."""
-    results = [SmokeProbeResult(slot_id="test", status=status, phase_reached=SmokePhase.COMPLETE)]
+    results = [make_smoke_result(slot_id="test", status=status, phase_reached=SmokePhase.COMPLETE)]
     report = SmokeCompositeReport(results=results)
     d = _to_report_dict(report, capsys)
     assert d["results"][0]["status"] in _RESULT_ENUMS["status"]
@@ -2027,7 +1936,7 @@ def test_schema_status_enum_values(capsys, status: SmokeProbeStatus) -> None:
 @pytest.mark.parametrize("phase", SmokePhase)
 def test_schema_phase_enum_values(capsys, phase: SmokePhase) -> None:
     """phase_reached must be one of the valid SmokePhase values."""
-    results = [SmokeProbeResult(slot_id="test", status=SmokeProbeStatus.PASS, phase_reached=phase)]
+    results = [make_smoke_result(slot_id="test", status=SmokeProbeStatus.PASS, phase_reached=phase)]
     report = SmokeCompositeReport(results=results)
     d = _to_report_dict(report, capsys)
     assert d["results"][0]["phase_reached"] in _RESULT_ENUMS["phase_reached"]
@@ -2061,7 +1970,7 @@ def test_schema_optional_fields_types_when_present(
 ) -> None:
     """Optional fields must have correct types when present."""
     results = [
-        SmokeProbeResult(
+        make_smoke_result(
             slot_id="slot1",
             status=SmokeProbeStatus.PASS if field != "failure_phase" else SmokeProbeStatus.FAIL,
             phase_reached=SmokePhase.COMPLETE,
@@ -2105,7 +2014,7 @@ def test_schema_json_serializable(base_report_dict) -> None:
 @pytest.mark.parametrize("status", SmokeProbeStatus)
 def test_schema_json_all_statuses_serializable(capsys, status: SmokeProbeStatus) -> None:
     """All SmokeProbeStatus values must produce valid JSON."""
-    results = [SmokeProbeResult(slot_id="test", status=status, phase_reached=SmokePhase.COMPLETE)]
+    results = [make_smoke_result(slot_id="test", status=status, phase_reached=SmokePhase.COMPLETE)]
     report = SmokeCompositeReport(results=results)
     d = _to_report_dict(report, capsys)
     json.dumps(d)
@@ -2130,7 +2039,7 @@ def test_schema_values_match_dataclass(capsys) -> None:
     """JSON fields must match the underlying dataclass values exactly."""
     provenance = ProvenanceRecord(sha="abcd1234", version="25.01")
     results = [
-        SmokeProbeResult(
+        make_smoke_result(
             slot_id="gpu0-arc",
             status=SmokeProbeStatus.AUTH_FAILURE,
             phase_reached=SmokePhase.MODELS,

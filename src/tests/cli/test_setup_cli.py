@@ -15,7 +15,7 @@ from llama_cli.commands.setup import (
 )
 from llama_manager.config import ErrorCode
 from llama_manager.setup_venv import VenvResult
-from llama_manager.toolchain import ToolchainStatus
+from tests.support.helpers import make_toolchain_status
 
 
 class TestSetupCheck:
@@ -24,15 +24,7 @@ class TestSetupCheck:
     def test_setup_check_succeeds_with_complete_toolchain(self, capsys) -> None:
         """setup --check should succeed when toolchain is complete."""
         with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
+            mock_detect.return_value = make_toolchain_status()
 
             exit_code = cmd_check(MagicMock(backend="all", json=False))
 
@@ -43,11 +35,7 @@ class TestSetupCheck:
     def test_setup_check_fails_with_incomplete_toolchain(self, capsys) -> None:
         """setup --check should fail when toolchain is incomplete."""
         with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
+            mock_detect.return_value = make_toolchain_status(
                 sycl_compiler=None,
                 cuda_toolkit=None,
                 nvtop=None,
@@ -61,15 +49,7 @@ class TestSetupCheck:
     def test_setup_check_json_output(self, capsys) -> None:
         """setup --check --json should produce JSON output."""
         with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
+            mock_detect.return_value = make_toolchain_status()
 
             exit_code = cmd_check(MagicMock(backend="all", json=True))
 
@@ -97,15 +77,7 @@ class TestSetupCheck:
     def test_setup_check_sycl_backend(self, capsys) -> None:
         """setup --check sycl should check SYCL backend only."""
         with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
+            mock_detect.return_value = make_toolchain_status()
 
             exit_code = cmd_check(MagicMock(backend="sycl", json=False))
 
@@ -115,15 +87,7 @@ class TestSetupCheck:
     def test_setup_check_cuda_backend(self, capsys) -> None:
         """setup --check cuda should check CUDA backend only."""
         with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
+            mock_detect.return_value = make_toolchain_status()
 
             exit_code = cmd_check(MagicMock(backend="cuda", json=False))
 
@@ -142,7 +106,7 @@ class TestSetupCheck:
             patch("llama_cli.commands.setup.detect_toolchain") as mock_detect,
             patch("llama_cli.commands._toolchain.get_toolchain_hints") as mock_hints,
         ):
-            mock_detect.return_value = ToolchainStatus(
+            mock_detect.return_value = make_toolchain_status(
                 gcc=None,
                 make=None,
                 git=None,
@@ -339,15 +303,7 @@ class TestSetupJsonOutput:
     def test_setup_check_json_structure(self, capsys) -> None:
         """setup --check --json should have correct structure."""
         with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
+            mock_detect.return_value = make_toolchain_status()
 
             exit_code = cmd_check(MagicMock(backend="all", json=True))
 
@@ -443,7 +399,15 @@ class TestSetupErrorHandling:
     def test_setup_invalid_backend(self, capsys) -> None:
         """setup --check should handle invalid backend."""
         with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
-            mock_detect.return_value = ToolchainStatus()
+            mock_detect.return_value = make_toolchain_status(
+                gcc=None,
+                make=None,
+                git=None,
+                cmake=None,
+                sycl_compiler=None,
+                cuda_toolkit=None,
+                nvtop=None,
+            )
 
             exit_code = cmd_check(MagicMock(backend="invalid", json=False))
 
@@ -457,15 +421,7 @@ class TestSetupMain:
     def test_setup_main_dispatches_to_check(self, capsys) -> None:
         """setup_main should dispatch to cmd_check for --check command."""
         with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
+            mock_detect.return_value = make_toolchain_status()
 
             with patch("sys.argv", ["setup", "check"]):
                 exit_code = setup_main()
@@ -514,56 +470,28 @@ class TestSetupCheckJsonBackendExitCodes:
     def test_check_json_sycl_ready_returns_zero(self, capsys) -> None:
         """setup --check --json with sycl backend should return 0 when SYCL is ready."""
         with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit=None,
-                nvtop=None,
-            )
+            mock_detect.return_value = make_toolchain_status(cuda_toolkit=None, nvtop=None)
             exit_code = cmd_check(MagicMock(backend="sycl", json=True))
             assert exit_code == 0
 
     def test_check_json_sycl_not_ready_returns_one(self, capsys) -> None:
         """setup --check --json with sycl backend should return 1 when SYCL is not ready."""
         with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler=None,
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
+            mock_detect.return_value = make_toolchain_status(sycl_compiler=None)
             exit_code = cmd_check(MagicMock(backend="sycl", json=True))
             assert exit_code == 1
 
     def test_check_json_cuda_ready_returns_zero(self, capsys) -> None:
         """setup --check --json with cuda backend should return 0 when CUDA is ready."""
         with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
-                sycl_compiler="2023.1.0",
-                cuda_toolkit="12.2.0",
-                nvtop="3.1.0",
-            )
+            mock_detect.return_value = make_toolchain_status()
             exit_code = cmd_check(MagicMock(backend="cuda", json=True))
             assert exit_code == 0
 
     def test_check_json_cuda_not_ready_returns_one(self, capsys) -> None:
         """setup --check --json with cuda backend should return 1 when CUDA is not ready."""
         with patch("llama_cli.commands.setup.detect_toolchain") as mock_detect:
-            mock_detect.return_value = ToolchainStatus(
-                gcc="11.4.0",
-                make="4.3",
-                git="2.34.1",
-                cmake="3.25.0",
+            mock_detect.return_value = make_toolchain_status(
                 sycl_compiler=None,
                 cuda_toolkit=None,
                 nvtop=None,
