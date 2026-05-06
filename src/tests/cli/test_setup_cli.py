@@ -508,9 +508,6 @@ class TestSetupMain:
             assert exc_info.value.code == 2
 
 
-from pathlib import Path
-
-
 class TestSetupCheckJsonBackendExitCodes:
     """Tests for setup check --json with backend-specific exit codes."""
 
