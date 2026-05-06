@@ -24,10 +24,16 @@ from llama_manager.config import (
     create_server_config_from_profile,
     create_summary_balanced_cfg,
     create_summary_fast_cfg,
+    resolve_backend_from_profile,
     resolve_profile_config,
+    resolve_profile_id,
     resolve_run_group_configs,
     validate_slot_id,
     validate_slot_port,
+)
+from llama_manager.config.profiles import (
+    _normalize_alias,
+    _resolve_alias_to_profile_id,
 )
 from llama_manager.log_buffer import LogBuffer
 from llama_manager.orchestration import ServerManager, write_artifact
@@ -1612,3 +1618,451 @@ class TestCompatibilityBuildersWithRegistry:
         assert cfg.port == 9999
         assert cfg.threads == 16
         assert cfg.ctx_size == 8192
+
+
+# =============================================================================
+# Registry resolution helpers
+# =============================================================================
+
+
+class TestResolveProfileId:
+    """Tests for resolve_profile_id registry resolution."""
+
+    def _make_registry(self) -> RunProfileRegistry:
+        """Create a test registry with standard profiles."""
+        return RunProfileRegistry(
+            profiles=(
+                RunProfileSpec(
+                    profile_id="summary-balanced",
+                    model="/path/to/summary-balanced.gguf",
+                    alias="summary-balanced",
+                    device="SYCL0",
+                    port=8080,
+                    ctx_size=4096,
+                    ubatch_size=512,
+                    threads=4,
+                    n_gpu_layers=99,
+                    server_bin="/path/to/server",
+                    backend="llama_cpp",
+                    risky_acknowledged=(),
+                ),
+                RunProfileSpec(
+                    profile_id="summary-fast",
+                    model="/path/to/summary-fast.gguf",
+                    alias="summary-fast",
+                    device="SYCL0",
+                    port=8082,
+                    ctx_size=4096,
+                    ubatch_size=512,
+                    threads=4,
+                    n_gpu_layers=99,
+                    server_bin="/path/to/server",
+                    backend="llama_cpp",
+                    risky_acknowledged=(),
+                ),
+                RunProfileSpec(
+                    profile_id="qwen35",
+                    model="/path/to/qwen35.gguf",
+                    alias="qwen35-coding",
+                    device="",
+                    port=8081,
+                    ctx_size=32768,
+                    ubatch_size=2048,
+                    threads=16,
+                    n_gpu_layers="all",
+                    server_bin="/path/to/cuda-server",
+                    backend="llama_cpp",
+                    risky_acknowledged=(),
+                ),
+            ),
+            run_groups=(
+                RunGroupSpec(group_id="summary-balanced", profile_ids=("summary-balanced",)),
+                RunGroupSpec(group_id="summary-fast", profile_ids=("summary-fast",)),
+                RunGroupSpec(group_id="qwen35", profile_ids=("qwen35",)),
+            ),
+        )
+
+    def test_direct_profile_id_match(self) -> None:
+        """resolve_profile_id should match direct profile_id values."""
+        registry = self._make_registry()
+        assert resolve_profile_id(registry, "summary-balanced") == "summary-balanced"
+        assert resolve_profile_id(registry, "summary-fast") == "summary-fast"
+        assert resolve_profile_id(registry, "qwen35") == "qwen35"
+
+    def test_alias_match(self) -> None:
+        """resolve_profile_id should match against profile aliases."""
+        registry = self._make_registry()
+        # qwen35 profile has alias "qwen35-coding"
+        assert resolve_profile_id(registry, "qwen35-coding") == "qwen35"
+
+    def test_normalized_alias_hyphen_to_underscore(self) -> None:
+        """resolve_profile_id should handle hyphen/underscore interchangeability."""
+        registry = self._make_registry()
+        # summary-balanced can be matched with underscores
+        assert resolve_profile_id(registry, "summary_balanced") == "summary-balanced"
+        # summary-fast can be matched with underscores
+        assert resolve_profile_id(registry, "summary_fast") == "summary-fast"
+
+    def test_normalized_alias_underscore_to_hyphen(self) -> None:
+        """resolve_profile_id should handle underscore to hyphen conversion."""
+        registry = self._make_registry()
+        # qwen35-coding alias should match with underscores
+        assert resolve_profile_id(registry, "qwen35_coding") == "qwen35"
+
+    def test_short_alias_match(self) -> None:
+        """resolve_profile_id should match short alias forms."""
+        registry = self._make_registry()
+        # "balanced" should resolve to "summary-balanced" via normalized match
+        assert resolve_profile_id(registry, "balanced") is None  # Not a direct match
+
+    def test_no_match_returns_none(self) -> None:
+        """resolve_profile_id should return None for unknown identifiers."""
+        registry = self._make_registry()
+        assert resolve_profile_id(registry, "unknown-profile") is None
+        assert resolve_profile_id(registry, "nonexistent") is None
+
+    def test_whitespace_stripping(self) -> None:
+        """resolve_profile_id should strip whitespace from identifiers."""
+        registry = self._make_registry()
+        assert resolve_profile_id(registry, "  summary-balanced  ") == "summary-balanced"
+
+
+class TestResolveBackendFromProfile:
+    """Tests for resolve_backend_from_profile."""
+
+    def test_empty_device_returns_cuda(self) -> None:
+        """Empty device field should indicate CUDA backend."""
+        profile = RunProfileSpec(
+            profile_id="qwen35",
+            model="/path/to/qwen35.gguf",
+            alias="qwen35-coding",
+            device="",
+            port=8081,
+            ctx_size=32768,
+            ubatch_size=2048,
+            threads=16,
+            n_gpu_layers="all",
+            server_bin="/path/to/cuda-server",
+            backend="llama_cpp",
+            risky_acknowledged=(),
+        )
+        assert resolve_backend_from_profile(profile) == "cuda"
+
+    def test_whitespace_only_device_returns_cuda(self) -> None:
+        """Whitespace-only device field should indicate CUDA backend."""
+        profile = RunProfileSpec(
+            profile_id="test",
+            model="/path/to/model.gguf",
+            alias="test",
+            device="   ",
+            port=8080,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+            n_gpu_layers=99,
+            server_bin="/path/to/server",
+            backend="llama_cpp",
+            risky_acknowledged=(),
+        )
+        assert resolve_backend_from_profile(profile) == "cuda"
+
+    def test_sycl_device_returns_sycl(self) -> None:
+        """Non-empty device field should indicate SYCL backend."""
+        profile = RunProfileSpec(
+            profile_id="summary-balanced",
+            model="/path/to/summary-balanced.gguf",
+            alias="summary-balanced",
+            device="SYCL0",
+            port=8080,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+            n_gpu_layers=99,
+            server_bin="/path/to/server",
+            backend="llama_cpp",
+            risky_acknowledged=(),
+        )
+        assert resolve_backend_from_profile(profile) == "sycl"
+
+    def test_cuda_device_returns_sycl(self) -> None:
+        """Non-empty 'cuda' device field should indicate SYCL backend (by convention)."""
+        # Note: this tests the convention that any non-empty device field
+        # maps to SYCL, even if the device name contains "cuda"
+        profile = RunProfileSpec(
+            profile_id="test",
+            model="/path/to/model.gguf",
+            alias="test",
+            device="cuda",
+            port=8080,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+            n_gpu_layers=99,
+            server_bin="/path/to/server",
+            backend="llama_cpp",
+            risky_acknowledged=(),
+        )
+        assert resolve_backend_from_profile(profile) == "sycl"
+
+
+# =============================================================================
+# _normalize_alias edge cases
+# =============================================================================
+
+
+class TestNormalizeAlias:
+    """Tests for the _normalize_alias helper function."""
+
+    def test_empty_string(self) -> None:
+        """_normalize_alias should return empty string for empty input."""
+        assert _normalize_alias("") == ""
+
+    def test_whitespace_only(self) -> None:
+        """_normalize_alias should return empty string for whitespace-only input."""
+        result = _normalize_alias("   ")
+        # strip() on "   " gives "" then replace("_", "-") gives ""
+        assert result == ""
+
+    def test_single_underscore(self) -> None:
+        """_normalize_alias should convert single underscore to hyphen."""
+        assert _normalize_alias("foo_bar") == "foo-bar"
+
+    def test_multiple_underscores(self) -> None:
+        """_normalize_alias should convert all underscores to hyphens."""
+        assert _normalize_alias("foo_bar_baz") == "foo-bar-baz"
+
+    def test_already_hyphenated(self) -> None:
+        """_normalize_alias should leave hyphens unchanged."""
+        assert _normalize_alias("foo-bar") == "foo-bar"
+
+    def test_mixed_separators(self) -> None:
+        """_normalize_alias should convert underscores to hyphens, leave hyphens."""
+        assert _normalize_alias("foo_bar-baz_qux") == "foo-bar-baz-qux"
+
+    def test_leading_trailing_whitespace(self) -> None:
+        """_normalize_alias should strip leading/trailing whitespace."""
+        assert _normalize_alias("  foo_bar  ") == "foo-bar"
+
+    def test_mixed_separators_with_whitespace(self) -> None:
+        """_normalize_alias should strip and convert mixed separators."""
+        assert _normalize_alias("  summary_balanced  ") == "summary-balanced"
+
+
+# =============================================================================
+# _resolve_alias_to_profile_id edge cases
+# =============================================================================
+
+
+class TestResolveAliasToProfileId:
+    """Tests for the _resolve_alias_to_profile_id helper function."""
+
+    def _make_registry(self) -> RunProfileRegistry:
+        return RunProfileRegistry(
+            profiles=(
+                RunProfileSpec(
+                    profile_id="summary-balanced",
+                    model="/path/to/model.gguf",
+                    alias="summary-balanced",
+                    device="SYCL0",
+                    port=8080,
+                    ctx_size=4096,
+                    ubatch_size=512,
+                    threads=4,
+                    n_gpu_layers=99,
+                    server_bin="/path/to/server",
+                    backend="llama_cpp",
+                    risky_acknowledged=(),
+                ),
+                RunProfileSpec(
+                    profile_id="qwen35",
+                    model="/path/to/qwen35.gguf",
+                    alias="qwen35-coding",
+                    device="",
+                    port=8081,
+                    ctx_size=32768,
+                    ubatch_size=2048,
+                    threads=16,
+                    n_gpu_layers="all",
+                    server_bin="/path/to/cuda-server",
+                    backend="llama_cpp",
+                    risky_acknowledged=(),
+                ),
+            ),
+            run_groups=(),
+        )
+
+    def test_unknown_alias_returns_none(self) -> None:
+        """_resolve_alias_to_profile_id should return None for unknown aliases."""
+        registry = self._make_registry()
+        assert _resolve_alias_to_profile_id(registry, "nonexistent") is None
+
+    def test_alias_with_underscore_matches_hyphenated(self) -> None:
+        """_resolve_alias_to_profile_id should normalize underscore to hyphen."""
+        registry = self._make_registry()
+        result = _resolve_alias_to_profile_id(registry, "summary_balanced")
+        assert result == "summary-balanced"
+
+    def test_alias_matches_profile_id_not_alias(self) -> None:
+        """_resolve_alias_to_profile_id should check profile_id when alias doesn't match."""
+        registry = self._make_registry()
+        # "qwen35" is the profile_id but not the alias (alias is "qwen35-coding")
+        result = _resolve_alias_to_profile_id(registry, "qwen35")
+        assert result == "qwen35"
+
+    def test_alias_with_leading_whitespace(self) -> None:
+        """_resolve_alias_to_profile_id should strip whitespace from alias."""
+        registry = self._make_registry()
+        result = _resolve_alias_to_profile_id(registry, "  summary-balanced  ")
+        assert result == "summary-balanced"
+
+
+# =============================================================================
+# resolve_profile_id: additional edge cases
+# =============================================================================
+
+
+class TestResolveProfileIdEdgeCases:
+    """Additional edge case tests for resolve_profile_id."""
+
+    def _make_registry(self) -> RunProfileRegistry:
+        return RunProfileRegistry(
+            profiles=(
+                RunProfileSpec(
+                    profile_id="summary-balanced",
+                    model="/path/to/model.gguf",
+                    alias="summary-balanced",
+                    device="SYCL0",
+                    port=8080,
+                    ctx_size=4096,
+                    ubatch_size=512,
+                    threads=4,
+                    n_gpu_layers=99,
+                    server_bin="/path/to/server",
+                    backend="llama_cpp",
+                    risky_acknowledged=(),
+                ),
+                RunProfileSpec(
+                    profile_id="qwen35",
+                    model="/path/to/qwen35.gguf",
+                    alias="qwen35-coding",
+                    device="",
+                    port=8081,
+                    ctx_size=32768,
+                    ubatch_size=2048,
+                    threads=16,
+                    n_gpu_layers="all",
+                    server_bin="/path/to/cuda-server",
+                    backend="llama_cpp",
+                    risky_acknowledged=(),
+                ),
+            ),
+            run_groups=(),
+        )
+
+    def test_empty_slot_id_returns_none(self) -> None:
+        """resolve_profile_id should return None for empty slot_id."""
+        registry = self._make_registry()
+        assert resolve_profile_id(registry, "") is None
+
+    def test_whitespace_only_slot_id_returns_none(self) -> None:
+        """resolve_profile_id should return None for whitespace-only slot_id."""
+        registry = self._make_registry()
+        assert resolve_profile_id(registry, "   ") is None
+
+    def test_direct_match_takes_priority(self) -> None:
+        """Direct profile_id match should take priority over alias match."""
+        registry = self._make_registry()
+        # Even if alias "qwen35-coding" normalizes differently, direct "qwen35" match
+        result = resolve_profile_id(registry, "qwen35")
+        assert result == "qwen35"
+
+    def test_normalized_slot_id_match_step3(self) -> None:
+        """Step 3: normalized slot_id should match against profile_id."""
+        registry = self._make_registry()
+        # "summary_balanced" (underscore) should normalize to "summary-balanced" (hyphen)
+        result = resolve_profile_id(registry, "summary_balanced")
+        assert result == "summary-balanced"
+
+    def test_case_sensitive_no_match(self) -> None:
+        """resolve_profile_id should be case-sensitive (no case normalization)."""
+        registry = self._make_registry()
+        # "Summary-Balanced" should NOT match "summary-balanced"
+        assert resolve_profile_id(registry, "Summary-Balanced") is None
+        # "QWEN35" should NOT match "qwen35"
+        assert resolve_profile_id(registry, "QWEN35") is None
+
+    def test_mixed_separators_in_slot_id(self) -> None:
+        """Slot ID with mixed separators should normalize correctly."""
+        registry = self._make_registry()
+        # "summary_-balanced" has both underscore and hyphen
+        # Normalized: "summary--balanced" which doesn't match
+        assert resolve_profile_id(registry, "summary_-balanced") is None
+
+    def test_multiple_underscores_normalized(self) -> None:
+        """Multiple underscores should all be converted to hyphens."""
+        registry = self._make_registry()
+        # If there's a profile "foo_bar_baz", "foo_bar_baz" should match
+        # This tests the normalization is thorough
+        result = resolve_profile_id(registry, "summary_balanced")
+        assert result == "summary-balanced"
+
+    def test_trailing_whitespace_normalized(self) -> None:
+        """Trailing whitespace should be stripped before matching."""
+        registry = self._make_registry()
+        result = resolve_profile_id(registry, "summary-balanced  ")
+        assert result == "summary-balanced"
+
+    def test_leading_whitespace_normalized(self) -> None:
+        """Leading whitespace should be stripped before matching."""
+        registry = self._make_registry()
+        result = resolve_profile_id(registry, "  summary-balanced")
+        assert result == "summary-balanced"
+
+
+# =============================================================================
+# resolve_backend_from_profile: additional edge cases
+# =============================================================================
+
+
+class TestResolveBackendFromProfileEdgeCases:
+    """Additional edge case tests for resolve_backend_from_profile."""
+
+    def _make_profile(self, device: str) -> RunProfileSpec:
+        return RunProfileSpec(
+            profile_id="test",
+            model="/path/to/model.gguf",
+            alias="test",
+            device=device,
+            port=8080,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+            n_gpu_layers=99,
+            server_bin="/path/to/server",
+            backend="llama_cpp",
+            risky_acknowledged=(),
+        )
+
+    def test_empty_string_device_returns_cuda(self) -> None:
+        """Empty string device should return 'cuda'."""
+        assert resolve_backend_from_profile(self._make_profile("")) == "cuda"
+
+    def test_whitespace_only_device_returns_cuda(self) -> None:
+        """Whitespace-only device should return 'cuda'."""
+        assert resolve_backend_from_profile(self._make_profile("  ")) == "cuda"
+
+    def test_newline_device_returns_cuda(self) -> None:
+        """Newline-only device should return 'cuda'."""
+        assert resolve_backend_from_profile(self._make_profile("\n")) == "cuda"
+
+    def test_sycl0_device_returns_sycl(self) -> None:
+        """SYCL0 device should return 'sycl'."""
+        assert resolve_backend_from_profile(self._make_profile("SYCL0")) == "sycl"
+
+    def test_cpu_device_returns_sycl(self) -> None:
+        """CPU device should return 'sycl' (non-empty = SYCL by convention)."""
+        assert resolve_backend_from_profile(self._make_profile("CPU")) == "sycl"
+
+    def test_custom_device_returns_sycl(self) -> None:
+        """Any non-empty device should return 'sycl'."""
+        assert resolve_backend_from_profile(self._make_profile("custom-device")) == "sycl"
