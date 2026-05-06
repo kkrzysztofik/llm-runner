@@ -947,8 +947,11 @@ class TestLaunchNoAutobuild:
         When llama.cpp sources already exist in source_dir, the clone stage
         of BuildPipeline should be skipped (no git clone).
         """
+        from unittest.mock import patch
+
+        from llama_manager.build_pipeline._context import _BuildContext
         from llama_manager.build_pipeline.models import BuildBackend, BuildConfig
-        from llama_manager.build_pipeline.pipeline import BuildPipeline
+        from llama_manager.build_pipeline.stages.clone import run_clone
 
         # Create source directory with existing files (simulates existing sources)
         source_dir = tmp_path / "llama.cpp"
@@ -967,15 +970,14 @@ class TestLaunchNoAutobuild:
             git_branch="master",
         )
 
-        # Create the pipeline and verify clone stage skips when sources exist
-        pipeline = BuildPipeline(build_config)
+        ctx = _BuildContext(config=build_config, dry_run=False, build_start_time=0.0)
 
-        # The clone stage should detect existing sources and skip cloning
-        # We verify this by checking that the pipeline's source_dir exists
-        assert pipeline.config.source_dir.exists()
-        # The clone stage checks source_exists() and skips if True
-        # We verify by checking the source directory has content
-        assert (pipeline.config.source_dir / "CMakeLists.txt").exists()
+        # Patch subprocess.run to assert git-clone is never invoked when sources exist
+        with patch("subprocess.run") as mock_subprocess:
+            progress = run_clone(ctx)
+
+        assert progress.status == "skipped"
+        mock_subprocess.assert_not_called()
 
 
 class TestSlotState:

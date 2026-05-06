@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 if TYPE_CHECKING:
-    from llama_manager.build_pipeline._context import _BuildContext
+    pass
 
 from llama_manager.build_pipeline import (
     BuildArtifact,
@@ -24,6 +24,13 @@ from llama_manager.build_pipeline import (
     BuildPipeline,
     BuildProgress,
 )
+from llama_manager.build_pipeline._context import _BuildContext
+from llama_manager.build_pipeline.stages.clone import run_clone
+from tests.support.helpers import make_build_config
+
+
+def _run_clone(config: BuildConfig, *, dry_run: bool = False) -> BuildProgress:
+    return run_clone(_BuildContext(config=config, dry_run=dry_run))
 
 
 class _MockPopen:
@@ -66,7 +73,7 @@ class _MockPopen:
 class TestNoAutobuildOnLaunch:
     """T028: Test launch path does not trigger build (FR-006.2)."""
 
-    def test_no_autobuild_on_launch(self, tmp_path: Path, monkeypatch) -> None:
+    def test_no_autobuild_on_launch(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """FR-006.2: Launch should not trigger build if sources exist.
 
         When llama.cpp sources already exist in source_dir, launch should
@@ -483,7 +490,7 @@ class TestPreflightStageValidation:
         with patch("llama_manager.toolchain.detect_toolchain") as mock_detect:
             mock_status = Mock()
             mock_status.is_sycl_ready = False
-            mock_status.missing_tools = ["icpx", "sycl-ls"]
+            mock_status.missing_tools = Mock(return_value=["icpx", "sycl-ls"])
             mock_detect.return_value = mock_status
 
             result = pipeline.run()
@@ -895,7 +902,9 @@ class TestProvenanceAtomicWrite:
 class TestProvenanceFailureWarning:
     """T038: Test provenance write failure emits warning but build still succeeds."""
 
-    def test_provenance_failure_warning(self, caplog, tmp_path: Path) -> None:
+    def test_provenance_failure_warning(
+        self, caplog: pytest.LogCaptureFixture, tmp_path: Path
+    ) -> None:
         """Provenance write failure should emit warning but not fail build.
 
         If provenance write fails, the build should still be considered
@@ -931,26 +940,20 @@ class TestProvenanceFailureWarning:
             failure_report_path=None,
         )
 
-        # Test that write failure logs a warning
-        # Create output directory but make it read-only to cause write failure
         config.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Make the directory read-only to cause write failure
-        original_mode = config.output_dir.stat().st_mode
-        config.output_dir.chmod(0o555)  # Read-only
-
-        try:
-            # Should not raise exception
+        # Simulate write failure by patching the atomic write helper used by write_provenance
+        with patch(
+            "llama_manager.build_pipeline.stages.finalize.atomic_write_json",
+            side_effect=OSError("simulated write failure"),
+        ):
             result = write_provenance(artifact, config.output_dir)
 
-            # write_provenance should return False when write fails
-            assert result is False
+        # write_provenance should return False when write fails
+        assert result is False
 
-            # Warning should be logged (captured via caplog)
-            assert "warning" in caplog.text.lower() or "provenance" in caplog.text.lower()
-        finally:
-            # Restore original permissions
-            config.output_dir.chmod(original_mode)
+        # Warning should be logged (captured via caplog)
+        assert "warning" in caplog.text.lower() or "provenance" in caplog.text.lower()
         _ = pipeline  # pipeline created to satisfy test structure
 
 
@@ -1591,25 +1594,6 @@ class TestRunFinalize:
             result = run_finalize(ctx, progress)
 
         assert result is None
-
-
-"""T074: Test offline-continue path when network unavailable but local clone exists.
-
-Test Task:
-- T074: Test offline-continue path when network unavailable but local clone exists
-"""
-
-
-import pytest  # noqa: F401
-
-from llama_manager.build_pipeline import BuildBackend
-from llama_manager.build_pipeline._context import _BuildContext
-from llama_manager.build_pipeline.stages.clone import run_clone
-from tests.support.helpers import make_build_config
-
-
-def _run_clone(config: BuildConfig, *, dry_run: bool = False) -> BuildProgress:
-    return run_clone(_BuildContext(config=config, dry_run=dry_run))
 
 
 class TestOfflineContinueCloneStage:

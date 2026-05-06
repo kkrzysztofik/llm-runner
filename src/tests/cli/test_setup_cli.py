@@ -664,5 +664,4 @@ class TestSetupVenvJsonPaths:
 
         assert exit_code == 1
         captured = capsys.readouterr()
-        # Error message goes to stderr, no JSON output on error path
-        assert "broken venv" in captured.err
+        assert "broken venv" in captured.out

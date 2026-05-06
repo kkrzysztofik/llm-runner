@@ -10,6 +10,7 @@ Test Tasks:
 """
 
 
+import json
 import time
 from pathlib import Path
 
@@ -495,9 +496,6 @@ class TestBuildLock:
 This test ensures BuildArtifact can be serialized to JSON with all required fields
 for the build artifact contract.
 """
-
-
-import json
 
 
 class TestBuildArtifactContract:

@@ -491,9 +491,7 @@ def cmd_profile(
     model, threads, ubatch_size = _resolve_benchmark_config(server_config, flavor_obj, config)
 
     # Determine n_gpu_layers based on backend
-    n_gpu_layers = (
-        config.default_n_gpu_layers_qwen35 if backend == "cuda" else server_config.n_gpu_layers
-    )
+    n_gpu_layers = server_config.n_gpu_layers
 
     # Build benchmark command
     cmd = _build_benchmark_command(

@@ -787,24 +787,28 @@ class TestGetBackendHints:
 
     def test_get_sycl_hints(self) -> None:
         """get_backend_hints('sycl') should return deduplicated SYCL hints."""
+        expected = self._make_hint("sycl")
         with patch("llama_cli.commands._toolchain.get_toolchain_hints") as mock_hints:
-            mock_hints.return_value = [self._make_hint("sycl")]
+            mock_hints.return_value = [expected]
             result = get_backend_hints("sycl")
-            assert len(result) >= 0  # Should not raise
+            assert expected in result
 
     def test_get_cuda_hints(self) -> None:
         """get_backend_hints('cuda') should return deduplicated CUDA hints."""
+        expected = self._make_hint("cuda")
         with patch("llama_cli.commands._toolchain.get_toolchain_hints") as mock_hints:
-            mock_hints.return_value = [self._make_hint("cuda")]
+            mock_hints.return_value = [expected]
             result = get_backend_hints("cuda")
-            assert len(result) >= 0
+            assert expected in result
 
     def test_get_all_hints(self) -> None:
         """get_backend_hints('all') should return combined and deduplicated hints."""
+        expected = self._make_hint("sycl")
         with patch("llama_cli.commands._toolchain.get_toolchain_hints") as mock_hints:
-            mock_hints.return_value = [self._make_hint("sycl")]
+            mock_hints.return_value = [expected, expected]
             result = get_backend_hints("all")
-            assert len(result) >= 0
+            assert expected in result
+            assert result.count(expected) == 1
 
     def test_get_unknown_backend_returns_empty(self) -> None:
         """get_backend_hints('unknown') should return empty list."""

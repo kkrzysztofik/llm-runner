@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Test fixtures for llm-runner Phase 1 QA.
 
 Provides shared test fixtures for:
@@ -7,6 +5,7 @@ Provides shared test fixtures for:
 - Test helpers for runtime directory resolution and artifact management
 """
 
+from __future__ import annotations
 
 import json
 from collections.abc import Callable

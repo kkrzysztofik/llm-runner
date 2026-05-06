@@ -249,8 +249,7 @@ def run_smoke(args: list[str]) -> int:
     Returns:
         Exit code (0 for all pass, otherwise worst failure).
     """
-    parser = _build_smoke_parser()
-    parsed = parser.parse_args(args)
+    parsed = _parse_smoke_args(args)
 
     # Validate arguments
     validation_result = _validate_smoke_args(parsed)

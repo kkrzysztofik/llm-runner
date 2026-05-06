@@ -852,9 +852,12 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
         else:
             # Prompt interactively for confirmation-required actions
             declined: set[int] = set()
+            failed: set[int] = set()
             for idx, action in enumerate(result.actions):
-                # Skip actions whose prerequisite was declined
-                if action.prerequisite_index is not None and action.prerequisite_index in declined:
+                # Skip actions whose prerequisite was declined or failed
+                if action.prerequisite_index is not None and (
+                    action.prerequisite_index in declined or action.prerequisite_index in failed
+                ):
                     result.warnings.append(
                         f"Skipped '{action.description}' because prerequisite action was declined"
                     )
@@ -881,7 +884,10 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                         print(f"Skipping action: {action.description}")
                         declined.add(idx)
                         continue
+                failures_before = len(result.failures)
                 _execute_repair_action(action, result)
+                if len(result.failures) > failures_before:
+                    failed.add(idx)
 
     if json_output:
         print_json(result.to_dict())

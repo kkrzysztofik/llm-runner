@@ -151,7 +151,10 @@ def cmd_check(args: argparse.Namespace) -> int:
         _print_status(status)
         return _handle_missing_tools(status, hints, args.backend)
     except Exception as e:
-        print_error(f"Toolchain detection failed: {e}")
+        if getattr(args, "json", False):
+            print_json({"error": "Toolchain detection failed", "details": str(e)})
+        else:
+            print_error(f"Toolchain detection failed: {e}")
         return 1
 
 
@@ -178,7 +181,10 @@ def cmd_venv(args: argparse.Namespace) -> int:
         if args.check_integrity:
             is_valid, error = check_venv_integrity(venv_path)
             if not is_valid:
-                print_error(f"Venv integrity check failed: {error}")
+                if getattr(args, "json", False):
+                    print_json({"error": f"Venv integrity check failed: {error}", "success": False})
+                else:
+                    print_error(f"Venv integrity check failed: {error}")
                 return 1
 
         # Print JSON output if requested (VenvResult fields only)
@@ -203,7 +209,10 @@ def cmd_venv(args: argparse.Namespace) -> int:
 
         return 0
     except Exception as e:
-        print_error(f"Venv creation failed: {e}")
+        if getattr(args, "json", False):
+            print_json({"error": "Venv creation failed", "details": str(e), "success": False})
+        else:
+            print_error(f"Venv creation failed: {e}")
         return 1
 
 
