@@ -1,16 +1,3 @@
-"""Tests for profile_cli — GPU benchmark subcommand.
-
-Test coverage targets:
-- require_executable: file existence + permission checks
-- _detect_backend: CUDA vs SYCL auto-detection
-- get_driver_version: nvidia-smi / sycl-ls parsing
-- cmd_profile: success path, benchmark failure, JSON output
-- main: argument validation (missing args, empty slot_id, path traversal,
-  invalid flavor, --json flag)
-"""
-
-from __future__ import annotations
-
 import json
 import stat
 from pathlib import Path

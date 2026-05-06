@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """T013 foundation contract tests for Phase 2 behavior.
 
 Covers:
@@ -8,6 +10,7 @@ Covers:
 - Lockfile/artifact permission and error paths
 - redact_sensitive helper behavior
 """
+
 
 import json
 import os
@@ -40,7 +43,7 @@ from llama_manager.orchestration import (
 from llama_manager.validation import (
     validate_slots,
 )
-from tests.support.runtime import valid_artifact_data
+from tests.support.helpers import valid_artifact_data
 
 
 class TestNormalizeSlotId:
@@ -646,3 +649,1096 @@ class TestErrorCodeComprehensive:
         assert isinstance(ErrorCode.FILE_NOT_FOUND, str)
         assert ErrorCode.FILE_NOT_FOUND == "FILE_NOT_FOUND"
         assert ErrorCode.FILE_NOT_FOUND in [ErrorCode.FILE_NOT_FOUND]
+
+
+from typing import Any
+
+from llama_manager.config import (
+    Config,
+    ServerConfig,
+    ValidationResult,
+)
+from llama_manager.validation import (
+    ValidationResults,
+    build_dry_run_slot_payload,
+)
+from tests.support.helpers import make_server_config
+
+
+def _regression_cfg(**kwargs: Any) -> ServerConfig:
+    slot_id = kwargs.pop("alias", "test")
+    defaults = {
+        "alias": slot_id,
+        "server_bin": "/usr/bin/llama-server",
+        "backend": "llama_cpp",
+    }
+    defaults.update(kwargs)
+    return make_server_config(**defaults)
+
+
+@pytest.fixture
+def base_config() -> Config:
+    """Return a default Config for testing."""
+    return Config()
+
+
+def test_multi_validation_error_parity(base_config: Config) -> None:
+    """T042: Verify MultiValidationError fields match canonical slot.validation_results.errors.
+    We verify that the errors reported in MultiValidationError are consistent with
+    the individual validation failures.
+    """
+    # Setup slots with intentional errors
+    # Slot 1: Invalid port
+    # Slot 2: Model not found
+    slots = [
+        ModelSlot(slot_id="slot1", model_path="/valid/path/model.gguf", port=99999),  # Invalid port
+        ModelSlot(
+            slot_id="slot2", model_path="/nonexistent/path/model.gguf", port=8080
+        ),  # Model not found
+    ]
+
+    with (
+        patch("os.path.isfile", side_effect=lambda path: path == "/valid/path/model.gguf"),
+        patch("os.path.exists", side_effect=lambda path: path == "/valid/path/model.gguf"),
+    ):
+        mve = validate_slots(slots)
+
+        assert isinstance(mve, MultiValidationError)
+        assert mve.error_count == 2
+
+        # Check if errors are present and consistent
+        # Since validate_slots currently doesn't include slot_id in failed_check,
+        # they will be sorted by failed_check name, not slot.
+
+        # We expect at least these error codes
+        error_codes = [e.error_code for e in mve.errors]
+        assert ErrorCode.PORT_INVALID in error_codes
+        assert ErrorCode.FILE_NOT_FOUND in error_codes
+
+
+def test_slot_sequence_consistency_and_tiebreak() -> None:
+    """T042: Verify slot sequence consistency and failed_check ascending tie-break.
+    This test specifically checks if the sorting logic in MultiValidationError
+    works when failed_check strings include slot information.
+    """
+    # We manually create a MultiValidationError with errors that follow the expected pattern
+    # to verify the sorting logic works as intended for the contract.
+    # Pattern: "slot_<slot_id>_<check>"
+
+    errors = [
+        ErrorDetail(
+            error_code=ErrorCode.PORT_INVALID,
+            failed_check="slot_slot2_port",
+            why_blocked="err2",
+            how_to_fix="fix2",
+        ),
+        ErrorDetail(
+            error_code=ErrorCode.FILE_NOT_FOUND,
+            failed_check="slot_slot1_model",
+            why_blocked="err1",
+            how_to_fix="fix1",
+        ),
+        ErrorDetail(
+            error_code=ErrorCode.PORT_INVALID,
+            failed_check="slot_slot1_port",
+            why_blocked="err1b",
+            how_to_fix="fix1b",
+        ),
+        ErrorDetail(
+            error_code=ErrorCode.CONFIG_ERROR,
+            failed_check="unknown_err",
+            why_blocked="err_u",
+            how_to_fix="fix_u",
+        ),
+    ]
+
+    mve = MultiValidationError(errors=errors)
+    mve.sort_errors()
+
+    # Expected order:
+    # 1. slot1_model (slot1, model)
+    # 2. slot1_port (slot1, port)
+    # 3. slot2_port (slot2, port)
+    # 4. unknown_err (end)
+
+    assert mve.errors[0].failed_check == "slot_slot1_model"
+    assert mve.errors[1].failed_check == "slot_slot1_port"
+    assert mve.errors[2].failed_check == "slot_slot2_port"
+    assert mve.errors[3].failed_check == "unknown_err"
+
+
+def test_validate_slots_duplicate_detection() -> None:
+    """T042: Verify duplicate slot detection in validation."""
+    slots = [
+        ModelSlot(slot_id="slot1", model_path="/path/1", port=8080),
+        ModelSlot(slot_id="slot1", model_path="/path/2", port=8081),  # Duplicate ID
+    ]
+
+    with patch("os.path.isfile", return_value=True), patch("os.path.exists", return_value=True):
+        mve = validate_slots(slots)
+        assert isinstance(mve, MultiValidationError)
+        assert any(e.error_code == ErrorCode.DUPLICATE_SLOT for e in mve.errors)
+
+
+def test_validate_slots_invalid_id() -> None:
+    """T042: Verify invalid slot IDs are rejected during duplicate precheck."""
+    slots = [
+        ModelSlot(slot_id="!!!", model_path="/path/1", port=8080),  # Invalid ID
+    ]
+
+    with (
+        patch("os.path.isfile", return_value=True),
+        patch("os.path.exists", return_value=True),
+        pytest.raises(ValueError, match="slot_id must contain at least one valid character"),
+    ):
+        validate_slots(slots)
+
+
+class TestFR005FR003CanonicalParity:
+    """FR-003/FR-005: Verify canonical parity between MultiValidationError and
+    dry-run ValidationResults.errors field-level alignment.
+    """
+
+    def test_error_code_field_alignment(self) -> None:
+        """FR-005: MultiValidationError.error_code must align with ValidationResults.error_code."""
+        # Create MultiValidationError with ErrorDetail
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot1_port",
+                why_blocked="port out of range",
+                how_to_fix="use port between 1 and 65535",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.FILE_NOT_FOUND,
+                failed_check="slot_slot1_model",
+                why_blocked="model not found",
+                how_to_fix="provide valid model path",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        # Create equivalent ValidationResult list
+        validation_results_list = [
+            ValidationResult(
+                slot_id="slot1",
+                passed=False,
+                failed_check=error.failed_check,
+                error_code=error.error_code,
+                error_message=error.why_blocked,
+            )
+            for error in mve.errors
+        ]
+
+        # Verify field alignment: error_code must match
+        for i, (error_detail, vr) in enumerate(
+            zip(mve.errors, validation_results_list, strict=True)
+        ):
+            assert error_detail.error_code == vr.error_code, (
+                f"Error {i}: error_code mismatch - "
+                f"ErrorDetail={error_detail.error_code}, ValidationResult={vr.error_code}"
+            )
+
+    def test_failed_check_field_alignment(self) -> None:
+        """FR-005: MultiValidationError.failed_check must align with ValidationResults.failed_check."""
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot2_port_validation",
+                why_blocked="port conflict",
+                how_to_fix="use unique port",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.FILE_NOT_FOUND,
+                failed_check="slot_slot1_model_check",
+                why_blocked="model missing",
+                how_to_fix="check model path",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        # Create equivalent ValidationResult list
+        validation_results_list = [
+            ValidationResult(
+                slot_id=error.failed_check.split("_")[1],  # Extract slot_id from failed_check
+                passed=False,
+                failed_check=error.failed_check,
+                error_code=error.error_code,
+                error_message=error.why_blocked,
+            )
+            for error in mve.errors
+        ]
+
+        # Verify field alignment: failed_check must match exactly
+        for i, (error_detail, vr) in enumerate(
+            zip(mve.errors, validation_results_list, strict=True)
+        ):
+            assert error_detail.failed_check == vr.failed_check, (
+                f"Error {i}: failed_check mismatch - "
+                f"ErrorDetail={error_detail.failed_check}, ValidationResult={vr.failed_check}"
+            )
+
+    def test_validation_results_checks_alignment(self) -> None:
+        """FR-003/FR-005: validation_results.checks must contain aligned error info."""
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot1_port",
+                why_blocked="port must be between 1 and 65535",
+                how_to_fix="specify a valid port number",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+
+        # Create ValidationResults with checks that align with ErrorDetails
+        checks = [
+            {
+                "failed_check": error.failed_check,
+                "error_code": error.error_code.value,
+                "why_blocked": error.why_blocked,
+                "how_to_fix": error.how_to_fix,
+            }
+            for error in mve.errors
+        ]
+
+        validation_results = ValidationResults(passed=False, checks=checks)
+
+        # Verify checks contain aligned fields
+        assert len(validation_results.checks) == len(mve.errors)
+        for check, error in zip(validation_results.checks, mve.errors, strict=True):
+            assert check["failed_check"] == error.failed_check
+            assert check["error_code"] == error.error_code.value
+            assert check["why_blocked"] == error.why_blocked
+            assert check["how_to_fix"] == error.how_to_fix
+
+
+class TestFR003SlotConfigurationSequenceConsistency:
+    """FR-003: Verify slot configuration sequence consistency between error output
+    and dry-run payload.
+    """
+
+    def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
+        """Create ServerConfig for testing."""
+        return _regression_cfg(**{"alias": slot_id, **kwargs})
+
+    def test_error_slot_order_matches_dry_run_slot_order(self) -> None:
+        """FR-003: Error slot sequence order must match dry-run payload slot order."""
+        # Create errors with specific slot order
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot2_port",
+                why_blocked="port conflict in slot2",
+                how_to_fix="fix port in slot2",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.FILE_NOT_FOUND,
+                failed_check="slot_slot1_model",
+                why_blocked="model missing in slot1",
+                how_to_fix="fix model in slot1",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot1_port",
+                why_blocked="port conflict in slot1",
+                how_to_fix="fix port in slot1",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        # After sorting, expected order is: slot1_model, slot1_port, slot2_port
+        expected_sorted_order = ["slot_slot1_model", "slot_slot1_port", "slot_slot2_port"]
+        actual_sorted_order = [error.failed_check for error in mve.errors]
+        assert actual_sorted_order == expected_sorted_order, (
+            f"Sort order mismatch: expected {expected_sorted_order}, got {actual_sorted_order}"
+        )
+
+        # Create ValidationResults with same slot order
+        validation_results = ValidationResults(
+            passed=False,
+            checks=[
+                {
+                    "slot_id": error.failed_check.split("_")[1],
+                    "failed_check": error.failed_check,
+                    "error_code": error.error_code.value,
+                }
+                for error in mve.errors
+            ],
+        )
+
+        # Verify slot sequence consistency
+        error_slot_sequence = [error.failed_check.split("_")[1] for error in mve.errors]
+        check_slot_sequence = [check["slot_id"] for check in validation_results.checks]
+
+        assert error_slot_sequence == check_slot_sequence, (
+            f"Slot sequence mismatch: errors={error_slot_sequence}, checks={check_slot_sequence}"
+        )
+
+    def test_dry_run_payload_slot_scope_matches_error_slot_sequence(self) -> None:
+        """FR-003: Dry-run slot_scope list order must match error slot sequence."""
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot3_port",
+                why_blocked="port issue in slot3",
+                how_to_fix="fix slot3",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.FILE_NOT_FOUND,
+                failed_check="slot_slot1_model",
+                why_blocked="model issue in slot1",
+                how_to_fix="fix slot1",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot2_port",
+                why_blocked="port issue in slot2",
+                how_to_fix="fix slot2",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        # Build dry-run payloads in sorted error order
+        payloads = [
+            build_dry_run_slot_payload(
+                self._cfg(slot_id=error.failed_check.split("_")[1]),
+                slot_id=error.failed_check.split("_")[1],
+                validation_results=ValidationResults(
+                    passed=False,
+                    checks=[{"failed_check": error.failed_check}],
+                ),
+                warnings=[],
+            )
+            for error in mve.errors
+        ]
+
+        # slot_scope should match the sorted error slot order
+        slot_scope = [p.slot_id for p in payloads]
+        expected_slot_order = [error.failed_check.split("_")[1] for error in mve.errors]
+
+        assert slot_scope == expected_slot_order, (
+            f"slot_scope order mismatch: expected {expected_slot_order}, got {slot_scope}"
+        )
+
+
+class TestFR003FailedCheckAscendingTieBreak:
+    """FR-003: Verify failed_check ascending tie-break within each slot."""
+
+    def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
+        """Create ServerConfig for testing."""
+        return _regression_cfg(**{"alias": slot_id, **kwargs})
+
+    def test_failed_check_ascending_tiebreak_within_slot(self) -> None:
+        """FR-003: failed_check should be sorted ascending within each slot."""
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot1_z_port_validation",  # Should come last in slot1
+                why_blocked="z error",
+                how_to_fix="fix z",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.FILE_NOT_FOUND,
+                failed_check="slot_slot1_a_model_check",  # Should come first in slot1
+                why_blocked="a error",
+                how_to_fix="fix a",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.CONFIG_ERROR,
+                failed_check="slot_slot1_m_ctx_size",  # Should come middle in slot1
+                why_blocked="m error",
+                how_to_fix="fix m",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot2_port",  # slot2 errors
+                why_blocked="slot2 error",
+                how_to_fix="fix slot2",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        # Expected order: slot1_a_model_check, slot1_m_ctx_size, slot1_z_port_validation, slot2_port
+        expected_order = [
+            "slot_slot1_a_model_check",
+            "slot_slot1_m_ctx_size",
+            "slot_slot1_z_port_validation",
+            "slot_slot2_port",
+        ]
+        actual_order = [error.failed_check for error in mve.errors]
+
+        assert actual_order == expected_order, (
+            f"Tie-break order mismatch: expected {expected_order}, got {actual_order}"
+        )
+
+        # Verify slot sequence: slot1 errors before slot2
+        slot1_indices = [i for i, e in enumerate(mve.errors) if "slot1" in e.failed_check]
+        slot2_indices = [i for i, e in enumerate(mve.errors) if "slot2" in e.failed_check]
+
+        assert all(idx < slot2_indices[0] for idx in slot1_indices), (
+            "Slot1 errors should come before slot2 errors"
+        )
+
+
+class TestFR003NewArtifactShapeAssertions:
+    """FR-003: Explicit tests for new dry-run artifact shape: slot_scope list
+    and resolved_command mapping.
+    """
+
+    def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
+        """Create ServerConfig for testing."""
+        return _regression_cfg(**{"alias": slot_id, **kwargs})
+
+    def test_slot_scope_is_list_of_strings(self) -> None:
+        """FR-003: slot_scope must be a list of strings (slot IDs)."""
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot1_port",
+                why_blocked="error1",
+                how_to_fix="fix1",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.FILE_NOT_FOUND,
+                failed_check="slot_slot2_model",
+                why_blocked="error2",
+                how_to_fix="fix2",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        # Build payloads in sorted order
+        payloads = [
+            build_dry_run_slot_payload(
+                self._cfg(slot_id=error.failed_check.split("_")[1]),
+                slot_id=error.failed_check.split("_")[1],
+                validation_results=ValidationResults(
+                    passed=False, checks=[{"failed_check": error.failed_check}]
+                ),
+                warnings=[],
+            )
+            for error in mve.errors
+        ]
+
+        # slot_scope is the canonical list of slot IDs
+        slot_scope = [p.slot_id for p in payloads]
+
+        assert isinstance(slot_scope, list), "slot_scope must be a list"
+        assert all(isinstance(slot_id, str) for slot_id in slot_scope), (
+            "All slot_scope entries must be strings"
+        )
+        assert len(slot_scope) == len(mve.errors), (
+            f"slot_scope length mismatch: expected {len(mve.errors)}, got {len(slot_scope)}"
+        )
+
+    def test_resolved_command_is_mapping_of_slot_id_to_command_args(self) -> None:
+        """FR-003: resolved_command must be a dict mapping slot_id -> command_args list."""
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot1_port",
+                why_blocked="error1",
+                how_to_fix="fix1",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        payloads = [
+            build_dry_run_slot_payload(
+                self._cfg(slot_id=error.failed_check.split("_")[1]),
+                slot_id=error.failed_check.split("_")[1],
+                validation_results=ValidationResults(
+                    passed=False, checks=[{"failed_check": error.failed_check}]
+                ),
+                warnings=[],
+            )
+            for error in mve.errors
+        ]
+
+        # Build resolved_command mapping (as done in dry_run.py)
+        resolved_command = {p.slot_id: p.command_args for p in payloads}
+
+        assert isinstance(resolved_command, dict), "resolved_command must be a dict"
+
+        # Each key must be a slot_id and each value must be a list of command args
+        for slot_id, cmd_args in resolved_command.items():
+            assert isinstance(slot_id, str), (
+                f"resolved_command key must be string, got {type(slot_id)}"
+            )
+            assert isinstance(cmd_args, list), (
+                f"resolved_command[{slot_id}] must be list, got {type(cmd_args)}"
+            )
+            assert all(isinstance(arg, str) for arg in cmd_args), (
+                f"resolved_command[{slot_id}] must contain only strings"
+            )
+
+    def test_slot_scope_and_resolved_command_keys_alignment(self) -> None:
+        """FR-003: resolved_command keys must exactly match slot_scope entries."""
+        errors = [
+            ErrorDetail(
+                error_code=ErrorCode.PORT_INVALID,
+                failed_check="slot_slot1_port",
+                why_blocked="error1",
+                how_to_fix="fix1",
+            ),
+            ErrorDetail(
+                error_code=ErrorCode.FILE_NOT_FOUND,
+                failed_check="slot_slot2_model",
+                why_blocked="error2",
+                how_to_fix="fix2",
+            ),
+        ]
+        mve = MultiValidationError(errors=errors)
+        mve.sort_errors()
+
+        payloads = [
+            build_dry_run_slot_payload(
+                self._cfg(slot_id=error.failed_check.split("_")[1]),
+                slot_id=error.failed_check.split("_")[1],
+                validation_results=ValidationResults(
+                    passed=False, checks=[{"failed_check": error.failed_check}]
+                ),
+                warnings=[],
+            )
+            for error in mve.errors
+        ]
+
+        slot_scope = [p.slot_id for p in payloads]
+        resolved_command = {p.slot_id: p.command_args for p in payloads}
+
+        # Keys in resolved_command must match slot_scope entries
+        assert set(resolved_command.keys()) == set(slot_scope), (
+            f"resolved_command keys {set(resolved_command.keys())} must match slot_scope {set(slot_scope)}"
+        )
+
+        # Order must be consistent: resolved_command should preserve slot_scope order
+        ordered_keys = list(resolved_command.keys())
+        assert ordered_keys == slot_scope, (
+            f"resolved_command key order {ordered_keys} must match slot_scope order {slot_scope}"
+        )
+
+    def test_resolved_command_contains_correct_command_args_for_each_slot(self) -> None:
+        """FR-003: resolved_command[<slot_id>] must contain the correct command_args."""
+        cfg = self._cfg(slot_id="test-slot")
+        payload = build_dry_run_slot_payload(
+            cfg,
+            slot_id="test-slot",
+            validation_results=ValidationResults(passed=True, checks=[]),
+            warnings=[],
+        )
+
+        resolved_command = {"test-slot": payload.command_args}
+
+        # resolved_command["test-slot"] must equal payload.command_args
+        assert "test-slot" in resolved_command, "resolved_command must contain 'test-slot' key"
+        assert resolved_command["test-slot"] == payload.command_args, (
+            "resolved_command['test-slot'] must equal payload.command_args"
+        )
+
+        # Verify command_args structure
+        cmd_args = resolved_command["test-slot"]
+        assert isinstance(cmd_args, list), "command_args must be a list"
+        assert len(cmd_args) > 0, "command_args must not be empty"
+        assert "--model" in cmd_args, "command_args must contain --model flag"
+
+
+"""T026: Foundational regression tests for Phase 2.
+
+Integration tests for:
+- detect_toolchain()
+- get_toolchain_hints()
+- create_venv()
+- check_venv_integrity()
+- write_failure_report()
+"""
+
+
+import sys
+
+import pytest
+
+from llama_manager.reports import FailureReport, write_failure_report
+from llama_manager.setup_venv import VenvResult, check_venv_integrity, create_venv, get_venv_path
+from llama_manager.toolchain import (
+    ToolchainErrorDetail,
+    ToolchainHint,
+    ToolchainStatus,
+    get_toolchain_hints,
+    parse_version,
+    version_at_least,
+)
+
+
+class TestDetectToolchainIntegration:
+    """Integration tests for detect_toolchain functionality."""
+
+    def test_detect_toolchain_basic(self) -> None:
+        """detect_toolchain should return ToolchainStatus with correct structure."""
+        # Mock detect_tool to return known values
+        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
+            # Simulate all tools present
+            mock_detect.return_value = (True, "1.0.0")
+
+            # Import here to avoid circular import
+            from llama_manager.toolchain import detect_toolchain
+
+            status = detect_toolchain()
+
+            assert isinstance(status, ToolchainStatus)
+            # All fields should be set since we mocked detect_tool to return True
+            assert status.gcc is not None
+            assert status.make is not None
+            assert status.git is not None
+            assert status.cmake is not None
+            assert status.sycl_compiler is not None
+            assert status.cuda_toolkit is not None
+            assert status.nvtop is not None
+
+    def test_detect_toolchain_partial_tools(self) -> None:
+        """detect_toolchain should handle partial tool availability."""
+        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
+            # Simulate some tools present, some missing
+            # Calls: gcc, make, git, cmake, icpx, icx, dpcpp, nvcc, nvtop
+            mock_detect.side_effect = [
+                (True, "11.4.0"),  # gcc
+                (True, "4.3"),  # make
+                (True, "2.37.0"),  # git
+                (True, "3.25.0"),  # cmake
+                (False, None),  # icpx (SYCL candidate 1)
+                (False, None),  # icx (SYCL candidate 2)
+                (False, None),  # dpcpp (SYCL candidate 3)
+                (True, "12.2.0"),  # nvcc (CUDA toolkit)
+                (True, "2.1.0"),  # nvtop
+            ]
+
+            from llama_manager.toolchain import detect_toolchain
+
+            status = detect_toolchain()
+
+            assert status.gcc == "11.4.0"
+            assert status.sycl_compiler is None  # Missing
+            assert status.is_sycl_ready is False
+            assert status.is_cuda_ready is True
+
+    def test_detect_toolchain_all_missing(self) -> None:
+        """detect_toolchain should handle all tools missing."""
+        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
+            # All tools missing
+            mock_detect.return_value = (False, None)
+
+            from llama_manager.toolchain import detect_toolchain
+
+            status = detect_toolchain()
+
+            assert status.gcc is None
+            assert status.make is None
+            assert status.is_sycl_ready is False
+            assert status.is_cuda_ready is False
+            assert status.is_complete is False
+
+
+class TestGetToolchainHintsIntegration:
+    """Integration tests for get_toolchain_hints functionality."""
+
+    def test_get_toolchain_hints_sycl_integration(self) -> None:
+        """get_toolchain_hints should return list of ToolchainErrorDetail for SYCL."""
+        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
+            # All tools missing
+            mock_detect.return_value = (False, None)
+
+            errors = get_toolchain_hints("sycl")
+
+            assert isinstance(errors, list)
+            assert len(errors) == 7  # gcc, make, git, cmake, dpcpp, icx, icpx
+            for error in errors:
+                assert isinstance(error, ToolchainErrorDetail)
+                assert error.error_code.value == "TOOLCHAIN_MISSING"
+                assert error.failed_check is not None
+                assert error.why_blocked is not None
+                assert error.how_to_fix is not None
+
+    def test_get_toolchain_hints_cuda_integration(self) -> None:
+        """get_toolchain_hints should return list of ToolchainErrorDetail for CUDA."""
+        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
+            # All tools missing
+            mock_detect.return_value = (False, None)
+
+            errors = get_toolchain_hints("cuda")
+
+            assert isinstance(errors, list)
+            assert len(errors) == 6  # gcc, make, git, cmake, nvcc, nvidia-smi
+            for error in errors:
+                assert isinstance(error, ToolchainErrorDetail)
+                assert error.error_code.value == "TOOLCHAIN_MISSING"
+                assert error.failed_check is not None
+                assert error.why_blocked is not None
+                assert error.how_to_fix is not None
+
+    def test_get_toolchain_hints_empty_when_all_present(self) -> None:
+        """get_toolchain_hints should return empty list when all tools present."""
+        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
+            # All tools present
+            mock_detect.return_value = (True, "1.0.0")
+
+            sycl_errors = get_toolchain_hints("sycl")
+            cuda_errors = get_toolchain_hints("cuda")
+
+            assert len(sycl_errors) == 0
+            assert len(cuda_errors) == 0
+
+    def test_get_toolchain_hints_invalid_backend_raises(self) -> None:
+        """get_toolchain_hints should raise ValueError for invalid backend."""
+        with pytest.raises(ValueError) as exc_info:
+            get_toolchain_hints("invalid")
+        assert "Unknown backend" in str(exc_info.value)
+
+
+class TestCreateVenvIntegration:
+    """Integration tests for create_venv functionality."""
+
+    def test_create_venv_integration(self, tmp_path: Path) -> None:
+        """create_venv should return VenvResult with correct structure."""
+        venv_path = tmp_path / "test_venv"
+
+        with patch("llama_manager.setup_venv.venv.create"):
+            result = create_venv(venv_path)
+
+            assert isinstance(result, VenvResult)
+            assert result.venv_path == venv_path
+            assert result.created is True
+            assert result.reused is False
+            assert result.was_created is True
+            assert result.was_reused is False
+            assert "source" in result.activation_command
+            assert "bin/activate" in result.activation_command
+
+    def test_create_venv_reuse_existing(self, tmp_path: Path) -> None:
+        """create_venv should reuse existing venv."""
+        venv_path = tmp_path / "existing_venv"
+        venv_path.mkdir()
+
+        # Create minimal valid venv structure so check_venv_integrity passes
+        (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+        bin_dir = venv_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "python").symlink_to(sys.executable)
+
+        result = create_venv(venv_path)
+
+        assert isinstance(result, VenvResult)
+        assert result.venv_path == venv_path
+        assert result.created is False
+        assert result.reused is True
+        assert result.was_created is False
+        assert result.was_reused is True
+
+    def test_create_venv_activation_command_format(self, tmp_path: Path) -> None:
+        """create_venv should generate correct activation command format."""
+        venv_path = tmp_path / "test_venv"
+
+        with patch("llama_manager.setup_venv.venv.create"):
+            result = create_venv(venv_path)
+
+            # Should be sourceable
+            assert result.activation_command.startswith("source ")
+            assert result.activation_command.endswith("/activate")
+
+
+class TestCheckVenvIntegrityIntegration:
+    """Integration tests for check_venv_integrity functionality."""
+
+    def test_check_venv_integrity_valid_venv(self, tmp_path: Path) -> None:
+        """check_venv_integrity should validate valid venv structure."""
+        venv_path = tmp_path / "valid_venv"
+        venv_path.mkdir()
+
+        # Create minimal venv structure
+        (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+        bin_dir = venv_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "python").symlink_to(sys.executable)
+
+        is_valid, error = check_venv_integrity(venv_path)
+
+        assert is_valid is True
+        assert error is None
+
+    def test_check_venv_integrity_invalid_venv(self, tmp_path: Path) -> None:
+        """check_venv_integrity should detect invalid venv structure."""
+        venv_path = tmp_path / "invalid_venv"
+        venv_path.mkdir()
+
+        # Missing pyvenv.cfg
+        is_valid, error = check_venv_integrity(venv_path)
+
+        assert is_valid is False
+        assert error == "pyvenv.cfg missing"
+
+    def test_check_venv_integrity_integration_with_mock(self, tmp_path: Path) -> None:
+        """check_venv_integrity should work with mocked paths."""
+        # Create a real venv structure for the test
+        venv_path = tmp_path / "mock_venv"
+        venv_path.mkdir()
+        (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+        bin_dir = venv_path / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "python").symlink_to(sys.executable)
+
+        # Now test with the real path - no need to mock Path.exists globally
+        is_valid, error = check_venv_integrity(venv_path)
+
+        assert is_valid is True
+        assert error is None
+
+
+class TestWriteFailureReportIntegration:
+    """Integration tests for write_failure_report functionality."""
+
+    def test_write_failure_report_integration(self, tmp_path: Path) -> None:
+        """write_failure_report should create proper failure report structure."""
+        report = write_failure_report(
+            report_dir=tmp_path,
+            build_artifact_json='{"exit_code": 1}',
+            build_output="Build failed: compilation error",
+            error_details=[{"type": "BuildError", "message": "compilation failed"}],
+            metadata={"backend": "sycl"},
+        )
+
+        assert isinstance(report, FailureReport)
+        assert report.report_dir.exists()
+        assert report.report_dir.is_dir()
+        assert "20" in report.report_dir.name  # YYYYMMDD_HHMMSS format
+
+        # Check all files created
+        assert (report.report_dir / "build-artifact.json").exists()
+        assert (report.report_dir / "build-output.log").exists()
+        assert (report.report_dir / "error-details.json").exists()
+
+    def test_write_failure_report_permissions(self, tmp_path: Path) -> None:
+        """write_failure_report should enforce correct permissions."""
+        report = write_failure_report(
+            report_dir=tmp_path,
+            build_artifact_json="{}",
+            build_output="",
+            error_details=[],
+        )
+
+        # Directory should be 0700
+        dir_mode = report.report_dir.stat().st_mode & 0o777
+        assert dir_mode == 0o700
+
+        # Files should be 0600
+        for filename in ["build-artifact.json", "build-output.log", "error-details.json"]:
+            file_path = report.report_dir / filename
+            file_mode = file_path.stat().st_mode & 0o777
+            assert file_mode == 0o600
+
+    def test_write_failure_report_redaction_integration(self, tmp_path: Path) -> None:
+        """write_failure_report should redact sensitive data in output."""
+        output_with_secrets = "API_KEY=secret123 TOKEN=abc456 Normal build output"
+
+        report = write_failure_report(
+            report_dir=tmp_path,
+            build_artifact_json="{}",
+            build_output=output_with_secrets,
+            error_details=[],
+        )
+
+        # Read the output file
+        output_path = report.report_dir / "build-output.log"
+        with open(output_path) as f:
+            actual_output = f.read()
+
+        # Should be redacted
+        assert "[REDACTED]" in actual_output
+        assert "secret123" not in actual_output
+        assert "abc456" not in actual_output
+        # Non-sensitive content should remain
+        assert "Normal build output" in actual_output
+
+    def test_write_failure_report_truncation_integration(self, tmp_path: Path) -> None:
+        """write_failure_report should truncate large outputs."""
+        # Create very long output
+        long_output = "x" * 20000  # More than default 8192 bytes
+
+        report = write_failure_report(
+            report_dir=tmp_path,
+            build_artifact_json="{}",
+            build_output=long_output,
+            error_details=[],
+        )
+
+        # Read the output file
+        output_path = report.report_dir / "build-output.log"
+        with open(output_path) as f:
+            actual_output = f.read()
+
+        # Should be truncated to 8192 bytes
+        assert len(actual_output) <= 8192
+        assert len(actual_output) < len(long_output)
+
+    def test_write_failure_report_json_serialization(self, tmp_path: Path) -> None:
+        """write_failure_report should properly serialize JSON data."""
+        error_details = [
+            {"type": "BuildError", "message": "compilation failed"},
+            {"type": "Warning", "message": "deprecated flag used"},
+        ]
+
+        report = write_failure_report(
+            report_dir=tmp_path,
+            build_artifact_json='{"exit_code": 1}',
+            build_output="",
+            error_details=error_details,
+        )
+
+        # Read error details file
+        errors_path = report.report_dir / "error-details.json"
+        with open(errors_path) as f:
+            loaded_errors = json.load(f)
+
+        assert len(loaded_errors) == 2
+        assert loaded_errors[0]["type"] == "BuildError"
+        assert loaded_errors[1]["type"] == "Warning"
+
+
+class TestPhase2Comprehensive:
+    """Comprehensive tests covering all Phase 2 functionality."""
+
+    def test_version_parsing_and_comparison(self) -> None:
+        """Test version parsing and comparison for toolchain validation."""
+        # Test parse_version
+        assert parse_version("3.20.1") == (3, 20, 1)
+        assert parse_version("3.20") == (3, 20, 0)
+        assert parse_version("3.20.1ubuntu") == (3, 20, 1)
+
+        # Test version_at_least
+        assert version_at_least("3.20.1", "3.20.0") is True
+        assert version_at_least("3.19.0", "3.20.0") is False
+        assert version_at_least("3.14", "3.14") is True
+
+    def test_toolchain_error_detail_structure(self) -> None:
+        """Test ToolchainErrorDetail has all required fields."""
+        from llama_manager.config import ErrorCode
+
+        error = ToolchainErrorDetail(
+            error_code=ErrorCode.TOOLCHAIN_MISSING,
+            failed_check="gcc",
+            why_blocked="Required for sycl backend",
+            how_to_fix="sudo apt-get install gcc",
+            docs_ref="https://gcc.gnu.org/download.html",
+        )
+
+        assert error.error_code == ErrorCode.TOOLCHAIN_MISSING
+        assert error.failed_check == "gcc"
+        assert error.why_blocked == "Required for sycl backend"
+        assert error.how_to_fix == "sudo apt-get install gcc"
+        assert error.docs_ref == "https://gcc.gnu.org/download.html"
+
+    def test_toolchain_hint_structure(self) -> None:
+        """Test ToolchainHint has all required fields."""
+        hint = ToolchainHint(
+            tool_name="gcc",
+            install_command="sudo apt-get install gcc",
+            install_url="https://gcc.gnu.org/download.html",
+            required_for=["sycl", "cuda"],
+        )
+
+        assert hint.tool_name == "gcc"
+        assert hint.install_command == "sudo apt-get install gcc"
+        assert hint.install_url == "https://gcc.gnu.org/download.html"
+        assert hint.required_for == ["sycl", "cuda"]
+        assert hint.is_url_available is True
+
+    def test_venv_path_utility(self) -> None:
+        """Test get_venv_path utility function."""
+        # Test with default
+        with patch.dict(os.environ, {}, clear=True):
+            # Ensure XDG_CACHE_HOME is not set
+            os.environ.pop("XDG_CACHE_HOME", None)
+            result = get_venv_path()
+            assert isinstance(result, Path)
+            assert "llm-runner" in str(result)
+            assert "venv" in str(result)
+
+    def test_sycl_vs_cuda_toolchain_hints(self) -> None:
+        """Test that SYCL and CUDA hints return different tools."""
+        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
+            mock_detect.return_value = (False, None)
+
+            sycl_errors = get_toolchain_hints("sycl")
+            cuda_errors = get_toolchain_hints("cuda")
+
+            # Should have different tool names
+            sycl_tools = {e.failed_check for e in sycl_errors}
+            cuda_tools = {e.failed_check for e in cuda_errors}
+
+            # Common tools overlap (gcc, make, git, cmake)
+            common = sycl_tools & cuda_tools
+            assert "gcc" in common
+            assert "make" in common
+
+            # SYCL-specific tools
+            assert sycl_tools == {"gcc", "make", "git", "cmake", "dpcpp", "icx", "icpx"}
+
+            # CUDA-specific tools (no nvtop)
+            assert cuda_tools == {"gcc", "make", "git", "cmake", "nvcc", "nvidia-smi"}
+
+    def test_report_security(self, tmp_path: Path) -> None:
+        """Test that failure reports properly handle sensitive data."""
+        sensitive_output = """
+        API_KEY=supersecret123
+        TOKEN=abc456def
+        PASSWORD=mypass
+        Normal log line
+        AUTH_HEADER=bearer_token
+        """
+
+        report = write_failure_report(
+            report_dir=tmp_path,
+            build_artifact_json="{}",
+            build_output=sensitive_output,
+            error_details=[],
+        )
+
+        # Read build-output.log and verify redaction
+        output_file = report.report_dir / "build-output.log"
+        with open(output_file) as f:
+            content = f.read()
+
+        # Sensitive values should be redacted
+        assert "supersecret123" not in content
+        assert "abc456def" not in content
+        assert "mypass" not in content
+        assert "bearer_token" not in content
+
+        # Should have redaction markers
+        assert "[REDACTED]" in content
+        # Non-sensitive content should be preserved
+        assert "Normal log line" in content
+
+    def test_venv_result_properties(self, tmp_path: Path) -> None:
+        """Test VenvResult properties."""
+        result = VenvResult(
+            venv_path=tmp_path / "venv",
+            created=True,
+            reused=False,
+            activation_command="source /tmp/venv/bin/activate",
+        )
+
+        assert result.was_created is True
+        assert result.was_reused is False
+        assert result.is_valid is False  # Path doesn't exist
+
+        # Test path methods
+        python_path = result.get_python_path()
+        assert python_path.name == "python"
+
+        pip_path = result.get_pip_path()
+        assert pip_path.name == "pip"

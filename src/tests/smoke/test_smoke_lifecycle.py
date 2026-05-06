@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Phase 7 — T079: State-machine integration test.
 
 Verifies the full SlotRuntime lifecycle:
@@ -11,7 +13,6 @@ Tests:
   - Serialization (to_dict) correctness throughout
 """
 
-from __future__ import annotations
 
 import time
 from unittest.mock import MagicMock
@@ -419,3 +420,577 @@ class TestStateMachineLifecycle:
         for state in SlotState:
             runtime.transition_to(state)
             assert runtime.state == state
+
+
+"""Phase 7 — T080: CA-003 parity test — TUI vs CLI smoke results.
+
+Verifies that TUI display (_print_report_human) and CLI output produce
+identical slot status and phase data for the same server state.
+
+Tests both passing and failing results.
+"""
+
+
+import json
+
+from llama_manager.config import SmokeFailurePhase, SmokePhase, SmokeProbeStatus
+from llama_manager.probe import (
+    ProvenanceRecord,
+    SmokeCompositeReport,
+    SmokeProbeResult,
+)
+
+
+def _make_result(
+    slot_id: str = "slot1",
+    status: SmokeProbeStatus = SmokeProbeStatus.PASS,
+    phase_reached: SmokePhase = SmokePhase.COMPLETE,
+    failure_phase: SmokeFailurePhase | None = None,
+    model_id: str | None = "test-model",
+    latency_ms: int | None = 100,
+    provenance: ProvenanceRecord | None = None,
+) -> SmokeProbeResult:
+    """Helper to create a SmokeProbeResult with sensible defaults."""
+    if provenance is None:
+        provenance = ProvenanceRecord(sha="abc1234", version="24.12")
+    return SmokeProbeResult(
+        slot_id=slot_id,
+        status=status,
+        phase_reached=phase_reached,
+        failure_phase=failure_phase,
+        model_id=model_id,
+        latency_ms=latency_ms,
+        provenance=provenance,
+    )
+
+
+class TestTuiVsCliSmokeParity:
+    """T080: TUI vs CLI smoke results produce identical slot status and phase data."""
+
+    # ------------------------------------------------------------------
+    # All-pass scenario
+    # ------------------------------------------------------------------
+
+    def test_passing_results_identical_status_phase(self, capsys) -> None:
+        """TUI and CLI must produce the same slot status and phase for passing results."""
+        from llama_cli.commands.smoke import _print_report_human, _print_report_json
+
+        results = [
+            _make_result(slot_id="arc_b580", status=SmokeProbeStatus.PASS),
+            _make_result(slot_id="rtx3090", status=SmokeProbeStatus.PASS),
+        ]
+        report = SmokeCompositeReport(results=results)
+
+        _print_report_human(report, mode="smoke")
+        captured_human = capsys.readouterr()
+        human_output = captured_human.out
+
+        _print_report_json(report)
+        captured_json = capsys.readouterr()
+        parsed = json.loads(captured_json.out)
+
+        for i, r in enumerate(results):
+            assert parsed["results"][i]["slot_id"] == r.slot_id
+            assert parsed["results"][i]["status"] == r.status.value
+            assert parsed["results"][i]["phase_reached"] == r.phase_reached.value
+
+        for r in results:
+            assert r.slot_id in human_output
+            assert r.status.value.upper() in human_output
+
+        assert parsed["overall_status"] == report.overall_status.value
+        assert report.overall_status.value.upper() in human_output
+
+    # ------------------------------------------------------------------
+    # Mixed pass/fail scenario
+    # ------------------------------------------------------------------
+
+    def test_mixed_results_identical_status_phase(self, capsys) -> None:
+        """TUI and CLI must produce the same status/phase for mixed pass/fail results."""
+        from llama_cli.commands.smoke import _print_report_human, _print_report_json
+
+        results = [
+            _make_result(slot_id="slot1", status=SmokeProbeStatus.PASS),
+            _make_result(
+                slot_id="slot2",
+                status=SmokeProbeStatus.FAIL,
+                phase_reached=SmokePhase.LISTEN,
+                failure_phase=SmokeFailurePhase.LISTEN,
+            ),
+            _make_result(
+                slot_id="slot3",
+                status=SmokeProbeStatus.TIMEOUT,
+                phase_reached=SmokePhase.MODELS,
+                failure_phase=SmokeFailurePhase.MODELS,
+            ),
+        ]
+        report = SmokeCompositeReport(results=results)
+
+        _print_report_human(report, mode="smoke")
+        captured_human = capsys.readouterr()
+        human_output = captured_human.out
+
+        _print_report_json(report)
+        captured_json = capsys.readouterr()
+        parsed = json.loads(captured_json.out)
+
+        assert parsed["overall_status"] == report.overall_status.value
+        for r in results:
+            assert r.slot_id in human_output
+            assert r.status.value.upper() in human_output
+
+        for i, r in enumerate(results):
+            assert parsed["results"][i]["slot_id"] == r.slot_id
+            assert parsed["results"][i]["status"] == r.status.value
+            assert parsed["results"][i]["phase_reached"] == r.phase_reached.value
+
+    # ------------------------------------------------------------------
+    # Failing results scenario
+    # ------------------------------------------------------------------
+
+    def test_failing_results_identical_status_phase(self, capsys) -> None:
+        """TUI and CLI must produce the same status/phase for all-failing results."""
+        from llama_cli.commands.smoke import _print_report_human, _print_report_json
+
+        results = [
+            _make_result(
+                slot_id="slot1",
+                status=SmokeProbeStatus.CRASHED,
+                phase_reached=SmokePhase.COMPLETE,
+            ),
+            _make_result(
+                slot_id="slot2",
+                status=SmokeProbeStatus.AUTH_FAILURE,
+                phase_reached=SmokePhase.MODELS,
+                failure_phase=SmokeFailurePhase.MODELS,
+            ),
+            _make_result(
+                slot_id="slot3",
+                status=SmokeProbeStatus.MODEL_NOT_FOUND,
+                phase_reached=SmokePhase.MODELS,
+                failure_phase=SmokeFailurePhase.MODELS,
+                model_id="wrong-model",
+            ),
+        ]
+        report = SmokeCompositeReport(results=results)
+
+        _print_report_human(report, mode="smoke")
+        captured_human = capsys.readouterr()
+        human_output = captured_human.out
+
+        _print_report_json(report)
+        captured_json = capsys.readouterr()
+        parsed = json.loads(captured_json.out)
+
+        assert report.overall_status == SmokeProbeStatus.CRASHED
+        assert parsed["overall_status"] == "crashed"
+
+        for r in results:
+            assert r.slot_id in human_output
+            assert r.status.value.upper() in human_output
+
+        assert len(parsed["results"]) == len(results)
+        for i, r in enumerate(results):
+            assert parsed["results"][i]["slot_id"] == r.slot_id
+            assert parsed["results"][i]["status"] == r.status.value
+
+    # ------------------------------------------------------------------
+    # Empty results scenario
+    # ------------------------------------------------------------------
+
+    def test_empty_results_identical(self) -> None:
+        """TUI and CLI must agree on empty results (overall PASS)."""
+        report = SmokeCompositeReport(results=[])
+        assert report.overall_status == SmokeProbeStatus.PASS
+        assert report.pass_count == 0
+        assert report.fail_count == 0
+
+        json_output = json.dumps(
+            {
+                "results": [],
+                "overall_status": report.overall_status,
+                "overall_exit_code": report.overall_exit_code,
+                "pass_count": report.pass_count,
+                "fail_count": report.fail_count,
+            }
+        )
+        parsed = json.loads(json_output)
+        assert parsed["results"] == []
+        assert parsed["overall_status"] == "pass"
+        assert parsed["overall_exit_code"] == 0
+
+    # ------------------------------------------------------------------
+    # Phase data parity
+    # ------------------------------------------------------------------
+
+    def test_phase_data_identical_across_outputs(self, capsys) -> None:
+        """phase_reached and failure_phase must be identical in both TUI and CLI output."""
+        from llama_cli.commands.smoke import _print_report_json
+
+        results = [
+            _make_result(
+                slot_id="slot1",
+                status=SmokeProbeStatus.FAIL,
+                phase_reached=SmokePhase.MODELS,
+                failure_phase=SmokeFailurePhase.MODELS,
+            ),
+            _make_result(
+                slot_id="slot2",
+                status=SmokeProbeStatus.TIMEOUT,
+                phase_reached=SmokePhase.CHAT,
+                failure_phase=SmokeFailurePhase.CHAT,
+            ),
+        ]
+        report = SmokeCompositeReport(results=results)
+
+        # Use production JSON formatter
+        _print_report_json(report)
+        captured = capsys.readouterr()
+        parsed = json.loads(captured.out)
+
+        for i, r in enumerate(results):
+            assert parsed["results"][i]["phase_reached"] == r.phase_reached.value
+            assert parsed["results"][i]["failure_phase"] == (
+                r.failure_phase.value if r.failure_phase else None
+            )
+
+    # ------------------------------------------------------------------
+    # Provenance parity
+    # ------------------------------------------------------------------
+
+    def test_provenance_included_in_both_outputs(self, capsys) -> None:
+        """Provenance data must be present in both TUI and CLI output."""
+        from llama_cli.commands.smoke import _print_report_json
+
+        results = [
+            _make_result(
+                slot_id="slot1",
+                provenance=ProvenanceRecord(sha="deadbeef", version="24.12.0"),
+            ),
+        ]
+        report = SmokeCompositeReport(results=results)
+
+        # Use production JSON formatter
+        _print_report_json(report)
+        captured = capsys.readouterr()
+        parsed = json.loads(captured.out)
+        assert parsed["results"][0]["provenance"]["sha"] == "deadbeef"
+        assert parsed["results"][0]["provenance"]["version"] == "24.12.0"
+
+
+"""Phase 7 — T083: Dry-run smoke flag bundle output test.
+
+Verifies that `dry-run` shows smoke-relevant flags:
+  - Model ID (from config or override)
+  - Prompt text
+  - /v1/models probe (enabled/skipped)
+  - API key source (configured/not set)
+
+Tests _print_smoke_probe_info() output from dry_run.py.
+"""
+
+
+import contextlib
+from typing import Any
+from unittest.mock import patch
+
+from llama_manager.config import Config
+
+
+class TestDryRunSmokeFlagBundleOutput:
+    """T083: dry-run shows smoke-relevant flags in output."""
+
+    # ------------------------------------------------------------------
+    # /v1/models probe
+    # ------------------------------------------------------------------
+
+    def test_dry_run_shows_v1_models_probe_enabled(self, capsys) -> None:
+        """dry-run output must show '/v1/models: enabled' when not skipped."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        # Default is skip_models_discovery=False → should show "enabled"
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+        assert "/v1/models: enabled" in captured.out
+
+    def test_dry_run_shows_v1_models_probe_skipped(self, capsys) -> None:
+        """dry-run output must show '/v1/models: skip' when skipped."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        cfg.smoke_skip_models_discovery = True
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+        assert "/v1/models: skip" in captured.out
+
+    # ------------------------------------------------------------------
+    # Prompt text
+    # ------------------------------------------------------------------
+
+    def test_dry_run_shows_prompt_text(self, capsys) -> None:
+        """dry-run output must show the prompt text."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+        assert "Prompt:" in captured.out
+        assert "Respond with exactly one word." in captured.out
+
+    def test_dry_run_shows_custom_prompt(self, capsys) -> None:
+        """dry-run output must show custom prompt when configured."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        cfg.smoke_prompt = "Say hello."
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+        assert "Prompt: Say hello." in captured.out
+
+    # ------------------------------------------------------------------
+    # API key source
+    # ------------------------------------------------------------------
+
+    def test_dry_run_shows_api_key_configured(self, capsys) -> None:
+        """dry-run output must show 'API key: [configured]' when key is set."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        cfg.smoke_api_key = "sk-test-key-123"
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+        assert "API key: [configured]" in captured.out
+
+    def test_dry_run_shows_api_key_not_set(self, capsys) -> None:
+        """dry-run output must show 'API key: [not set]' when key is empty."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        cfg.smoke_api_key = ""
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+        assert "API key: [not set]" in captured.out
+
+    # ------------------------------------------------------------------
+    # Max tokens
+    # ------------------------------------------------------------------
+
+    def test_dry_run_shows_max_tokens(self, capsys) -> None:
+        """dry-run output must show max tokens value."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+        assert "Max tokens:" in captured.out
+        assert str(cfg.smoke_max_tokens) in captured.out
+
+    def test_dry_run_shows_custom_max_tokens(self, capsys) -> None:
+        """dry-run output must show custom max tokens value."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        cfg.smoke_max_tokens = 32
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+        assert "Max tokens: 32" in captured.out
+
+    # ------------------------------------------------------------------
+    # Smoke Probe section header
+    # ------------------------------------------------------------------
+
+    def test_dry_run_shows_smoke_probe_header(self, capsys) -> None:
+        """dry-run output must include 'Smoke Probe:' header."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+        assert "Smoke Probe:" in captured.out
+
+    # ------------------------------------------------------------------
+    # Full output structure
+    # ------------------------------------------------------------------
+
+    def test_dry_run_smoke_section_has_all_fields(self, capsys) -> None:
+        """Smoke Probe section must include all smoke-relevant flags."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        cfg.smoke_api_key = "sk-my-key"
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+
+        # All expected fields must be present
+        assert "Smoke Probe:" in captured.out
+        assert "/v1/models:" in captured.out
+        assert "Prompt:" in captured.out
+        assert "Max tokens:" in captured.out
+        assert "API key:" in captured.out
+
+    def test_dry_run_smoke_section_order(self, capsys) -> None:
+        """Smoke Probe section fields must appear in deterministic order."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+        lines = captured.out.strip().split("\n")
+
+        # Find indices of each field
+        v1_models_idx = None
+        prompt_idx = None
+        max_tokens_idx = None
+        api_key_idx = None
+
+        for i, line in enumerate(lines):
+            if "/v1/models:" in line:
+                v1_models_idx = i
+            elif "Prompt:" in line:
+                prompt_idx = i
+            elif "Max tokens:" in line:
+                max_tokens_idx = i
+            elif "API key:" in line:
+                api_key_idx = i
+
+        # All must be present
+        assert v1_models_idx is not None
+        assert prompt_idx is not None
+        assert max_tokens_idx is not None
+        assert api_key_idx is not None
+
+        # Order must be deterministic: /v1/models → Prompt → Max tokens → API key
+        assert v1_models_idx < prompt_idx < max_tokens_idx < api_key_idx
+
+    # ------------------------------------------------------------------
+    # Integration: full dry-run mode includes smoke probe info
+    # ------------------------------------------------------------------
+
+    def test_dry_run_summary_balanced_includes_smoke_probe(self, capsys) -> None:
+        """dry-run summary-balanced mode must include Smoke Probe section."""
+        from llama_cli.commands.dry_run import dry_run
+
+        with (
+            patch("llama_cli.commands.dry_run._run_registry_mode") as mock_run,
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
+        ):
+            mock_run.return_value = False
+
+            with contextlib.suppress(SystemExit):
+                dry_run(mode="summary-balanced", primary_port="8080")
+
+        captured = capsys.readouterr()
+        assert "Smoke Probe:" in captured.out
+        assert "/v1/models:" in captured.out
+
+    def test_dry_run_qwen35_includes_smoke_probe(self, capsys) -> None:
+        """dry-run qwen35 mode must include Smoke Probe section."""
+        from llama_cli.commands.dry_run import dry_run
+
+        with (
+            patch("llama_cli.commands.dry_run._run_registry_mode") as mock_run,
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
+        ):
+            mock_run.return_value = False
+
+            with contextlib.suppress(SystemExit):
+                dry_run(mode="qwen35", primary_port="8081")
+
+        captured = capsys.readouterr()
+        assert "Smoke Probe:" in captured.out
+
+    def test_dry_run_both_includes_smoke_probe(self, capsys) -> None:
+        """dry-run both mode must include Smoke Probe section."""
+        from llama_cli.commands.dry_run import dry_run
+
+        with (
+            patch("llama_cli.commands.dry_run._run_registry_mode") as mock_run,
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
+        ):
+            mock_run.return_value = False
+
+            with contextlib.suppress(SystemExit):
+                dry_run(mode="both", primary_port="8080", secondary_port="8081")
+
+        captured = capsys.readouterr()
+        assert "Smoke Probe:" in captured.out
+
+    # ------------------------------------------------------------------
+    # Edge cases
+    # ------------------------------------------------------------------
+
+    def test_dry_run_empty_api_key_shows_not_set(self, capsys) -> None:
+        """Empty smoke_api_key must show 'not set' not '[configured]'."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        cfg.smoke_api_key = ""
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+        assert "[not set]" in captured.out
+        assert "[configured]" not in captured.out
+
+    def test_dry_run_with_non_empty_api_key_shows_configured(self, capsys) -> None:
+        """Non-empty smoke_api_key must show '[configured]'."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        cfg.smoke_api_key = "sk-actual-key"
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+        assert "[configured]" in captured.out
+        assert "[not set]" not in captured.out
+
+    def test_dry_run_shows_user_prompt_text(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Prompt text (user-provided) should be displayed in dry-run output."""
+        from llama_cli.commands.dry_run import _print_smoke_probe_info
+
+        cfg = Config()
+        cfg.smoke_prompt = "Hello, world!"
+        _print_smoke_probe_info(cfg)
+
+        captured = capsys.readouterr()
+        assert "Hello, world!" in captured.out
+
+    def test_dry_run_all_modes_show_smoke_probe(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """All dry-run modes (summary-balanced, summary-fast, qwen35, both) must show Smoke Probe."""
+        from llama_cli.commands.dry_run import dry_run
+
+        test_cases: list[tuple[str, dict[str, Any]]] = [
+            ("summary-balanced", {"primary_port": "8080"}),
+            ("summary-fast", {"primary_port": "8080"}),
+            ("qwen35", {"primary_port": "8081"}),
+            ("both", {"primary_port": "8080", "secondary_port": "8081"}),
+        ]
+
+        for mode, kwargs in test_cases:
+            # Capture fresh output for each mode
+            captured = capsys.readouterr()
+            assert "Smoke Probe:" not in captured.out, f"Residual output from previous mode: {mode}"
+
+            with (
+                patch("llama_cli.commands.dry_run._run_registry_mode") as mock_run,
+                patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
+            ):
+                mock_run.return_value = False
+
+                with contextlib.suppress(SystemExit):
+                    dry_run(mode=mode, **kwargs)
+
+            captured = capsys.readouterr()
+            assert "Smoke Probe:" in captured.out, f"Mode '{mode}' missing Smoke Probe section"
+            assert "/v1/models:" in captured.out, f"Mode '{mode}' missing /v1/models probe info"

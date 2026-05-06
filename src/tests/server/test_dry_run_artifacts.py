@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """US2 FR-007 artifact persistence, redaction, and permission tests.
 
 Test Tasks:
@@ -12,6 +14,7 @@ Contract:
 - Directory permissions: 0o700, file permissions: 0o600
 - Redaction pattern: keys containing KEY|TOKEN|SECRET|PASSWORD|AUTH (case-insensitive)
 """
+
 
 import os
 import stat
@@ -31,7 +34,7 @@ from llama_manager.validation import (
     ValidationResults,
     build_dry_run_slot_payload,
 )
-from tests.support.runtime import valid_artifact_data
+from tests.support.helpers import valid_artifact_data
 
 
 class TestFR007ArtifactRequiredFields:
@@ -602,3 +605,630 @@ class TestFR007FieldTypeValidation:
         with pytest.raises(ValidationException) as exc_info:
             write_artifact(tmp_path, "slot1", data)
         assert "resolved_command slot IDs must be strings" in str(exc_info.value)
+
+
+"""Phase 7 — T082: CA-003 parity test — dry-run flag bundles.
+
+Verifies dry-run output includes OpenAI flag bundles and compatibility
+matrix rows in both TUI and CLI modes.
+
+Tests:
+  - dry-run summary-balanced mode includes openai_flag_bundle
+  - dry-run qwen35 mode includes openai_flag_bundle
+  - dry-run both mode includes openai_flag_bundle for all slots
+  - vllm_eligibility rows present in output
+  - Flag bundle keys are deterministic (sorted)
+"""
+
+
+import contextlib
+
+from llama_manager.validation import DryRunSlotPayload, VllmEligibility
+from tests.support.helpers import make_server_config
+
+_make_minimal_server_config = make_server_config
+
+
+class TestDryRunFlagBundlesParity:
+    """T082: Dry-run output includes OpenAI flag bundles and compatibility matrix."""
+
+    # ------------------------------------------------------------------
+    # openai_flag_bundle presence
+    # ------------------------------------------------------------------
+
+    def test_summary_balanced_has_openai_flag_bundle(self) -> None:
+        """dry-run summary-balanced must include openai_flag_bundle in payload."""
+        from llama_manager.validation import build_dry_run_slot_payload
+
+        server_cfg = _make_minimal_server_config(
+            alias="summary-balanced",
+            model="/models/qwen3.5-2b.gguf",
+            port=8080,
+        )
+        payload = build_dry_run_slot_payload(
+            server_cfg,
+            slot_id="summary-balanced",
+            validation_results=None,
+            warnings=[],
+        )
+
+        assert hasattr(payload, "openai_flag_bundle")
+        assert isinstance(payload.openai_flag_bundle, dict)
+
+    def test_qwen35_has_openai_flag_bundle(self) -> None:
+        """dry-run qwen35 must include openai_flag_bundle in payload."""
+        from llama_manager.validation import build_dry_run_slot_payload
+
+        server_cfg = _make_minimal_server_config(
+            alias="qwen35",
+            model="/models/qwen3.5-35b.gguf",
+            port=8081,
+            device="CUDA",
+        )
+        payload = build_dry_run_slot_payload(
+            server_cfg,
+            slot_id="qwen35",
+            validation_results=None,
+            warnings=[],
+        )
+
+        assert hasattr(payload, "openai_flag_bundle")
+        assert isinstance(payload.openai_flag_bundle, dict)
+
+    def test_both_mode_has_openai_flag_bundle_for_each_slot(self) -> None:
+        """dry-run both mode must include openai_flag_bundle for all slots."""
+        from llama_manager.validation import build_dry_run_slot_payload
+
+        configs = [
+            _make_minimal_server_config(
+                alias="summary-balanced",
+                model="/models/qwen3.5-2b.gguf",
+                port=8080,
+            ),
+            _make_minimal_server_config(
+                alias="qwen35",
+                model="/models/qwen3.5-35b.gguf",
+                port=8081,
+                device="CUDA",
+            ),
+        ]
+
+        payloads: list[DryRunSlotPayload] = []
+        for cfg in configs:
+            payload = build_dry_run_slot_payload(
+                cfg,
+                slot_id=cfg.alias,
+                validation_results=None,
+                warnings=[],
+            )
+            payloads.append(payload)
+
+        # Both must have openai_flag_bundle
+        for payload in payloads:
+            assert hasattr(payload, "openai_flag_bundle")
+            assert isinstance(payload.openai_flag_bundle, dict)
+
+    # ------------------------------------------------------------------
+    # vllm_eligibility presence
+    # ------------------------------------------------------------------
+
+    def test_summary_balanced_has_vllm_eligibility(self) -> None:
+        """dry-run summary-balanced must include vllm_eligibility in payload."""
+        from llama_manager.validation import build_dry_run_slot_payload
+
+        server_cfg = _make_minimal_server_config(
+            alias="summary-balanced",
+            model="/models/qwen3.5-2b.gguf",
+            port=8080,
+        )
+        payload = build_dry_run_slot_payload(
+            server_cfg,
+            slot_id="summary-balanced",
+            validation_results=None,
+            warnings=[],
+        )
+
+        assert hasattr(payload, "vllm_eligibility")
+        assert isinstance(payload.vllm_eligibility, VllmEligibility)
+
+    def test_qwen35_has_vllm_eligibility(self) -> None:
+        """dry-run qwen35 must include vllm_eligibility in payload."""
+        from llama_manager.validation import build_dry_run_slot_payload
+
+        server_cfg = _make_minimal_server_config(
+            alias="qwen35",
+            model="/models/qwen3.5-35b.gguf",
+            port=8081,
+            device="CUDA",
+        )
+        payload = build_dry_run_slot_payload(
+            server_cfg,
+            slot_id="qwen35",
+            validation_results=None,
+            warnings=[],
+        )
+
+        assert hasattr(payload, "vllm_eligibility")
+        assert isinstance(payload.vllm_eligibility, VllmEligibility)
+
+    # ------------------------------------------------------------------
+    # Flag bundle key determinism
+    # ------------------------------------------------------------------
+
+    def test_openai_flag_bundle_keys_are_deterministic(self) -> None:
+        """openai_flag_bundle keys must be deterministic (sorted on serialization)."""
+        from llama_manager.validation import build_dry_run_slot_payload
+
+        server_cfg = _make_minimal_server_config(
+            alias="test",
+            model="/models/test.gguf",
+            port=8080,
+        )
+        payload = build_dry_run_slot_payload(
+            server_cfg,
+            slot_id="test",
+            validation_results=None,
+            warnings=[],
+        )
+
+        # Keys should be sortable
+        keys = list(payload.openai_flag_bundle.keys())
+        sorted_keys = sorted(keys)
+        assert keys == sorted_keys, f"Keys not sorted: {keys} vs {sorted_keys}"
+
+    def test_multiple_payloads_have_consistent_bundle_structure(self) -> None:
+        """All payloads from the same mode should have consistent bundle structure."""
+        from llama_manager.validation import build_dry_run_slot_payload
+
+        configs = [
+            _make_minimal_server_config(
+                alias="slot1",
+                model="/models/model1.gguf",
+                port=8080,
+            ),
+            _make_minimal_server_config(
+                alias="slot2",
+                model="/models/model2.gguf",
+                port=8081,
+            ),
+        ]
+
+        payloads = []
+        for cfg in configs:
+            payload = build_dry_run_slot_payload(
+                cfg,
+                slot_id=cfg.alias,
+                validation_results=None,
+                warnings=[],
+            )
+            payloads.append(payload)
+
+        # All bundles should have the same set of keys
+        bundle_keys = [set(p.openai_flag_bundle.keys()) for p in payloads]
+        assert len({frozenset(k) for k in bundle_keys}) == 1, (
+            f"Inconsistent bundle keys across payloads: {bundle_keys}"
+        )
+
+    # ------------------------------------------------------------------
+    # Dry-run output includes flag bundle info
+    # ------------------------------------------------------------------
+
+    def test_dry_run_output_includes_openai_bundle_section(self, capsys) -> None:
+        """dry-run summary-balanced output must include 'OpenAI Bundle' section."""
+        from llama_cli.commands.dry_run import dry_run
+
+        with (
+            patch("llama_cli.commands.dry_run._run_registry_mode") as mock_run,
+            patch("llama_cli.commands.dry_run._print_smoke_probe_info"),
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
+        ):
+            mock_run.return_value = False
+
+            with contextlib.suppress(SystemExit):
+                dry_run(mode="summary-balanced", primary_port="8080")
+
+            mock_run.assert_called()
+
+    def test_dry_run_both_mode_prints_both_bundles(self, capsys) -> None:
+        """dry-run both mode must print openai_flag_bundle for both summary and qwen35."""
+        from llama_cli.commands.dry_run import dry_run
+
+        with (
+            patch("llama_cli.commands.dry_run._run_registry_mode") as mock_run,
+            patch("llama_cli.commands.dry_run._print_smoke_probe_info"),
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
+        ):
+            mock_run.return_value = False
+
+            with contextlib.suppress(SystemExit):
+                dry_run(mode="both", primary_port="8080", secondary_port="8081")
+
+            mock_run.assert_called()
+
+    # ------------------------------------------------------------------
+    # Integration tests — call dry_run directly, patch only _print_smoke_probe_info
+    # ------------------------------------------------------------------
+
+    def test_dry_run_summary_balanced_integration_no_mock_handlers(self, capsys) -> None:
+        """dry-run summary-balanced: call dry_run() directly, capture stdout, assert OpenAI Bundle."""
+        from llama_cli.commands.dry_run import dry_run
+
+        with (
+            patch("llama_cli.commands.dry_run._print_smoke_probe_info"),
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
+            contextlib.suppress(SystemExit),
+        ):
+            dry_run(mode="summary-balanced", primary_port="8080")
+
+        captured = capsys.readouterr()
+        assert "OpenAI Bundle" in captured.out
+
+    def test_dry_run_both_integration_no_mock_handlers(self, capsys) -> None:
+        """dry-run both: call dry_run() directly, assert both bundle labels appear."""
+        from llama_cli.commands.dry_run import dry_run
+
+        with (
+            patch("llama_cli.commands.dry_run._print_smoke_probe_info"),
+            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
+            contextlib.suppress(SystemExit),
+        ):
+            dry_run(mode="both", primary_port="8080", secondary_port="8081")
+
+        captured = capsys.readouterr()
+        # Both summary-balanced and qwen35 slots should have OpenAI Bundle
+        openai_bundle_count = captured.out.count("OpenAI Bundle")
+        assert openai_bundle_count == 2, (
+            f"Expected 2 OpenAI Bundle sections, got {openai_bundle_count}"
+        )
+
+    def test_dry_run_summary_balanced_integration(self, capsys) -> None:
+        """dry-run summary-balanced integration test without mocking mode handlers."""
+        from llama_cli.commands.dry_run import _print_common_payload_sections
+        from llama_manager.validation import build_dry_run_slot_payload
+
+        server_cfg = _make_minimal_server_config(
+            alias="summary-balanced",
+            model="/models/qwen3.5-2b.gguf",
+            port=8080,
+        )
+        payload = build_dry_run_slot_payload(
+            server_cfg,
+            slot_id="summary-balanced",
+            validation_results=None,
+            warnings=[],
+        )
+
+        _print_common_payload_sections(payload)
+
+        captured = capsys.readouterr()
+        assert "OpenAI Bundle" in captured.out
+
+    def test_dry_run_both_integration(self, capsys) -> None:
+        """dry-run both mode integration test checking both bundles appear."""
+        from llama_cli.commands.dry_run import _print_common_payload_sections
+        from llama_manager.validation import build_dry_run_slot_payload
+
+        configs = [
+            _make_minimal_server_config(
+                alias="summary-balanced",
+                model="/models/qwen3.5-2b.gguf",
+                port=8080,
+            ),
+            _make_minimal_server_config(
+                alias="qwen35",
+                model="/models/qwen3.5-35b.gguf",
+                port=8081,
+                device="CUDA",
+            ),
+        ]
+
+        for cfg in configs:
+            payload = build_dry_run_slot_payload(
+                cfg,
+                slot_id=cfg.alias,
+                validation_results=None,
+                warnings=[],
+            )
+            _print_common_payload_sections(payload)
+
+        captured = capsys.readouterr()
+        assert "OpenAI Bundle" in captured.out
+
+    # ------------------------------------------------------------------
+    # TUI vs CLI consistency for flag bundles
+    # ------------------------------------------------------------------
+
+    def test_tui_and_cli_use_same_payload_structure(self) -> None:
+        """TUI (via ServerManager) and CLI (via dry_run) must use same payload structure."""
+        from llama_manager.validation import build_dry_run_slot_payload
+
+        server_cfg = _make_minimal_server_config(
+            alias="test-slot",
+            model="/models/test.gguf",
+            port=8080,
+        )
+
+        # Build payload the same way both TUI and CLI would
+        payload = build_dry_run_slot_payload(
+            server_cfg,
+            slot_id="test-slot",
+            validation_results=None,
+            warnings=[],
+        )
+
+        # Both must have the same required fields
+        assert "openai_flag_bundle" in vars(payload)
+        assert "vllm_eligibility" in vars(payload)
+        assert "command_args" in vars(payload)
+        assert isinstance(payload.openai_flag_bundle, dict)
+        assert isinstance(payload.vllm_eligibility, VllmEligibility)
+
+    def test_vllm_eligibility_has_required_fields(self) -> None:
+        """vllm_eligibility must include eligible and reason fields."""
+        from llama_manager.validation import build_dry_run_slot_payload
+
+        server_cfg = _make_minimal_server_config(
+            alias="test",
+            model="/models/test.gguf",
+            port=8080,
+        )
+        payload = build_dry_run_slot_payload(
+            server_cfg,
+            slot_id="test",
+            validation_results=None,
+            warnings=[],
+        )
+
+        vllm = payload.vllm_eligibility
+        assert hasattr(vllm, "eligible"), "vllm_eligibility missing 'eligible'"
+        assert hasattr(vllm, "reason"), "vllm_eligibility missing 'reason'"
+        assert isinstance(vllm.eligible, bool)
+        assert isinstance(vllm.reason, str)
+
+    def test_openai_flag_bundle_contains_expected_keys(self) -> None:
+        """openai_flag_bundle should contain OpenAI-compatible flag keys."""
+        from llama_manager.validation import build_dry_run_slot_payload
+
+        server_cfg = _make_minimal_server_config(
+            alias="test",
+            model="/models/test.gguf",
+            port=8080,
+        )
+        payload = build_dry_run_slot_payload(
+            server_cfg,
+            slot_id="test",
+            validation_results=None,
+            warnings=[],
+        )
+
+        bundle = payload.openai_flag_bundle
+        # At minimum should have some OpenAI-related flags
+        # The exact keys depend on config, but there should be some
+        assert isinstance(bundle, dict)
+        # Keys should start with -- (CLI flag style)
+        for key in bundle:
+            assert key.startswith("--"), f"openai_flag_bundle key '{key}' should start with '--'"
+
+
+from unittest.mock import MagicMock
+
+from llama_manager.config import ServerConfig
+from llama_manager.risk_ack import (
+    RISK_ACK_LABEL,
+    evaluate_risks,
+    resolve_risk_action,
+)
+
+_ACK_TOKEN = "ack:attempt-1"  # noqa: S105
+
+# Detect risky operations is optional for M1 - skip tests if not implemented
+try:
+    server_module = pytest.importorskip(
+        "llama_manager.server", reason="detect_risky_operations not implemented in M1"
+    )
+    detect_risky_operations = server_module.detect_risky_operations
+except AttributeError:
+    pytest.skip(
+        "detect_risky_operations attribute not found in llama_manager.server",
+        allow_module_level=True,
+    )
+
+
+def test_privileged_port_requires_acknowledgement() -> None:
+    """Privileged ports (< 1024) must be flagged as risky."""
+    cfg = MagicMock()
+    cfg.port = 80
+    cfg.bind_address = "127.0.0.1"
+    cfg.risky_acknowledged = []  # type: ignore
+
+    risks = detect_risky_operations(cfg)
+    assert "privileged_port" in risks
+
+
+def test_non_loopback_bind_requires_acknowledgement() -> None:
+    """Binding to non-loopback address must be flagged as risky."""
+    cfg = MagicMock()
+    cfg.port = 8080
+    cfg.bind_address = "192.168.1.1"
+    cfg.risky_acknowledged = []  # type: ignore
+
+    risks = detect_risky_operations(cfg)
+    assert "non_loopback" in risks
+
+
+def test_combined_risks() -> None:
+    """Multiple risky operations should all be detected."""
+    cfg = MagicMock()
+    cfg.port = 80
+    cfg.bind_address = "192.168.1.1"
+    cfg.risky_acknowledged = []  # type: ignore
+
+    risks = detect_risky_operations(cfg)
+    assert "privileged_port" in risks
+    assert "non_loopback" in risks
+
+
+def test_warning_bypass_risk_class_detected() -> None:
+    """warning_bypass marker should be reported as a risk class."""
+    cfg = MagicMock()
+    cfg.port = 8080
+    cfg.bind_address = "127.0.0.1"
+    cfg.risky_acknowledged = ["warning_bypass"]  # type: ignore
+
+    risks = detect_risky_operations(cfg)
+    assert "warning_bypass" in risks
+
+
+# =============================================================================
+# evaluate_risks
+# =============================================================================
+
+
+def test_evaluate_risks_no_risks() -> None:
+    """No risks detected → has_risks=False, empty details."""
+    cfg = MagicMock()
+    cfg.alias = "test"
+    cfg.port = 8080
+    cfg.bind_address = "127.0.0.1"
+    cfg.risky_acknowledged = []
+
+    sm = MagicMock()
+    sm.is_risk_acknowledged.return_value = False
+
+    result = evaluate_risks([cfg], sm, "attempt-1", _ACK_TOKEN, acknowledged=False)
+
+    assert result.has_risks is False
+    assert result.risks_acknowledged is False
+    assert result.risk_details == []
+    sm.acknowledge_risk.assert_not_called()
+
+
+def test_evaluate_risks_detects_privileged_port() -> None:
+    """Privileged port is detected and reported in risk_details."""
+    cfg = MagicMock()
+    cfg.alias = "test"
+    cfg.port = 80
+    cfg.bind_address = "127.0.0.1"
+    cfg.risky_acknowledged = []
+
+    sm = MagicMock()
+    sm.is_risk_acknowledged.return_value = False
+
+    result = evaluate_risks([cfg], sm, "attempt-1", _ACK_TOKEN, acknowledged=False)
+
+    assert result.has_risks is True
+    assert result.risks_acknowledged is False
+    assert len(result.risk_details) == 1
+    assert result.risk_details[0]["alias"] == "test"
+    assert result.risk_details[0]["risk"] == "privileged_port"
+    assert result.risk_details[0]["risk_kind"] == "hardware"
+    sm.acknowledge_risk.assert_not_called()
+
+
+def test_evaluate_risks_skips_already_acknowledged() -> None:
+    """Risks already acknowledged in server_manager are skipped."""
+    cfg = MagicMock()
+    cfg.alias = "test"
+    cfg.port = 80
+    cfg.bind_address = "127.0.0.1"
+    cfg.risky_acknowledged = []
+
+    sm = MagicMock()
+    sm.is_risk_acknowledged.return_value = True
+
+    result = evaluate_risks([cfg], sm, "attempt-1", _ACK_TOKEN, acknowledged=False)
+
+    assert result.has_risks is True
+    assert result.risk_details == []
+    sm.acknowledge_risk.assert_not_called()
+
+
+def test_evaluate_risks_pre_acknowledged_flag() -> None:
+    """acknowledged=True sets risks_acknowledged and updates config copy."""
+    cfg = MagicMock()
+    cfg.alias = "test"
+    cfg.port = 80
+    cfg.bind_address = "127.0.0.1"
+    cfg.risky_acknowledged = []
+
+    sm = MagicMock()
+    sm.is_risk_acknowledged.return_value = False
+
+    configs: list[ServerConfig] = [cfg]  # type: ignore[list-item]
+    result = evaluate_risks(configs, sm, "attempt-1", _ACK_TOKEN, acknowledged=True)
+
+    assert result.has_risks is True
+    assert result.risks_acknowledged is True
+    # The config in the list is replaced with a copy containing the label
+    assert RISK_ACK_LABEL in configs[0].risky_acknowledged
+
+
+def test_evaluate_risks_does_not_double_append_label() -> None:
+    """acknowledged=True does not double-append RISK_ACK_LABEL."""
+    cfg = MagicMock()
+    cfg.alias = "test"
+    cfg.port = 80
+    cfg.bind_address = "127.0.0.1"
+    cfg.risky_acknowledged = [RISK_ACK_LABEL]
+
+    sm = MagicMock()
+    sm.is_risk_acknowledged.return_value = False
+
+    evaluate_risks([cfg], sm, "attempt-1", _ACK_TOKEN, acknowledged=True)
+
+    assert cfg.risky_acknowledged.count(RISK_ACK_LABEL) == 1
+
+
+def test_evaluate_risks_multiple_configs() -> None:
+    """Risks across multiple configs are aggregated."""
+    cfg1 = MagicMock()
+    cfg1.alias = "a"
+    cfg1.port = 80
+    cfg1.bind_address = "127.0.0.1"
+    cfg1.risky_acknowledged = []
+
+    cfg2 = MagicMock()
+    cfg2.alias = "b"
+    cfg2.port = 8080
+    cfg2.bind_address = "0.0.0.0"
+    cfg2.risky_acknowledged = []
+
+    sm = MagicMock()
+    sm.is_risk_acknowledged.return_value = False
+
+    result = evaluate_risks([cfg1, cfg2], sm, "attempt-1", _ACK_TOKEN, acknowledged=False)
+
+    assert result.has_risks is True
+    assert len(result.risk_details) == 2
+    aliases = {d["alias"] for d in result.risk_details}
+    assert aliases == {"a", "b"}
+    sm.acknowledge_risk.assert_not_called()
+
+
+# =============================================================================
+# resolve_risk_action
+# =============================================================================
+
+
+def test_resolve_risk_action_y_hardware() -> None:
+    assert resolve_risk_action("y", "hardware") == "acknowledge"
+
+
+def test_resolve_risk_action_y_vram() -> None:
+    assert resolve_risk_action("y", "vram") == "proceed"
+
+
+def test_resolve_risk_action_n() -> None:
+    assert resolve_risk_action("n", "hardware") == "abort"
+    assert resolve_risk_action("n", "vram") == "abort"
+
+
+def test_resolve_risk_action_q() -> None:
+    assert resolve_risk_action("q", "hardware") == "quit"
+    assert resolve_risk_action("q", "vram") == "quit"
+
+
+def test_resolve_risk_action_unknown() -> None:
+    assert resolve_risk_action("x", "hardware") == "ignore"
+    assert resolve_risk_action("x", "vram") == "ignore"
+    assert resolve_risk_action("", None) == "ignore"

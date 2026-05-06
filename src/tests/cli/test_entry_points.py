@@ -1,7 +1,3 @@
-"""Tests for CLI entry points."""
-
-from __future__ import annotations
-
 from argparse import Namespace
 from unittest.mock import MagicMock, patch
 

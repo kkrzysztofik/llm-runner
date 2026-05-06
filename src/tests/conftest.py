@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 """Test fixtures for llm-runner Phase 1 QA.
 
 Provides shared test fixtures for:
 - T004: tmp_runtime_dir, sample_lockfile, artifact_writer
 - Test helpers for runtime directory resolution and artifact management
 """
+
 
 import json
 from collections.abc import Callable
