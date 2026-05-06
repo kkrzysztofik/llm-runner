@@ -3,7 +3,9 @@ from __future__ import annotations
 """Reusable assertion helpers for tests."""
 
 
+from contextlib import ExitStack
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 
 def assert_dicts_equal(
@@ -117,6 +119,7 @@ from llama_manager.config import (
     ProfileMetrics,
     ProfileRecord,
     ServerConfig,
+    SmokeFailurePhase,
     SmokePhase,
     SmokeProbeStatus,
 )
@@ -165,18 +168,28 @@ def make_model_slot(**overrides: object) -> ModelSlot:
     return ModelSlot(**defaults)  # type: ignore[arg-type]
 
 
-def make_smoke_result(**overrides: object) -> SmokeProbeResult:
+def make_smoke_result(
+    *,
+    slot_id: str = "slot1",
+    status: SmokeProbeStatus = SmokeProbeStatus.PASS,
+    phase_reached: SmokePhase = SmokePhase.COMPLETE,
+    failure_phase: SmokeFailurePhase | None = None,
+    model_id: str | None = None,
+    latency_ms: int | None = 12,
+    provenance: ProvenanceRecord | None = None,
+) -> SmokeProbeResult:
     """Create a minimal SmokeProbeResult for tests."""
-    defaults: dict[str, object] = {
-        "slot_id": "slot1",
-        "status": SmokeProbeStatus.PASS,
-        "phase_reached": SmokePhase.COMPLETE,
-        "failure_phase": None,
-        "latency_ms": 12,
-        "provenance": ProvenanceRecord(sha="abc1234", version="test"),
-    }
-    defaults.update(overrides)
-    return SmokeProbeResult(**defaults)  # type: ignore[arg-type]
+    if provenance is None:
+        provenance = ProvenanceRecord(sha="abc1234", version="test")
+    return SmokeProbeResult(
+        slot_id=slot_id,
+        status=status,
+        phase_reached=phase_reached,
+        failure_phase=failure_phase,
+        model_id=model_id,
+        latency_ms=latency_ms,
+        provenance=provenance,
+    )
 
 
 def make_failure_report(tmp_path: Path, **overrides: object) -> FailureReport:
@@ -270,3 +283,112 @@ def valid_artifact_data(**overrides: object) -> dict[str, object]:
     }
     data.update(overrides)
     return data
+
+
+"""Shared test data factories for CLI and system tests."""
+
+
+from datetime import UTC, datetime, timedelta
+
+from llama_manager.toolchain import ToolchainStatus
+
+
+def make_toolchain_status(
+    *,
+    gcc: str | None = "11.4.0",
+    make: str | None = "4.3",
+    git: str | None = "2.34.1",
+    cmake: str | None = "3.25.0",
+    sycl_compiler: str | None = "2023.1.0",
+    cuda_toolkit: str | None = "12.2.0",
+    nvtop: str | None = "3.1.0",
+) -> ToolchainStatus:
+    """Create a ToolchainStatus for tests."""
+    return ToolchainStatus(
+        gcc=gcc,
+        make=make,
+        git=git,
+        cmake=cmake,
+        sycl_compiler=sycl_compiler,
+        cuda_toolkit=cuda_toolkit,
+        nvtop=nvtop,
+    )
+
+
+def make_smoke_config(**overrides: object) -> object:
+    """Create a SmokeProbeConfiguration for tests.
+
+    Uses per-slot dicts for resolved_command and validation_results.
+    """
+    from llama_manager.config import SmokeProbeConfiguration
+
+    defaults: dict[str, object] = {
+        "inter_slot_delay_s": 1,
+        "listen_timeout_s": 5,
+        "http_request_timeout_s": 10,
+        "max_tokens": 16,
+        "prompt": "Respond with exactly one word.",
+        "skip_models_discovery": False,
+        "api_key": "",
+        "model_id_override": None,
+        "first_token_timeout_s": 1200,
+        "total_chat_timeout_s": 1500,
+    }
+    defaults.update(overrides)
+    return SmokeProbeConfiguration(**defaults)  # type: ignore[return-value]
+
+
+def make_profile_dict(
+    *,
+    days_old: int = 200,
+    driver_version: str = "535.104.05",
+    **overrides: object,
+) -> dict[str, object]:
+    """Create a profile record dict for tests."""
+    import hashlib
+
+    profiled_at = (datetime.now(UTC) - timedelta(days=days_old)).isoformat()
+    defaults: dict[str, object] = {
+        "schema_version": "1.0",
+        "gpu_identifier": "nvidia-geforce_rtx_3090-00",
+        "backend": "cuda",
+        "flavor": "balanced",
+        "driver_version": driver_version,
+        "driver_version_hash": hashlib.sha256(driver_version.encode()).hexdigest()[:16],
+        "server_binary_version": "1.0.0",
+        "profiled_at": profiled_at,
+        "metrics": {
+            "tokens_per_second": 85.5,
+            "avg_latency_ms": 12.3,
+            "peak_vram_mb": 10240.0,
+        },
+        "parameters": {"threads": 8},
+    }
+    defaults.update(overrides)
+    return defaults
+
+
+def make_mock_config(tmp_path: Path, **overrides: object) -> tuple[MagicMock, MagicMock, ExitStack]:
+    """Create a mocked Config instance with common defaults.
+
+    Returns a tuple of (mock_instance, mock_class, exit_stack) so callers
+    can close the stack when done.
+    """
+    stack = ExitStack()
+    mock_config_cls = stack.enter_context(patch("llama_cli.commands.doctor.Config"))
+
+    defaults: dict[str, object] = {
+        "build_lock_path": tmp_path / "lock",
+        "reports_dir": tmp_path / "reports",
+        "toolchain_timeout_seconds": 3600,
+        "llama_cpp_root": str(tmp_path),
+        "profiles_dir": tmp_path / "profiles",
+    }
+    defaults.update(overrides)
+
+    mock_instance = MagicMock()
+    for key, value in defaults.items():
+        setattr(mock_instance, key, value)
+    mock_config_cls.return_value = mock_instance
+
+    return mock_instance, mock_config_cls, stack

@@ -1,6 +1,5 @@
 import json
 import sys
-from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -17,17 +16,6 @@ from llama_cli.commands.setup import (
 from llama_manager.config import ErrorCode
 from llama_manager.setup_venv import VenvResult
 from llama_manager.toolchain import ToolchainStatus
-
-
-@pytest.fixture(autouse=True)
-def disable_colors() -> Iterator[None]:
-    """Disable ANSI colors for all tests to keep assertions simple."""
-    from llama_cli.colors import Colors
-
-    original = Colors.enabled
-    Colors.enabled = False
-    yield
-    Colors.enabled = original
 
 
 class TestSetupCheck:

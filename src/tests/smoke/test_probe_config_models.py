@@ -25,6 +25,7 @@ from llama_manager.probe import (
     probe_slot,
     resolve_provenance,
 )
+from tests.support.helpers import make_smoke_result
 
 
 def _make_smoke_cfg(
@@ -651,26 +652,16 @@ class TestComputeOverallExitCode:
     def test_all_pass_returns_zero(self) -> None:
         """compute_overall_exit_code should return 0 when all results pass."""
         results = [
-            SmokeProbeResult(
-                slot_id="slot1",
-                status=SmokeProbeStatus.PASS,
-                phase_reached=SmokePhase.COMPLETE,
-            ),
-            SmokeProbeResult(
-                slot_id="slot2",
-                status=SmokeProbeStatus.PASS,
-                phase_reached=SmokePhase.COMPLETE,
-            ),
+            make_smoke_result(slot_id="slot1"),
+            make_smoke_result(slot_id="slot2"),
         ]
         assert compute_overall_exit_code(results) == 0
 
     def test_single_fail_returns_fail_code(self) -> None:
         """compute_overall_exit_code should return 10 for a single FAIL."""
         results = [
-            SmokeProbeResult(
-                slot_id="slot1",
-                status=SmokeProbeStatus.FAIL,
-                phase_reached=SmokePhase.LISTEN,
+            make_smoke_result(
+                slot_id="slot1", status=SmokeProbeStatus.FAIL, phase_reached=SmokePhase.LISTEN
             ),
         ]
         assert compute_overall_exit_code(results) == 10
@@ -678,10 +669,8 @@ class TestComputeOverallExitCode:
     def test_single_timeout_returns_timeout_code(self) -> None:
         """compute_overall_exit_code should return 13 for a single TIMEOUT."""
         results = [
-            SmokeProbeResult(
-                slot_id="slot1",
-                status=SmokeProbeStatus.TIMEOUT,
-                phase_reached=SmokePhase.MODELS,
+            make_smoke_result(
+                slot_id="slot1", status=SmokeProbeStatus.TIMEOUT, phase_reached=SmokePhase.MODELS
             ),
         ]
         assert compute_overall_exit_code(results) == 13
@@ -689,10 +678,8 @@ class TestComputeOverallExitCode:
     def test_single_crash_returns_crash_code(self) -> None:
         """compute_overall_exit_code should return 19 for a single CRASHED."""
         results = [
-            SmokeProbeResult(
-                slot_id="slot1",
-                status=SmokeProbeStatus.CRASHED,
-                phase_reached=SmokePhase.COMPLETE,
+            make_smoke_result(
+                slot_id="slot1", status=SmokeProbeStatus.CRASHED, phase_reached=SmokePhase.COMPLETE
             ),
         ]
         assert compute_overall_exit_code(results) == 19
@@ -700,20 +687,12 @@ class TestComputeOverallExitCode:
     def test_mixed_results_worst_wins(self) -> None:
         """compute_overall_exit_code should return the highest exit code (worst)."""
         results = [
-            SmokeProbeResult(
-                slot_id="slot1",
-                status=SmokeProbeStatus.PASS,
-                phase_reached=SmokePhase.COMPLETE,
+            make_smoke_result(slot_id="slot1"),
+            make_smoke_result(
+                slot_id="slot2", status=SmokeProbeStatus.FAIL, phase_reached=SmokePhase.LISTEN
             ),
-            SmokeProbeResult(
-                slot_id="slot2",
-                status=SmokeProbeStatus.FAIL,
-                phase_reached=SmokePhase.LISTEN,
-            ),
-            SmokeProbeResult(
-                slot_id="slot3",
-                status=SmokeProbeStatus.CRASHED,
-                phase_reached=SmokePhase.COMPLETE,
+            make_smoke_result(
+                slot_id="slot3", status=SmokeProbeStatus.CRASHED, phase_reached=SmokePhase.COMPLETE
             ),
         ]
         assert compute_overall_exit_code(results) == 19
@@ -721,12 +700,10 @@ class TestComputeOverallExitCode:
     def test_mixed_results_auth_failure_wins(self) -> None:
         """compute_overall_exit_code should prefer AUTH_FAILURE over TIMEOUT."""
         results = [
-            SmokeProbeResult(
-                slot_id="slot1",
-                status=SmokeProbeStatus.TIMEOUT,
-                phase_reached=SmokePhase.MODELS,
+            make_smoke_result(
+                slot_id="slot1", status=SmokeProbeStatus.TIMEOUT, phase_reached=SmokePhase.MODELS
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot2",
                 status=SmokeProbeStatus.AUTH_FAILURE,
                 phase_reached=SmokePhase.MODELS,
@@ -738,12 +715,10 @@ class TestComputeOverallExitCode:
     def test_mixed_results_model_not_found_wins_over_timeout(self) -> None:
         """compute_overall_exit_code should prefer MODEL_NOT_FOUND over TIMEOUT."""
         results = [
-            SmokeProbeResult(
-                slot_id="slot1",
-                status=SmokeProbeStatus.TIMEOUT,
-                phase_reached=SmokePhase.MODELS,
+            make_smoke_result(
+                slot_id="slot1", status=SmokeProbeStatus.TIMEOUT, phase_reached=SmokePhase.MODELS
             ),
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot2",
                 status=SmokeProbeStatus.MODEL_NOT_FOUND,
                 phase_reached=SmokePhase.MODELS,
@@ -755,20 +730,10 @@ class TestComputeOverallExitCode:
     def test_multiple_pass_one_fail(self) -> None:
         """compute_overall_exit_code should return FAIL code when one slot fails."""
         results = [
-            SmokeProbeResult(
-                slot_id="slot1",
-                status=SmokeProbeStatus.PASS,
-                phase_reached=SmokePhase.COMPLETE,
-            ),
-            SmokeProbeResult(
-                slot_id="slot2",
-                status=SmokeProbeStatus.PASS,
-                phase_reached=SmokePhase.COMPLETE,
-            ),
-            SmokeProbeResult(
-                slot_id="slot3",
-                status=SmokeProbeStatus.FAIL,
-                phase_reached=SmokePhase.LISTEN,
+            make_smoke_result(slot_id="slot1"),
+            make_smoke_result(slot_id="slot2"),
+            make_smoke_result(
+                slot_id="slot3", status=SmokeProbeStatus.FAIL, phase_reached=SmokePhase.LISTEN
             ),
         ]
         assert compute_overall_exit_code(results) == 10
@@ -776,7 +741,7 @@ class TestComputeOverallExitCode:
     def test_model_not_found_exit_code(self) -> None:
         """compute_overall_exit_code should return 14 for MODEL_NOT_FOUND."""
         results = [
-            SmokeProbeResult(
+            make_smoke_result(
                 slot_id="slot1",
                 status=SmokeProbeStatus.MODEL_NOT_FOUND,
                 phase_reached=SmokePhase.MODELS,
