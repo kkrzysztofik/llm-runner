@@ -1,9 +1,10 @@
 """Configure stage — CMake configuration, flags, and build environment."""
 
-import logging
 import shlex
 import subprocess
 import time
+
+from loguru import logger
 
 from .._context import _BuildContext
 from ..models import BuildBackend, BuildConfig, BuildProgress
@@ -13,8 +14,6 @@ from ..utils import (
     _format_command_failure,
     _format_duration,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def run_configure(ctx: _BuildContext) -> BuildProgress:

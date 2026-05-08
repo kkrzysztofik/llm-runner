@@ -14,7 +14,6 @@ Flavors: balanced, fast, quality
 from __future__ import annotations
 
 import json
-import logging
 import os
 import subprocess
 import sys
@@ -23,6 +22,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import cast
 
+from loguru import logger
+
+from llama_cli.ui_output import emit_error, emit_plain
 from llama_manager import (
     BenchmarkResult,
     BenchmarkRunner,
@@ -45,7 +47,6 @@ from llama_manager import (
     write_profile,
 )
 
-LOGGER = logging.getLogger(__name__)
 BENCHMARK_RUN_TIMEOUT_SECONDS = 600
 BENCHMARK_PROMPT_TOKENS = 512
 
@@ -410,8 +411,8 @@ def _check_slot_lockfile(slot_id: str, config: Config, _emit: Callable[[str], No
             _emit(
                 f"warning: slot '{slot_id}' appears to be running (lockfile exists), proceeding anyway",
             )
-    except OSError as exc:
-        LOGGER.warning("Unable to inspect slot lockfile for %s", slot_id, exc_info=exc)
+    except OSError:
+        logger.opt(exception=True).warning("Unable to inspect slot lockfile for {}", slot_id)
 
 
 def _resolve_bench_bin(server_config: ServerConfig, config: Config) -> str | None:
@@ -457,7 +458,7 @@ def cmd_profile(
         if progress_callback is not None:
             progress_callback(message)
         if not quiet:
-            print(message, file=sys.stderr if stderr else sys.stdout)
+            emit_plain(message, err=stderr)
 
     if cancel_event is not None and cancel_event.is_set():
         _emit(f"Profile '{slot_id}' cancelled.", stderr=True)
@@ -546,10 +547,7 @@ def main(args: list[str] | None = None) -> int:
     argv = args if args is not None else sys.argv[1:]
 
     if len(argv) < 2:
-        print(
-            "error: profile requires a slot_id and a flavor (balanced|fast|quality)",
-            file=sys.stderr,
-        )
+        emit_error("profile requires a slot_id and a flavor (balanced|fast|quality)")
         return 1
 
     slot_id = argv[0]
@@ -558,21 +556,18 @@ def main(args: list[str] | None = None) -> int:
 
     # Validate slot_id
     if not slot_id or not slot_id.strip():
-        print("error: slot_id must not be empty", file=sys.stderr)
+        emit_error("slot_id must not be empty")
         return 1
 
     if ".." in slot_id:
-        print("error: slot_id must not contain path traversal sequences", file=sys.stderr)
+        emit_error("slot_id must not contain path traversal sequences")
         return 1
 
     # Validate flavor
     try:
         flavor = ProfileFlavor(flavor_str)
     except ValueError:
-        print(
-            f"error: invalid flavor '{flavor_str}'. Valid flavors: balanced, fast, quality",
-            file=sys.stderr,
-        )
+        emit_error(f"invalid flavor '{flavor_str}'. Valid flavors: balanced, fast, quality")
         return 1
 
     # Parse remaining flags

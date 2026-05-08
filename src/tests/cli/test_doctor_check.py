@@ -1485,7 +1485,7 @@ class TestPrintCheckResults:
         exit_code = _print_check_results(result)
         assert exit_code == 1
         captured = capsys.readouterr()
-        assert "issues" in captured.out.lower()
+        assert "issues" in captured.err.lower()
 
     def test_print_check_results_shows_warnings(self, capsys) -> None:
         """_print_check_results should display warnings."""

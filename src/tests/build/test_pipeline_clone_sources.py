@@ -903,7 +903,7 @@ class TestProvenanceFailureWarning:
     """T038: Test provenance write failure emits warning but build still succeeds."""
 
     def test_provenance_failure_warning(
-        self, caplog: pytest.LogCaptureFixture, tmp_path: Path
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Provenance write failure should emit warning but not fail build.
 
@@ -942,18 +942,32 @@ class TestProvenanceFailureWarning:
 
         config.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Simulate write failure by patching the atomic write helper used by write_provenance
-        with patch(
-            "llama_manager.build_pipeline.stages.finalize.atomic_write_json",
-            side_effect=OSError("simulated write failure"),
-        ):
-            result = write_provenance(artifact, config.output_dir)
+        # Capture Loguru logs during test
+        log_messages: list[str] = []
 
-        # write_provenance should return False when write fails
-        assert result is False
+        def _collect(message: str) -> None:
+            log_messages.append(message.strip())
 
-        # Warning should be logged (captured via caplog)
-        assert "warning" in caplog.text.lower() or "provenance" in caplog.text.lower()
+        from loguru import logger
+
+        handler_id = logger.add(_collect, level="WARNING", format="{message}")
+        try:
+            # Simulate write failure by patching the atomic write helper used by write_provenance
+            with patch(
+                "llama_manager.build_pipeline.stages.finalize.atomic_write_json",
+                side_effect=OSError("simulated write failure"),
+            ):
+                result = write_provenance(artifact, config.output_dir)
+
+            # write_provenance should return False when write fails
+            assert result is False
+
+            # Warning should be logged with specific message
+            combined = " ".join(log_messages).lower()
+            assert "provenance" in combined and "write" in combined
+        finally:
+            logger.remove(handler_id)
+
         _ = pipeline  # pipeline created to satisfy test structure
 
 

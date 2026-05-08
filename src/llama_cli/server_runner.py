@@ -11,6 +11,7 @@ from typing import NoReturn
 
 from llama_cli.cli_parser import parse_args
 from llama_cli.commands.setup import main as setup_main
+from llama_cli.ui_output import emit_error, emit_plain
 from llama_manager import (
     Config,
     ErrorCode,
@@ -31,7 +32,7 @@ NVIDIA_SERVER_NAME = "NVIDIA llama-server"
 
 
 def usage() -> None:
-    print("""Usage:
+    emit_plain("""Usage:
   llm-runner tui <mode> [--port PORT] [--port2 PORT2]
   llm-runner dry-run <mode> [ports...]
   llm-runner smoke <mode> [slot_id] [--json]
@@ -91,10 +92,10 @@ def _print_validation_error(error_detail: ErrorDetail) -> NoReturn:
         if isinstance(error_detail.error_code, ErrorCode)
         else str(error_detail.error_code)
     )
-    print(f"error: {error_code}", file=sys.stderr)
-    print(f"  failed_check: {error_detail.failed_check}", file=sys.stderr)
-    print(f"  why_blocked: {error_detail.why_blocked}", file=sys.stderr)
-    print(f"  how_to_fix: {error_detail.how_to_fix}", file=sys.stderr)
+    emit_error(f"{error_code}")
+    emit_error(f"  failed_check: {error_detail.failed_check}")
+    emit_error(f"  why_blocked: {error_detail.why_blocked}")
+    emit_error(f"  how_to_fix: {error_detail.how_to_fix}")
     raise SystemExit(1)
 
 
@@ -105,10 +106,7 @@ def _run_dry_run_mode(parsed: argparse.Namespace, acknowledged: bool) -> int:
     # parsed.dry_run_mode is the actual mode to preview
     target_mode = getattr(parsed, "dry_run_mode", None)
     if target_mode is None:
-        print(
-            "error: dry-run requires a mode argument (summary-balanced|summary-fast|qwen35|both)",
-            file=sys.stderr,
-        )
+        emit_error("dry-run requires a mode argument (summary-balanced|summary-fast|qwen35|both)")
         usage()
         return 1
 
@@ -335,6 +333,24 @@ def main(args: list[str] | None = None) -> int:
     return 1
 
 
+def _get_log_level_from_env() -> str:
+    """Resolve log level from environment or default."""
+    return os.environ.get("LLM_RUNNER_LOG_LEVEL", "INFO").upper()
+
+
+def _get_log_file_from_env() -> str | None:
+    """Resolve optional log file path from environment."""
+    path = os.environ.get("LLM_RUNNER_LOG_FILE")
+    return path or None
+
+
 def cli_main() -> None:
     """Entry point for the `llm-runner` console script."""
+    # Initialize logging infrastructure
+    from llama_manager.logging_setup import configure_logging
+
+    configure_logging(
+        level=_get_log_level_from_env(),
+        log_file=_get_log_file_from_env(),
+    )
     raise SystemExit(main(sys.argv[1:]))

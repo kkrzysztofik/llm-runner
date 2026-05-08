@@ -1,15 +1,14 @@
 """Shared mutable build context passed across pipeline stages within a single run."""
 
 import json
-import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from loguru import logger
+
 from .models import BuildArtifact, BuildBackend, BuildConfig, BuildProgress
 from .utils import _format_command, _redact_build_text
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass

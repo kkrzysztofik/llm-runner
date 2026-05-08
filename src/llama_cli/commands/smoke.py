@@ -20,6 +20,12 @@ import time
 import typing
 from typing import Any
 
+from llama_cli.ui_output import (
+    emit_error,
+    emit_heading,
+    emit_info,
+    emit_plain,
+)
 from llama_manager import (
     Config,
     SmokeCompositeReport,
@@ -66,21 +72,18 @@ def _build_slot_configs(
         ]
     if mode == "slot":
         if not slot_id:
-            print("error: 'slot' mode requires a slot ID argument", file=sys.stderr)
+            emit_error("'slot' mode requires a slot ID argument")
             sys.exit(1)
         entry = _SLOT_REGISTRY.get(slot_id)
         if entry is None:
             valid_slots = ", ".join(_SLOT_REGISTRY.keys())
-            print(
-                f"error: unknown slot '{slot_id}'. Valid slots: {valid_slots}",
-                file=sys.stderr,
-            )
+            emit_error(f"unknown slot '{slot_id}'. Valid slots: {valid_slots}")
             sys.exit(1)
         slot_port = getattr(cfg, entry["port_attr"])
         slot_model = getattr(cfg, entry["model_attr"])
         return [(slot_id, slot_model, cfg.host, slot_port)]
 
-    print(f"error: unknown smoke mode '{mode}'. Valid modes: both, slot", file=sys.stderr)
+    emit_error(f"unknown smoke mode '{mode}'. Valid modes: both, slot")
     sys.exit(1)
 
 
@@ -99,9 +102,8 @@ def _resolve_slot_port(cfg: Config, slot_id: str) -> int:
     """
     entry = _SLOT_REGISTRY.get(slot_id)
     if entry is None:
-        print(
-            f"error: unknown slot '{slot_id}'. Valid slots: {', '.join(_SLOT_REGISTRY.keys())}",
-            file=sys.stderr,
+        emit_error(
+            f"unknown slot '{slot_id}'. Valid slots: {', '.join(_SLOT_REGISTRY.keys())}",
         )
         sys.exit(1)
     return getattr(cfg, entry["port_attr"])
@@ -122,9 +124,8 @@ def _resolve_slot_model(cfg: Config, slot_id: str) -> str:
     """
     entry = _SLOT_REGISTRY.get(slot_id)
     if entry is None:
-        print(
-            f"error: unknown slot '{slot_id}'. Valid slots: {', '.join(_SLOT_REGISTRY.keys())}",
-            file=sys.stderr,
+        emit_error(
+            f"unknown slot '{slot_id}'. Valid slots: {', '.join(_SLOT_REGISTRY.keys())}",
         )
         sys.exit(1)
     return getattr(cfg, entry["model_attr"])
@@ -168,15 +169,12 @@ def _validate_smoke_args(parsed: argparse.Namespace) -> int | None:
     """
     mode: str = parsed.mode
     if mode not in ("both", "slot"):
-        print(
-            f"error: invalid smoke mode '{mode}'. Valid modes: both, slot",
-            file=sys.stderr,
-        )
+        emit_error(f"invalid smoke mode '{mode}'. Valid modes: both, slot")
         return 1
 
     slot_id: str | None = parsed.slot_id
     if mode == "slot" and not slot_id:
-        print("error: 'slot' mode requires a slot ID argument", file=sys.stderr)
+        emit_error("'slot' mode requires a slot ID argument")
         return 1
     return None
 
@@ -297,7 +295,7 @@ class _SmokeArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> typing.NoReturn:
         """Override to exit with code 1 instead of 2."""
         self.print_usage(sys.stderr)
-        print(f"error: {message}", file=sys.stderr)
+        emit_error(message)
         sys.exit(1)
 
 
@@ -322,10 +320,7 @@ def _parse_smoke_args(args: list[str]) -> argparse.Namespace:
 
     # Validate max_tokens range (8-32) — argparse doesn't do this natively
     if parsed.max_tokens != 0 and not (8 <= parsed.max_tokens <= 32):
-        print(
-            f"error: --max-tokens must be between 8 and 32, got: {parsed.max_tokens}",
-            file=sys.stderr,
-        )
+        emit_error(f"--max-tokens must be between 8 and 32, got: {parsed.max_tokens}")
         sys.exit(1)
 
     return parsed
@@ -412,11 +407,11 @@ def _print_report_human(report: SmokeCompositeReport, mode: str) -> None:
         mode: The smoke mode ("both" or "slot").
     """
     status_label = report.overall_status.value.upper()
-    print("=== SMOKE TEST REPORT ===")
-    print(f"Mode: {mode}")
-    print(f"Overall: {status_label}")
-    print(f"Passed: {report.pass_count} / {len(report.results)}")
-    print()
+    emit_heading("SMOKE TEST REPORT")
+    emit_info(f"Mode: {mode}")
+    emit_info(f"Overall: {status_label}")
+    emit_info(f"Passed: {report.pass_count} / {len(report.results)}")
+    emit_plain("")
 
     for result in report.results:
         status = result.status.value.upper()
@@ -424,15 +419,15 @@ def _print_report_human(report: SmokeCompositeReport, mode: str) -> None:
         slot = result.slot_id
         latency = f"{result.latency_ms}ms" if result.latency_ms is not None else "N/A"
 
-        print(f"  [{slot}] {status}")
-        print(f"    Phase reached: {phase}")
-        print(f"    Latency: {latency}")
+        emit_info(f"[{slot}] {status}")
+        emit_info(f"Phase reached: {phase}")
+        emit_info(f"Latency: {latency}")
 
         if result.failure_phase:
-            print(f"    Failed at: {result.failure_phase.value}")
+            emit_info(f"Failed at: {result.failure_phase.value}")
         if result.model_id:
-            print(f"    Model: {result.model_id}")
-        print()
+            emit_info(f"Model: {result.model_id}")
+        emit_plain("")
 
 
 def _print_report_json(report: SmokeCompositeReport) -> None:
@@ -463,4 +458,4 @@ def _print_report_json(report: SmokeCompositeReport) -> None:
             for r in report.results
         ],
     }
-    print(json.dumps(output, indent=2))
+    emit_plain(json.dumps(output, indent=2))

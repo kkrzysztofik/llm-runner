@@ -1,8 +1,9 @@
 """Clone stage — git repository cloning and source updates."""
 
-import logging
 import subprocess
 from pathlib import Path
+
+from loguru import logger
 
 from .._context import _BuildContext
 from ..models import BuildProgress
@@ -12,8 +13,6 @@ from ..utils import (
     _redact_build_text,
     _tail_lines,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def run_clone(ctx: _BuildContext) -> BuildProgress:

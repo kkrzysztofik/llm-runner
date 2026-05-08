@@ -6,10 +6,11 @@ It is owned by the CLI layer to keep llama_manager free of subprocess usage.
 
 import json
 import subprocess
-import sys
 from typing import Any
 
 import psutil
+
+from llama_cli.ui_output import emit_warn
 
 
 def _get_cpu_percent() -> float:
@@ -69,18 +70,15 @@ def collect_nvtop_stats(device_index: int = 0) -> dict[str, Any]:
                 "cpu": _format_metric(f"{_get_cpu_percent():.0f}%"),
                 "mem": _format_metric(f"{_get_memory_percent():.0f}%"),
             }
-        print(
-            f"warning: device_index {device_index} out of range for {len(all_gpus)} GPU(s)",
-            file=sys.stderr,
-        )
+        emit_warn(f"device_index {device_index} out of range for {len(all_gpus)} GPU(s)")
     except subprocess.TimeoutExpired as e:
-        print(f"warning: nvtop timeout: {e}", file=sys.stderr)
+        emit_warn(f"nvtop timeout: {e}")
     except json.JSONDecodeError as e:
-        print(f"warning: nvtop JSON parse error: {e}", file=sys.stderr)
+        emit_warn(f"nvtop JSON parse error: {e}")
     except RuntimeError as e:
-        print(f"warning: nvtop error: {e}", file=sys.stderr)
+        emit_warn(f"nvtop error: {e}")
     except (ValueError, OSError) as e:
-        print(f"warning: nvtop error: {e}", file=sys.stderr)
+        emit_warn(f"nvtop error: {e}")
 
     # Fallback to psutil
     return {

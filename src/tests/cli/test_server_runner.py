@@ -1070,8 +1070,8 @@ def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) ->
         app.run(acknowledged=True)
 
     captured = capsys.readouterr()
-    assert "warning: launch degraded - some slots blocked" in captured.err
-    assert "warning: slot blocked" in captured.err
+    assert "warn: launch degraded - some slots blocked" in captured.err
+    assert "warn: slot blocked" in captured.err
 
 
 def test_server_runner_main_dispatches_dry_run_mode() -> None:

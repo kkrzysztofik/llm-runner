@@ -10,7 +10,7 @@ repos:
     rev: v1.1.396
     hooks:
       - id: pyright
-        additional_dependencies: [".", "rich>=13.0.0", "psutil>=5.9.0", "pytest", "textual>=6.6,<7", "httpx>=0.28.1", "gguf>=0.18.0"]
+        additional_dependencies: [".", "gguf>=0.18.0", "httpx>=0.28.1", "loguru>=0.7.0", "psutil>=5.9.0", "pytest", "rich>=13.0.0", "textual>=6.6,<7"]
 
   - repo: https://github.com/pypa/pip-audit
     rev: v2.10.0

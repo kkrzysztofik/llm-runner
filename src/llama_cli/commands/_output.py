@@ -8,10 +8,14 @@ local _print_* helpers.
 """
 
 import json
-import sys
 from typing import Any
 
-from llama_cli.colors import Colors
+from llama_cli.ui_output import (
+    emit_error,
+    emit_heading,
+    emit_plain,
+    emit_success,
+)
 
 
 def print_error(message: str) -> None:
@@ -20,7 +24,7 @@ def print_error(message: str) -> None:
     Args:
         message: Error message to print.
     """
-    print(Colors.red(f"error: {message}"), file=sys.stderr)
+    emit_error(message)
 
 
 def print_success(message: str) -> None:
@@ -29,7 +33,7 @@ def print_success(message: str) -> None:
     Args:
         message: Success message to print.
     """
-    print(message)
+    emit_success(message)
 
 
 def print_header(message: str) -> None:
@@ -38,7 +42,7 @@ def print_header(message: str) -> None:
     Args:
         message: Header message to print.
     """
-    print(Colors.bold(Colors.blue(message)))
+    emit_heading(message)
 
 
 def print_json(data: dict[str, Any]) -> None:
@@ -47,4 +51,4 @@ def print_json(data: dict[str, Any]) -> None:
     Args:
         data: Dictionary to serialize to JSON.
     """
-    print(json.dumps(data, indent=2, default=str))
+    emit_plain(json.dumps(data, indent=2, default=str))
