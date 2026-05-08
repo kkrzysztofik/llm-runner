@@ -26,6 +26,13 @@ from llama_cli.commands._toolchain import (
     collect_toolchain_repair_actions,
     resolve_backend_enum,
 )
+from llama_cli.ui_output import (
+    emit_error,
+    emit_info,
+    emit_plain,
+    emit_success,
+    emit_warn,
+)
 from llama_manager.build_pipeline import BuildBackend, BuildLock
 from llama_manager.config import Config
 from llama_manager.config.profile_cache import (
@@ -442,9 +449,9 @@ def _print_check_results(result: DoctorCheckResult) -> int:
 
     if result.warnings:
         print_success("")
-        print(Colors.yellow("Warnings:"))
+        emit_warn("Warnings:")
         for warning in result.warnings:
-            print(Colors.yellow(f"  - {warning}"))
+            emit_info(f"- {warning}")
 
     if result.errors:
         print_success("")
@@ -454,10 +461,10 @@ def _print_check_results(result: DoctorCheckResult) -> int:
 
     print_success("")
     if result.is_healthy:
-        print(Colors.bold(Colors.bright_green("System is healthy!")))
+        emit_success("System is healthy!")
         return 0
     else:
-        print(Colors.bold(Colors.bright_red("System has issues. Run 'doctor --repair' to fix.")))
+        emit_error("System has issues. Run 'doctor --repair' to fix.")
         return 1
 
 
@@ -794,28 +801,28 @@ def _print_repair_results(result: DoctorRepairResult) -> None:
     print_header("Doctor Repair Actions:")
 
     if not result.actions:
-        print(f"  {Colors.bright_green('No repairs needed. System is healthy.')}")
+        emit_success("No repairs needed. System is healthy.")
         return
 
     for i, action in enumerate(result.actions, 1):
         confirm_marker = (
             Colors.bright_yellow(" [CONFIRMATION REQUIRED]") if action.requires_confirmation else ""
         )
-        print(f"  {Colors.cyan(str(i))}. {action.description}{confirm_marker}")
+        emit_plain(f"  {Colors.cyan(str(i))}. {action.description}{confirm_marker}")
         if action.dry_run_command:
-            print(Colors.dim(f"     Command: {action.dry_run_command}"))
+            emit_info(f"Command: {action.dry_run_command}")
 
     if result.performed_actions:
         print_success("")
-        print(Colors.bright_green("Performed actions:"))
+        emit_success("Performed actions:")
         for action in result.performed_actions:
-            print(f"  {Colors.green('✓')} {action}")
+            emit_success(f"{action}")
 
     if result.failures:
         print_success("")
-        print_error("Failures:")
+        emit_error("Failures:")
         for failure in result.failures:
-            print_error(f"  - {failure}")
+            emit_error(f"{failure}")
 
 
 def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
@@ -871,17 +878,17 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                         )
                         declined.add(idx)
                         continue
-                    print(f"\nAction: {action.description}")
+                    emit_plain(f"\nAction: {action.description}")
                     if action.dry_run_command:
-                        print(Colors.dim(f"  Command: {action.dry_run_command}"))
+                        emit_info(f"Command: {action.dry_run_command}")
                     try:
                         response = input("Confirm? [y/N]: ").strip().lower()
                     except EOFError:
-                        print(f"Skipping action (no terminal input): {action.description}")
+                        emit_plain(f"Skipping action (no terminal input): {action.description}")
                         declined.add(idx)
                         continue
                     if response != "y":
-                        print(f"Skipping action: {action.description}")
+                        emit_plain(f"Skipping action: {action.description}")
                         declined.add(idx)
                         continue
                 failures_before = len(result.failures)

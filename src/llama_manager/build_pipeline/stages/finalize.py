@@ -1,14 +1,13 @@
 """Finalize stage — binary discovery, provenance recording."""
 
-import logging
 import subprocess
 from pathlib import Path
+
+from loguru import logger
 
 from ...common.file_ops import atomic_write_json
 from .._context import _BuildContext
 from ..models import BuildArtifact, BuildProgress
-
-logger = logging.getLogger(__name__)
 
 
 def run_finalize(ctx: _BuildContext, build_progress: BuildProgress) -> BuildArtifact | None:

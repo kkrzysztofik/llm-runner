@@ -1,11 +1,9 @@
 """Preflight stage — toolchain validation."""
 
-import logging
+from loguru import logger
 
 from .._context import _BuildContext
 from ..models import BuildBackend, BuildProgress
-
-logger = logging.getLogger(__name__)
 
 
 def run_preflight(ctx: _BuildContext) -> BuildProgress:

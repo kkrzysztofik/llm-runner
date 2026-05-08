@@ -25,6 +25,12 @@ from llama_cli.commands._toolchain import (
     get_backend_hints,
     resolve_backend_enum,
 )
+from llama_cli.ui_output import (
+    emit_error,
+    emit_info,
+    emit_success,
+    emit_warn,
+)
 from llama_manager.setup_venv import (
     check_venv_integrity,
     create_venv,
@@ -77,7 +83,7 @@ def _print_status(status: Any) -> None:
     ]
     for name, value in tools:
         display = Colors.green(value) if value else missing
-        print(f"  {Colors.cyan(name)}: {display}")
+        emit_info(f"  {Colors.cyan(name)}: {display}")
     print_success("")
     print_success(f"SYCL ready: {yes if status.is_sycl_ready else no}")
     print_success(f"CUDA ready: {yes if status.is_cuda_ready else no}")
@@ -105,19 +111,19 @@ def _handle_missing_tools(
 
     if not missing:
         print_success("")
-        print(Colors.bold(Colors.bright_green("All required tools are available!")))
+        emit_success("All required tools are available!")
         return 0
 
     print_success("")
-    print_error(f"Missing tools: {', '.join(missing)}")
+    emit_error(f"Missing tools: {', '.join(missing)}")
 
     if hints:
         print_success("")
-        print(Colors.yellow("Installation hints:"))
+        emit_warn("Installation hints:")
         for hint in hints:
-            print(f"  {Colors.yellow('-')} {hint.how_to_fix}")
+            emit_info(f"- {hint.how_to_fix}")
             if hint.docs_ref:
-                print(Colors.dim(f"    Docs: {hint.docs_ref}"))
+                emit_info(f"Docs: {hint.docs_ref}")
 
     return 1
 
@@ -154,7 +160,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         if getattr(args, "json", False):
             print_json({"error": "Toolchain detection failed", "details": str(e)})
         else:
-            print_error(f"Toolchain detection failed: {e}")
+            emit_error(f"Toolchain detection failed: {e}")
         return 1
 
 
@@ -252,8 +258,8 @@ def _handle_confirmation_required(venv_path: Path, json_output: bool) -> int:
             }
         )
     else:
-        print_error(f"Virtual environment exists at: {venv_path}")
-        print_error("Use --yes to confirm removal, or run without --yes to see this message")
+        emit_error(f"Virtual environment exists at: {venv_path}")
+        emit_error("Use --yes to confirm removal, or run without --yes to see this message")
     return 1
 
 

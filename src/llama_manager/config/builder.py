@@ -1,11 +1,12 @@
 # ServerConfig creation helpers
 
 import dataclasses
-import logging
 import os
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from typing import Any
+
+from loguru import logger
 
 from ..gpu_stats import get_gpu_identifier
 from .defaults import Config, SmokeProbeConfiguration
@@ -18,8 +19,6 @@ from .profile_cache import (
 )
 from .profiles import RunGroupSpec, RunProfileError, RunProfileRegistry, RunProfileSpec
 from .server import ServerConfig
-
-_logger = logging.getLogger(__name__)
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -677,12 +676,12 @@ def apply_profile_overrides(
                 staleness_days=base_config.profile_staleness_days,
             )
         except (OSError, FileNotFoundError, ValueError, KeyError):
-            _logger.info("No profile found for %s; falling back to defaults", cfg.alias)
+            logger.info("No profile found for %s; falling back to defaults", cfg.alias)
             messages.append(f"No profile found for {cfg.alias}; using defaults")
             updated_configs.append(cfg)
             continue
         except Exception:
-            _logger.exception("Unexpected error loading profile for %s", cfg.alias)
+            logger.opt(exception=True).error("Unexpected error loading profile for %s", cfg.alias)
             raise
 
         if record is None:

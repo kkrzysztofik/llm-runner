@@ -6,12 +6,12 @@ using the BuildPipeline.
 
 import argparse
 import json
-import logging
 import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
 
+from llama_cli.ui_output import emit_error, emit_plain, emit_success
 from llama_manager.build_pipeline import (
     BuildBackend,
     BuildConfig,
@@ -41,59 +41,6 @@ def _format_duration(seconds: float) -> str:
         return f"{seconds:.1f}s"
     minutes, remaining_seconds = divmod(seconds, 60)
     return f"{int(minutes)}m {remaining_seconds:.0f}s"
-
-
-# ANSI color codes for log formatting
-_COLOR_RESET = "\033[0m"
-_COLOR_TIMESTAMP = "\033[36m"  # cyan
-_COLOR_INFO = "\033[32m"  # green
-_COLOR_WARNING = "\033[33m"  # yellow
-_COLOR_ERROR = "\033[31m"  # red
-_COLOR_DEBUG = "\033[34m"  # blue
-_COLOR_DIM = "\033[2m"  # dim
-
-
-class _ColoredFormatter(logging.Formatter):
-    """Custom formatter that adds timestamps and ANSI colors to log output."""
-
-    _LEVEL_COLORS = {
-        logging.DEBUG: _COLOR_DEBUG,
-        logging.INFO: _COLOR_INFO,
-        logging.WARNING: _COLOR_WARNING,
-        logging.ERROR: _COLOR_ERROR,
-        logging.CRITICAL: _COLOR_ERROR,
-    }
-
-    def format(self, record: logging.LogRecord) -> str:
-        """Format a log record with timestamp and color-coded level."""
-        timestamp = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
-        level_color = self._LEVEL_COLORS.get(record.levelno, _COLOR_RESET)
-        level_name = record.levelname.lower()
-        # Extract the tag from the message if it starts with [tag]
-        msg = record.getMessage()
-        # Build the formatted line
-        return (
-            f"{_COLOR_DIM}[{timestamp}]{_COLOR_RESET} "
-            f"{level_color}[{level_name}]{_COLOR_RESET} "
-            f"{msg}"
-        )
-
-
-def _setup_colored_logging(level: int = logging.INFO) -> None:
-    """Configure stderr logging with timestamps and ANSI colors.
-
-    Args:
-        level: Minimum log level to display (default: INFO).
-    """
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(_ColoredFormatter())
-    handler.setLevel(level)
-
-    # Target the build pipeline logger specifically
-    pipeline_logger = logging.getLogger("llama_manager.build_pipeline")
-    pipeline_logger.setLevel(level)
-    pipeline_logger.handlers.clear()
-    pipeline_logger.addHandler(handler)
 
 
 def _progress_summary(result: BuildResult) -> dict[str, object] | None:
@@ -309,12 +256,12 @@ def _build_single_backend(
     pipeline = BuildPipeline(build_config)
     pipeline.dry_run = args.dry_run
 
-    print(f"▶ Building llama.cpp [{backend.value}]", file=sys.stderr)
-    print(f"  source: {source_dir}", file=sys.stderr)
-    print(f"  build:  {build_dir}", file=sys.stderr)
-    print(f"  output: {output_dir}", file=sys.stderr)
+    emit_plain(f"▶ Building llama.cpp [{backend.value}]", err=True)
+    emit_plain(f"  source: {source_dir}", err=True)
+    emit_plain(f"  build:  {build_dir}", err=True)
+    emit_plain(f"  output: {output_dir}", err=True)
     if args.dry_run:
-        print("  mode:   dry-run (commands will not be executed)", file=sys.stderr)
+        emit_plain("  mode:   dry-run (commands will not be executed)", err=True)
 
     result = pipeline.run()
     return (backend, result)
@@ -347,19 +294,19 @@ def _format_success_text(results: list[tuple[BuildBackend, BuildResult]]) -> Non
     Args:
         results: List of (backend, result) tuples
     """
-    print("✓ Build completed successfully", file=sys.stderr)
+    emit_success("✓ Build completed successfully")
     for backend, result in results:
         if result.artifact:
             artifact = result.artifact
             duration = _format_duration(artifact.build_duration_seconds)
             size = _format_bytes(artifact.binary_size_bytes)
-            print(f"\n  [{backend.value}]", file=sys.stderr)
-            print(f"    binary:   {artifact.binary_path or 'not found'}", file=sys.stderr)
-            print(f"    size:     {size}", file=sys.stderr)
-            print(f"    duration: {duration}", file=sys.stderr)
-            print(f"    commit:   {artifact.git_commit_sha}", file=sys.stderr)
+            emit_plain(f"\n  [{backend.value}]", err=True)
+            emit_plain(f"    binary:   {artifact.binary_path or 'not found'}", err=True)
+            emit_plain(f"    size:     {size}", err=True)
+            emit_plain(f"    duration: {duration}", err=True)
+            emit_plain(f"    commit:   {artifact.git_commit_sha}", err=True)
             if artifact.build_log_path:
-                print(f"    log:      {artifact.build_log_path}", file=sys.stderr)
+                emit_plain(f"    log:      {artifact.build_log_path}", err=True)
 
 
 def _format_error_json(results: list[tuple[BuildBackend, BuildResult]]) -> str:
@@ -395,20 +342,20 @@ def _format_error_text(results: list[tuple[BuildBackend, BuildResult]]) -> None:
     Args:
         results: List of (backend, result) tuples
     """
-    print("✗ Build failed", file=sys.stderr)
+    emit_error("✗ Build failed")
     for backend, result in results:
         if not result.success:
-            print(f"\n  [{backend.value}]", file=sys.stderr)
+            emit_plain(f"\n  [{backend.value}]", err=True)
             if result.progress:
-                print(f"    stage:  {result.progress.stage}", file=sys.stderr)
-                print(f"    status: {result.progress.status}", file=sys.stderr)
+                emit_plain(f"    stage:  {result.progress.stage}", err=True)
+                emit_plain(f"    status: {result.progress.status}", err=True)
             message = result.error_message or "Unknown error"
             indented_message = message.replace("\n", "\n      ")
-            print(f"    error:  {indented_message}", file=sys.stderr)
+            emit_plain(f"    error:  {indented_message}", err=True)
             if result.artifact and result.artifact.build_log_path:
-                print(f"    log:    {result.artifact.build_log_path}", file=sys.stderr)
+                emit_plain(f"    log:    {result.artifact.build_log_path}", err=True)
             if result.artifact and result.artifact.failure_report_path:
-                print(f"    report: {result.artifact.failure_report_path}", file=sys.stderr)
+                emit_plain(f"    report: {result.artifact.failure_report_path}", err=True)
 
 
 def _resolve_backend_paths(
@@ -464,13 +411,13 @@ def run_build_command(args: argparse.Namespace) -> int:
 
     if all_success:
         if args.json:
-            print(_format_success_json(results))
+            emit_plain(_format_success_json(results))
         else:
             _format_success_text(results)
         return 0
     else:
         if args.json:
-            print(_format_error_json(results))
+            emit_plain(_format_error_json(results))
         else:
             _format_error_text(results)
         return 1
@@ -485,19 +432,21 @@ def main(args: list[str] | None = None) -> int:
     Returns:
         Exit code
     """
+    from llama_manager.logging_setup import configure_logging
+
     args_parsed = None
     try:
         args_parsed = parse_build_args(args)
-        _setup_colored_logging()
+        configure_logging()
         return run_build_command(args_parsed)
     except KeyboardInterrupt:
-        print("\nBuild interrupted by user", file=sys.stderr)
+        emit_plain("\nBuild interrupted by user", err=True)
         return 130  # Standard exit code for Ctrl+C
     except Exception as e:
         if args_parsed is not None and args_parsed.json:
-            print(json.dumps({"success": False, "error": str(e)}, indent=2))
+            emit_plain(json.dumps({"success": False, "error": str(e)}, indent=2))
         else:
-            print(f"error: {e}", file=sys.stderr)
+            emit_error(f"{e}")
         return 1
 
 

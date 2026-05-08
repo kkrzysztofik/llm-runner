@@ -2,17 +2,15 @@
 
 import contextlib
 import json
-import logging
 import os
 import time
 from pathlib import Path
 
 import psutil
+from loguru import logger
 
 from ..common.file_ops import atomic_exclusive_create_json, atomic_write_json
 from .models import BuildLock
-
-logger = logging.getLogger(__name__)
 
 
 def acquire_lock(lock_path: Path, backend: str, *, dry_run: bool = False) -> bool:

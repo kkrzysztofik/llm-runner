@@ -174,7 +174,7 @@ class TestRunBuildCommand:
 
             assert exit_code == 0
             captured = capsys.readouterr()
-            assert "Build completed successfully" in captured.err
+            assert "Build completed successfully" in captured.out
             assert "binary:" in captured.err
             assert "100.0 MiB" in captured.err
             assert "duration: 10.0s" in captured.err

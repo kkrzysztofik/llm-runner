@@ -1,9 +1,10 @@
 """BuildPipeline — 5-stage build orchestrator for llama.cpp."""
 
-import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
+
+from loguru import logger
 
 from ._context import _BuildContext
 from .lock import acquire_lock, get_lock_error_message, is_lock_stale, release_lock
@@ -14,8 +15,6 @@ from .stages.configure import run_configure
 from .stages.finalize import run_finalize
 from .stages.preflight import run_preflight
 from .utils import _format_duration, _redact_build_text
-
-logger = logging.getLogger(__name__)
 
 
 class BuildPipeline:
@@ -199,7 +198,7 @@ class BuildPipeline:
             return BuildResult(success=True, artifact=artifact, progress=progress)
 
         except Exception as e:
-            logger.exception("[pipeline] unhandled exception in build pipeline")
+            logger.opt(exception=True).error("[pipeline] unhandled exception in build pipeline")
             failure_progress = BuildProgress(
                 stage="pipeline",
                 status="failed",

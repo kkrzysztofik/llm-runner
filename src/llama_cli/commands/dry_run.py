@@ -8,6 +8,7 @@ import sys
 import time
 from typing import Any, NoReturn
 
+from llama_cli.ui_output import emit_error, emit_heading, emit_info, emit_success, emit_warn
 from llama_manager import (
     RISK_ACK_LABEL,
     Config,
@@ -33,15 +34,13 @@ DEVICE_SYCL0_LABEL = "  Device: SYCL0"
 
 
 def _print_acknowledgement_required_and_exit() -> NoReturn:
-    print("error: acknowledgement_required", file=sys.stderr)
-    print("  failed_check: acknowledgement_required", file=sys.stderr)
-    print(
+    emit_error("acknowledgement_required")
+    emit_error("  failed_check: acknowledgement_required")
+    emit_error(
         "  why_blocked: risky operation detected and not acknowledged",
-        file=sys.stderr,
     )
-    print(
+    emit_error(
         "  how_to_fix: use --acknowledge-risky flag or confirm with 'y'",
-        file=sys.stderr,
     )
     raise SystemExit(1)
 
@@ -80,7 +79,7 @@ def _acknowledge_risk_if_required(
         return
 
     if not acknowledged:
-        print(f"warning: risky operation detected in {cfg.alias}: {risk}")
+        emit_warn(f"risky operation detected in {cfg.alias}: {risk}")
         try:
             response = input(RISK_CONFIRM_PROMPT).strip().lower()
         except EOFError:
@@ -97,24 +96,23 @@ def _acknowledge_risk_if_required(
 
 
 def _print_backend_error(backend_error: Any) -> None:
-    print(f"error: {backend_error.error_code}", file=sys.stderr)
-    print(f"  failed_check: {backend_error.failed_check}", file=sys.stderr)
-    print(f"  why_blocked: {backend_error.why_blocked}", file=sys.stderr)
-    print(f"  how_to_fix: {backend_error.how_to_fix}", file=sys.stderr)
+    emit_error(backend_error.error_code)
+    emit_error(f"  failed_check: {backend_error.failed_check}")
+    emit_error(f"  why_blocked: {backend_error.why_blocked}")
+    emit_error(f"  how_to_fix: {backend_error.how_to_fix}")
 
 
 def _print_common_payload_sections(payload: Any) -> None:
-    print("  OpenAI Bundle:")
+    emit_info("OpenAI Bundle:")
     for key in sorted(payload.openai_flag_bundle.keys()):
         value = payload.openai_flag_bundle[key]
-        print(f"    {key}: {value}")
+        emit_info(f"    {key}: {value}")
 
-    print("  vllm Eligibility:")
-    print(f"{ELIGIBLE_LABEL}: {payload.vllm_eligibility.eligible}")
-    print(f"{REASON_LABEL}: {payload.vllm_eligibility.reason}")
+    emit_info("vllm Eligibility:")
+    emit_info(f"{ELIGIBLE_LABEL}: {payload.vllm_eligibility.eligible}")
+    emit_info(f"{REASON_LABEL}: {payload.vllm_eligibility.reason}")
 
-    print(f"  Command: {' '.join(payload.command_args)}")
-    print()
+    emit_info(f"  Command: {' '.join(payload.command_args)}")
 
 
 def _print_smoke_probe_info(cfg: Config) -> None:
@@ -125,15 +123,14 @@ def _print_smoke_probe_info(cfg: Config) -> None:
     Args:
         cfg: Config instance with smoke defaults.
     """
-    print("  Smoke Probe:")
-    print(f"    /v1/models: {'skip' if cfg.smoke_skip_models_discovery else 'enabled'}")
-    print(f"    Prompt: {cfg.smoke_prompt}")
-    print(f"    Max tokens: {cfg.smoke_max_tokens}")
+    emit_info("Smoke Probe:")
+    emit_info(f"    /v1/models: {'skip' if cfg.smoke_skip_models_discovery else 'enabled'}")
+    emit_info(f"    Prompt: {cfg.smoke_prompt}")
+    emit_info(f"    Max tokens: {cfg.smoke_max_tokens}")
     if cfg.smoke_api_key:
-        print("    API key: [configured]")
+        emit_info("    API key: [configured]")
     else:
-        print("    API key: [not set]")
-    print()
+        emit_info("    API key: [not set]")
 
 
 def _build_payload(
@@ -164,14 +161,13 @@ def _print_dry_run_header(mode: str, cfg: Config, registry: RunProfileRegistry) 
         cfg: Config instance with model paths and binary locations.
         registry: Pre-built profile registry.
     """
-    print("=== DRY RUN MODE ===")
-    print(f"Mode: {mode}")
-    print(f"llama-server (Intel): {cfg.llama_server_bin_intel}")
-    print(f"llama-server (NVIDIA): {cfg.llama_server_bin_nvidia}")
+    emit_heading("DRY RUN MODE", level=2)
+    emit_info(f"Mode: {mode}")
+    emit_info(f"llama-server (Intel): {cfg.llama_server_bin_intel}")
+    emit_info(f"llama-server (NVIDIA): {cfg.llama_server_bin_nvidia}")
     for profile_id in registry.profile_ids:
         profile = registry.get_profile(profile_id)
-        print(f"{profile_id} model: {profile.model}")
-    print()
+        emit_info(f"{profile_id} model: {profile.model}")
 
 
 def _parse_port_overrides(primary_port: str | None, secondary_port: str | None) -> tuple[int, ...]:
@@ -183,7 +179,7 @@ def _parse_port_overrides(primary_port: str | None, secondary_port: str | None) 
                 raise ValueError(f"{name} port {raw!r} is not a valid integer")
             port = int(raw)
             if not (1 <= port <= 65535):
-                raise ValueError(f"{name} port {port} is out of range (1–65535)")
+                raise ValueError(f"{name} port {port} is out of range (1\u201365535)")
             overrides.append(port)
     return tuple(overrides)
 
@@ -202,10 +198,7 @@ def _resolve_dry_run_configs(
     """Resolve dry-run configs through the profile registry."""
     if mode not in registry.run_group_ids:
         allowed_modes = ", ".join(registry.run_group_ids)
-        print(
-            f"error: invalid mode '{mode}'. Valid modes: {allowed_modes}",
-            file=sys.stderr,
-        )
+        emit_error(f"invalid mode '{mode}'. Valid modes: {allowed_modes}")
         raise SystemExit(1)
     return resolve_run_group_configs(
         registry,
@@ -218,22 +211,22 @@ def _print_resolved_slot(
     slot_id: str, server_cfg: ServerConfig, payload: DryRunSlotPayload
 ) -> None:
     """Print a dry-run slot from canonical ServerConfig data."""
-    print(f"{slot_id}:")
-    print(f"  Port: {payload.port}")
-    print(f"  Device: {server_cfg.device}")
-    print(f"  Context: {server_cfg.ctx_size}")
-    print(f"  Threads: {server_cfg.threads}")
-    print(f"  UBatch: {server_cfg.ubatch_size}")
-    print(f"  KV cache: {server_cfg.cache_type_k}/{server_cfg.cache_type_v}")
-    print(f"  n-gpu-layers: {server_cfg.n_gpu_layers}")
+    emit_info(f"{slot_id}:")
+    emit_info(f"  Port: {payload.port}")
+    emit_info(f"  Device: {server_cfg.device}")
+    emit_info(f"  Context: {server_cfg.ctx_size}")
+    emit_info(f"  Threads: {server_cfg.threads}")
+    emit_info(f"  UBatch: {server_cfg.ubatch_size}")
+    emit_info(f"  KV cache: {server_cfg.cache_type_k}/{server_cfg.cache_type_v}")
+    emit_info(f"  n-gpu-layers: {server_cfg.n_gpu_layers}")
     if server_cfg.reasoning_mode != "auto":
-        print(f"  Reasoning: {server_cfg.reasoning_mode}")
+        emit_info(f"  Reasoning: {server_cfg.reasoning_mode}")
     if server_cfg.reasoning_format != "none":
-        print(f"  Reasoning Format: {server_cfg.reasoning_format}")
+        emit_info(f"  Reasoning Format: {server_cfg.reasoning_format}")
     if server_cfg.use_jinja:
-        print(f"  Jinja: {server_cfg.use_jinja}")
+        emit_info(f"  Jinja: {server_cfg.use_jinja}")
     if server_cfg.chat_template_kwargs:
-        print(f"  Chat Template Kwargs: {server_cfg.chat_template_kwargs}")
+        emit_info(f"  Chat Template Kwargs: {server_cfg.chat_template_kwargs}")
     _print_common_payload_sections(payload)
 
 
@@ -288,17 +281,15 @@ def _write_dry_run_artifact(mode: str, slot_payloads: list[DryRunSlotPayload]) -
     }
     try:
         artifact_path = write_artifact(runtime_dir, f"dryrun-{mode}", canonical_payload)
-        print(f"Artifact written: {artifact_path}")
+        emit_success(f"Artifact written: {artifact_path}")
     except Exception as e:
-        print(f"error: artifact persistence failed: {e}", file=sys.stderr)
-        print("  failed_check: artifact_persistence", file=sys.stderr)
-        print(
+        emit_error(f"artifact persistence failed: {e}")
+        emit_error("  failed_check: artifact_persistence")
+        emit_error(
             "  why_blocked: artifact persistence failed to enforce required permissions",
-            file=sys.stderr,
         )
-        print(
+        emit_error(
             "  how_to_fix: verify runtime path and permission support before retry",
-            file=sys.stderr,
         )
         sys.exit(1)
 
@@ -342,5 +333,5 @@ def dry_run(
     except SystemExit:
         raise
     except (TypeError, ValueError) as e:
-        print(f"error: dry-run failed unexpectedly: {e}", file=sys.stderr)
+        emit_error(f"dry-run failed unexpectedly: {e}")
         sys.exit(1)

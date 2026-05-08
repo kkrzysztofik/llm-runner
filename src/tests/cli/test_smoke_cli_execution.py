@@ -1287,7 +1287,7 @@ class TestPrintReportHuman:
         _print_report_human(report_mock, "both")
 
         captured = capsys.readouterr()
-        assert "=== SMOKE TEST REPORT ===" in captured.out
+        assert "# SMOKE TEST REPORT" in captured.out
         assert "Overall: PASS" in captured.out
         assert "[test] PASS" in captured.out
         assert "Phase reached: complete" in captured.out

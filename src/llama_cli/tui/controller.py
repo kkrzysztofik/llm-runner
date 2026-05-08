@@ -10,6 +10,7 @@ from typing import Any, Literal
 from rich.panel import Panel
 from rich.text import Text
 
+from llama_cli.ui_output import emit_error, emit_info, emit_plain, emit_success, emit_warn
 from llama_manager import (
     Config,
     GPUStats,
@@ -238,7 +239,7 @@ class DashboardController:
         Releases build lock and stops the build gracefully.
         """
         if self.build_in_progress and self._build_pipeline is not None:
-            print("\nBuild interrupted by user, releasing lock...", file=sys.stderr)
+            emit_warn("Build interrupted by user, releasing lock...")
             self._build_pipeline.release_lock()
             self.build_in_progress = False
             sys.exit(130)  # Standard exit code for Ctrl+C
@@ -684,19 +685,19 @@ class DashboardController:
         if launch_result is None:
             return
         if launch_result.is_blocked():
-            print("error: launch blocked - no slots could be launched", file=sys.stderr)
+            emit_error("launch blocked - no slots could be launched")
             if launch_result.errors is not None:
                 for error_detail in launch_result.errors.errors:
-                    print(f"  {error_detail.error_code}", file=sys.stderr)
-                    print(f"    failed_check: {error_detail.failed_check}", file=sys.stderr)
-                    print(f"    why_blocked: {error_detail.why_blocked}", file=sys.stderr)
-                    print(f"    how_to_fix: {error_detail.how_to_fix}", file=sys.stderr)
+                    emit_plain(f"  {error_detail.error_code}")
+                    emit_plain(f"    failed_check: {error_detail.failed_check}")
+                    emit_plain(f"    why_blocked: {error_detail.why_blocked}")
+                    emit_plain(f"    how_to_fix: {error_detail.how_to_fix}")
             raise SystemExit(1)
 
         if launch_result.is_degraded():
-            print("warning: launch degraded - some slots blocked", file=sys.stderr)
+            emit_warn("launch degraded - some slots blocked")
             for warning in launch_result.warnings or []:
-                print(f"  warning: {warning}", file=sys.stderr)
+                emit_warn(warning)
 
     def build_llama_cpp(self, backend: str = "sycl", dry_run: bool = False) -> bool:
         """Build llama.cpp using BuildPipeline.
@@ -717,9 +718,9 @@ class DashboardController:
         self._original_sigint_handler = signal.signal(signal.SIGINT, self._signal_handler_build)
 
         try:
-            print(f"Building for {backend} backend...", file=sys.stderr)
+            emit_info(f"Building for {backend} backend...")
             if dry_run:
-                print("DRY RUN MODE - commands will not be executed", file=sys.stderr)
+                emit_warn("DRY RUN MODE - commands will not be executed")
 
             result = run_build_for_backend(
                 backend=backend,
@@ -730,12 +731,12 @@ class DashboardController:
             )
 
             if result.success:
-                print("Build completed successfully!", file=sys.stderr)
+                emit_success("Build completed successfully!")
                 if result.artifact:
-                    print(f"Artifact: {result.artifact.binary_path}", file=sys.stderr)
+                    emit_info(f"Artifact: {result.artifact.binary_path}")
                 return True
             else:
-                print(f"Build failed: {result.error_message}", file=sys.stderr)
+                emit_error(f"Build failed: {result.error_message}")
                 return False
         finally:
             self.build_in_progress = False

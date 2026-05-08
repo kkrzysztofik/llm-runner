@@ -914,52 +914,46 @@ class TestPrintError:
 
     def test_print_error_writes_to_stderr(self, capsys) -> None:
         """print_error should write to stderr."""
-        with patch("llama_cli.commands._output.Colors.red", side_effect=lambda x: x):
+        with patch("llama_cli.commands._output.emit_error") as mock_err:
             print_error("test error")
 
-        captured = capsys.readouterr()
-        assert "error: test error" in captured.err
+        mock_err.assert_called_once_with("test error")
 
     def test_print_error_message_format(self, capsys) -> None:
-        """print_error should prefix with 'error:'."""
-        with patch("llama_cli.commands._output.Colors.red", side_effect=lambda x: x):
+        """print_error delegates to emit_error which adds 'error:' prefix."""
+        with patch("llama_cli.commands._output.emit_error") as mock_err:
             print_error("disk full")
 
-        captured = capsys.readouterr()
-        assert captured.err.startswith("error: disk full")
+        mock_err.assert_called_once_with("disk full")
 
 
 class TestPrintSuccess:
     """Tests for print_success function."""
 
     def test_print_success_writes_to_stdout(self, capsys) -> None:
-        """print_success should write to stdout."""
-        print_success("done")
+        """print_success delegates to emit_success which writes to stdout."""
+        with patch("llama_cli.commands._output.emit_success") as mock_ok:
+            print_success("done")
 
-        captured = capsys.readouterr()
-        assert captured.out.strip() == "done"
+        mock_ok.assert_called_once_with("done")
 
     def test_print_success_no_prefix(self, capsys) -> None:
-        """print_success should not add any prefix."""
-        print_success("hello world")
+        """print_success delegates to emit_success which adds 'ok:' prefix."""
+        with patch("llama_cli.commands._output.emit_success") as mock_ok:
+            print_success("hello world")
 
-        captured = capsys.readouterr()
-        assert captured.out.strip() == "hello world"
+        mock_ok.assert_called_once_with("hello world")
 
 
 class TestPrintHeader:
     """Tests for print_header function."""
 
-    def test_print_header_calls_colors(self, capsys) -> None:
-        """print_header should use Colors.bold and Colors.blue."""
-        with (
-            patch("llama_cli.commands._output.Colors.bold", side_effect=lambda x: x),
-            patch("llama_cli.commands._output.Colors.blue", side_effect=lambda x: x),
-        ):
+    def test_print_header_calls_emit_heading(self, capsys) -> None:
+        """print_header delegates to emit_heading."""
+        with patch("llama_cli.commands._output.emit_heading") as mock_heading:
             print_header("Setup")
 
-        captured = capsys.readouterr()
-        assert "Setup" in captured.out
+        mock_heading.assert_called_once_with("Setup")
 
 
 class TestPrintJson:

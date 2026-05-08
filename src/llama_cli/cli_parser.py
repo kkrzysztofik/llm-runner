@@ -9,6 +9,7 @@ import argparse
 import sys
 
 from llama_cli.commands.smoke import _parse_smoke_args
+from llama_cli.ui_output import emit_error
 from llama_manager.config import create_default_profile_registry
 
 COMMAND_MODES = (
@@ -55,10 +56,10 @@ def parse_jobs_arg(arg: str) -> int:
         elif arg.startswith("-j"):
             return int(arg[2:])
         else:
-            print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+            emit_error(f"invalid jobs value '{arg}'")
             sys.exit(1)
     except (ValueError, IndexError):
-        print(f"error: invalid jobs value '{arg}'", file=sys.stderr)
+        emit_error(f"invalid jobs value '{arg}'")
         sys.exit(1)
 
 
@@ -76,9 +77,8 @@ def _parse_dry_run_args(args: list[str]) -> argparse.Namespace:
     """
     dry_run_mode = args[1]
     if dry_run_mode not in VALID_MODES and dry_run_mode != SMOKE_MODE:
-        print(
-            f"error: invalid dry-run mode '{dry_run_mode}'. Valid modes: {', '.join(VALID_MODES)}, {SMOKE_MODE}",
-            file=sys.stderr,
+        emit_error(
+            f"invalid dry-run mode '{dry_run_mode}'. Valid modes: {', '.join(VALID_MODES)}, {SMOKE_MODE}",
         )
         sys.exit(1)
 
@@ -92,7 +92,7 @@ def _parse_dry_run_args(args: list[str]) -> argparse.Namespace:
             try:
                 ports.append(int(arg))
             except ValueError:
-                print(f"error: invalid port '{arg}'", file=sys.stderr)
+                emit_error(f"invalid port '{arg}'")
                 sys.exit(1)
 
     return argparse.Namespace(
@@ -117,18 +117,12 @@ def _handle_build_case(args: list[str]) -> argparse.Namespace | None:
     """
     if len(args) >= 1 and args[0] == "build":
         if len(args) < 2:
-            print(
-                "error: build requires a backend argument (sycl|cuda|both)",
-                file=sys.stderr,
-            )
+            emit_error("build requires a backend argument (sycl|cuda|both)")
             sys.exit(1)
 
         backend = args[1]
         if backend not in BUILD_BACKENDS:
-            print(
-                f"error: invalid backend '{backend}'. Valid backends: {', '.join(BUILD_BACKENDS)}",
-                file=sys.stderr,
-            )
+            emit_error(f"invalid backend '{backend}'. Valid backends: {', '.join(BUILD_BACKENDS)}")
             sys.exit(1)
 
         return argparse.Namespace(
@@ -215,10 +209,7 @@ def _handle_setup_case(args: list[str]) -> argparse.Namespace | None:
         return None
 
     if len(args) < 2:
-        print(
-            "error: setup requires a subcommand (check|venv|clean-venv)",
-            file=sys.stderr,
-        )
+        emit_error("setup requires a subcommand (check|venv|clean-venv)")
         sys.exit(1)
 
     subcommand = args[1]
@@ -233,10 +224,8 @@ def _handle_setup_case(args: list[str]) -> argparse.Namespace | None:
     if subcommand in subcommand_parsers:
         return subcommand_parsers[subcommand](remaining_args)
 
-    print(
-        f"error: unknown setup subcommand '{subcommand}'. "
-        f"Valid subcommands: check, venv, clean-venv",
-        file=sys.stderr,
+    emit_error(
+        f"unknown setup subcommand '{subcommand}'. Valid subcommands: check, venv, clean-venv"
     )
     sys.exit(1)
 
@@ -303,10 +292,7 @@ def _handle_doctor_case(args: list[str]) -> argparse.Namespace | None:
         return None
 
     if len(args) < 2:
-        print(
-            "error: doctor requires a subcommand (check|repair)",
-            file=sys.stderr,
-        )
+        emit_error("doctor requires a subcommand (check|repair)")
         sys.exit(1)
 
     subcommand = args[1]
@@ -321,10 +307,7 @@ def _handle_doctor_case(args: list[str]) -> argparse.Namespace | None:
     if subcommand in subcommand_parsers:
         return subcommand_parsers[subcommand](remaining_args)
 
-    print(
-        f"error: unknown doctor subcommand '{subcommand}'. Valid subcommands: check, repair, fix",
-        file=sys.stderr,
-    )
+    emit_error(f"unknown doctor subcommand '{subcommand}'. Valid subcommands: check, repair, fix")
     sys.exit(1)
 
 
@@ -357,9 +340,8 @@ def _handle_dry_run_case(args: list[str]) -> argparse.Namespace | None:
     """
     if len(args) >= 1 and args[0] == "dry-run":
         if len(args) < 2:
-            print(
-                "error: dry-run requires a mode argument (summary-balanced|summary-fast|qwen35|both)",
-                file=sys.stderr,
+            emit_error(
+                "dry-run requires a mode argument (summary-balanced|summary-fast|qwen35|both)"
             )
             sys.exit(1)
         return _parse_dry_run_args(args)
@@ -377,10 +359,10 @@ def _parse_tui_port(args: list[str], i: int, flag: str) -> tuple[int | None, int
         try:
             return int(args[i]), i + 1, False
         except ValueError:
-            print(f"error: invalid {flag} value '{args[i]}'", file=sys.stderr)
+            emit_error(f"invalid {flag} value '{args[i]}'")
             sys.exit(1)
     else:
-        print(f"error: {flag} requires a value", file=sys.stderr)
+        emit_error(f"{flag} requires a value")
         sys.exit(1)
 
 
@@ -405,10 +387,10 @@ def _parse_tui_args(args: list[str], start: int) -> tuple[int | None, int | None
             acknowledge_risky = True
             i += 1
         elif arg.startswith("-"):
-            print(f"error: unknown tui flag '{arg}'", file=sys.stderr)
+            emit_error(f"unknown tui flag '{arg}'")
             sys.exit(1)
         else:
-            print(f"error: unexpected tui argument '{arg}'", file=sys.stderr)
+            emit_error(f"unexpected tui argument '{arg}'")
             sys.exit(1)
 
     return port, port2, acknowledge_risky
@@ -438,10 +420,7 @@ def _handle_tui_case(args: list[str]) -> argparse.Namespace | None:
     )
 
     if mode is not None and mode not in RUNNABLE_TUI_MODES:
-        print(
-            f"error: invalid tui mode '{mode}'. Valid modes: {', '.join(RUNNABLE_TUI_MODES)}",
-            file=sys.stderr,
-        )
+        emit_error(f"invalid tui mode '{mode}'. Valid modes: {', '.join(RUNNABLE_TUI_MODES)}")
         sys.exit(1)
 
     port, port2, acknowledge_risky = _parse_tui_args(args, 2 if mode else 1)
@@ -474,10 +453,7 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
         return None
 
     if len(args) < 2:
-        print(
-            "error: smoke requires a mode argument (both|slot)",
-            file=sys.stderr,
-        )
+        emit_error("smoke requires a mode argument (both|slot)")
         sys.exit(1)
 
     # Delegate to the canonical smoke parser (args[1:] = after "smoke")
@@ -545,10 +521,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     if not args:
         return argparse.Namespace(mode=None)
 
-    print(
-        f"error: unknown command '{args[0]}'. Use 'tui' to launch model servers.",
-        file=sys.stderr,
-    )
+    emit_error(f"unknown command '{args[0]}'. Use 'tui' to launch model servers.")
     sys.exit(1)
 
 

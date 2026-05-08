@@ -1,16 +1,15 @@
 """Build stage — cmake --build compilation with real-time output streaming."""
 
-import logging
 import subprocess
 import threading
 import time
+
+from loguru import logger
 
 from .._context import _BuildContext
 from ..models import BuildProgress
 from ..utils import _format_command, _format_command_failure, _format_duration
 from .configure import get_build_env_cmd
-
-logger = logging.getLogger(__name__)
 
 
 def run_build(ctx: _BuildContext) -> BuildProgress:
