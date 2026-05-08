@@ -138,11 +138,7 @@ def configure_logging(
     # Normalise level
     log_level = level.upper()
     if log_level not in _LEVEL_MAP:
-        print(
-            f"error: unknown log level '{level}' — must be one of {list(_LEVEL_MAP)}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        raise ValueError(f"unknown log level '{level}' — must be one of {list(_LEVEL_MAP)}")
 
     # Common format templates
     text_format = "{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {name}:{line} | {message}\n"
@@ -185,11 +181,9 @@ def configure_logging(
     intercept = _InterceptHandler()
     for target_name in ("llama_manager", "llama_cli"):
         logging.getLogger(target_name).setLevel(logging.DEBUG)
-        logging.getLogger(target_name).handlers = [intercept]
-    # Root logger — only intercept if it has handlers already
+        logging.getLogger(target_name).handlers = []
     root_logger = logging.getLogger()
-    if root_logger.handlers:
-        root_logger.addHandler(intercept)
+    root_logger.addHandler(intercept)
 
 
 # ---------------------------------------------------------------------------

@@ -16,18 +16,13 @@ from pathlib import Path
 from typing import Any
 
 from llama_cli.colors import Colors
-from llama_cli.commands._output import (
-    print_error,
-    print_header,
-    print_json,
-    print_success,
-)
 from llama_cli.commands._toolchain import (
     collect_toolchain_repair_actions,
     resolve_backend_enum,
 )
 from llama_cli.ui_output import (
     emit_error,
+    emit_heading,
     emit_info,
     emit_plain,
     emit_success,
@@ -433,33 +428,33 @@ def _print_check_results(result: DoctorCheckResult) -> int:
     no = Colors.bright_red("✗ NO")
     warn_no = Colors.bright_yellow("⚠ NO")
 
-    print_header("Doctor Check Results:")
-    print_success(f"  Toolchain complete: {yes if result.toolchain_complete else no}")
-    print_success(f"  Venv exists: {yes if result.venv_exists else no}")
-    print_success(f"  Venv intact: {yes if result.venv_intact else no}")
-    print_success(f"  Build lock free: {yes if result.build_lock_free else no}")
-    print_success(f"  Staging dirs clean: {yes if result.staging_dirs_clean else no}")
-    print_success(f"  Reports dir exists: {yes if result.reports_dir_exists else warn_no}")
+    emit_heading("Doctor Check Results:")
+    emit_success(f"  Toolchain complete: {yes if result.toolchain_complete else no}")
+    emit_success(f"  Venv exists: {yes if result.venv_exists else no}")
+    emit_success(f"  Venv intact: {yes if result.venv_intact else no}")
+    emit_success(f"  Build lock free: {yes if result.build_lock_free else no}")
+    emit_success(f"  Staging dirs clean: {yes if result.staging_dirs_clean else no}")
+    emit_success(f"  Reports dir exists: {yes if result.reports_dir_exists else warn_no}")
     stale_count = (
         Colors.bright_red(str(result.profiles_stale))
         if result.profiles_stale > 0
         else Colors.bright_green(str(result.profiles_stale))
     )
-    print_success(f"  Profiles: {result.profiles_total} total, {stale_count} stale")
+    emit_success(f"  Profiles: {result.profiles_total} total, {stale_count} stale")
 
     if result.warnings:
-        print_success("")
+        emit_success("")
         emit_warn("Warnings:")
         for warning in result.warnings:
             emit_info(f"- {warning}")
 
     if result.errors:
-        print_success("")
-        print_error("Errors:")
+        emit_success("")
+        emit_error("Errors:")
         for error in result.errors:
-            print_error(f"  - {error}")
+            emit_error(f"  - {error}")
 
-    print_success("")
+    emit_success("")
     if result.is_healthy:
         emit_success("System is healthy!")
         return 0
@@ -511,7 +506,7 @@ def cmd_doctor_check(parsed: argparse.Namespace) -> int:
     )
 
     if json_output:
-        print_json(result.to_dict())
+        emit_plain(json.dumps(result.to_dict()))
         return 0 if result.is_healthy else 1
 
     return _print_check_results(result)
@@ -798,7 +793,7 @@ def _execute_repair_actions(result: DoctorRepairResult) -> None:
 
 def _print_repair_results(result: DoctorRepairResult) -> None:
     """Print repair results in human-readable format with colors."""
-    print_header("Doctor Repair Actions:")
+    emit_heading("Doctor Repair Actions:")
 
     if not result.actions:
         emit_success("No repairs needed. System is healthy.")
@@ -813,13 +808,13 @@ def _print_repair_results(result: DoctorRepairResult) -> None:
             emit_info(f"Command: {action.dry_run_command}")
 
     if result.performed_actions:
-        print_success("")
+        emit_success("")
         emit_success("Performed actions:")
         for action in result.performed_actions:
             emit_success(f"{action}")
 
     if result.failures:
-        print_success("")
+        emit_success("")
         emit_error("Failures:")
         for failure in result.failures:
             emit_error(f"{failure}")
@@ -897,7 +892,7 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                     failed.add(idx)
 
     if json_output:
-        print_json(result.to_dict())
+        emit_plain(json.dumps(result.to_dict()))
         return result
 
     _print_repair_results(result)

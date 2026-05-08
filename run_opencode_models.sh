@@ -96,6 +96,7 @@ DEFAULT_THREADS_GEMMA4_27B_BOTH=8
 DEFAULT_POLL_MS_GEMMA4_E4B=0
 DEFAULT_POLL_MS_QWEN35=0
 DEFAULT_POLL_MS_QWEN27B=0
+DEFAULT_PARALLEL_SUMMARY=4
 DEFAULT_PARALLEL_QWEN35_BOTH=1
 DEFAULT_PARALLEL_QWEN27B=1
 DEFAULT_PARALLEL_GEMMA4_E4B=-1
@@ -110,7 +111,7 @@ DEFAULT_CACHE_TYPE_QWEN35_V=q8_0
 DEFAULT_CACHE_TYPE_QWEN27B_K=q8_0
 DEFAULT_CACHE_TYPE_QWEN27B_V=q8_0
 DEFAULT_CACHE_TYPE_QWEN35_BOTH_K=q8_0
-DEFAULT_CACHE_TYPE_QWEN35_BOTH_V=q8_0
+DEFAULT_CACHE_TYPE_QWEN35_BOTH_V=q4_0
 DEFAULT_CACHE_TYPE_GEMMA4_E4B_K=f16
 DEFAULT_CACHE_TYPE_GEMMA4_E4B_V=f16
 # f16 KV validated for max-context probes on RTX 3090
@@ -454,6 +455,7 @@ start_summary_balanced() {
   build_server_cmd cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$port" \
     "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
     "" off "" "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+  cmd+=(--parallel "$DEFAULT_PARALLEL_SUMMARY")
   cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
 
@@ -468,6 +470,7 @@ start_summary_fast() {
   build_server_cmd cmd "$MODEL_SUMMARY_FAST" "summary-fast" "SYCL0" "$port" \
     "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_FAST" "$DEFAULT_THREADS_SUMMARY_FAST" \
     "" auto none "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+  cmd+=(--parallel "$DEFAULT_PARALLEL_SUMMARY")
   cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
 
@@ -589,6 +592,7 @@ start_both_qwen35() {
   build_server_cmd summary_balanced_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
     "$DEFAULT_CTX_SIZE_BOTH_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
     "" off "" "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+  summary_balanced_cmd+=(--parallel "$DEFAULT_PARALLEL_SUMMARY")
   summary_balanced_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   summary_balanced_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   
@@ -744,6 +748,7 @@ dry_run() {
       echo "  Context: $DEFAULT_CTX_SIZE_SUMMARY"
       echo "  Threads: $DEFAULT_THREADS_SUMMARY_BALANCED"
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED"
+      echo "  Parallel slots: $DEFAULT_PARALLEL_SUMMARY"
       echo "  Reasoning: off"
       echo "  Reasoning Format: (disabled)"
       echo "  Jinja: false"
@@ -753,6 +758,7 @@ dry_run() {
       build_server_cmd tmp_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
         "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
         "" off "" "" "" false
+      tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_SUMMARY")
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       echo "  Command: ${tmp_cmd[*]}"
@@ -765,6 +771,7 @@ dry_run() {
       echo "  Context: $DEFAULT_CTX_SIZE_SUMMARY"
       echo "  Threads: $DEFAULT_THREADS_SUMMARY_FAST"
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_SUMMARY_FAST"
+      echo "  Parallel slots: $DEFAULT_PARALLEL_SUMMARY"
       echo "  Reasoning: auto"
       echo "  Reasoning Format: none"
       echo "  Sampling: temperature=0.6 top-p=0.95 top-k=20 min-p=0.0"
@@ -772,6 +779,7 @@ dry_run() {
       build_server_cmd tmp_cmd "$MODEL_SUMMARY_FAST" "summary-fast" "SYCL0" "$summary_fast_port" \
         "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_FAST" "$DEFAULT_THREADS_SUMMARY_FAST" \
         "" auto none "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+      tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_SUMMARY")
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       echo "  Command: ${tmp_cmd[*]}"
@@ -925,6 +933,7 @@ dry_run() {
       echo "  Context: $DEFAULT_CTX_SIZE_BOTH_SUMMARY"
       echo "  Threads: $DEFAULT_THREADS_SUMMARY_BALANCED"
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED"
+      echo "  Parallel slots: $DEFAULT_PARALLEL_SUMMARY"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_SUMMARY_K/$DEFAULT_CACHE_TYPE_SUMMARY_V"
       echo "  Reasoning: off"
       echo "  Reasoning Format: (disabled)"
@@ -935,6 +944,7 @@ dry_run() {
       build_server_cmd tmp_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
         "$DEFAULT_CTX_SIZE_BOTH_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
         "" off "" "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
+      tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_SUMMARY")
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       echo "  Command: ${tmp_cmd[*]}"

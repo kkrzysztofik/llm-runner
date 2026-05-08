@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -74,16 +75,14 @@ class TestConfigureLoggingDefault:
     def test_intercept_handler_installed(self) -> None:
         _clean_slate()
         configure_logging()
-        stdlib_logger = logging.getLogger("llama_manager")
-        assert len(stdlib_logger.handlers) == 1
-        assert isinstance(stdlib_logger.handlers[0], _InterceptHandler)
+        root_logger = logging.getLogger()
+        assert isinstance(root_logger.handlers[0], _InterceptHandler)
 
     def test_intercept_handler_on_llama_cli(self) -> None:
         _clean_slate()
         configure_logging()
-        cli_logger = logging.getLogger("llama_cli")
-        assert len(cli_logger.handlers) == 1
-        assert isinstance(cli_logger.handlers[0], _InterceptHandler)
+        root_logger = logging.getLogger()
+        assert isinstance(root_logger.handlers[0], _InterceptHandler)
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +145,7 @@ class TestInterceptHandlerMapsLevels:
 class TestConfigureLoggingWithFile:
     """configure_logging(log_file=...) should create a file sink."""
 
-    def test_file_created_and_logged(self, tmp_path: Any) -> None:
+    def test_file_created_and_logged(self, tmp_path: Path) -> None:
         _clean_slate()
         log_file = str(tmp_path / "test.log")
         configure_logging(level="DEBUG", log_file=log_file)
@@ -156,7 +155,7 @@ class TestConfigureLoggingWithFile:
         content = tmp_path.joinpath("test.log").read_text(encoding="utf-8")
         assert "file sink test" in content
 
-    def test_file_sink_with_json(self, tmp_path: Any) -> None:
+    def test_file_sink_with_json(self, tmp_path: Path) -> None:
         _clean_slate()
         log_file = str(tmp_path / "test_json.log")
         configure_logging(level="DEBUG", log_file=log_file, json_logs=True)
@@ -182,7 +181,7 @@ class TestConfigureLoggingWithFile:
 class TestConfigureLoggingJsonMode:
     """configure_logging(json_logs=True) should produce JSON output."""
 
-    def test_json_mode_enables_json_format(self, tmp_path: Any) -> None:
+    def test_json_mode_enables_json_format(self, tmp_path: Path) -> None:
         """json_logs=True should produce parseable JSON in the file sink."""
         _clean_slate()
         log_file = str(tmp_path / "json_mode.log")
@@ -202,7 +201,7 @@ class TestConfigureLoggingJsonMode:
         assert "name" in record
         assert "time" in record
 
-    def test_json_contains_correct_level(self, tmp_path: Any) -> None:
+    def test_json_contains_correct_level(self, tmp_path: Path) -> None:
         _clean_slate()
         log_file = str(tmp_path / "json_level.log")
         configure_logging(level="DEBUG", log_file=log_file, json_logs=True)
@@ -312,16 +311,13 @@ class TestConfigureLoggingInvalidLevel:
 
     def test_unknown_level_exits(self) -> None:
         _clean_slate()
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(ValueError, match="unknown log level"):
             configure_logging(level="TRACE")
-        assert exc_info.value.code == 1
 
-    def test_unknown_level_prints_error(self, capsys: Any) -> None:
+    def test_unknown_level_raises_value_error(self) -> None:
         _clean_slate()
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError, match="unknown log level"):
             configure_logging(level="VERBOSE")
-        captured = capsys.readouterr()
-        assert "unknown log level" in captured.err
 
 
 # ---------------------------------------------------------------------------

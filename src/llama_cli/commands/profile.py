@@ -547,7 +547,7 @@ def main(args: list[str] | None = None) -> int:
     argv = args if args is not None else sys.argv[1:]
 
     if len(argv) < 2:
-        emit_error("error: profile requires a slot_id and a flavor (balanced|fast|quality)")
+        emit_error("profile requires a slot_id and a flavor (balanced|fast|quality)")
         return 1
 
     slot_id = argv[0]
@@ -556,18 +556,18 @@ def main(args: list[str] | None = None) -> int:
 
     # Validate slot_id
     if not slot_id or not slot_id.strip():
-        emit_error("error: slot_id must not be empty")
+        emit_error("slot_id must not be empty")
         return 1
 
     if ".." in slot_id:
-        emit_error("error: slot_id must not contain path traversal sequences")
+        emit_error("slot_id must not contain path traversal sequences")
         return 1
 
     # Validate flavor
     try:
         flavor = ProfileFlavor(flavor_str)
     except ValueError:
-        emit_error(f"error: invalid flavor '{flavor_str}'. Valid flavors: balanced, fast, quality")
+        emit_error(f"invalid flavor '{flavor_str}'. Valid flavors: balanced, fast, quality")
         return 1
 
     # Parse remaining flags

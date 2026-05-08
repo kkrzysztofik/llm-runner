@@ -21,24 +21,24 @@ def run_build(ctx: _BuildContext) -> BuildProgress:
         progress_percent=50,
     )
 
-    logger.info("[build] starting compilation for %s", ctx.config.backend.value)
+    logger.info("[build] starting compilation for {}", ctx.config.backend.value)
 
     if ctx.dry_run:
         cmd = _build_cmake_cmd(ctx)
         progress.message = f"Would run: {_format_command(cmd)}"
         progress.status = "success"
         progress.progress_percent = 75
-        logger.info("[build] dry-run: %s", progress.message)
+        logger.info("[build] dry-run: {}", progress.message)
         return progress
 
     try:
         cmd = _build_cmake_cmd(ctx)
         logger.info("[build] running cmake --build (this may take several minutes)")
-        logger.info("[build] command: %s", _format_command(cmd))
-        logger.debug("[build] jobs=%s", ctx.config.jobs)
+        logger.info("[build] command: {}", _format_command(cmd))
+        logger.debug("[build] jobs={}", ctx.config.jobs)
         return _run_build_subprocess(cmd, ctx, progress)
     except Exception as e:
-        logger.error("[build] exception: %s", str(e))
+        logger.error("[build] exception: {}", str(e))
         progress.status = "failed"
         progress.message = f"Build failed: {str(e)}"
 
@@ -73,13 +73,13 @@ def _run_build_subprocess(
             if proc.stdout:
                 for line in proc.stdout:
                     stdout_lines.append(line.rstrip("\n"))
-                    logger.debug("[build] stdout: %s", line.rstrip("\n"))
+                    logger.debug("[build] stdout: {}", line.rstrip("\n"))
 
         def read_stderr() -> None:
             if proc.stderr:
                 for line in proc.stderr:
                     stderr_lines.append(line.rstrip("\n"))
-                    logger.debug("[build] stderr: %s", line.rstrip("\n"))
+                    logger.debug("[build] stderr: {}", line.rstrip("\n"))
 
         stdout_t = threading.Thread(target=read_stdout)
         stderr_t = threading.Thread(target=read_stderr)
@@ -102,7 +102,7 @@ def _run_build_subprocess(
                 proc.stderr.close()
             progress.status = "failed"
             progress.message = f"Build timed out after {ctx.config.build_timeout_seconds}s"
-            logger.error("[build] %s", progress.message)
+            logger.error("[build] {}", progress.message)
             ctx.append_command_output(
                 stage="build",
                 command=cmd,
@@ -119,7 +119,7 @@ def _run_build_subprocess(
     returncode = proc.returncode
     duration = _format_duration(time.monotonic() - started_at)
 
-    logger.debug("[build] cmake exited with rc=%s in %s", returncode, duration)
+    logger.debug("[build] cmake exited with rc={} in {}", returncode, duration)
 
     ctx.append_command_output(
         stage="build",
@@ -133,9 +133,9 @@ def _run_build_subprocess(
         progress.message = f"Build completed for {ctx.config.backend.value} in {duration}"
         progress.status = "success"
         progress.progress_percent = 75
-        logger.info("[build] %s", progress.message)
+        logger.info("[build] {}", progress.message)
     else:
-        logger.error("[build] compilation failed (rc=%s)", returncode)
+        logger.error("[build] compilation failed (rc={})", returncode)
         progress.status = "failed"
         progress.message = _format_command_failure(
             stage="Build",

@@ -962,9 +962,9 @@ class TestProvenanceFailureWarning:
             # write_provenance should return False when write fails
             assert result is False
 
-            # Warning should be logged
+            # Warning should be logged with specific message
             combined = " ".join(log_messages).lower()
-            assert "warning" in combined or "provenance" in combined
+            assert "provenance" in combined and "write" in combined
         finally:
             logger.remove(handler_id)
 

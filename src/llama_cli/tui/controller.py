@@ -688,10 +688,10 @@ class DashboardController:
             emit_error("launch blocked - no slots could be launched")
             if launch_result.errors is not None:
                 for error_detail in launch_result.errors.errors:
-                    emit_plain(f"  {error_detail.error_code}")
-                    emit_plain(f"    failed_check: {error_detail.failed_check}")
-                    emit_plain(f"    why_blocked: {error_detail.why_blocked}")
-                    emit_plain(f"    how_to_fix: {error_detail.how_to_fix}")
+                    emit_plain(f"  {error_detail.error_code}", err=True)
+                    emit_plain(f"    failed_check: {error_detail.failed_check}", err=True)
+                    emit_plain(f"    why_blocked: {error_detail.why_blocked}", err=True)
+                    emit_plain(f"    how_to_fix: {error_detail.how_to_fix}", err=True)
             raise SystemExit(1)
 
         if launch_result.is_degraded():
