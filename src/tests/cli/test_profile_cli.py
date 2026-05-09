@@ -129,6 +129,7 @@ class TestGetDriverVersion:
                 text=True,
                 shell=False,
                 timeout=10,
+                check=False,
             )
 
     def test_nvidia_smi_failure_returns_unknown(self) -> None:
@@ -206,19 +207,21 @@ class TestMain:
 
     def test_missing_args(self, capsys: pytest.CaptureFixture[str]) -> None:
         """main should return 1 and print error when fewer than 2 args given."""
-        exit_code = main(["only_one_arg"])
+        with pytest.raises(SystemExit) as exc_info:
+            main(["only_one_arg"])
 
-        assert exit_code == 1
+        assert exc_info.value.code == 1
         captured = capsys.readouterr()
-        assert "slot_id and a flavor" in captured.err
+        assert "the following arguments are required: flavor" in captured.err
 
     def test_no_args(self, capsys: pytest.CaptureFixture[str]) -> None:
         """main should return 1 when no arguments provided at all."""
-        exit_code = main([])
+        with pytest.raises(SystemExit) as exc_info:
+            main([])
 
-        assert exit_code == 1
+        assert exc_info.value.code == 1
         captured = capsys.readouterr()
-        assert "slot_id and a flavor" in captured.err
+        assert "the following arguments are required: slot_id" in captured.err
 
     def test_empty_slot_id(self, capsys: pytest.CaptureFixture[str]) -> None:
         """main should reject empty slot_id."""
@@ -254,12 +257,14 @@ class TestMain:
 
     def test_invalid_flavor(self, capsys: pytest.CaptureFixture[str]) -> None:
         """main should reject invalid flavor values."""
-        exit_code = main(["slot1", "invalid_flavor"])
+        with pytest.raises(SystemExit) as exc_info:
+            main(["slot1", "invalid_flavor"])
 
-        assert exit_code == 1
+        assert exc_info.value.code == 1
         captured = capsys.readouterr()
-        assert "invalid flavor" in captured.err
-        assert "balanced, fast, quality" in captured.err
+        assert "invalid choice" in captured.err
+        assert "balanced" in captured.err
+        assert "quality" in captured.err
 
     def test_json_flag_parsed(self) -> None:
         """main should pass --json flag to cmd_profile."""
@@ -849,6 +854,7 @@ class TestCmdProfile:
                 text=True,
                 shell=False,
                 timeout=600,
+                check=False,
             )
 
     def test_cuda_backend_detection_in_profile(

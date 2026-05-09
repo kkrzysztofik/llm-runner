@@ -13,17 +13,20 @@ Flavors: balanced, fast, quality
 
 from __future__ import annotations
 
-import json
+import argparse
 import os
 import subprocess
 import sys
 import threading
+import typing
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import cast
 
 from loguru import logger
 
+from llama_cli.commands._output import emit_json
+from llama_cli.commands._subprocess import run_capture_command, stream_to_text
 from llama_cli.ui_output import emit_error, emit_plain
 from llama_manager import (
     BenchmarkResult,
@@ -63,29 +66,15 @@ def _default_subprocess_runner(
         A :class:`SubprocessResult` with exit code and captured output.
     """
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            shell=False,
-            timeout=timeout_seconds,
-        )
+        result = run_capture_command(cmd, timeout_seconds=timeout_seconds)
         return SubprocessResult(
             exit_code=result.returncode,
             stdout=result.stdout,
             stderr=result.stderr,
         )
     except subprocess.TimeoutExpired as exc:
-        timeout_stdout = exc.stdout
-        if isinstance(timeout_stdout, bytes):
-            timeout_stdout_text = timeout_stdout.decode("utf-8", errors="replace")
-        else:
-            timeout_stdout_text = timeout_stdout or ""
-
-        timeout_stderr_detail = exc.stderr
-        if isinstance(timeout_stderr_detail, bytes):
-            timeout_stderr_detail = timeout_stderr_detail.decode("utf-8", errors="replace")
-
+        timeout_stdout_text = stream_to_text(exc.stdout)
+        timeout_stderr_detail = stream_to_text(exc.stderr)
         timeout_stderr = f"benchmark timed out after {timeout_seconds}s"
         if timeout_stderr_detail:
             timeout_stderr = f"{timeout_stderr}: {timeout_stderr_detail}"
@@ -178,12 +167,9 @@ def _query_nvidia_driver() -> str | None:
         Driver version string, or ``None`` on failure.
     """
     try:
-        result = subprocess.run(
+        result = run_capture_command(
             ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
-            capture_output=True,
-            text=True,
-            shell=False,
-            timeout=10,
+            timeout_seconds=10,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip().split("\n")[0].strip()
@@ -199,12 +185,9 @@ def _query_sycl_driver() -> str | None:
         First line mentioning ``gpu`` or ``device``, or ``None`` on failure.
     """
     try:
-        result = subprocess.run(
+        result = run_capture_command(
             ["sycl-ls"],
-            capture_output=True,
-            text=True,
-            shell=False,
-            timeout=10,
+            timeout_seconds=10,
         )
         if result.returncode == 0 and result.stdout.strip():
             for line in result.stdout.splitlines():
@@ -389,7 +372,7 @@ def _create_and_save_profile(
     profile_path = write_profile(config.profiles_dir, record)
 
     if json_output:
-        _emit(json.dumps(record.to_dict(), indent=2))
+        emit_json(record.to_dict())
     else:
         _emit(f"Profile recorded for slot '{slot_id}'")
         _emit(f"  GPU: {gpu_identifier}")
@@ -532,6 +515,70 @@ def cmd_profile(
     )
 
 
+class _ProfileArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser subclass that exits with code 1 on errors.
+
+    The default argparse.ArgumentParser exits with code 2 on errors.
+    This project convention requires exit code 1 for user-input validation
+    failures.
+    """
+
+    def error(self, message: str) -> typing.NoReturn:
+        """Override to exit with code 1 instead of 2."""
+        self.print_usage(sys.stderr)
+        emit_error(message)
+        sys.exit(1)
+
+
+def _build_profile_parser() -> _ProfileArgumentParser:
+    """Build the argument parser for the profile subcommand."""
+    parser = _ProfileArgumentParser(
+        prog="profile",
+        description="Benchmark GPU performance and cache the results",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s slot0 balanced      Profile slot0 with balanced flavor
+  %(prog)s summary-fast fast   Profile summary-fast with fast flavor
+  %(prog)s qwen35-coding quality  Profile qwen35-coding with quality flavor
+  %(prog)s slot0 balanced --json  Output results as JSON
+        """,
+    )
+
+    parser.add_argument(
+        "slot_id",
+        help="Slot identifier (e.g., slot0, summary-balanced, qwen35-coding)",
+    )
+    parser.add_argument(
+        "flavor",
+        choices=["balanced", "fast", "quality"],
+        help="Performance profile flavor",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output results as JSON",
+    )
+
+    return parser
+
+
+def _validate_slot_id(slot_id: str) -> str | None:
+    """Validate slot_id and return error message or None if valid.
+
+    Args:
+        slot_id: The slot identifier to validate.
+
+    Returns:
+        Error message string if invalid, None if valid.
+    """
+    if not slot_id or not slot_id.strip():
+        return "slot_id must not be empty"
+    if ".." in slot_id:
+        return "slot_id must not contain path traversal sequences"
+    return None
+
+
 def main(args: list[str] | None = None) -> int:
     """CLI entry point for the profile subcommand.
 
@@ -546,31 +593,12 @@ def main(args: list[str] | None = None) -> int:
     """
     argv = args if args is not None else sys.argv[1:]
 
-    if len(argv) < 2:
-        emit_error("profile requires a slot_id and a flavor (balanced|fast|quality)")
+    parser = _build_profile_parser()
+    parsed = parser.parse_args(argv)
+
+    validation_error = _validate_slot_id(parsed.slot_id)
+    if validation_error is not None:
+        emit_error(validation_error)
         return 1
 
-    slot_id = argv[0]
-    flavor_str = argv[1]
-    remaining = argv[2:]
-
-    # Validate slot_id
-    if not slot_id or not slot_id.strip():
-        emit_error("slot_id must not be empty")
-        return 1
-
-    if ".." in slot_id:
-        emit_error("slot_id must not contain path traversal sequences")
-        return 1
-
-    # Validate flavor
-    try:
-        flavor = ProfileFlavor(flavor_str)
-    except ValueError:
-        emit_error(f"invalid flavor '{flavor_str}'. Valid flavors: balanced, fast, quality")
-        return 1
-
-    # Parse remaining flags
-    json_output = "--json" in remaining
-
-    return cmd_profile(slot_id, flavor.value, json_output=json_output)
+    return cmd_profile(parsed.slot_id, parsed.flavor, json_output=bool(parsed.json))

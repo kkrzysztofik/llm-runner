@@ -9,7 +9,6 @@ All commands support --json output for programmatic access.
 
 import argparse
 import json
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,6 +16,7 @@ from typing import Any
 
 from llama_cli.colors import Colors
 from llama_cli.commands._output import emit_json, emit_plain
+from llama_cli.commands._subprocess import run_capture_command
 from llama_cli.commands._toolchain import (
     collect_toolchain_repair_actions,
     resolve_backend_enum,
@@ -816,19 +816,11 @@ def _execute_repair_action(action: RepairAction, result: DoctorRepairResult) -> 
         if action.args:
             cmd_list = cmd_list + action.args
 
-        subprocess.run(
-            cmd_list,
-            shell=False,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        run_capture_command(cmd_list, check=True)
         result.performed_actions.append(action.description)
-    except subprocess.CalledProcessError as e:
-        result.failures.append(f"Failed to {action.description}: {e.stderr or str(e)}")
-        result.success = False
     except Exception as e:
-        result.failures.append(f"Failed to {action.description}: {e}")
+        stderr = getattr(e, "stderr", None)
+        result.failures.append(f"Failed to {action.description}: {stderr or str(e)}")
         result.success = False
 
 

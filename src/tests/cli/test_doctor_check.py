@@ -1423,7 +1423,7 @@ class TestExecuteRepairAction:
             dry_run_command="# echo hello",
         )
 
-        with patch("llama_cli.commands.doctor.subprocess.run") as mock_run:
+        with patch("llama_cli.commands.doctor.run_capture_command") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
             _execute_repair_action(action, result)
 
@@ -1441,7 +1441,7 @@ class TestExecuteRepairAction:
         )
 
         with patch(
-            "llama_cli.commands.doctor.subprocess.run",
+            "llama_cli.commands.doctor.run_capture_command",
             side_effect=Exception("command failed"),
         ):
             _execute_repair_action(action, result)
