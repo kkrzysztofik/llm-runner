@@ -84,10 +84,9 @@ class RepairAction:
 
     action_type: str
     description: str
-    command: str | list[str] | None
+    command: list[str] | None
     dry_run_command: str | None
     requires_confirmation: bool = False
-    args: list[str] | None = None
     prerequisite_index: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -98,7 +97,6 @@ class RepairAction:
             "command": self.command,
             "dry_run_command": self.dry_run_command,
             "requires_confirmation": self.requires_confirmation,
-            "args": self.args,
             "prerequisite_index": self.prerequisite_index,
         }
 
@@ -605,8 +603,7 @@ def _collect_venv_repair_actions(result: DoctorRepairResult) -> None:
         RepairAction(
             action_type="remove_venv",
             description=f"Remove broken virtual environment ({error})",
-            command="rm",
-            args=["-rf", str(venv_path)],
+            command=["rm", "-rf", str(venv_path)],
             dry_run_command=f"# rm -rf '{venv_path}'",
             requires_confirmation=True,
         )
@@ -636,8 +633,7 @@ def _collect_staging_repair_actions(result: DoctorRepairResult, config: Config) 
                 RepairAction(
                     action_type="clean_failed_staging",
                     description=f"Remove failed staging directory: {parent_dir}",
-                    command="rm",
-                    args=["-rf", str(parent_dir)],
+                    command=["rm", "-rf", str(parent_dir)],
                     dry_run_command=f"# rm -rf '{parent_dir}'",
                     requires_confirmation=True,
                 )
@@ -646,8 +642,7 @@ def _collect_staging_repair_actions(result: DoctorRepairResult, config: Config) 
                 RepairAction(
                     action_type="remove_failed_marker",
                     description=f"Remove .failed marker: {marker}",
-                    command="rm",
-                    args=[str(marker)],
+                    command=["rm", str(marker)],
                     dry_run_command=f"# rm '{marker}'",
                     requires_confirmation=False,
                 )
@@ -672,8 +667,7 @@ def _collect_lock_repair_actions(result: DoctorRepairResult, config: Config) -> 
                 RepairAction(
                     action_type="remove_stale_lock",
                     description=f"Remove stale build lock (PID {lock.pid})",
-                    command="rm",
-                    args=[str(lock_path)],
+                    command=["rm", str(lock_path)],
                     dry_run_command=f"# rm '{lock_path}'",
                     requires_confirmation=True,
                 )
@@ -683,8 +677,7 @@ def _collect_lock_repair_actions(result: DoctorRepairResult, config: Config) -> 
             RepairAction(
                 action_type="remove_corrupt_lock",
                 description=f"Remove corrupted build lock file ({e})",
-                command="rm",
-                args=[str(lock_path)],
+                command=["rm", str(lock_path)],
                 dry_run_command=f"# rm '{lock_path}'",
                 requires_confirmation=True,
             )
@@ -795,8 +788,7 @@ def _collect_profile_repair_actions(
                         f"Remove stale profile: {profile_path.name} "
                         f"({reasons}, {staleness.age_days:.0f} days old) — {guidance}"
                     ),
-                    command="rm",
-                    args=[str(profile_path)],
+                    command=["rm", str(profile_path)],
                     dry_run_command=f"# rm '{profile_path}'",
                     requires_confirmation=True,
                 )
@@ -809,14 +801,7 @@ def _execute_repair_action(action: RepairAction, result: DoctorRepairResult) -> 
         return
 
     try:
-        # Handle both string commands and list commands
-        cmd_list = action.command if isinstance(action.command, list) else [action.command]
-
-        # Add args if present
-        if action.args:
-            cmd_list = cmd_list + action.args
-
-        run_capture_command(cmd_list, check=True)
+        run_capture_command(action.command, check=True)
         result.performed_actions.append(action.description)
     except Exception as e:
         stderr = getattr(e, "stderr", None)

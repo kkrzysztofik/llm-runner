@@ -135,7 +135,7 @@ class TestDoctorRepairResult:
                 RepairAction(
                     action_type="test",
                     description="Test action",
-                    command="test",
+                    command=["test"],
                     dry_run_command="# test",
                     requires_confirmation=True,
                 )
@@ -160,7 +160,7 @@ class TestRepairAction:
         action = RepairAction(
             action_type="test",
             description="Test action",
-            command="test",
+            command=["test"],
             dry_run_command="# test",
             requires_confirmation=True,
         )
@@ -175,7 +175,7 @@ class TestRepairAction:
         action = RepairAction(
             action_type="test",
             description="Test action",
-            command="test",
+            command=["test"],
             dry_run_command="# test",
         )
         data = action.to_dict()
@@ -1418,8 +1418,7 @@ class TestExecuteRepairAction:
         action = RepairAction(
             action_type="test",
             description="Success",
-            command="echo",
-            args=["hello"],
+            command=["echo", "hello"],
             dry_run_command="# echo hello",
         )
 
@@ -1427,6 +1426,7 @@ class TestExecuteRepairAction:
             mock_run.return_value = MagicMock(returncode=0)
             _execute_repair_action(action, result)
 
+        mock_run.assert_called_once_with(["echo", "hello"], check=True)
         assert len(result.performed_actions) == 1
         assert "Success" in result.performed_actions[0]
 
@@ -1436,7 +1436,7 @@ class TestExecuteRepairAction:
         action = RepairAction(
             action_type="test",
             description="Fail",
-            command="false",
+            command=["false"],
             dry_run_command="# false",
         )
 
@@ -1540,7 +1540,7 @@ class TestPrintRepairResults:
                 RepairAction(
                     action_type="test",
                     description="Test action",
-                    command="test",
+                    command=["test"],
                     dry_run_command="# test",
                 )
             ]
@@ -1556,7 +1556,7 @@ class TestPrintRepairResults:
                 RepairAction(
                     action_type="test",
                     description="Test",
-                    command="test",
+                    command=["test"],
                     dry_run_command="# test",
                 )
             ],
@@ -1573,7 +1573,7 @@ class TestPrintRepairResults:
                 RepairAction(
                     action_type="test",
                     description="Test",
-                    command="test",
+                    command=["test"],
                     dry_run_command="# test",
                 )
             ],
