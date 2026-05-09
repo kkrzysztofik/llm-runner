@@ -52,3 +52,50 @@ def print_json(data: dict[str, Any]) -> None:
         data: Dictionary to serialize to JSON.
     """
     emit_plain(json.dumps(data, indent=2, default=str))
+
+
+def emit_json(data: dict[str, Any]) -> None:
+    """Print a JSON dictionary to stdout.
+
+    Args:
+        data: Dictionary to serialize to JSON.
+    """
+    emit_plain(json.dumps(data, indent=2, default=str))
+
+
+def emit_json_str(json_str: str) -> None:
+    """Print a pre-serialized JSON string to stdout.
+
+    Args:
+        json_str: A JSON string to print directly.
+    """
+    emit_plain(json_str)
+
+
+def emit_json_error(
+    message: str,
+    details: str | None = None,
+    status: str | None = None,
+) -> None:
+    """Print a structured JSON error envelope.
+
+    Args:
+        message: Error message string.
+        details: Optional additional detail string.
+        status: Optional status field (e.g. "error").
+    """
+    payload: dict[str, str] = {"error": message}
+    if details:
+        payload["details"] = details
+    if status:
+        payload["status"] = status
+    emit_plain(json.dumps(payload))
+
+
+def emit_json_success(data: dict[str, Any]) -> None:
+    """Print a JSON success envelope wrapping a data dict.
+
+    Args:
+        data: Dictionary to include under the "success" key.
+    """
+    emit_plain(json.dumps({"success": True, **data}, default=str))

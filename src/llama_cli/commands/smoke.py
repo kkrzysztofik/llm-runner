@@ -14,17 +14,16 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import json
 import sys
 import time
 import typing
 from typing import Any
 
+from llama_cli.commands._output import emit_json, emit_plain
 from llama_cli.ui_output import (
     emit_error,
     emit_heading,
     emit_info,
-    emit_plain,
 )
 from llama_manager import (
     Config,
@@ -458,4 +457,4 @@ def _print_report_json(report: SmokeCompositeReport) -> None:
             for r in report.results
         ],
     }
-    emit_plain(json.dumps(output, indent=2))
+    emit_json(output)

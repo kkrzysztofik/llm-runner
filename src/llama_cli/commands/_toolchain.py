@@ -8,6 +8,7 @@ rather than duplicating backend/hints logic.
 from llama_manager.build_pipeline import BuildBackend
 from llama_manager.toolchain import (
     ToolchainErrorDetail,
+    ToolchainStatus,
     get_toolchain_hints,
 )
 
@@ -108,3 +109,40 @@ def collect_toolchain_repair_actions(
             seen_tools.add(hint.failed_check)
             hints.append(hint)
     return hints
+
+
+def toolchain_check_exit_code(status: ToolchainStatus, backend_str: str) -> int:
+    """Return exit code for a toolchain check based on backend readiness.
+
+    Args:
+        status: ToolchainStatus from detect_toolchain().
+        backend_str: Backend string ("sycl", "cuda", or "all").
+
+    Returns:
+        0 if backend is ready, 1 if not.
+    """
+    if backend_str == "sycl":
+        return 0 if status.is_sycl_ready else 1
+    if backend_str == "cuda":
+        return 0 if status.is_cuda_ready else 1
+    return 0 if status.is_complete else 1
+
+
+def toolchain_is_ready_for_backend(
+    status: ToolchainStatus,
+    backend: BuildBackend | None,
+) -> bool:
+    """Return whether toolchain is ready for the given backend.
+
+    Args:
+        status: ToolchainStatus from detect_toolchain().
+        backend: BuildBackend enum or None for all backends.
+
+    Returns:
+        True if the backend (or all backends) is ready.
+    """
+    if backend == BuildBackend.SYCL:
+        return status.is_sycl_ready
+    if backend == BuildBackend.CUDA:
+        return status.is_cuda_ready
+    return status.is_complete

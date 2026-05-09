@@ -81,7 +81,8 @@ DEFAULT_UBATCH_SIZE_QWEN27B=1024
 DEFAULT_UBATCH_SIZE_GEMMA4_E4B=512
 DEFAULT_UBATCH_SIZE_GEMMA4_27B=1024
 DEFAULT_UBATCH_SIZE_GEMMA4_31B=512
-DEFAULT_UBATCH_SIZE_QWEN35_BOTH=1024
+DEFAULT_BATCH_SIZE_QWEN35_BOTH=1024
+DEFAULT_UBATCH_SIZE_QWEN35_BOTH=512
 DEFAULT_UBATCH_SIZE_GEMMA4_27B_BOTH=1024
 DEFAULT_THREADS_SUMMARY_BALANCED=8
 DEFAULT_THREADS_SUMMARY_FAST=8
@@ -111,7 +112,7 @@ DEFAULT_CACHE_TYPE_QWEN35_V=q8_0
 DEFAULT_CACHE_TYPE_QWEN27B_K=q8_0
 DEFAULT_CACHE_TYPE_QWEN27B_V=q8_0
 DEFAULT_CACHE_TYPE_QWEN35_BOTH_K=q8_0
-DEFAULT_CACHE_TYPE_QWEN35_BOTH_V=q4_0
+DEFAULT_CACHE_TYPE_QWEN35_BOTH_V=q8_0
 DEFAULT_CACHE_TYPE_GEMMA4_E4B_K=f16
 DEFAULT_CACHE_TYPE_GEMMA4_E4B_V=f16
 # f16 KV validated for max-context probes on RTX 3090
@@ -305,6 +306,7 @@ build_server_cmd() {
   local server_bin="${18:-$LLAMA_SERVER_BIN_INTEL}"
   local mmproj_path="${19:-}"
   local poll_ms="${20:-50}"
+  local batch_size="${21:-2048}"
   
   cmd_ref=(
     "$server_bin"
@@ -334,7 +336,7 @@ build_server_cmd() {
     --flash-attn on
     --cache-type-k "$cache_type_k"
     --cache-type-v "$cache_type_v"
-    --batch-size 2048
+    --batch-size "$batch_size"
     --ubatch-size "$ubatch_size"
     --threads "$threads"
     --poll "$poll_ms"
@@ -599,7 +601,7 @@ start_both_qwen35() {
   build_server_cmd qwen35_cmd "$MODEL_QWEN35_BOTH_MTP" "qwen35-coding" "" "$qwen35_port" \
     "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
     "" on deepseek '{"preserve_thinking":true}' "" "false" \
-    "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
+    "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35" "$DEFAULT_BATCH_SIZE_QWEN35_BOTH"
   qwen35_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   qwen35_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   qwen35_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN35_BOTH")
@@ -955,6 +957,7 @@ dry_run() {
       echo "  Device: NVIDIA (CUDA)"
       echo "  Context: $DEFAULT_CTX_SIZE_BOTH_QWEN35"
       echo "  Threads: $DEFAULT_THREADS_QWEN35_BOTH"
+      echo "  Batch: $DEFAULT_BATCH_SIZE_QWEN35_BOTH"
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_QWEN35_BOTH"
       echo "  Parallel slots: $DEFAULT_PARALLEL_QWEN35_BOTH"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_QWEN35_BOTH_K/$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V"
@@ -967,7 +970,7 @@ dry_run() {
       build_server_cmd tmp_cmd "$MODEL_QWEN35_BOTH_MTP" "qwen35-coding" "" "$qwen35_port_both" \
         "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
         "" on deepseek '{"preserve_thinking":true}' "" "false" \
-        "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
+        "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35" "$DEFAULT_BATCH_SIZE_QWEN35_BOTH"
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN35_BOTH")

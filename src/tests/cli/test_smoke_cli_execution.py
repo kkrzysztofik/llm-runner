@@ -1347,13 +1347,10 @@ class TestPrintReportJson:
 
     def test_print_report_json_structure(self, capsys: pytest.CaptureFixture[str]) -> None:
         """JSON report should contain results, overall_exit_code, and provenance."""
-        from unittest.mock import patch
+        import json
 
         from llama_cli.commands.smoke import _print_report_json
-        from llama_manager.probe import (
-            ProvenanceRecord,
-            SmokeProbeResult,
-        )
+        from llama_manager.probe import ProvenanceRecord, SmokeCompositeReport, SmokeProbeResult
 
         provenance = ProvenanceRecord(sha="abc1234", version="1.0.0")
         result = SmokeProbeResult(
@@ -1365,26 +1362,22 @@ class TestPrintReportJson:
             provenance=provenance,
         )
 
-        with patch("llama_cli.commands.smoke.json.dumps") as mock_dumps:
-            _print_report_json(MagicMock(results=[result], pass_count=1, fail_count=0))
+        _print_report_json(SmokeCompositeReport(results=[result]))
 
-        mock_dumps.assert_called_once()
-        call_args = mock_dumps.call_args[0][0]
-        assert "results" in call_args
-        assert "overall_exit_code" in call_args
-        assert "provenance" in call_args["results"][0]
-        assert call_args["results"][0]["provenance"]["sha"] == "abc1234"
-        assert call_args["results"][0]["provenance"]["version"] == "1.0.0"
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert "results" in data
+        assert "overall_exit_code" in data
+        assert "provenance" in data["results"][0]
+        assert data["results"][0]["provenance"]["sha"] == "abc1234"
+        assert data["results"][0]["provenance"]["version"] == "1.0.0"
 
     def test_print_report_json_failure_phase_none(self, capsys: pytest.CaptureFixture[str]) -> None:
         """JSON report should include failure_phase as None when absent."""
-        from unittest.mock import patch
+        import json
 
         from llama_cli.commands.smoke import _print_report_json
-        from llama_manager.probe import (
-            ProvenanceRecord,
-            SmokeProbeResult,
-        )
+        from llama_manager.probe import ProvenanceRecord, SmokeCompositeReport, SmokeProbeResult
 
         provenance = ProvenanceRecord(sha="def5678", version="dev")
         result = SmokeProbeResult(
@@ -1396,10 +1389,10 @@ class TestPrintReportJson:
             provenance=provenance,
         )
 
-        with patch("llama_cli.commands.smoke.json.dumps") as mock_dumps:
-            _print_report_json(MagicMock(results=[result], pass_count=1, fail_count=0))
+        _print_report_json(SmokeCompositeReport(results=[result]))
 
-        call_args = mock_dumps.call_args[0][0]
-        assert call_args["results"][0]["failure_phase"] is None
-        assert call_args["results"][0]["model_id"] is None
-        assert call_args["results"][0]["latency_ms"] is None
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["results"][0]["failure_phase"] is None
+        assert data["results"][0]["model_id"] is None
+        assert data["results"][0]["latency_ms"] is None

@@ -16,15 +16,16 @@ from pathlib import Path
 from typing import Any
 
 from llama_cli.colors import Colors
+from llama_cli.commands._output import emit_json, emit_plain
 from llama_cli.commands._toolchain import (
     collect_toolchain_repair_actions,
     resolve_backend_enum,
+    toolchain_is_ready_for_backend,
 )
 from llama_cli.ui_output import (
     emit_error,
     emit_heading,
     emit_info,
-    emit_plain,
     emit_success,
     emit_warn,
 )
@@ -129,12 +130,7 @@ def _check_toolchain(
     backend: BuildBackend | None,
 ) -> None:
     """Check toolchain completeness and update result."""
-    if backend == BuildBackend.SYCL:
-        result.toolchain_complete = toolchain_status.is_sycl_ready
-    elif backend == BuildBackend.CUDA:
-        result.toolchain_complete = toolchain_status.is_cuda_ready
-    else:
-        result.toolchain_complete = toolchain_status.is_complete
+    result.toolchain_complete = toolchain_is_ready_for_backend(toolchain_status, backend)
 
     if not result.toolchain_complete:
         result.is_healthy = False
@@ -215,6 +211,92 @@ def _check_reports_dir(result: DoctorCheckResult, config: Config) -> None:
         result.warnings.append("Reports directory does not exist")
 
 
+@dataclass
+class ProfileScanEntry:
+    """A single profile entry returned by the profile scanner."""
+
+    path: Path
+    record: ProfileRecord | None
+    staleness: StalenessResult | None
+    reasons: str
+    guidance: str
+
+
+def _scan_profiles(
+    profiles_dir: Path,
+    max_age_days: int,
+    stale_only: bool,
+    current_driver_version: str | None = None,
+    current_binary_version: str | None = None,
+) -> list[ProfileScanEntry]:
+    """Scan profiles directory and return scan entries.
+
+    Single canonical iterator for profile scanning. When stale_only=False,
+    returns all profiles (fresh and stale) with their staleness. When
+    stale_only=True, returns only stale profiles (or corrupt entries).
+
+    Args:
+        profiles_dir: Path to the profiles directory.
+        max_age_days: Maximum acceptable profile age in days.
+        stale_only: If True, only return stale entries; if False, return all.
+        current_driver_version: Current GPU driver version.
+        current_binary_version: Current llama-server binary version.
+
+    Returns:
+        List of ProfileScanEntry objects.
+    """
+    if not profiles_dir.exists():
+        return []
+
+    results: list[ProfileScanEntry] = []
+    for profile_path in sorted(profiles_dir.glob("*.json")):
+        try:
+            raw = profile_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            record = ProfileRecord.from_dict(data)
+        except (KeyError, TypeError, ValueError) as e:
+            results.append(
+                ProfileScanEntry(
+                    path=profile_path,
+                    record=None,
+                    staleness=None,
+                    reasons="",
+                    guidance=str(e),
+                )
+            )
+            continue
+
+        staleness = check_staleness(
+            record,
+            current_driver_version=current_driver_version or record.driver_version,
+            current_binary_version=current_binary_version or record.server_binary_version,
+            staleness_days=max_age_days,
+        )
+
+        if stale_only and not staleness.is_stale:
+            continue
+
+        if staleness.is_stale:
+            reasons = ", ".join(r.value for r in staleness.reasons)
+            guidance = _build_profile_guidance(staleness, record, max_age_days)
+            entry_staleness = staleness
+        else:
+            reasons = ""
+            guidance = ""
+            entry_staleness = None
+        results.append(
+            ProfileScanEntry(
+                path=profile_path,
+                record=record,
+                staleness=entry_staleness,
+                reasons=reasons,
+                guidance=guidance,
+            )
+        )
+
+    return results
+
+
 def _iterate_stale_profiles(
     profiles_dir: Path,
     max_age_days: int,
@@ -239,33 +321,17 @@ def _iterate_stale_profiles(
     Returns:
         List of tuples: (profile_path, record, staleness, reasons, guidance).
     """
-    if not profiles_dir.exists():
-        return []
-
-    results: list[tuple[Path, ProfileRecord, StalenessResult, str, str]] = []
-    for profile_path in sorted(profiles_dir.glob("*.json")):
-        try:
-            raw = profile_path.read_text(encoding="utf-8")
-            data = json.loads(raw)
-            record = ProfileRecord.from_dict(data)
-        except (KeyError, TypeError, ValueError) as e:
-            # Corrupt or unrecognised file — caller handles warning
-            results.append((profile_path, None, None, "", str(e)))  # type: ignore[list-item]
-            continue
-
-        staleness = check_staleness(
-            record,
-            current_driver_version=current_driver_version or record.driver_version,
-            current_binary_version=current_binary_version or record.server_binary_version,
-            staleness_days=max_age_days,
-        )
-
-        if staleness.is_stale:
-            reasons = ", ".join(r.value for r in staleness.reasons)
-            guidance = _build_profile_guidance(staleness, record, max_age_days)
-            results.append((profile_path, record, staleness, reasons, guidance))
-
-    return results
+    entries = _scan_profiles(
+        profiles_dir,
+        max_age_days,
+        stale_only=True,
+        current_driver_version=current_driver_version,
+        current_binary_version=current_binary_version,
+    )
+    return [
+        (e.path, e.record, e.staleness, e.reasons, e.guidance)  # type: ignore[list-item]
+        for e in entries
+    ]
 
 
 def _iterate_all_profiles(
@@ -288,36 +354,17 @@ def _iterate_all_profiles(
     Returns:
         List of tuples: (profile_path, record, staleness_or_None, reasons, guidance).
     """
-    if not profiles_dir.exists():
-        return []
-
-    results: list[tuple[Path, ProfileRecord, StalenessResult | None, str, str]] = []
-    for profile_path in sorted(profiles_dir.glob("*.json")):
-        try:
-            raw = profile_path.read_text(encoding="utf-8")
-            data = json.loads(raw)
-            record = ProfileRecord.from_dict(data)
-        except (KeyError, TypeError, ValueError) as e:
-            # Corrupt or unrecognised file — caller handles warning
-            results.append((profile_path, None, None, "", str(e)))  # type: ignore[list-item]
-            continue
-
-        staleness = check_staleness(
-            record,
-            current_driver_version=current_driver_version or record.driver_version,
-            current_binary_version=current_binary_version or record.server_binary_version,
-            staleness_days=max_age_days,
-        )
-
-        if staleness.is_stale:
-            reasons = ", ".join(r.value for r in staleness.reasons)
-            guidance = _build_profile_guidance(staleness, record, max_age_days)
-            results.append((profile_path, record, staleness, reasons, guidance))
-        else:
-            # Fresh profile — include with None staleness for counting
-            results.append((profile_path, record, None, "", ""))
-
-    return results
+    entries = _scan_profiles(
+        profiles_dir,
+        max_age_days,
+        stale_only=False,
+        current_driver_version=current_driver_version,
+        current_binary_version=current_binary_version,
+    )
+    return [
+        (e.path, e.record, e.staleness, e.reasons, e.guidance)  # type: ignore[list-item]
+        for e in entries
+    ]
 
 
 def _check_profiles(
@@ -506,7 +553,7 @@ def cmd_doctor_check(parsed: argparse.Namespace) -> int:
     )
 
     if json_output:
-        emit_plain(json.dumps(result.to_dict()))
+        emit_json(result.to_dict())
         return 0 if result.is_healthy else 1
 
     return _print_check_results(result)
@@ -892,7 +939,7 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                     failed.add(idx)
 
     if json_output:
-        emit_plain(json.dumps(result.to_dict()))
+        emit_json(result.to_dict())
         return result
 
     _print_repair_results(result)
