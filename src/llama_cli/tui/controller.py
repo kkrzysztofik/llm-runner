@@ -37,7 +37,6 @@ from .components.profile_status import ProfileStatusPanelRenderer
 from .components.risk import RiskPanelRenderer
 from .components.server_column import ServerColumnPanel
 from .components.slot_status import SlotStatusPanel
-from .components.status_messages import StatusMessagesRenderer
 from .components.system_status import SystemStatusPanelRenderer
 from .model import DashboardModel
 from .textual_app import DashboardApp
@@ -60,7 +59,6 @@ class DashboardController:
         self._status_panel_renderer = LaunchStatusPanelRenderer()
         self._risk_panel_renderer = RiskPanelRenderer()
         self._profile_status_renderer = ProfileStatusPanelRenderer()
-        self._status_messages_renderer = StatusMessagesRenderer()
         self._system_status_renderer = SystemStatusPanelRenderer()
         self.status_panel: Panel | None = None
 
@@ -324,31 +322,12 @@ class DashboardController:
             self._profile_flavor,
         )
 
-    def build_system_notices(self) -> list[str]:
-        """Build concise status notices shown in the top system panel."""
-        notices = self.view_model.system_notices()
-
-        if self.build_in_progress and self.build_progress is not None:
-            notices.append(
-                f"Build {self.build_progress.stage}: {self.build_progress.status} "
-                f"({self.build_progress.progress_percent}%)"
-            )
-
-        return notices
-
     # How long (seconds) a status message remains visible across renders.
     _STATUS_MESSAGE_LIFETIME_S: float = DashboardModel.STATUS_MESSAGE_LIFETIME_S
-
-    def _build_status_messages_panel(self) -> Text | None:
-        return self._status_messages_renderer.render(self.view_model.status_messages())
 
     def get_status_messages_since(self, since_ts: float) -> list[tuple[float, str]]:
         """Return status messages newer than ``since_ts``."""
         return self.model.get_status_messages_since(since_ts)
-
-    def prune_expired_status_messages(self) -> None:
-        """Remove status messages older than ``_STATUS_MESSAGE_LIFETIME_S``."""
-        self.model.prune_expired_status_messages()
 
     def _build_command_menu(self) -> Text:
         from .components.menu import CommandMenuRenderer

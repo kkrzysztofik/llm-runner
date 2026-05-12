@@ -13,9 +13,13 @@ from llama_manager.config import create_default_profile_registry
 from .components.gpu_telemetry import GPUTelemetryWidget
 from .components.menu import CommandMenu
 from .components.modal import AddSlotModal
-from .components.notices import NoticesWidget
 from .components.server_log import ServerLogPanel
-from .components.system_health import SystemHealthWidget
+from .components.system_health import (
+    CPUUsageWidget,
+    DateTimeWidget,
+    MemorySwapWidget,
+    SystemInfoWidget,
+)
 from .components.system_status import SystemStatusWidget
 
 if TYPE_CHECKING:
@@ -46,6 +50,7 @@ class DashboardApp(App[None]):
         self.controller = controller
         self.view_model = controller.view_model
         self._last_notified_status_ts: float = 0.0
+        self._active_notice_toasts: set[str] = set()
         self._profile_options_cache: list[tuple[str, str]] | None = None
         self._profile_cache_config_id: int | None = None
 
@@ -148,16 +153,25 @@ class DashboardApp(App[None]):
 
         self._emit_status_toasts()
 
-        # Refresh each leaf widget.  SystemStatusWidget uses compose() so it
-        # is just a layout container — its children own their own repaints.
-        self.query_one(SystemHealthWidget).refresh()
+        # Refresh each leaf widget.  SystemStatusWidget and SystemHealthWidget
+        # use compose(), so their children own their own repaints.
+        self.query_one(DateTimeWidget).refresh()
+        self.query_one(CPUUsageWidget).refresh()
+        self.query_one(MemorySwapWidget).refresh()
+        self.query_one(SystemInfoWidget).refresh()
         self.query_one(GPUTelemetryWidget).refresh()
-        self.query_one(NoticesWidget).refresh()
         for panel in self.query(ServerLogPanel):
             panel.refresh()
         self.query_one(CommandMenu).refresh()
 
     def _emit_status_toasts(self) -> None:
+        notices = self.view_model.system_notices()
+        current_notices = set(notices)
+        for notice in notices:
+            if notice not in self._active_notice_toasts:
+                self.notify(notice, title="Alert", severity="warning")
+        self._active_notice_toasts = current_notices
+
         updates = self.controller.get_status_messages_since(self._last_notified_status_ts)
         if not updates:
             return

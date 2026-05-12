@@ -12,6 +12,7 @@ Tests for T016c-T016f:
 
 import signal
 import threading
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -21,6 +22,92 @@ from llama_manager.config import SlotState
 from tests.support.helpers import make_server_config
 
 _make_minimal_config = make_server_config
+
+
+class TestSystemHealthAlignment:
+    """Tests for terminal-width aware system health rendering."""
+
+    def test_system_health_widget_composes_stylable_sections(self) -> None:
+        from textual.containers import Horizontal
+
+        from llama_cli.tui.components.system_health import (
+            CPUUsageWidget,
+            DateTimeWidget,
+            MemorySwapWidget,
+            SystemHealthWidget,
+            SystemInfoWidget,
+        )
+
+        sections = list(SystemHealthWidget().compose())
+
+        assert [type(section) for section in sections] == [
+            DateTimeWidget,
+            CPUUsageWidget,
+            Horizontal,
+        ]
+        assert sections[0].has_class("system-health-datetime")
+        assert sections[1].has_class("system-health-cpu")
+        assert sections[2].has_class("system-health-resource-row")
+        resource_sections = sections[2]._pending_children
+        assert [type(section) for section in resource_sections] == [
+            MemorySwapWidget,
+            SystemInfoWidget,
+        ]
+        assert resource_sections[0].has_class("system-health-memory-swap")
+        assert resource_sections[1].has_class("system-health-system-info")
+
+    def test_core_grid_respects_narrow_terminal_width(self) -> None:
+        from llama_cli.tui.components.system_health import SystemHealthRenderer
+
+        renderer = SystemHealthRenderer()
+
+        lines = renderer._build_core_grid_lines([0.0] * 24, content_width=80)
+
+        assert len(lines) > 3
+        assert all(len(line.plain) <= 80 for line in lines)
+
+    def test_system_health_sections_use_available_width(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import llama_cli.tui.components.system_health as system_health
+
+        def cpu_percent(interval: float | None = None, percpu: bool = False) -> list[float] | float:
+            if percpu:
+                return [0.0] * 24
+            return 0.0
+
+        monkeypatch.setattr(system_health.psutil, "cpu_percent", cpu_percent)
+        monkeypatch.setattr(
+            system_health.psutil,
+            "virtual_memory",
+            lambda: SimpleNamespace(percent=50.0, used=8 * 1024**3, total=16 * 1024**3),
+        )
+        monkeypatch.setattr(
+            system_health.psutil,
+            "swap_memory",
+            lambda: SimpleNamespace(percent=0.0, used=0, total=2 * 1024**3),
+        )
+        monkeypatch.setattr(system_health.psutil, "boot_time", lambda: 0.0)
+        monkeypatch.setattr(system_health.psutil, "getloadavg", lambda: (0.1, 0.2, 0.3))
+        monkeypatch.setattr(system_health.psutil, "process_iter", lambda attrs: [])
+
+        renderer = system_health.SystemHealthRenderer()
+
+        narrow_lines = (
+            renderer.render_cpu_usage(width=80).plain.splitlines()
+            + renderer.render_memory_swap_usage(width=80).plain.splitlines()
+            + renderer.render_system_info().plain.splitlines()
+        )
+        wide_lines = (
+            renderer.render_cpu_usage(width=240).plain.splitlines()
+            + renderer.render_memory_swap_usage(width=240).plain.splitlines()
+            + renderer.render_system_info().plain.splitlines()
+        )
+
+        assert all(len(line) <= 80 for line in narrow_lines)
+        assert any(len(line) > 116 for line in wide_lines)
+        assert all(len(line) <= renderer.MAX_CONTENT_WIDTH for line in wide_lines)
 
 
 class TestPerSlotStatusDisplay:
@@ -525,25 +612,6 @@ class TestGracefulShutdownKeyHandler:
 
         assert len(app._status_messages) <= 5
 
-    def test_build_status_messages_panel(self) -> None:
-        """_build_status_messages_panel should create panel from status messages."""
-        from llama_cli.tui import DashboardController
-
-        app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-        app._push_status_message("status update 1")
-
-        panel = app._build_status_messages_panel()
-        assert panel is not None
-
-    def test_build_status_messages_panel_empty(self) -> None:
-        """_build_status_messages_panel should return None when no messages."""
-        from llama_cli.tui import DashboardController
-
-        app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-
-        panel = app._build_status_messages_panel()
-        assert panel is None
-
     def test_abort_profile(self) -> None:
         """_abort_profile should cancel any running profile."""
         from llama_cli.tui import DashboardController
@@ -826,6 +894,29 @@ class TestTextualDashboardAppActions:
         controller.interrupt.assert_called_once()
         assert mock_refresh.call_count == 7
 
+    def test_emit_status_toasts_uses_popups_for_notices_and_status(self) -> None:
+        controller = MagicMock()
+        controller.view_model.system_notices.return_value = ["Launch degraded: some slots blocked"]
+        controller.get_status_messages_since.return_value = [(1.0, "Slot launched")]
+        app = TextualDashboardApp(controller)
+
+        with patch.object(app, "notify") as notify:
+            app._emit_status_toasts()
+            app._emit_status_toasts()
+
+        notify.assert_any_call(
+            "Launch degraded: some slots blocked",
+            title="Alert",
+            severity="warning",
+        )
+        notify.assert_any_call("Slot launched", title="Status", severity="information")
+        alert_calls = [
+            call
+            for call in notify.call_args_list
+            if call.args == ("Launch degraded: some slots blocked",)
+        ]
+        assert len(alert_calls) == 1
+
 
 # =============================================================================
 # stop
@@ -871,7 +962,7 @@ class TestTUIAppRender:
         assert layout is not None
 
     def test_render_with_status_panel(self) -> None:
-        """render should include status panel in alerts."""
+        """render should include a supplied status panel in the snapshot."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         app.status_panel = MagicMock()
         layout = app.render_panels()
@@ -1412,21 +1503,14 @@ class TestAddSlotFromForm:
 """Unit tests for smaller TUI component modules."""
 
 
-from types import SimpleNamespace
 from typing import cast
 
 from rich.text import Text
 from textual.widgets import Select
 
-from llama_cli.tui.components import alerts, panels
+from llama_cli.tui.components import panels
 from llama_cli.tui.components.modal import AddSlotModal
 from llama_cli.tui.components.profile_status import ProfileStatusPanelRenderer
-
-
-def test_alerts_module_exports_expected_symbols() -> None:
-    assert "ProfileStatusPanelRenderer" in alerts.__all__
-    assert "SystemHealthRenderer" in alerts.__all__
-    assert alerts.ProfileStatusPanelRenderer is ProfileStatusPanelRenderer
 
 
 def test_panels_module_exports_expected_symbols() -> None:

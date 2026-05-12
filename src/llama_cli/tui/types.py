@@ -29,7 +29,6 @@ class SystemStatusState:
     """State needed to render the top system status widgets."""
 
     gpu_lines: list[str]
-    notices: list[str]
 
 
 @dataclass(frozen=True)

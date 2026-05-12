@@ -31,7 +31,6 @@ class DashboardViewModel:
     def system_status(self) -> SystemStatusState:
         return SystemStatusState(
             gpu_lines=self.gpu_telemetry_lines(),
-            notices=self.system_notices(),
         )
 
     def gpu_telemetry_lines(self) -> list[str]:
@@ -74,9 +73,6 @@ class DashboardViewModel:
                 for alias, status in self.model.profile_status.items()
                 if status != "idle"
             }
-
-    def status_messages(self) -> list[str]:
-        return self.model.recent_status_messages()
 
     def column(self, slot_index: int) -> ServerColumnState | None:
         configs = self.model.configs

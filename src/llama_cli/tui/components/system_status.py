@@ -10,7 +10,6 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 
 from .gpu_telemetry import GPUTelemetryLineRenderer, GPUTelemetryWidget
-from .notices import NoticesRenderer, NoticesWidget
 from .system_health import SystemHealthRenderer, SystemHealthWidget
 
 if TYPE_CHECKING:
@@ -24,17 +23,18 @@ class SystemStatusPanelRenderer:
     def __init__(self) -> None:
         self._health_renderer = SystemHealthRenderer()
         self._gpu_renderer = GPUTelemetryLineRenderer()
-        self._notices_renderer = NoticesRenderer()
 
     def render_panel(self, state: SystemStatusState) -> Panel:
-        text = self._health_renderer.render()
+        text = self._health_renderer.render_datetime()
+        text.append("\n")
+        text.append_text(self._health_renderer.render_cpu_usage())
+        text.append_text(self._health_renderer.render_memory_swap_usage())
+        text.append_text(self._health_renderer.render_system_info())
+        text.append("\n")
 
         if state.gpu_lines:
             text.append("\n")
             text.append_text(self._gpu_renderer.render(state.gpu_lines))
-
-        notice_text = self._notices_renderer.render(state.notices)
-        text.append_text(notice_text)
 
         return Panel(
             text,
@@ -62,4 +62,3 @@ class SystemStatusWidget(Widget):
     def compose(self) -> ComposeResult:
         yield SystemHealthWidget()
         yield GPUTelemetryWidget(self._view_model)
-        yield NoticesWidget(self._view_model)
