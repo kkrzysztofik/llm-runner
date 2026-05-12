@@ -26,6 +26,12 @@ from .enums import (
     VRamRecommendation,
 )
 from .errors import ErrorDetail, MultiValidationError, ValidationResult
+from .persistence import (
+    build_config,
+    config_file_path,
+    load_config_overrides_from_file,
+    save_config_to_file,
+)
 from .profile_cache import (
     CURRENT_SCHEMA_VERSION,
     PROFILE_OVERRIDE_FIELDS,
@@ -122,4 +128,9 @@ __all__ = [
     "merge_config_overrides",
     "resolve_profile_config",
     "resolve_run_group_configs",
+    # persistence
+    "build_config",
+    "config_file_path",
+    "load_config_overrides_from_file",
+    "save_config_to_file",
 ]

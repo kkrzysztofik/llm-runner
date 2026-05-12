@@ -50,6 +50,7 @@ from .config import (
     SmokeProbeConfiguration,
     SmokeProbeStatus,
     VRamRecommendation,
+    build_config,
     create_default_profile_registry,
     create_default_run_groups,
     create_default_run_profiles,
@@ -198,6 +199,7 @@ __all__ = [
     "BuildBackend",
     # Config
     "Config",
+    "build_config",
     "ServerConfig",
     "ModelSlot",
     "ErrorCode",

@@ -66,6 +66,11 @@ class Config:
         )
     )
 
+    # General models base directory (not tied to any profile)
+    models_dir: str = field(
+        default_factory=lambda: os.environ.get("MODELS_DIR", str(Path.home() / "models"))
+    )
+
     # Network
     host: str = "127.0.0.1"
     summary_balanced_port: int = 8080
