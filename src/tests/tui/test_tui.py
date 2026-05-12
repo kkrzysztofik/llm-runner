@@ -13,7 +13,7 @@ Tests for T016c-T016f:
 import signal
 import threading
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,6 +26,16 @@ _make_minimal_config = make_server_config
 
 class TestSystemHealthAlignment:
     """Tests for terminal-width aware system health rendering."""
+
+    def test_dashboard_app_uses_split_tcss_files(self) -> None:
+        from llama_cli.tui.textual_app import DashboardApp
+
+        assert DashboardApp.CSS_PATH == [
+            "textual_app.tcss",
+            "system_status.tcss",
+            "dashboard_panels.tcss",
+            "modals.tcss",
+        ]
 
     def test_system_health_widget_composes_stylable_sections(self) -> None:
         from textual.containers import Horizontal
@@ -56,6 +66,119 @@ class TestSystemHealthAlignment:
         assert resource_sections[0].has_class("system-health-memory-swap")
         assert resource_sections[1].has_class("system-health-system-info")
 
+    def test_datetime_widget_composes_stylable_row(self) -> None:
+        from textual.containers import Horizontal
+        from textual.widgets import Static
+
+        from llama_cli.tui.components.system_health import DateTimeWidget, SystemHealthRenderer
+
+        sections = list(DateTimeWidget(SystemHealthRenderer()).compose())
+
+        assert len(sections) == 1
+        assert isinstance(sections[0], Horizontal)
+        assert sections[0].has_class("system-health-inline-row")
+        children = sections[0]._pending_children
+        assert isinstance(children[0], Static)
+        assert children[0].has_class("system-health-label")
+        assert children[0].has_class("system-health-datetime-label")
+        assert isinstance(children[1], Static)
+        assert children[1].has_class("system-health-value")
+        assert children[1].has_class("system-health-datetime-value")
+
+    def test_system_info_widget_composes_stylable_rows(self) -> None:
+        from textual.containers import Horizontal
+        from textual.widgets import Static
+
+        from llama_cli.tui.components.system_health import (
+            SystemHealthRenderer,
+            SystemInfoSnapshot,
+            SystemInfoWidget,
+        )
+
+        renderer = SystemHealthRenderer()
+        renderer.system_info_snapshot = MagicMock(  # type: ignore[method-assign]
+            return_value=SystemInfoSnapshot(
+                tasks=12,
+                threads=345,
+                running=2,
+                load_values=(0.10, 0.20, 0.30),
+                uptime="01:02:03",
+            )
+        )
+
+        sections = list(SystemInfoWidget(renderer).compose())
+
+        assert len(sections) == 3
+        assert all(isinstance(section, Horizontal) for section in sections)
+        assert all(section.has_class("system-info-row") for section in sections)
+        first_row_children = sections[0]._pending_children
+        assert isinstance(first_row_children[0], Static)
+        assert first_row_children[0].has_class("system-info-label")
+        assert isinstance(first_row_children[1], Static)
+        assert first_row_children[1].has_class("system-info-primary-value")
+
+    def test_system_info_widget_composes_load_na_row_when_missing(self) -> None:
+        from llama_cli.tui.components.system_health import (
+            SystemHealthRenderer,
+            SystemInfoSnapshot,
+            SystemInfoWidget,
+        )
+
+        renderer = SystemHealthRenderer()
+        renderer.system_info_snapshot = MagicMock(  # type: ignore[method-assign]
+            return_value=SystemInfoSnapshot(
+                tasks=12,
+                threads=345,
+                running=2,
+                load_values=None,
+                uptime="01:02:03",
+            )
+        )
+
+        sections = list(SystemInfoWidget(renderer).compose())
+
+        assert len(sections) == 3
+        assert sections[1]._pending_children[1].has_class("system-info-muted-value")
+
+    def test_cpu_usage_widget_composes_stylable_rows(self) -> None:
+        from textual.containers import Container, Horizontal
+
+        from llama_cli.tui.components.system_health import CPUUsageWidget, SystemHealthRenderer
+
+        renderer = SystemHealthRenderer()
+        renderer.cpu_usage_rows = MagicMock(  # type: ignore[method-assign]
+            return_value=[
+                [SimpleNamespace(index=0, percent=12.5), SimpleNamespace(index=1, percent=87.0)]
+            ]
+        )
+
+        rows = list(CPUUsageWidget(renderer).compose())
+
+        assert len(rows) == 1
+        assert isinstance(rows[0], Horizontal)
+        assert rows[0].has_class("system-health-cpu-row")
+        assert isinstance(rows[0]._pending_children[0], Container)
+        assert rows[0]._pending_children[0].has_class("cpu-core-cell")
+
+    def test_memory_swap_widget_composes_stylable_rows(self) -> None:
+        from textual.containers import Horizontal
+
+        from llama_cli.tui.components.system_health import MemorySwapWidget, SystemHealthRenderer
+
+        renderer = SystemHealthRenderer()
+        renderer.memory_usage_rows = MagicMock(  # type: ignore[method-assign]
+            return_value=[
+                SimpleNamespace(label="Mem", percent=50.0, value_text="8.00G/16.0G"),
+                SimpleNamespace(label="Swp", percent=0.0, value_text="0.00G/2.00G"),
+            ]
+        )
+
+        rows = list(MemorySwapWidget(renderer).compose())
+
+        assert len(rows) == 2
+        assert all(isinstance(row, Horizontal) for row in rows)
+        assert all(row.has_class("memory-swap-row") for row in rows)
+
     def test_core_grid_respects_narrow_terminal_width(self) -> None:
         from llama_cli.tui.components.system_health import SystemHealthRenderer
 
@@ -64,7 +187,7 @@ class TestSystemHealthAlignment:
         lines = renderer._build_core_grid_lines([0.0] * 24, content_width=80)
 
         assert len(lines) > 3
-        assert all(len(line.plain) <= 80 for line in lines)
+        assert all(len(line) <= 80 for line in lines)
 
     def test_system_health_sections_use_available_width(
         self,
@@ -95,19 +218,137 @@ class TestSystemHealthAlignment:
         renderer = system_health.SystemHealthRenderer()
 
         narrow_lines = (
-            renderer.render_cpu_usage(width=80).plain.splitlines()
-            + renderer.render_memory_swap_usage(width=80).plain.splitlines()
-            + renderer.render_system_info().plain.splitlines()
+            renderer.render_cpu_usage(width=80).splitlines()
+            + renderer.render_memory_swap_usage(width=80).splitlines()
+            + renderer.render_system_info().splitlines()
         )
         wide_lines = (
-            renderer.render_cpu_usage(width=240).plain.splitlines()
-            + renderer.render_memory_swap_usage(width=240).plain.splitlines()
-            + renderer.render_system_info().plain.splitlines()
+            renderer.render_cpu_usage(width=240).splitlines()
+            + renderer.render_memory_swap_usage(width=240).splitlines()
+            + renderer.render_system_info().splitlines()
         )
 
         assert all(len(line) <= 80 for line in narrow_lines)
         assert any(len(line) > 116 for line in wide_lines)
         assert all(len(line) <= renderer.MAX_CONTENT_WIDTH for line in wide_lines)
+
+    def test_core_widgets_expose_semantic_css_classes(self) -> None:
+        from llama_cli.tui.components.gpu_telemetry import GPUTelemetryWidget
+        from llama_cli.tui.components.menu import CommandMenu
+        from llama_cli.tui.components.server_log import ServerLogPanel
+        from llama_cli.tui.components.system_status import SystemStatusWidget
+
+        view_model = MagicMock()
+
+        status = SystemStatusWidget(view_model)
+        gpu = GPUTelemetryWidget(view_model)
+        panel = ServerLogPanel(0, view_model)
+        menu = CommandMenu(view_model)
+
+        assert status.id == "alerts"
+        assert status.has_class("system-status")
+        assert gpu.has_class("gpu-telemetry")
+        assert panel.has_class("column")
+        assert panel.has_class("server-log-panel")
+        assert menu.id == "menu"
+        assert menu.has_class("command-menu")
+
+    def test_gpu_telemetry_widget_composes_stylable_row(self) -> None:
+        from textual.containers import Horizontal
+        from textual.widgets import Static
+
+        from llama_cli.tui.components.gpu_telemetry import GPUTelemetryWidget
+
+        view_model = MagicMock()
+        view_model.gpu_telemetry_lines.return_value = ["GPU0 42%", "GPU1 77%"]
+
+        sections = list(GPUTelemetryWidget(view_model).compose())
+
+        assert len(sections) == 1
+        assert isinstance(sections[0], Horizontal)
+        assert sections[0].has_class("gpu-telemetry-row")
+        children = sections[0]._pending_children
+        assert isinstance(children[0], Static)
+        assert children[0].has_class("gpu-telemetry-label")
+        assert isinstance(children[1], Static)
+        assert children[1].has_class("gpu-telemetry-value")
+
+    def test_gpu_telemetry_widget_hides_when_empty(self) -> None:
+        from llama_cli.tui.components.gpu_telemetry import GPUTelemetryWidget
+
+        view_model = MagicMock()
+        view_model.gpu_telemetry_lines.return_value = []
+
+        widget = GPUTelemetryWidget(view_model)
+
+        assert list(widget.compose()) == []
+        assert widget.has_class("hidden")
+
+    def test_gpu_stats_panel_composes_stylable_sections(self) -> None:
+        from textual.containers import Container, Horizontal
+        from textual.widgets import Static
+
+        from llama_cli.tui.components.gpu_stats import GPUStatsPanel
+        from llama_manager import GPUStats
+
+        gpu = GPUStats()
+        gpu._collector = lambda: {
+            "device": "Mock GPU",
+            "gpu_util": "45%",
+            "mem_util": "61%",
+            "temp": "67C",
+            "power": "120W",
+        }
+
+        sections = list(GPUStatsPanel(gpu).compose())
+
+        assert isinstance(sections[0], Static)
+        assert sections[0].has_class("gpu-stats-title")
+        assert isinstance(sections[1], Horizontal)
+        assert sections[1].has_class("gpu-stats-row")
+        assert isinstance(sections[2], Horizontal)
+        assert sections[2].has_class("gpu-stats-usage-row")
+        usage_items = sections[2]._pending_children
+        assert isinstance(usage_items[0], Container)
+        assert usage_items[0].has_class("gpu-stats-usage-item")
+
+    def test_server_log_panel_composes_placeholder_when_empty(self) -> None:
+        from textual.containers import Container
+
+        from llama_cli.tui.components.server_log import ServerLogPanel
+
+        view_model = MagicMock()
+        view_model.column.return_value = None
+
+        sections = list(ServerLogPanel(0, view_model).compose())
+
+        assert len(sections) == 1
+        assert isinstance(sections[0], Container)
+        assert sections[0].has_class("server-placeholder")
+
+    def test_server_log_panel_composes_server_column_widget(self) -> None:
+        from llama_cli.tui.components.server_column import ServerColumnPanel
+        from llama_cli.tui.components.server_log import ServerLogPanel
+        from llama_cli.tui.types import ServerColumnState
+        from llama_manager.log_buffer import LogBuffer
+
+        buffer = LogBuffer()
+        view_model = MagicMock()
+        view_model.column.return_value = ServerColumnState(
+            config=_make_minimal_config(alias="slot-a"),
+            buffer=buffer,
+            gpu=None,
+            host="127.0.0.1",
+            stale_warning=None,
+            slot_states={},
+            server_processes={},
+            is_unsaved=False,
+        )
+
+        sections = list(ServerLogPanel(0, view_model).compose())
+
+        assert len(sections) == 1
+        assert isinstance(sections[0], ServerColumnPanel)
 
 
 class TestPerSlotStatusDisplay:
@@ -152,43 +393,19 @@ class TestPerSlotStatusDisplay:
         for cfg in configs:
             assert cfg.alias in app.log_buffers
 
-    def test_status_panel_initialized(self) -> None:
-        """DashboardController should initialize status_panel as None."""
+    def test_launch_result_initialized(self) -> None:
+        """DashboardController should initialize launch_result as None."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-        assert app.status_panel is None
+        assert app.launch_result is None
 
-    def test_risk_panel_initialized(self) -> None:
-        """DashboardController should initialize risk_panel as None."""
+    def test_risk_prompt_initialized(self) -> None:
+        """DashboardController should initialize without an active risk prompt."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-        assert app.risk_panel is None
-
-    def test_build_column_panel_creates_panel(self) -> None:
-        """_build_column_panel should return a Panel with config info."""
-        from llama_cli.tui import DashboardController
-        from llama_manager.log_buffer import LogBuffer
-
-        cfg = _make_minimal_config(alias="panel-test")
-        app = DashboardController(configs=[cfg], gpu_indices=[])
-
-        buffer = LogBuffer()
-        panel = app._build_column_panel(cfg, buffer, None)
-
-        assert panel is not None
-        # Panel should contain the config alias in its content
-        # The panel is a Rich Panel with Group containing header, gpu, logs
-
-    def test_build_placeholder_panel(self) -> None:
-        """_build_placeholder_panel should return a dim panel."""
-        from llama_cli.tui import DashboardController
-
-        app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[])
-        panel = app._build_placeholder_panel()
-
-        assert panel is not None
+        assert app.active_risk_kind is None
 
 
 class TestGPUTelemetryPanel:
@@ -281,19 +498,17 @@ class TestGPUTelemetryPanel:
         stats.update()
         assert call_count == first_count
 
-    def test_gpu_stats_with_none_gpu_in_column_panel(self) -> None:
-        """_build_column_panel should handle None GPU gracefully."""
-        from llama_cli.tui import DashboardController
-        from llama_manager.log_buffer import LogBuffer
+    def test_gpu_stats_panel_handles_none_gpu(self) -> None:
+        """GPUStatsPanel should render an unavailable state without GPU data."""
+        from textual.widgets import Static
 
-        cfg = _make_minimal_config(alias="no-gpu-test")
-        app = DashboardController(configs=[cfg], gpu_indices=[])
+        from llama_cli.tui.components.gpu_stats import GPUStatsPanel
 
-        buffer = LogBuffer()
-        # Pass None for GPU
-        panel = app._build_column_panel(cfg, buffer, None)
+        sections = list(GPUStatsPanel(None).compose())
 
-        assert panel is not None
+        assert len(sections) == 2
+        assert isinstance(sections[1], Static)
+        assert sections[1].has_class("gpu-stats-unavailable")
 
 
 class TestSlotStateTransitionHandling:
@@ -328,8 +543,8 @@ class TestSlotStateTransitionHandling:
         assert SlotState.CRASHED.value == "crashed"
         assert SlotState.OFFLINE.value == "offline"
 
-    def test_tui_status_panel_on_blocked(self) -> None:
-        """_build_status_panel should create error panel for blocked launch."""
+    def test_blocked_launch_result_surfaces_notice(self) -> None:
+        """Blocked launch results should surface a Textual notice."""
         from llama_cli.tui import DashboardController
         from llama_manager.config import ErrorCode, ErrorDetail, MultiValidationError
         from llama_manager.orchestration import LaunchResult
@@ -351,11 +566,12 @@ class TestSlotStateTransitionHandling:
             ),
         )
 
-        app._build_status_panel(blocked_result)
-        assert app.status_panel is not None
+        app.launch_result = blocked_result
 
-    def test_tui_status_panel_on_degraded(self) -> None:
-        """_build_status_panel should create warning panel for degraded launch."""
+        assert "Launch blocked: no slots could be launched" in app.view_model.system_notices()
+
+    def test_degraded_launch_result_surfaces_notice(self) -> None:
+        """Degraded launch results should surface a Textual notice."""
         from llama_cli.tui import DashboardController
         from llama_manager.orchestration import LaunchResult
 
@@ -367,43 +583,41 @@ class TestSlotStateTransitionHandling:
             warnings=["slot2: lock already held"],
         )
 
-        app._build_status_panel(degraded_result)
-        assert app.status_panel is not None
+        app.launch_result = degraded_result
 
-    def test_tui_status_panel_clears_on_success(self) -> None:
-        """_build_status_panel should clear panel on successful launch."""
+        assert "Launch degraded: some slots blocked" in app.view_model.system_notices()
+
+    def test_successful_launch_result_surfaces_no_notice(self) -> None:
+        """Successful launches should not surface degraded or blocked notices."""
         from llama_cli.tui import DashboardController
         from llama_manager.orchestration import LaunchResult
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
 
-        # Set a non-None status panel first
-        app.status_panel = MagicMock()
-
         success_result = LaunchResult(status="success", launched=["slot1"])
-        app._build_status_panel(success_result)
+        app.launch_result = success_result
 
-        # Panel should be cleared (set to None)
-        assert app.status_panel is None
+        assert "Launch blocked: no slots could be launched" not in app.view_model.system_notices()
+        assert "Launch degraded: some slots blocked" not in app.view_model.system_notices()
 
-    def test_risk_panel_required(self) -> None:
-        """_build_risk_panel_required should set risk_panel with required style."""
+    def test_risk_prompt_required(self) -> None:
+        """_build_risk_panel_required should set the risk prompt state."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
         app._build_risk_panel_required()
 
-        assert app.risk_panel is not None
+        assert app.active_risk_kind == "hardware"
         assert app.risks_acknowledged is False
 
-    def test_risk_panel_acknowledged(self) -> None:
-        """_build_risk_panel_acknowledged should set risk_panel with acknowledged style."""
+    def test_risk_prompt_acknowledged(self) -> None:
+        """_build_risk_panel_acknowledged should set acknowledged prompt state."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
         app._build_risk_panel_acknowledged()
 
-        assert app.risk_panel is not None
+        assert app.active_risk_kind == "hardware"
         assert app.risks_acknowledged is True
 
 
@@ -639,13 +853,12 @@ class TestHandleHardwareWarning:
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
 
-        # Set up a risk panel to be cleared
-        app.risk_panel = MagicMock()
+        app.active_risk_kind = "hardware"
 
         result = app.handle_hardware_warning("y")
 
         assert result == "acknowledge"
-        assert app.risk_panel is None
+        assert app.active_risk_kind is None
 
     def test_handle_hardware_warning_n_aborts(self) -> None:
         """handle_hardware_warning should abort on 'n' key."""
@@ -653,8 +866,7 @@ class TestHandleHardwareWarning:
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
 
-        # Set up a risk panel so handler is invoked
-        app.risk_panel = MagicMock()
+        app.active_risk_kind = "hardware"
 
         result = app.handle_hardware_warning("n")
 
@@ -667,8 +879,7 @@ class TestHandleHardwareWarning:
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
 
-        # Set up a risk panel so handler is invoked
-        app.risk_panel = MagicMock()
+        app.active_risk_kind = "hardware"
 
         result = app.handle_hardware_warning("q")
 
@@ -681,13 +892,12 @@ class TestHandleHardwareWarning:
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
 
-        # Set up a risk panel
-        app.risk_panel = MagicMock()
+        app.active_risk_kind = "hardware"
 
         result = app.handle_hardware_warning("x")
 
         assert result == "ignore"
-        assert app.risk_panel is not None
+        assert app.active_risk_kind == "hardware"
 
 
 class TestHandleVramRisk:
@@ -699,14 +909,12 @@ class TestHandleVramRisk:
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
 
-        # Set up a risk panel and VRAM risk kind for routing
-        app.risk_panel = MagicMock()
         app.active_risk_kind = "vram"
 
         result = app.handle_vram_risk("y")
 
         assert result == "proceed"
-        assert app.risk_panel is None
+        assert app.active_risk_kind is None
 
     def test_handle_vram_risk_n_aborts(self) -> None:
         """handle_vram_risk should abort on 'n' key."""
@@ -726,14 +934,12 @@ class TestHandleVramRisk:
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
 
-        # Set up a risk panel and VRAM risk kind for routing
-        app.risk_panel = MagicMock()
         app.active_risk_kind = "vram"
 
         result = app.handle_vram_risk("x")
 
         assert result == "ignore"
-        assert app.risk_panel is not None
+        assert app.active_risk_kind == "vram"
 
 
 class TestMVVMArchitecture:
@@ -838,7 +1044,7 @@ class TestTUIAppInit:
         assert app.gpu_indices == [0]
         assert app.running is True
         assert app.launch_result is None
-        assert app.risk_panel is None
+        assert app.active_risk_kind is None
         assert app.risks_acknowledged is False
 
     def test_init_multiple_configs(self) -> None:
@@ -942,102 +1148,46 @@ class TestTUIAppStop:
 class TestTUIAppRender:
     """Tests for TUIApp.render."""
 
-    def test_render_no_configs(self) -> None:
-        """render should handle no configs gracefully."""
-        app = TUIApp(configs=[], gpu_indices=[])
-        layout = app.render_panels()
-        assert layout is not None
+    def test_textual_app_instantiates_for_empty_configs(self) -> None:
+        """DashboardApp should be instantiable even with no slots."""
+        controller = TUIApp(configs=[], gpu_indices=[])
+        app = TextualDashboardApp(controller)
+        assert app is not None
 
-    def test_render_single_config(self) -> None:
-        """render should render single config with placeholder."""
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        layout = app.render_panels()
-        assert layout is not None
+    def test_textual_app_instantiates_for_single_config(self) -> None:
+        """DashboardApp should be instantiable with a single slot."""
+        controller = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        app = TextualDashboardApp(controller)
+        assert app is not None
 
-    def test_render_two_configs(self) -> None:
-        """render should render both configs side by side."""
+    def test_textual_app_instantiates_for_two_configs(self) -> None:
+        """DashboardApp should be instantiable with two slots."""
         configs = [_make_config("model1", 8080, "CUDA"), _make_config("model2", 8081, "SYCL")]
-        app = TUIApp(configs=configs, gpu_indices=[0, 1])
-        layout = app.render_panels()
-        assert layout is not None
-
-    def test_render_with_status_panel(self) -> None:
-        """render should include a supplied status panel in the snapshot."""
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app.status_panel = MagicMock()
-        layout = app.render_panels()
-        assert layout is not None
-
-    def test_render_populates_menu(self) -> None:
-        """render should populate the dashboard snapshot menu."""
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        snapshot = app.render_panels()
-        assert snapshot[3] is not None
+        controller = TUIApp(configs=configs, gpu_indices=[0, 1])
+        app = TextualDashboardApp(controller)
+        assert app is not None
 
 
 # =============================================================================
-# _build_status_panel
-# =============================================================================
-
-
-class TestBuildStatusPanel:
-    """Tests for TUIApp._build_status_panel."""
-
-    def test_status_panel_success_clears_panel(self) -> None:
-        """_build_status_panel should clear status panel on success."""
-        from llama_manager import LaunchResult
-
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        launch_result = LaunchResult(status="success")
-        app._build_status_panel(launch_result)
-        assert app.status_panel is None
-
-    def test_status_panel_blocked(self) -> None:
-        """_build_status_panel should create blocked panel."""
-        from llama_manager import LaunchResult
-
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        launch_result = LaunchResult(
-            status="blocked",
-            errors=MagicMock(errors=[]),
-        )
-        app._build_status_panel(launch_result)
-        assert app.status_panel is not None
-
-    def test_status_panel_degraded(self) -> None:
-        """_build_status_panel should create degraded panel."""
-        from llama_manager import LaunchResult
-
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        launch_result = LaunchResult(
-            status="degraded",
-            launched=["slot1"],
-            warnings=["partial success"],
-        )
-        app._build_status_panel(launch_result)
-        assert app.status_panel is not None
-
-
-# =============================================================================
-# Risk panels
+# Risk prompt state
 # =============================================================================
 
 
 class TestRiskPanels:
-    """Tests for risk panel building."""
+    """Tests for risk prompt state transitions."""
 
     def test_build_risk_panel_required(self) -> None:
-        """_build_risk_panel_required should set risk_panel."""
+        """_build_risk_panel_required should set risk prompt state."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         app._build_risk_panel_required()
-        assert app.risk_panel is not None
+        assert app.active_risk_kind == "hardware"
         assert app.risks_acknowledged is False
 
     def test_build_risk_panel_acknowledged(self) -> None:
-        """_build_risk_panel_acknowledged should set risk_panel."""
+        """_build_risk_panel_acknowledged should set acknowledged state."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         app._build_risk_panel_acknowledged()
-        assert app.risk_panel is not None
+        assert app.active_risk_kind == "hardware"
         assert app.risks_acknowledged is True
 
     def test_update_risk_panel_state_with_risks(self) -> None:
@@ -1059,14 +1209,14 @@ class TestRiskPanels:
         assert app.risks_acknowledged is True
 
     def test_update_risk_panel_state_without_risks(self) -> None:
-        """_update_risk_panel_state should clear risk_panel when no risks."""
+        """_update_risk_panel_state should clear prompt state when no risks."""
         from llama_manager import RiskAckResult
 
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app.risk_panel = MagicMock()
+        app.active_risk_kind = "hardware"
         result = RiskAckResult(has_risks=False, risks_acknowledged=False)
         app._update_risk_panel_state(result)
-        assert app.risk_panel is None
+        assert app.active_risk_kind is None
         assert app.risks_acknowledged is False
 
 
@@ -1079,7 +1229,7 @@ class TestHandleBuildProgress:
     """Tests for TUIApp._handle_build_progress."""
 
     def test_handle_progress_retry(self) -> None:
-        """_handle_build_progress should create retrying status panel."""
+        """_handle_build_progress should push a retry status message."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         app.build_in_progress = True
 
@@ -1093,10 +1243,12 @@ class TestHandleBuildProgress:
         app._handle_build_progress(progress)
 
         assert app.build_progress is progress
-        assert app.status_panel is not None
+        assert any(
+            "Build retrying:" in message for _, message in app.get_status_messages_since(0.0)
+        )
 
     def test_handle_progress_failure(self) -> None:
-        """_handle_build_progress should create failed status panel."""
+        """_handle_build_progress should push a failed status message."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         app.build_in_progress = True
 
@@ -1108,13 +1260,12 @@ class TestHandleBuildProgress:
         )
         app._handle_build_progress(progress)
 
-        assert app.status_panel is not None
+        assert any("Build failed:" in message for _, message in app.get_status_messages_since(0.0))
 
-    def test_handle_progress_success_clears(self) -> None:
-        """_handle_build_progress should clear status panel on success."""
+    def test_handle_progress_success_reports_completion(self) -> None:
+        """_handle_build_progress should report build completion on success."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         app.build_in_progress = True
-        app.status_panel = MagicMock()
 
         progress = BuildProgress(
             stage="build",
@@ -1124,22 +1275,10 @@ class TestHandleBuildProgress:
         )
         app._handle_build_progress(progress)
 
-        assert app.status_panel is None
-
-
-# =============================================================================
-# _build_placeholder_panel
-# =============================================================================
-
-
-class TestBuildPlaceholderPanel:
-    """Tests for TUIApp._build_placeholder_panel."""
-
-    def test_placeholder_panel(self) -> None:
-        """_build_placeholder_panel should create a dim placeholder."""
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        panel = app._build_placeholder_panel()
-        assert panel is not None
+        assert any(
+            message == "Build completed successfully."
+            for _, message in app.get_status_messages_since(0.0)
+        )
 
 
 # =============================================================================
@@ -1396,42 +1535,34 @@ class TestProfilingFlow:
 
 
 class TestBuildCommandMenu:
-    """Tests for TUIApp._build_command_menu."""
+    """Command menu state lives in the view model for the Textual widget."""
 
     def test_normal_mode_shows_expected_commands(self) -> None:
-        menu = TUIApp(configs=[_make_config()], gpu_indices=[0])._build_command_menu()
-        text = menu.plain
-        assert "Quit" in text
-        assert "Refresh" in text
-        assert "Add slot" in text
-        assert "Profile" in text
-        assert "Stop" in text
+        state = TUIApp(configs=[_make_config()], gpu_indices=[0]).view_model.command_menu()
+        assert state.profile_request is None
+        assert state.risk_prompt is None
+        assert state.build_request is False
+        assert state.smoke_request is False
 
     def test_profile_pending_shows_flavor_commands(self) -> None:
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         app.profile_request = "slot0"
-        menu = app._build_command_menu()
-        text = menu.plain
-        assert "Balanced" in text
-        assert "Fast" in text
-        assert "Quality" in text
-        assert "Cancel" in text
+        state = app.view_model.command_menu()
+        assert state.profile_request == "slot0"
 
-    def test_risk_panel_shows_confirm_commands(self) -> None:
+    def test_risk_prompt_shows_confirm_commands(self) -> None:
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app.risk_panel = MagicMock()
-        menu = app._build_command_menu()
-        text = menu.plain
-        assert "Confirm" in text
-        assert "Abort" in text
+        app.active_risk_kind = "hardware"
+        state = app.view_model.command_menu()
+        assert state.risk_prompt is not None
+        assert state.risk_prompt.kind == "hardware"
 
-    def test_risk_panel_vram_hides_quit(self) -> None:
+    def test_vram_prompt_hides_quit_in_state(self) -> None:
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app.risk_panel = MagicMock()
         app.active_risk_kind = "vram"
-        menu = app._build_command_menu()
-        text = menu.plain
-        assert "Quit" not in text
+        state = app.view_model.command_menu()
+        assert state.risk_prompt is not None
+        assert state.risk_prompt.kind == "vram"
 
 
 # =============================================================================
@@ -1503,51 +1634,117 @@ class TestAddSlotFromForm:
 """Unit tests for smaller TUI component modules."""
 
 
-from typing import cast
-
-from rich.text import Text
 from textual.widgets import Select
 
-from llama_cli.tui.components import panels
+import llama_cli.tui.components as components
 from llama_cli.tui.components.modal import AddSlotModal
-from llama_cli.tui.components.profile_status import ProfileStatusPanelRenderer
 
 
 def test_panels_module_exports_expected_symbols() -> None:
-    assert "SlotStatusResolver" in panels.__all__
-    assert "GPUStatsPanel" in panels.__all__
-    assert hasattr(panels, "ServerColumnPanel")
-
-
-def test_profile_status_renderer_returns_none_when_empty() -> None:
-    renderer = ProfileStatusPanelRenderer()
-    assert renderer.render({}, {}) is None
-
-
-def test_profile_status_renderer_renders_all_status_variants() -> None:
-    renderer = ProfileStatusPanelRenderer()
-    panel = renderer.render(
-        profile_status={
-            "slot-a": "running",
-            "slot-b": "done",
-            "slot-c": "failed",
-            "slot-d": "custom-status",
-        },
-        profile_flavor={"slot-a": "fast", "slot-b": "balanced", "slot-c": "deep"},
-    )
-
-    assert panel is not None
-    assert panel.title == "Profile Status"
-    body = cast(Text, panel.renderable).plain
-    assert "Profiling slot-a: fast [running...]" in body
-    assert "Profile slot-b: balanced [done]" in body
-    assert "Profile slot-c: deep [failed]" in body
-    assert "Profile slot-d: unknown [custom-status]" in body
+    assert "GPUStatsPanel" in components.__all__
+    assert "ServerColumnPanel" in components.__all__
+    assert hasattr(components, "SystemStatusWidget")
 
 
 def test_add_slot_modal_rejects_empty_profile_options() -> None:
     with pytest.raises(ValueError, match="profile_options must not be empty"):
         AddSlotModal([])
+
+
+def test_add_slot_modal_composes_shared_modal_classes() -> None:
+    from textual.containers import Container, Horizontal
+    from textual.widgets import Button, Label
+
+    modal = AddSlotModal([("Qwen", "qwen")])
+
+    children = list(modal.compose())
+
+    assert len(children) == 1
+    dialog = children[0]
+    assert isinstance(dialog, Container)
+    assert dialog.id == "add-slot-dialog"
+    assert dialog.has_class("modal-dialog")
+    assert dialog.has_class("add-slot-dialog")
+
+    dialog_children = dialog._pending_children
+    assert isinstance(dialog_children[0], Label)
+    assert dialog_children[0].has_class("modal-title")
+    assert isinstance(dialog_children[1], Horizontal)
+    assert dialog_children[1].has_class("form-row")
+    assert isinstance(dialog_children[3], Horizontal)
+    assert dialog_children[3].has_class("modal-actions")
+    action_buttons = dialog_children[3]._pending_children
+    assert isinstance(action_buttons[0], Button)
+    assert action_buttons[0].has_class("modal-button-cancel")
+    assert isinstance(action_buttons[1], Button)
+    assert action_buttons[1].has_class("modal-button-success")
+
+
+def test_command_menu_composes_stylable_items() -> None:
+    from textual.containers import Horizontal
+    from textual.widgets import Static
+
+    from llama_cli.tui.components.menu import CommandMenu
+
+    view_model = MagicMock()
+    view_model.command_menu.return_value = SimpleNamespace(
+        build_request=False,
+        smoke_request=False,
+        profile_request=None,
+        risk_prompt=None,
+    )
+
+    items = list(CommandMenu(view_model).compose())
+
+    assert len(items) == 8
+    assert isinstance(items[0], Horizontal)
+    assert items[0].has_class("command-menu-item")
+    first_item_children = items[0]._pending_children
+    assert isinstance(first_item_children[0], Static)
+    assert first_item_children[0].has_class("command-menu-key")
+    assert isinstance(first_item_children[1], Static)
+    assert first_item_children[1].has_class("command-menu-description")
+
+
+@pytest.mark.anyio
+async def test_config_modal_composes_shared_modal_classes() -> None:
+    from textual.app import App
+    from textual.containers import Container, Horizontal, VerticalScroll
+    from textual.widgets import Button, Label
+
+    from llama_cli.tui.components.config_modal import ConfigModal
+    from llama_manager.config import Config
+
+    class ModalHostApp(App[None]):
+        pass
+
+    modal = ConfigModal(Config())
+
+    app = ModalHostApp()
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+
+        dialog = modal.query_one("#config-dialog", Container)
+        assert dialog.has_class("modal-dialog")
+        assert dialog.has_class("config-dialog")
+
+        dialog_children = list(dialog.children)
+        assert isinstance(dialog_children[0], Label)
+        assert dialog_children[0].has_class("modal-title")
+        assert dialog_children[0].has_class("config-title")
+        assert isinstance(dialog_children[1], VerticalScroll)
+        assert dialog_children[1].has_class("modal-scroll-body")
+        assert isinstance(dialog_children[2], Horizontal)
+        assert dialog_children[2].has_class("modal-actions")
+        assert dialog_children[2].has_class("config-actions")
+        action_buttons = list(dialog_children[2].children)
+        assert isinstance(action_buttons[0], Button)
+        assert action_buttons[0].has_class("modal-button-cancel")
+        assert isinstance(action_buttons[1], Button)
+        assert action_buttons[1].has_class("modal-button-success")
+        assert isinstance(action_buttons[2], Button)
+        assert action_buttons[2].has_class("modal-button-warning")
 
 
 def test_add_slot_modal_collect_values_valid_and_strips_port() -> None:

@@ -1,0 +1,155 @@
+#alerts {
+    height: auto;
+    max-height: 35%;
+    layout: vertical;
+}
+
+.system-health {
+    height: auto;
+    layout: vertical;
+}
+
+.system-health-section {
+    height: auto;
+}
+
+.system-health-datetime {
+    height: 1;
+}
+
+.system-health-inline-row {
+    height: 1;
+    layout: horizontal;
+}
+
+.system-health-label {
+    width: auto;
+    margin-right: 1;
+    color: bright_cyan;
+}
+
+.system-health-value {
+    width: auto;
+    color: bright_white;
+}
+
+.system-health-resource-row {
+    height: auto;
+}
+
+.system-health-cpu-row,
+.memory-swap-row {
+    height: auto;
+    layout: horizontal;
+}
+
+.cpu-core-cell {
+    width: auto;
+    margin-right: 1;
+    layout: horizontal;
+}
+
+.cpu-core-index {
+    width: auto;
+    margin-right: 1;
+    color: bright_blue;
+}
+
+.cpu-core-bar,
+.memory-swap-bar {
+    width: auto;
+    margin-right: 1;
+}
+
+.memory-swap-label {
+    width: auto;
+    margin-right: 1;
+    color: bright_cyan;
+}
+
+.system-health-meter-green {
+    color: green;
+}
+
+.system-health-meter-yellow {
+    color: yellow;
+}
+
+.system-health-meter-red {
+    color: red;
+}
+
+.system-health-muted-value {
+    color: dim;
+}
+
+.system-health-memory-swap {
+    width: 1fr;
+}
+
+.system-health-system-info {
+    width: auto;
+}
+
+.system-info-row {
+    width: auto;
+}
+
+.system-info-label {
+    width: auto;
+    margin-right: 1;
+}
+
+.system-info-secondary-label {
+    color: cyan;
+}
+
+.system-info-running-label {
+    color: green;
+}
+
+.system-info-value {
+    width: auto;
+    margin-right: 2;
+}
+
+.system-info-primary-value {
+    color: bright_white;
+}
+
+.system-info-secondary-value {
+    color: cyan;
+}
+
+.system-info-tertiary-value {
+    color: bright_blue;
+}
+
+.system-info-muted-value {
+    color: dim;
+}
+
+.gpu-telemetry {
+    height: 1;
+}
+
+.gpu-telemetry-row {
+    height: 1;
+    layout: horizontal;
+}
+
+.gpu-telemetry-label {
+    width: auto;
+    margin-right: 1;
+    color: yellow;
+    text-style: bold;
+}
+
+.gpu-telemetry-value {
+    width: 1fr;
+    color: yellow;
+}
+
+.gpu-telemetry.hidden {
+    display: none;
+}

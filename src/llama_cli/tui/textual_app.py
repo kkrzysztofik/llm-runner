@@ -10,6 +10,7 @@ from textual.containers import Container
 
 from llama_manager.config import create_default_profile_registry
 
+from .components.config_modal import ConfigModal
 from .components.gpu_telemetry import GPUTelemetryWidget
 from .components.menu import CommandMenu
 from .components.modal import AddSlotModal
@@ -30,7 +31,12 @@ class DashboardApp(App[None]):
     """Textual shell for the llm-runner dashboard."""
 
     TITLE = "llm-runner"
-    CSS_PATH = "textual_app.tcss"
+    CSS_PATH = [
+        "textual_app.tcss",
+        "system_status.tcss",
+        "dashboard_panels.tcss",
+        "modals.tcss",
+    ]
     BINDINGS = [
         Binding("q", "quit_dashboard", "Quit", priority=True),
         Binding("ctrl+c", "cancel_pending_prompt", "Cancel", priority=True),
@@ -41,6 +47,7 @@ class DashboardApp(App[None]):
         Binding("b", "build", "Build"),
         Binding("s", "smoke", "Smoke"),
         Binding("a", "add_slot", "Add Slot"),
+        Binding("c", "open_config", "Config"),
         Binding("y", "confirm", "Confirm"),
         Binding("n", "reject", "Abort"),
     ]
@@ -58,7 +65,7 @@ class DashboardApp(App[None]):
         with Container(id="dashboard"):
             yield SystemStatusWidget(self.view_model)
             with Container(id="content"):
-                for i in range(len(self.view_model.model.configs)):
+                for i in range(max(1, len(self.view_model.model.configs))):
                     yield ServerLogPanel(i, self.view_model)
             yield CommandMenu(self.view_model)
 
@@ -86,6 +93,18 @@ class DashboardApp(App[None]):
             self._handle_add_slot_modal_result,
         )
 
+    def action_open_config(self) -> None:
+        self.push_screen(
+            ConfigModal(config=self.controller.model.config),
+            self._handle_config_modal_result,
+        )
+
+    def _handle_config_modal_result(self, result: dict[str, str] | None) -> None:
+        if result is not None:
+            restart = result.pop("_restart", None) == "1"
+            self.controller.save_config(result, restart=restart)
+        self.refresh_dashboard()
+
     def _handle_add_slot_modal_result(self, result: dict[str, str] | None) -> None:
         if result is None:
             self.controller.cancel_add_slot_form()
@@ -98,7 +117,7 @@ class DashboardApp(App[None]):
         """Ensure ServerLogPanel widgets match the current slot count."""
         container = self.query_one("#content", Container)
         current_panels = list(container.query(ServerLogPanel))
-        needed = len(self.view_model.model.configs)
+        needed = max(1, len(self.view_model.model.configs))
         for i in range(len(current_panels), needed):
             container.mount(ServerLogPanel(i, self.view_model))
 
@@ -155,14 +174,14 @@ class DashboardApp(App[None]):
 
         # Refresh each leaf widget.  SystemStatusWidget and SystemHealthWidget
         # use compose(), so their children own their own repaints.
-        self.query_one(DateTimeWidget).refresh()
-        self.query_one(CPUUsageWidget).refresh()
-        self.query_one(MemorySwapWidget).refresh()
-        self.query_one(SystemInfoWidget).refresh()
-        self.query_one(GPUTelemetryWidget).refresh()
+        self.query_one(DateTimeWidget).refresh(recompose=True)
+        self.query_one(CPUUsageWidget).refresh(recompose=True)
+        self.query_one(MemorySwapWidget).refresh(recompose=True)
+        self.query_one(SystemInfoWidget).refresh(recompose=True)
+        self.query_one(GPUTelemetryWidget).refresh(recompose=True)
         for panel in self.query(ServerLogPanel):
-            panel.refresh()
-        self.query_one(CommandMenu).refresh()
+            panel.refresh(recompose=True)
+        self.query_one(CommandMenu).refresh(recompose=True)
 
     def _emit_status_toasts(self) -> None:
         notices = self.view_model.system_notices()

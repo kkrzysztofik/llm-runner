@@ -1,40 +1,38 @@
-"""Per-server column panel."""
+"""Per-server column widget."""
 
-from rich.console import Group
-from rich.panel import Panel
-from rich.text import Text
+from textual.app import ComposeResult
+from textual.containers import Container, Horizontal
 from textual.widget import Widget
+from textual.widgets import Static
 
-from llama_cli.colors import Colors
 from llama_cli.tui.types import ServerColumnState
 
 from .gpu_stats import GPUStatsPanel
-from .slot_status import BACKEND_LABELS, STATUS_COLORS, SlotStatusResolver
+from .slot_status import BACKEND_LABELS, SlotStatusResolver
 
 
 class ServerColumnPanel(Widget):
-    """Per-server column panel: header + GPU stats + logs."""
+    """Per-server column: header, telemetry, and logs."""
 
     def __init__(
         self,
         state: ServerColumnState,
     ) -> None:
-        super().__init__()
+        super().__init__(classes="server-column")
         self._state = state
         self._resolver = SlotStatusResolver()
 
-    def render(self) -> Panel:  # type: ignore[override]
-        cfg = self._state.config
-        color_code = Colors.get_code(cfg.alias)
-        color_style = color_code if color_code else "white"
-
-        header = self._build_header(color_style)
-        gpu_panel = GPUStatsPanel(self._state.gpu).render()
+    def compose(self) -> ComposeResult:
         logs_text = self._state.buffer.get_text(empty_message="Waiting for output...")
-        logs = Panel(Text(logs_text), title="Logs", border_style="dim")
-        return Panel(Group(header, gpu_panel, logs), border_style=color_style)
+        yield self._build_header()
+        yield GPUStatsPanel(self._state.gpu)
+        yield Container(
+            Static("Logs", classes="panel-title server-log-title"),
+            Static(logs_text, classes="server-log-content"),
+            classes="server-logs",
+        )
 
-    def _build_header(self, color_style: str) -> Text:
+    def _build_header(self) -> Container:
         cfg = self._state.config
         status = self._resolver.resolve(
             cfg.alias,
@@ -42,22 +40,29 @@ class ServerColumnPanel(Widget):
             self._state.server_processes,
         )
         backend_label = BACKEND_LABELS.get(cfg.backend, BACKEND_LABELS["llama_cpp"])
-        status_color = STATUS_COLORS.get(status, "white")
+        status_class = f"server-column-status-{status.replace('_', '-')}"
 
-        header = Text()
-        header.append(f"[{cfg.alias}] ", style=f"bold {color_style}")
-        if self._state.is_unsaved:
-            header.append("UNSAVED ", style="bold yellow")
-        header.append(f"{status.upper()} ", style=status_color)
-        header.append(f"| {backend_label} ", style="cyan")
-        header.append(f"| http://{self._state.host}:{cfg.port}", style="dim")
-        header.append("\n")
-        header.append(
-            f"Device: {cfg.device} | Ctx: {cfg.ctx_size} | Threads: {cfg.threads}",
-            style="cyan",
-        )
+        header_children: list[Widget] = [
+            Horizontal(
+                Static(f"[{cfg.alias}]", classes="server-column-alias"),
+                Static("UNSAVED", classes="server-column-unsaved")
+                if self._state.is_unsaved
+                else Static("", classes="hidden"),
+                Static(status.upper(), classes=f"server-column-status {status_class}"),
+                Static(backend_label, classes="server-column-backend"),
+                Static(
+                    f"http://{self._state.host}:{cfg.port}",
+                    classes="server-column-url",
+                ),
+                classes="server-column-header-row",
+            ),
+            Static(
+                f"Device: {cfg.device} | Ctx: {cfg.ctx_size} | Threads: {cfg.threads}",
+                classes="server-column-config",
+            ),
+        ]
         if self._state.stale_warning:
-            header.append("\n")
-            header.append(self._state.stale_warning, style="yellow")
-        header.append("\n\n")
-        return header
+            header_children.append(
+                Static(self._state.stale_warning, classes="server-column-warning")
+            )
+        return Container(*header_children, classes="server-column-header")

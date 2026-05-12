@@ -12,7 +12,6 @@ Screen {
     layout: horizontal;
 }
 
-.column {
-    width: 1fr;
-    height: 1fr;
+.hidden {
+    display: none;
 }

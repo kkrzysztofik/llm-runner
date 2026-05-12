@@ -25,13 +25,6 @@ class CommandMenuState:
 
 
 @dataclass(frozen=True)
-class SystemStatusState:
-    """State needed to render the top system status widgets."""
-
-    gpu_lines: list[str]
-
-
-@dataclass(frozen=True)
 class ServerColumnState:
     """State needed to render one server column."""
 
@@ -43,15 +36,3 @@ class ServerColumnState:
     slot_states: dict[str, str]
     server_processes: dict[str, Any]
     is_unsaved: bool
-
-
-@dataclass(frozen=True)
-class SlotStatusState:
-    """State needed to render the fallback slot status panel."""
-
-    configs: list[ServerConfig]
-    slot_states: dict[str, str]
-    server_processes: dict[str, Any]
-    log_buffers: dict[str, LogBuffer]
-    host: str
-    unsaved_slots: set[str]

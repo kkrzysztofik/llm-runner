@@ -11,7 +11,7 @@ from llama_manager import (
 )
 
 from .model import DashboardModel
-from .types import CommandMenuState, ServerColumnState, SlotStatusState, SystemStatusState
+from .types import CommandMenuState, ServerColumnState
 
 
 class DashboardViewModel:
@@ -26,11 +26,6 @@ class DashboardViewModel:
             risk_prompt=self.model.risk_prompt,
             build_request=self.model.build_request,
             smoke_request=self.model.smoke_request,
-        )
-
-    def system_status(self) -> SystemStatusState:
-        return SystemStatusState(
-            gpu_lines=self.gpu_telemetry_lines(),
         )
 
     def gpu_telemetry_lines(self) -> list[str]:
@@ -92,16 +87,6 @@ class DashboardViewModel:
             slot_states=self.model.slot_states,
             server_processes=self.model.server_processes,
             is_unsaved=cfg.alias in self.model.unsaved_slots,
-        )
-
-    def slot_status(self, configs: list[ServerConfig] | None = None) -> SlotStatusState:
-        return SlotStatusState(
-            configs=self.model.configs if configs is None else configs,
-            slot_states=self.model.slot_states,
-            server_processes=self.model.server_processes,
-            log_buffers=self.model.log_buffers,
-            host=self.model.config.host,
-            unsaved_slots=self.model.unsaved_slots,
         )
 
     def stale_warning(self, cfg: ServerConfig) -> str | None:
