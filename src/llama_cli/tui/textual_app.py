@@ -38,7 +38,7 @@ class DashboardApp(App[None]):
     ]
     BINDINGS = [
         Binding("q", "quit_dashboard", "Quit", priority=True),
-        Binding("ctrl+c", "cancel_pending_prompt", "Cancel", priority=True),
+        Binding("ctrl+c", "cancel_pending_prompt", "Cancel"),
         Binding("escape", "cancel_pending_prompt", "Cancel"),
         Binding("r", "refresh_dashboard", "Refresh"),
         Binding("p", "profile", "Profile"),

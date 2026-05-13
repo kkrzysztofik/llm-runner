@@ -37,6 +37,20 @@ class TestSystemHealthAlignment:
             "modals.tcss",
         ]
 
+    def test_dashboard_ctrl_c_binding_does_not_override_input_copy(self) -> None:
+        from textual.binding import Binding
+
+        from llama_cli.tui.textual_app import DashboardApp
+
+        ctrl_c_bindings = [
+            binding
+            for binding in DashboardApp.BINDINGS
+            if isinstance(binding, Binding) and binding.key == "ctrl+c"
+        ]
+
+        assert len(ctrl_c_bindings) == 1
+        assert ctrl_c_bindings[0].priority is False
+
     def test_system_health_widget_composes_stylable_sections(self) -> None:
         from textual.containers import Horizontal
 
