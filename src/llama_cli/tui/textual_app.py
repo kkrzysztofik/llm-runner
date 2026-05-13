@@ -64,9 +64,9 @@ class DashboardApp(App[None]):
 
     def compose(self) -> ComposeResult:
         with Container(id="dashboard"):
-            yield SystemStatusWidget()
+            yield SystemStatusWidget(self.view_model)
             with Container(id="content"):
-                for i in range(max(1, len(self.view_model.model.configs))):
+                for i in range(self.view_model.server_column_count()):
                     yield ServerLogPanel(i, self.view_model)
             yield CommandMenu(self.view_model)
 
@@ -96,7 +96,7 @@ class DashboardApp(App[None]):
 
     def action_open_config(self) -> None:
         self.push_screen(
-            ConfigModal(config=self.controller.model.config),
+            ConfigModal(config=self.controller.config),
             self._handle_config_modal_result,
         )
 
@@ -117,7 +117,7 @@ class DashboardApp(App[None]):
         """Ensure ServerLogPanel widgets match the current slot count."""
         container = self.query_one("#content", Container)
         current_panels = list(container.query(ServerLogPanel))
-        needed = max(1, len(self.view_model.model.configs))
+        needed = self.view_model.server_column_count()
         for i in range(len(current_panels), needed):
             container.mount(ServerLogPanel(i, self.view_model))
 

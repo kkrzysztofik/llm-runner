@@ -935,7 +935,6 @@ def test_tui_run_keeps_acknowledged_risk_prompt_active() -> None:
 
     with (
         patch("llama_cli.tui.controller.DashboardApp", _FakeTextualDashboardApp),
-        patch("llama_cli.tui.components.slot_status.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,
             "launch_all_slots",
@@ -995,7 +994,7 @@ def test_dry_run_exits_when_backend_validation_fails() -> None:
     assert exc.value.code == 1
 
 
-def test_tui_run_exits_when_launch_is_blocked(capsys: pytest.CaptureFixture[str]) -> None:
+def test_tui_run_exits_when_launch_is_blocked() -> None:
     safe_cfg = ServerConfig(
         model="/home/kmk/models/test-model.gguf",
         alias="summary-balanced",
@@ -1033,17 +1032,16 @@ def test_tui_run_exits_when_launch_is_blocked(capsys: pytest.CaptureFixture[str]
         app.run(acknowledged=False)
 
     assert exc.value.code == 1
-    captured = capsys.readouterr()
-    assert "error: launch blocked - no slots could be launched" in captured.err
+    messages = [message for _ts, message in app._status_messages]
+    assert "launch blocked - no slots could be launched" in messages
 
 
-def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) -> None:
+def test_tui_run_buffers_degraded_warnings() -> None:
     app = DashboardController([_risky_cfg()], [0])
     app.running = False
 
     with (
         patch("llama_cli.tui.controller.DashboardApp", _FakeTextualDashboardApp),
-        patch("llama_cli.tui.components.slot_status.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,
             "launch_all_slots",
@@ -1062,9 +1060,9 @@ def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) ->
     ):
         app.run(acknowledged=True)
 
-    captured = capsys.readouterr()
-    assert "warn: launch degraded - some slots blocked" in captured.err
-    assert "warn: slot blocked" in captured.err
+    messages = [message for _ts, message in app._status_messages]
+    assert "launch degraded - some slots blocked" in messages
+    assert "slot blocked" in messages
 
 
 def test_server_runner_main_dispatches_dry_run_mode() -> None:

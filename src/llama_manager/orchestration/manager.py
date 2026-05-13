@@ -4,7 +4,6 @@ import contextlib
 import os
 import re
 import signal
-import sys
 import threading
 import time
 import traceback
@@ -533,10 +532,7 @@ class ServerManager:
             self._record_lifecycle_event("cleanup", details="no_running_pids")
             return
 
-        print(
-            f"warning: Sending TERM to {len(running_pids)} server(s)...",
-            file=sys.stderr,
-        )
+        self._record_lifecycle_event("terminate", details=f"count={len(running_pids)}")
         self._send_signals_to_pids(running_pids, signal.SIGTERM, "SIGTERM")
 
         time.sleep(1)
@@ -547,23 +543,20 @@ class ServerManager:
                 self._record_lifecycle_event("skip", pid=pid, details="graceful_exit")
 
         if stubborn_pids:
-            print(
-                f"warning: Killing {len(stubborn_pids)} stubborn server(s)...",
-                file=sys.stderr,
-            )
+            self._record_lifecycle_event("kill", details=f"count={len(stubborn_pids)}")
             self._send_signals_to_pids(stubborn_pids, signal.SIGKILL, "SIGKILL")
 
         self._wait_for_processes()
 
-    def on_interrupt(self, _signum: int, _frame: FrameType | None) -> None:
-        """Handle SIGINT signal."""
+    def on_interrupt(self, _signum: int, _frame: FrameType | None) -> int:
+        """Handle SIGINT cleanup and return the conventional exit code."""
         self.cleanup_servers()
-        sys.exit(130)
+        return 130
 
-    def on_terminate(self, _signum: int, _frame: FrameType | None) -> None:
-        """Handle SIGTERM signal."""
+    def on_terminate(self, _signum: int, _frame: FrameType | None) -> int:
+        """Handle SIGTERM cleanup and return the conventional exit code."""
         self.cleanup_servers()
-        sys.exit(143)
+        return 143
 
     def _stream_pipe(
         self,
@@ -581,11 +574,6 @@ class ServerManager:
                 formatted = self._format_output(server_name, redacted)
                 if log_handler is not None:
                     log_handler(formatted)
-                else:
-                    if is_stderr:
-                        print(formatted, file=sys.stderr, flush=True)
-                    else:
-                        print(formatted, flush=True)
         finally:
             pipe.close()
 

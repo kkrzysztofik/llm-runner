@@ -7,30 +7,27 @@ from textual.containers import Container, Horizontal
 from textual.widget import Widget
 from textual.widgets import Static
 
-from llama_manager import GPUStats
-
 
 class GPUStatsPanel(Widget):
     """Compact GPU telemetry card."""
 
-    def __init__(self, gpu: GPUStats | None) -> None:
+    def __init__(self, stats: dict[str, Any] | None) -> None:
         super().__init__(classes="gpu-stats")
-        self._gpu = gpu
+        self._stats = stats
 
     def compose(self) -> ComposeResult:
         yield Static("GPU", classes="panel-title gpu-stats-title")
 
-        if self._gpu is None:
+        if self._stats is None:
             yield Static(
                 "GPU stats unavailable",
                 classes="gpu-stats-unavailable",
             )
             return
 
-        yield from self._build_rows(self._gpu)
+        yield from self._build_rows(self._stats)
 
-    def _build_rows(self, gpu: GPUStats) -> ComposeResult:
-        stats = gpu.get_stats_snapshot()
+    def _build_rows(self, stats: dict[str, Any]) -> ComposeResult:
         gpu_pct = self._parse_percent(stats.get("gpu_util"))
         mem_pct = self._parse_percent(stats.get("mem_util"))
         cpu_pct = self._parse_percent(stats.get("cpu"))

@@ -216,33 +216,31 @@ class TestSystemHealthAlignment:
         assert len(standard_rows) == 4
         assert len(wide_rows) == 2
 
-    def test_system_health_sections_use_available_width(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
+    def test_system_health_sections_use_available_width(self) -> None:
         import llama_cli.tui.components.system_health as system_health
 
-        def cpu_percent(interval: float | None = None, percpu: bool = False) -> list[float] | float:
-            if percpu:
-                return [0.0] * 24
-            return 0.0
-
-        monkeypatch.setattr(system_health.psutil, "cpu_percent", cpu_percent)
-        monkeypatch.setattr(
-            system_health.psutil,
-            "virtual_memory",
-            lambda: SimpleNamespace(percent=50.0, used=8 * 1024**3, total=16 * 1024**3),
+        base_renderer = system_health.SystemHealthRenderer()
+        provider = cast(
+            system_health.SystemHealthProvider,
+            SimpleNamespace(
+                cpu_usage_rows=lambda width=None: base_renderer._build_core_grid_rows(
+                    [0.0] * 24, base_renderer._content_width(width)
+                ),
+                memory_usage_rows=lambda: [
+                    system_health.MemoryUsageSnapshot("Mem", 50.0, "8.00G/16.0G"),
+                    system_health.MemoryUsageSnapshot("Swp", 0.0, "0.00G/2.00G"),
+                ],
+                system_info_snapshot=lambda: system_health.SystemInfoSnapshot(
+                    tasks=0,
+                    threads=0,
+                    running=0,
+                    load_values=(0.1, 0.2, 0.3),
+                    uptime="00:00:00",
+                ),
+                current_datetime_text=lambda: "2026-05-13 12:00:00",
+            ),
         )
-        monkeypatch.setattr(
-            system_health.psutil,
-            "swap_memory",
-            lambda: SimpleNamespace(percent=0.0, used=0, total=2 * 1024**3),
-        )
-        monkeypatch.setattr(system_health.psutil, "boot_time", lambda: 0.0)
-        monkeypatch.setattr(system_health.psutil, "getloadavg", lambda: (0.1, 0.2, 0.3))
-        monkeypatch.setattr(system_health.psutil, "process_iter", lambda attrs: [])
-
-        renderer = system_health.SystemHealthRenderer()
+        renderer = system_health.SystemHealthRenderer(provider)
 
         narrow_lines = (
             renderer.render_cpu_usage(width=80).splitlines()
@@ -316,10 +314,8 @@ class TestSystemHealthAlignment:
         from textual.widgets import Static
 
         from llama_cli.tui.components.gpu_stats import GPUStatsPanel
-        from llama_manager import GPUStats
 
-        gpu = GPUStats()
-        gpu._collector = lambda: {
+        stats = {
             "device": "Mock GPU",
             "gpu_util": "45%",
             "mem_util": "61%",
@@ -327,7 +323,7 @@ class TestSystemHealthAlignment:
             "power": "120W",
         }
 
-        sections = list(GPUStatsPanel(gpu).compose())
+        sections = list(GPUStatsPanel(stats).compose())
 
         assert isinstance(sections[0], Static)
         assert sections[0].has_class("gpu-stats-title")
@@ -357,18 +353,18 @@ class TestSystemHealthAlignment:
         from llama_cli.tui.components.server_column import ServerColumnPanel
         from llama_cli.tui.components.server_log import ServerLogPanel
         from llama_cli.tui.types import ServerColumnState
-        from llama_manager.log_buffer import LogBuffer
 
-        buffer = LogBuffer()
         view_model = MagicMock()
         view_model.column.return_value = ServerColumnState(
-            config=_make_minimal_config(alias="slot-a"),
-            buffer=buffer,
-            gpu=None,
-            host="127.0.0.1",
+            alias="slot-a",
+            status="offline",
+            status_class="server-column-status-offline",
+            backend_label="SYCL",
+            url="http://127.0.0.1:8080",
+            config_summary="Device: SYCL0 | Ctx: 2048 | Threads: 4",
+            logs_text="Waiting for output...",
+            gpu_stats=None,
             stale_warning=None,
-            slot_states={},
-            server_processes={},
             is_unsaved=False,
         )
 
@@ -661,7 +657,7 @@ class TestGracefulShutdownKeyHandler:
         app.stop()
         assert app.running is False
 
-    def test_signal_handler_calls_stop(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_signal_handler_calls_stop(self) -> None:
         """_signal_handler should call stop() to stop the TUI loop."""
         from llama_cli.tui import DashboardController
 
@@ -700,7 +696,7 @@ class TestGracefulShutdownKeyHandler:
         assert app.running is True
 
     def test_on_interrupt_calls_cleanup_and_exits(self) -> None:
-        """ServerManager.on_interrupt should call cleanup_servers and exit with code 130."""
+        """ServerManager.on_interrupt should call cleanup_servers and return code 130."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
@@ -713,14 +709,13 @@ class TestGracefulShutdownKeyHandler:
 
         app.server_manager.cleanup_servers = track_cleanup  # type: ignore[assignment]
 
-        with pytest.raises(SystemExit) as exc_info:
-            app.server_manager.on_interrupt(signal.SIGINT, None)
+        exit_code = app.server_manager.on_interrupt(signal.SIGINT, None)
 
-        assert exc_info.value.code == 130
+        assert exit_code == 130
         assert cleanup_called is True
 
     def test_on_terminate_calls_cleanup_and_exits(self) -> None:
-        """ServerManager.on_terminate should call cleanup_servers and exit with code 143."""
+        """ServerManager.on_terminate should call cleanup_servers and return code 143."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
@@ -733,10 +728,9 @@ class TestGracefulShutdownKeyHandler:
 
         app.server_manager.cleanup_servers = track_cleanup  # type: ignore[assignment]
 
-        with pytest.raises(SystemExit) as exc_info:
-            app.server_manager.on_terminate(signal.SIGTERM, None)
+        exit_code = app.server_manager.on_terminate(signal.SIGTERM, None)
 
-        assert exc_info.value.code == 143
+        assert exit_code == 143
         assert cleanup_called is True
 
     def test_signal_handler_releases_build_lock(self) -> None:
@@ -1326,18 +1320,17 @@ class TestHandleLaunchResult:
         with pytest.raises(SystemExit):
             app._handle_launch_result(launch_result)
 
-    def test_handle_degraded_result(self, capsys) -> None:
-        """_handle_launch_result should print warning for degraded result."""
+    def test_handle_degraded_result(self) -> None:
+        """_handle_launch_result should buffer warning for degraded result."""
         from llama_manager import LaunchResult
 
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         launch_result = LaunchResult(status="degraded", warnings=["slot1 blocked"])
 
-        # Should not raise, just print warning
         app._handle_launch_result(launch_result)
 
-        captured = capsys.readouterr()
-        assert "degraded" in captured.err.lower()
+        messages = [message for _ts, message in app._status_messages]
+        assert any("degraded" in message.lower() for message in messages)
 
 
 # =============================================================================
@@ -1540,16 +1533,15 @@ class TestProfilingFlow:
 
         with (
             patch(
-                "llama_cli.tui.viewmodel.get_gpu_identifier", return_value="intel-arc_b580-00"
+                "llama_cli.tui.controller.get_gpu_identifier", return_value="intel-arc_b580-00"
             ) as mock_gpu,
             patch(
-                "llama_cli.commands.profile.get_driver_version", return_value="driver-1"
-            ) as mock_driver,
-            patch(
-                "llama_cli.tui.viewmodel.load_profile_with_staleness",
+                "llama_cli.tui.controller.load_profile_with_staleness",
                 return_value=(MagicMock(), stale_result),
             ) as mock_load,
         ):
+            mock_driver = MagicMock(return_value="driver-1")
+            app.refresh_stale_warnings(mock_driver)
             warning = app.get_stale_warning(cfg)
 
         assert warning is not None
@@ -1876,31 +1868,8 @@ def test_add_slot_modal_on_input_submitted_only_for_slot_port() -> None:
 
 
 @pytest.mark.anyio
-async def test_dashboard_app_layout_geometry_regression(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_dashboard_app_layout_geometry_regression() -> None:
     """CPUUsageWidget stays compact; system widgets above #content; non-zero sizes."""
-    import llama_cli.tui.components.system_health as system_health_module
-
-    monkeypatch.setattr(
-        system_health_module.psutil,
-        "cpu_percent",
-        lambda interval=None, percpu=False: [0.0] * 24 if percpu else 0.0,
-    )
-    monkeypatch.setattr(
-        system_health_module.psutil,
-        "virtual_memory",
-        lambda: SimpleNamespace(percent=50.0, used=8 * 1024**3, total=16 * 1024**3),
-    )
-    monkeypatch.setattr(
-        system_health_module.psutil,
-        "swap_memory",
-        lambda: SimpleNamespace(percent=0.0, used=0, total=2 * 1024**3),
-    )
-    monkeypatch.setattr(system_health_module.psutil, "boot_time", lambda: 0.0)
-    monkeypatch.setattr(system_health_module.psutil, "getloadavg", lambda: (0.1, 0.2, 0.3))
-    monkeypatch.setattr(system_health_module.psutil, "process_iter", lambda attrs=[]: [])  # type: ignore[arg-type]
-
     from llama_cli.tui.components.gpu_stats import GPUStatsPanel
     from llama_cli.tui.components.gpu_telemetry import GPUTelemetryWidget
     from llama_cli.tui.components.menu import CommandMenu
@@ -1911,26 +1880,56 @@ async def test_dashboard_app_layout_geometry_regression(
         SystemInfoWidget,
     )
     from llama_cli.tui.textual_app import DashboardApp
-    from llama_cli.tui.types import ServerColumnState
-    from llama_manager.log_buffer import LogBuffer
+    from llama_cli.tui.types import (
+        CPUCoreSnapshot,
+        MemoryUsageSnapshot,
+        ServerColumnState,
+        SystemInfoSnapshot,
+    )
 
     controller = DashboardController(
         configs=[_make_config()],
         gpu_indices=[],
         register_signals=False,
     )
+    controller.view_model.cpu_usage_rows = MagicMock(  # type: ignore[method-assign]
+        return_value=[
+            [CPUCoreSnapshot(index=col * 3 + row, percent=0.0) for col in range(8)]
+            for row in range(3)
+        ]
+    )
+    controller.view_model.memory_usage_rows = MagicMock(  # type: ignore[method-assign]
+        return_value=[
+            MemoryUsageSnapshot("Mem", 50.0, "8.00G/16.0G"),
+            MemoryUsageSnapshot("Swp", 0.0, "0.00G/2.00G"),
+        ]
+    )
+    controller.view_model.system_info_snapshot = MagicMock(  # type: ignore[method-assign]
+        return_value=SystemInfoSnapshot(
+            tasks=0,
+            threads=0,
+            running=0,
+            load_values=(0.1, 0.2, 0.3),
+            uptime="00:00:00",
+        )
+    )
+    controller.view_model.current_datetime_text = MagicMock(  # type: ignore[method-assign]
+        return_value="2026-05-13 12:00:00"
+    )
 
     controller.view_model.gpu_telemetry_lines = MagicMock(return_value=[])  # type: ignore[method-assign]
     controller.view_model.system_notices = MagicMock(return_value=[])  # type: ignore[method-assign]
     controller.view_model.column = MagicMock(  # type: ignore[method-assign]
         return_value=ServerColumnState(
-            config=_make_config(),
-            buffer=LogBuffer(),
-            gpu=None,
-            host="127.0.0.1",
+            alias="slot0",
+            status="offline",
+            status_class="server-column-status-offline",
+            backend_label="SYCL",
+            url="http://127.0.0.1:8080",
+            config_summary="Device: SYCL0 | Ctx: 2048 | Threads: 4",
+            logs_text="Waiting for output...",
+            gpu_stats=None,
             stale_warning=None,
-            slot_states={},
-            server_processes={},
             is_unsaved=False,
         ),
     )

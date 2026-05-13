@@ -2,16 +2,28 @@
 
 from __future__ import annotations
 
+import psutil
+
 from llama_manager import (
     GPUStats,
-    ProfileFlavor,
     ServerConfig,
-    get_gpu_identifier,
-    load_profile_with_staleness,
+    SlotState,
 )
 
 from .model import DashboardModel
-from .types import CommandMenuState, ServerColumnState
+from .types import (
+    CommandMenuState,
+    CPUCoreSnapshot,
+    MemoryUsageSnapshot,
+    ServerColumnState,
+    SystemInfoSnapshot,
+)
+
+BACKEND_LABELS: dict[str, str] = {
+    "sycl": "SYCL",
+    "cuda": "CUDA",
+    "llama_cpp": "CPU",
+}
 
 
 class DashboardViewModel:
@@ -33,6 +45,41 @@ class DashboardViewModel:
         for gpu in self.model.gpu_stats:
             lines.append(gpu.format_stats_text())
         return lines
+
+    def server_column_count(self) -> int:
+        return max(1, len(self.model.configs))
+
+    def can_select_build_target(self) -> bool:
+        return self.model.build_request and not getattr(self.model, "build_selected_backend", "")
+
+    def cpu_usage_rows(self, width: int | None = None) -> list[list[CPUCoreSnapshot]]:
+        content_width = self._content_width(width)
+        cpu_per_core = self.model.cpu_percentages()
+        if not cpu_per_core:
+            return []
+
+        max_cols = max(1, content_width // 16)
+        rows = max(1, (len(cpu_per_core) + max_cols - 1) // max_cols)
+        cols = (len(cpu_per_core) + rows - 1) // rows
+        snapshot_rows: list[list[CPUCoreSnapshot]] = []
+        for row in range(rows):
+            snapshot_row: list[CPUCoreSnapshot] = []
+            for col in range(cols):
+                idx = col * rows + row
+                if idx >= len(cpu_per_core):
+                    continue
+                snapshot_row.append(CPUCoreSnapshot(index=idx, percent=cpu_per_core[idx]))
+            snapshot_rows.append(snapshot_row)
+        return snapshot_rows
+
+    def memory_usage_rows(self) -> list[MemoryUsageSnapshot]:
+        return self.model.memory_usage_rows()
+
+    def system_info_snapshot(self) -> SystemInfoSnapshot:
+        return self.model.system_info_snapshot()
+
+    def current_datetime_text(self) -> str:
+        return self.model.current_datetime_text()
 
     def system_notices(self) -> list[str]:
         notices: list[str] = []
@@ -78,36 +125,44 @@ class DashboardViewModel:
         gpu: GPUStats | None = (
             self.model.gpu_stats[slot_index] if slot_index < len(self.model.gpu_stats) else None
         )
+        status = self._resolve_slot_status(cfg.alias)
         return ServerColumnState(
-            config=cfg,
-            buffer=self.model.log_buffers[cfg.alias],
-            gpu=gpu,
-            host=self.model.config.host,
+            alias=cfg.alias,
+            status=status,
+            status_class=f"server-column-status-{status.replace('_', '-')}",
+            backend_label=BACKEND_LABELS.get(cfg.backend, BACKEND_LABELS["llama_cpp"]),
+            url=f"http://{self.model.config.host}:{cfg.port}",
+            config_summary=f"Device: {cfg.device} | Ctx: {cfg.ctx_size} | Threads: {cfg.threads}",
+            logs_text=self.model.log_buffers[cfg.alias].get_text(
+                empty_message="Waiting for output..."
+            ),
+            gpu_stats=gpu.get_stats_snapshot() if gpu is not None else None,
             stale_warning=self.stale_warning(cfg),
-            slot_states=self.model.slot_states,
-            server_processes=self.model.server_processes,
             is_unsaved=cfg.alias in self.model.unsaved_slots,
         )
 
     def stale_warning(self, cfg: ServerConfig) -> str | None:
-        """Check whether the cached profile for a config is stale."""
-        try:
-            from llama_cli.commands.profile import get_driver_version
+        """Return the cached stale-profile warning for a config."""
+        return self.model.stale_warnings.get(cfg.alias)
 
-            _record, staleness = load_profile_with_staleness(
-                profiles_dir=self.model.config.profiles_dir,
-                gpu_identifier=get_gpu_identifier(cfg.backend),
-                backend=cfg.backend,
-                flavor=ProfileFlavor.BALANCED,
-                current_driver_version=get_driver_version(cfg.backend),
-                current_binary_version=self.model.config.server_binary_version or "unknown",
-                staleness_days=self.model.config.profile_staleness_days,
-            )
-        except Exception:
-            return None
+    def _resolve_slot_status(self, alias: str) -> str:
+        state = self.model.slot_states.get(alias, SlotState.OFFLINE.value)
+        status = state
+        if state == SlotState.RUNNING.value:
+            proc = self.model.server_processes.get(alias)
+            if not proc:
+                status = SlotState.CRASHED.value
+            elif hasattr(proc, "poll"):
+                if proc.poll() is not None:
+                    status = SlotState.CRASHED.value
+            else:
+                pid = getattr(proc, "pid", None)
+                if not (pid and psutil.pid_exists(pid)):
+                    status = SlotState.CRASHED.value
+        return status
 
-        if staleness is None or not staleness.is_stale:
-            return None
-
-        reasons = "; ".join(reason.value.replace("_", " ").title() for reason in staleness.reasons)
-        return f"\u26a0 profile stale \u2014 {reasons}"
+    @staticmethod
+    def _content_width(width: int | None) -> int:
+        if width is None or width <= 0:
+            return 116
+        return min(240, max(40, width))

@@ -188,21 +188,23 @@ class TestPipeStreaming:
         manager._stream_pipe(None, "test_server", False, buffer.add_line)
         assert buffer.line_count == 0
 
-    def test_stream_pipe_without_handler_prints(self, capsys) -> None:
-        """_stream_pipe should print to stdout/stderr when no handler provided."""
+    def test_stream_pipe_without_handler_consumes_without_output(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """_stream_pipe should consume and close the pipe when no handler is provided."""
         from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
 
-        # Create mock pipe that prints
         mock_pipe = MagicMock()
         mock_pipe.readline.side_effect = ["stdout_line\n", ""]
 
-        # Stream without handler - should print
         manager._stream_pipe(mock_pipe, "test_server", False, None)
 
         captured = capsys.readouterr()
-        assert "test_server" in captured.out
+        assert captured.out == ""
+        assert captured.err == ""
+        mock_pipe.close.assert_called_once()
 
     def test_start_server_background_with_handler(self) -> None:
         """start_server_background should accept and use log handler."""

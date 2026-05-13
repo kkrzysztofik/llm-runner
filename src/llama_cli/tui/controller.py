@@ -8,20 +8,22 @@ from collections.abc import Callable
 from types import FrameType
 from typing import Any, Literal
 
-from llama_cli.ui_output import emit_error, emit_info, emit_plain, emit_success, emit_warn
 from llama_manager import (
     Config,
     GPUStats,
     LaunchResult,
     LogBuffer,
     ModelSlot,
+    ProfileFlavor,
     RiskAckResult,
     ServerConfig,
     ServerManager,
     SlotState,
     add_slot_from_form,
     compute_slot_transition,
+    get_gpu_identifier,
     launch_orchestrate,
+    load_profile_with_staleness,
     resolve_risk_action,
 )
 from llama_manager.build_pipeline import (
@@ -208,7 +210,7 @@ class DashboardController:
         Releases build lock and stops the build gracefully.
         """
         if self.build_in_progress and self._build_pipeline is not None:
-            emit_warn("Build interrupted by user, releasing lock...")
+            self._push_status_message("Build interrupted by user, releasing lock...")
             self._build_pipeline.release_lock()
             self.build_in_progress = False
             sys.exit(130)  # Standard exit code for Ctrl+C
@@ -216,6 +218,9 @@ class DashboardController:
     def _make_collector(self, device_index: int) -> Callable[[], dict[str, Any]]:
         """Create a GPU collector bound to a specific device index."""
         return self.model.make_collector(device_index)
+
+    def can_select_build_target(self) -> bool:
+        return self.view_model.can_select_build_target()
 
     def stop(self) -> None:
         """Stop the TUI loop gracefully."""
@@ -346,6 +351,33 @@ class DashboardController:
         """
         self.model.push_status_message(message)
 
+    def refresh_stale_warnings(self, get_driver_version: Callable[[str], str]) -> None:
+        """Refresh cached stale-profile warnings for all configured slots."""
+        warnings: dict[str, str] = {}
+        for cfg in self.configs:
+            try:
+                _record, staleness = load_profile_with_staleness(
+                    profiles_dir=self.config.profiles_dir,
+                    gpu_identifier=get_gpu_identifier(cfg.backend),
+                    backend=cfg.backend,
+                    flavor=ProfileFlavor.BALANCED,
+                    current_driver_version=get_driver_version(cfg.backend),
+                    current_binary_version=self.config.server_binary_version or "unknown",
+                    staleness_days=self.config.profile_staleness_days,
+                )
+            except (OSError, FileNotFoundError, ValueError, KeyError):
+                continue
+
+            if staleness is None or not staleness.is_stale:
+                continue
+
+            reasons = "; ".join(
+                reason.value.replace("_", " ").title() for reason in staleness.reasons
+            )
+            warnings[cfg.alias] = f"profile stale - {reasons}"
+
+        self.model.stale_warnings = warnings
+
     def add_slot_from_form(self, values: dict[str, str]) -> bool:
         """Create or replace a slot from modal profile selection."""
         state = {
@@ -367,6 +399,12 @@ class DashboardController:
         )
         for msg in messages:
             self._push_status_message(msg)
+        active_aliases = {cfg.alias for cfg in self.configs}
+        self.model.stale_warnings = {
+            alias: warning
+            for alias, warning in self.model.stale_warnings.items()
+            if alias in active_aliases
+        }
         return success
 
     def cancel_add_slot_form(self) -> None:
@@ -590,19 +628,18 @@ class DashboardController:
         if launch_result is None:
             return
         if launch_result.is_blocked():
-            emit_error("launch blocked - no slots could be launched")
+            self._push_status_message("launch blocked - no slots could be launched")
             if launch_result.errors is not None:
                 for error_detail in launch_result.errors.errors:
-                    emit_plain(f"  {error_detail.error_code}", err=True)
-                    emit_plain(f"    failed_check: {error_detail.failed_check}", err=True)
-                    emit_plain(f"    why_blocked: {error_detail.why_blocked}", err=True)
-                    emit_plain(f"    how_to_fix: {error_detail.how_to_fix}", err=True)
+                    self._push_status_message(
+                        f"{error_detail.error_code}: {error_detail.why_blocked}"
+                    )
             raise SystemExit(1)
 
         if launch_result.is_degraded():
-            emit_warn("launch degraded - some slots blocked")
+            self._push_status_message("launch degraded - some slots blocked")
             for warning in launch_result.warnings or []:
-                emit_warn(warning)
+                self._push_status_message(warning)
 
     def build_llama_cpp(self, backend: str = "sycl", dry_run: bool = False) -> bool:
         """Build llama.cpp using BuildPipeline.
@@ -623,9 +660,9 @@ class DashboardController:
         self._original_sigint_handler = signal.signal(signal.SIGINT, self._signal_handler_build)
 
         try:
-            emit_info(f"Building for {backend} backend...")
+            self._push_status_message(f"Building for {backend} backend...")
             if dry_run:
-                emit_warn("DRY RUN MODE - commands will not be executed")
+                self._push_status_message("DRY RUN MODE - commands will not be executed")
 
             result = run_build_for_backend(
                 backend=backend,
@@ -636,12 +673,12 @@ class DashboardController:
             )
 
             if result.success:
-                emit_success("Build completed successfully!")
+                self._push_status_message("Build completed successfully!")
                 if result.artifact:
-                    emit_info(f"Artifact: {result.artifact.binary_path}")
+                    self._push_status_message(f"Artifact: {result.artifact.binary_path}")
                 return True
             else:
-                emit_error(f"Build failed: {result.error_message}")
+                self._push_status_message(f"Build failed: {result.error_message}")
                 return False
         finally:
             self.build_in_progress = False
@@ -663,6 +700,7 @@ class DashboardController:
         )
 
         self.configs = result.updated_configs
+        self.refresh_stale_warnings(get_driver_version)
 
         for msg in result.status_messages:
             self._push_status_message(msg)
