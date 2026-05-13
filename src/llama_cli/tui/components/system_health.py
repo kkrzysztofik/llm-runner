@@ -11,6 +11,10 @@ from textual.containers import Container, Horizontal
 from textual.widget import Widget
 from textual.widgets import Static
 
+_SYSTEM_INFO_LABEL = "system-health-label system-info-label"
+_SYSTEM_INFO_PRIMARY_VALUE = "system-info-value system-info-primary-value"
+_SYSTEM_INFO_ROW = "system-health-inline-row system-info-row"
+
 
 @dataclass(frozen=True)
 class CPUCoreSnapshot:
@@ -48,20 +52,20 @@ class SystemHealthRenderer:
 
     def render_cpu_usage(self, width: int | None = None) -> str:
         content_width = self._content_width(width)
-        cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
+        cpu_per_core: list[float] = psutil.cpu_percent(interval=None, percpu=True)  # type: ignore[assignment]
         return "\n".join(self._build_core_grid_lines(cpu_per_core, content_width=content_width))
 
     def cpu_usage_rows(self, width: int | None = None) -> list[list[CPUCoreSnapshot]]:
         content_width = self._content_width(width)
-        cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
+        cpu_per_core: list[float] = psutil.cpu_percent(interval=None, percpu=True)  # type: ignore[assignment]
         return self._build_core_grid_rows(cpu_per_core, content_width=content_width)
 
     def render_memory_swap_usage(self, width: int | None = None) -> str:
         content_width = self._content_width(width)
-        rows = self.memory_usage_rows(width)
+        rows = self.memory_usage_rows()
         return "\n".join(self._format_memory_row(row, content_width) for row in rows)
 
-    def memory_usage_rows(self, width: int | None = None) -> list[MemoryUsageSnapshot]:
+    def memory_usage_rows(self) -> list[MemoryUsageSnapshot]:
         mem = psutil.virtual_memory()
         swap = psutil.swap_memory()
         return [
@@ -320,7 +324,7 @@ class MemorySwapWidget(Widget):
         self._renderer = renderer
 
     def compose(self) -> ComposeResult:
-        for row in self._renderer.memory_usage_rows(width=self.size.width):
+        for row in self._renderer.memory_usage_rows():
             value_class = (
                 "system-health-value system-health-muted-value"
                 if row.label == "Swp" and row.percent <= 0
@@ -356,31 +360,31 @@ class SystemInfoWidget(Widget):
         snapshot = self._renderer.system_info_snapshot()
 
         yield Horizontal(
-            Static("Tasks:", classes="system-health-label system-info-label"),
-            Static(f"{snapshot.tasks:>3}", classes="system-info-value system-info-primary-value"),
+            Static("Tasks:", classes=_SYSTEM_INFO_LABEL),
+            Static(f"{snapshot.tasks:>3}", classes=_SYSTEM_INFO_PRIMARY_VALUE),
             Static("Thr:", classes="system-info-label system-info-secondary-label"),
             Static(
                 f"{snapshot.threads:>4}",
-                classes="system-info-value system-info-primary-value",
+                classes=_SYSTEM_INFO_PRIMARY_VALUE,
             ),
             Static("Run:", classes="system-info-label system-info-running-label"),
-            Static(f"{snapshot.running:>2}", classes="system-info-value system-info-primary-value"),
-            classes="system-health-inline-row system-info-row",
+            Static(f"{snapshot.running:>2}", classes=_SYSTEM_INFO_PRIMARY_VALUE),
+            classes=_SYSTEM_INFO_ROW,
         )
 
         if snapshot.load_values is None:
             yield Horizontal(
-                Static("Load:", classes="system-health-label system-info-label"),
+                Static("Load:", classes=_SYSTEM_INFO_LABEL),
                 Static("n/a", classes="system-info-value system-info-muted-value"),
-                classes="system-health-inline-row system-info-row",
+                classes=_SYSTEM_INFO_ROW,
             )
         else:
             load_1, load_5, load_15 = snapshot.load_values
             yield Horizontal(
-                Static("Load:", classes="system-health-label system-info-label"),
+                Static("Load:", classes=_SYSTEM_INFO_LABEL),
                 Static(
                     f"{load_1:.2f}",
-                    classes="system-info-value system-info-primary-value",
+                    classes=_SYSTEM_INFO_PRIMARY_VALUE,
                 ),
                 Static(
                     f"{load_5:.2f}",
@@ -390,11 +394,11 @@ class SystemInfoWidget(Widget):
                     f"{load_15:.2f}",
                     classes="system-info-value system-info-tertiary-value",
                 ),
-                classes="system-health-inline-row system-info-row",
+                classes=_SYSTEM_INFO_ROW,
             )
 
         yield Horizontal(
-            Static("Uptime:", classes="system-health-label system-info-label"),
-            Static(snapshot.uptime, classes="system-info-value system-info-primary-value"),
-            classes="system-health-inline-row system-info-row",
+            Static("Uptime:", classes=_SYSTEM_INFO_LABEL),
+            Static(snapshot.uptime, classes=_SYSTEM_INFO_PRIMARY_VALUE),
+            classes=_SYSTEM_INFO_ROW,
         )

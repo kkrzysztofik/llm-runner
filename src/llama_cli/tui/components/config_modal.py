@@ -13,6 +13,8 @@ from textual.widgets import Button, Input, Label
 
 from llama_manager.config import Config
 
+_SECTION_LABEL_CLASSES = "form-section-label config-section-label"
+
 
 @dataclass
 class ConfigPayload:
@@ -62,10 +64,10 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                 classes="modal-title config-title",
             ),
             VerticalScroll(
-                Label("System Paths", classes="form-section-label config-section-label"),
+                Label("System Paths", classes=_SECTION_LABEL_CLASSES),
                 self._field_row("llama-cpp root", "llama_cpp_root", c.llama_cpp_root),
                 self._field_row("models directory", "models_dir", c.models_dir),
-                Label("Binary Paths", classes="form-section-label config-section-label"),
+                Label("Binary Paths", classes=_SECTION_LABEL_CLASSES),
                 self._field_row(
                     "llama-server (Intel/SYCL)",
                     "llama_server_bin_intel",
@@ -76,12 +78,12 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                     "llama_server_bin_nvidia",
                     c.llama_server_bin_nvidia,
                 ),
-                Label("Network", classes="form-section-label config-section-label"),
+                Label("Network", classes=_SECTION_LABEL_CLASSES),
                 self._field_row("bind host", "host", c.host),
-                Label("Build", classes="form-section-label config-section-label"),
+                Label("Build", classes=_SECTION_LABEL_CLASSES),
                 self._field_row("git remote", "build_git_remote", c.build_git_remote),
                 self._field_row("git branch", "build_git_branch", c.build_git_branch),
-                Label("Smoke Probes (seconds)", classes="form-section-label config-section-label"),
+                Label("Smoke Probes (seconds)", classes=_SECTION_LABEL_CLASSES),
                 self._field_row(
                     "listen timeout",
                     "smoke_listen_timeout_s",
