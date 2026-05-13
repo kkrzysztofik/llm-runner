@@ -85,3 +85,45 @@ ConfigModal {
 .config-actions Button {
     margin-left: 1;
 }
+
+BuildModalScreen {
+    align: center middle;
+}
+
+.build-modal {
+    height: auto;
+    padding: 1 2;
+    border: round $accent;
+    background: $surface;
+    width: 80;
+    max-width: 95%;
+}
+
+.build-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.build-message {
+    margin-bottom: 1;
+}
+
+.build-result {
+    text-style: bold;
+    color: $success;
+}
+
+.build-error {
+    color: $error;
+    margin-top: 1;
+}
+
+.build-retry-info {
+    color: $warning;
+    margin-top: 1;
+}
+
+.build-target-prompt {
+    text-style: bold;
+    margin-bottom: 1;
+}

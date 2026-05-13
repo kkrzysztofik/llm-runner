@@ -2,7 +2,6 @@
 
 import dataclasses
 import signal
-import sys
 import threading
 from collections.abc import Callable
 from types import FrameType
@@ -213,7 +212,10 @@ class DashboardController:
             self._push_status_message("Build interrupted by user, releasing lock...")
             self._build_pipeline.release_lock()
             self.build_in_progress = False
-            sys.exit(130)  # Standard exit code for Ctrl+C
+            # Set cancel event for the build thread
+            cancel_event = getattr(self.model, "build_cancel_event", None)
+            if cancel_event is not None:
+                cancel_event.set()
 
     def _make_collector(self, device_index: int) -> Callable[[], dict[str, Any]]:
         """Create a GPU collector bound to a specific device index."""
@@ -612,6 +614,11 @@ class DashboardController:
             progress: BuildProgress from the pipeline
         """
         self.build_progress = progress
+        self.model.build_stage = progress.stage
+        self.model.build_progress_percent = progress.progress_percent
+        self.model.build_is_retrying = progress.is_retrying
+        if progress.retries_remaining is not None:
+            self.model.build_retries_remaining = progress.retries_remaining
 
         if self.build_in_progress:
             if progress.is_retrying:
@@ -623,6 +630,89 @@ class DashboardController:
                 self._push_status_message(f"Build failed: {progress.message}")
             elif progress.status == "success":
                 self._push_status_message("Build completed successfully.")
+            else:
+                self._push_status_message(f"Build {progress.status}: {progress.message}")
+
+    # -- Build lifecycle --------------------------------------------------
+
+    def handle_build_selection(self, backends: list[str]) -> None:
+        """Initiate build for the given backends.
+
+        Called from BuildModalScreen when the user presses 1/2/3.
+        Starts a background thread so the TUI stays responsive.
+        """
+        self._run_build_background(backends)
+
+    def cancel_build(self) -> None:
+        """Signal cancellation to a running build."""
+        cancel_event = getattr(self.model, "build_cancel_event", None)
+        if cancel_event is not None:
+            cancel_event.set()
+
+    def _run_build_background(self, backends: list[str]) -> None:
+        """Run the build pipeline in a daemon thread."""
+        self.model.build_in_progress = True
+        self.model.build_selected_backends = backends
+        self.model.build_cancel_event = threading.Event()
+
+        def _do_build() -> None:
+            self._original_sigint_handler = signal.signal(signal.SIGINT, self._signal_handler_build)
+            try:
+                for backend in backends:
+                    if backend == "both":
+                        for sub in ("sycl", "cuda"):
+                            cancel_evt = self.model.build_cancel_event
+                            if cancel_evt is not None and cancel_evt.is_set():
+                                self._push_status_message("Build cancelled")
+                                return
+                            ok = self._build_single_backend(sub)
+                            if not ok:
+                                self.model.build_result = "failed"
+                                return
+                    else:
+                        cancel_evt = self.model.build_cancel_event
+                        if cancel_evt is not None and cancel_evt.is_set():
+                            self._push_status_message("Build cancelled")
+                            return
+                        ok = self._build_single_backend(backend)
+                        if not ok:
+                            self.model.build_result = "failed"
+                            return
+                self.model.build_result = "success"
+                self._push_status_message("Build completed successfully!")
+            except Exception as exc:
+                self.model.build_result = "failed"
+                self.model.build_error = str(exc)
+                self._push_status_message(f"Build failed: {exc}")
+            finally:
+                self.model.build_in_progress = False
+                if self._original_sigint_handler is not None:
+                    signal.signal(signal.SIGINT, self._original_sigint_handler)
+
+        threading.Thread(target=_do_build, name="build-worker", daemon=True).start()
+
+    def _build_single_backend(self, backend: str) -> bool:
+        """Build for a single backend; returns True on success."""
+        try:
+            self._push_status_message(f"Building for {backend} backend...")
+            result = run_build_for_backend(
+                backend=backend,
+                dry_run=False,
+                config=self.config,
+                progress_callback=self._handle_build_progress,
+                pipeline_callback=lambda p: setattr(self, "_build_pipeline", p),
+            )
+            if not result.success:
+                self.model.build_error = result.error_message or "Build failed"
+                self._push_status_message(f"Build failed: {result.error_message}")
+                return False
+            if result.artifact:
+                self._push_status_message(f"Artifact: {result.artifact.binary_path}")
+            return True
+        except Exception as exc:
+            self.model.build_error = str(exc)
+            self._push_status_message(f"Build failed: {exc}")
+            return False
 
     def _handle_launch_result(self, launch_result: LaunchResult | None) -> None:
         if launch_result is None:

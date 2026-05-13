@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -12,6 +12,7 @@ from textual.css.query import NoMatches
 
 from llama_manager.config import create_default_profile_registry
 
+from .components.build import BuildModalScreen
 from .components.config_modal import ConfigModal, ConfigPayload
 from .components.menu import CommandMenu
 from .components.modal import AddSlotModal
@@ -113,6 +114,13 @@ class DashboardApp(App[None]):
             self._reconcile_server_log_panels()
         self.refresh_dashboard()
 
+    def _handle_build_modal_result(self, result: dict[str, Any] | None) -> None:
+        if result is None:
+            self.controller.cancel_pending_prompt()
+        elif "backends" in result:
+            self.controller.handle_build_selection(result["backends"])
+        self.refresh_dashboard()
+
     def _reconcile_server_log_panels(self) -> None:
         """Ensure ServerLogPanel widgets match the current slot count."""
         container = self.query_one("#content", Container)
@@ -138,8 +146,8 @@ class DashboardApp(App[None]):
         return self._profile_options_cache
 
     def action_build(self) -> None:
-        self.controller.request_build()
-        self.refresh_dashboard()
+        screen = BuildModalScreen()
+        self.push_screen(screen, self._handle_build_modal_result)
 
     def action_smoke(self) -> None:
         self.controller.request_smoke()

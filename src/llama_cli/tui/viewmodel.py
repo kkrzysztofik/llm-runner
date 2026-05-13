@@ -50,7 +50,31 @@ class DashboardViewModel:
         return max(1, len(self.model.configs))
 
     def can_select_build_target(self) -> bool:
-        return self.model.build_request and not getattr(self.model, "build_selected_backend", "")
+        return self.model.build_request and self.model.build_selected_backends is None
+
+    @property
+    def build_selected_backends(self) -> list[str] | None:
+        return self.model.build_selected_backends
+
+    @property
+    def build_in_progress(self) -> bool:
+        return self.model.build_in_progress
+
+    @property
+    def build_result(self) -> str | None:
+        return self.model.build_result
+
+    @property
+    def build_error(self) -> str | None:
+        return self.model.build_error
+
+    @property
+    def build_stage(self) -> str | None:
+        return self.model.build_stage
+
+    @property
+    def build_progress_percent(self) -> float:
+        return self.model.build_progress_percent
 
     def cpu_usage_rows(self, width: int | None = None) -> list[list[CPUCoreSnapshot]]:
         content_width = self._content_width(width)

@@ -67,6 +67,16 @@ class DashboardModel:
 
         self.profile_request: str | None = None
         self.build_request = False
+        self.build_selected_backends: list[str] | None = None
+        self.build_in_progress = False
+        self.build_result: Literal["success", "failed"] | None = None
+        self.build_error: str | None = None
+        self.build_artifact: str | None = None
+        self.build_stage: str | None = None
+        self.build_progress_percent: float = 0.0
+        self.build_is_retrying = False
+        self.build_retries_remaining: int = 0
+        self.build_cancel_event: threading.Event | None = None
         self.smoke_request = False
         self.unsaved_slots: set[str] = set()
 

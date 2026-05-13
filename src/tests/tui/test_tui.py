@@ -1101,7 +1101,10 @@ class TestTextualDashboardAppActions:
         controller.configs = [_make_config()]
         app = TextualDashboardApp(controller)
 
-        with patch.object(app, "refresh_dashboard") as mock_refresh:
+        with (
+            patch.object(app, "refresh_dashboard") as mock_refresh,
+            patch.object(app, "push_screen") as mock_push,
+        ):
             app.action_profile()
             app.action_build()
             app.action_smoke()
@@ -1112,14 +1115,14 @@ class TestTextualDashboardAppActions:
             app.action_interrupt_dashboard()
 
         controller.request_profile.assert_called_once()
-        controller.request_build.assert_called_once()
+        mock_push.assert_called_once()
         controller.request_smoke.assert_called_once()
         controller.acknowledge_risk.assert_called_once()
         controller.reject_risk.assert_called_once()
         controller.cancel_pending_prompt.assert_called_once()
         controller.refresh_display.assert_called_once()
         controller.interrupt.assert_called_once()
-        assert mock_refresh.call_count == 7
+        assert mock_refresh.call_count == 6
 
     def test_emit_status_toasts_uses_popups_for_notices_and_status(self) -> None:
         controller = MagicMock()
@@ -1468,12 +1471,13 @@ class TestSignalHandler:
 
         with patch.object(app, "_build_pipeline") as mock_pipeline:
             mock_pipeline.release_lock.return_value = None
+            app.model.build_cancel_event = MagicMock()
 
-            with pytest.raises(SystemExit) as exc_info:
-                app._signal_handler_build(2, None)
+            app._signal_handler_build(2, None)
 
-            assert exc_info.value.code == 130
             mock_pipeline.release_lock.assert_called_once()
+            assert app.build_in_progress is False
+            app.model.build_cancel_event.set.assert_called_once()
 
 
 # =============================================================================
