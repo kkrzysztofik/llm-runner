@@ -98,8 +98,8 @@ def build_config() -> Config:
     # Env vars explicitly listed in _ENV_OVERRIDES override file values.
     env_overrides: dict[str, Any] = {}
     for field_name, env_var in _ENV_OVERRIDES.items():
-        if value := os.environ.get(env_var):
-            env_overrides[field_name] = value
+        if env_var in os.environ:
+            env_overrides[field_name] = os.environ[env_var]
 
     kwargs: dict[str, Any] = {**file_overrides, **env_overrides}
     return Config(**kwargs)

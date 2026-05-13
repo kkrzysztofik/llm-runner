@@ -1,6 +1,6 @@
 """Dashboard controller for the Textual TUI."""
 
-import contextlib
+import dataclasses
 import signal
 import sys
 import threading
@@ -30,6 +30,7 @@ from llama_manager.build_pipeline import (
     run_build_for_backend,
 )
 
+from .components.config_modal import ConfigPayload
 from .model import DashboardModel
 from .textual_app import DashboardApp
 from .viewmodel import DashboardViewModel
@@ -517,13 +518,11 @@ class DashboardController:
         self.server_manager.cleanup_servers()
         self.running = False
 
-    def save_config(self, overrides: dict[str, str], *, restart: bool = False) -> None:
+    def save_config(self, payload: ConfigPayload) -> None:
         """Persist edited config values and optionally restart all servers.
 
         Args:
-            overrides: Flat dict of field name → string value from the modal.
-            restart: When True, stop all running server processes after saving.
-                     The caller (TUI) must re-launch servers if needed.
+            payload: Typed config values and restart flag from the modal.
         """
         from llama_manager.config import config_file_path, save_config_to_file
 
@@ -535,12 +534,21 @@ class DashboardController:
             "smoke_total_chat_timeout_s",
         }
 
-        for field_name, raw_value in overrides.items():
+        for field in dataclasses.fields(payload):
+            if field.name == "restart":
+                continue
+            field_name = field.name
+            raw_value = getattr(payload, field_name)
             if not hasattr(cfg, field_name):
                 continue
             if field_name in int_fields:
-                with contextlib.suppress(ValueError):
+                try:
                     setattr(cfg, field_name, int(raw_value))
+                except ValueError:
+                    self._push_status_message(
+                        f"Invalid value '{raw_value}' for {field_name} — config not saved."
+                    )
+                    return
             else:
                 setattr(cfg, field_name, raw_value)
 
@@ -549,8 +557,9 @@ class DashboardController:
             self._push_status_message("Config saved to disk.")
         except OSError as exc:
             self._push_status_message(f"Config save failed: {exc}")
+            return
 
-        if restart:
+        if payload.restart:
             self._push_status_message("Restarting servers with new config…")
             self.server_manager.cleanup_servers()
             self._push_status_message(

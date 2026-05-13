@@ -173,7 +173,7 @@ def _query_nvidia_driver() -> str | None:
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip().split("\n")[0].strip()
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         pass
     return None
 
@@ -193,7 +193,7 @@ def _query_sycl_driver() -> str | None:
             for line in result.stdout.splitlines():
                 if "gpu" in line.lower() or "device" in line.lower():
                     return line.strip()
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         pass
     return None
 

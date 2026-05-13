@@ -300,7 +300,7 @@ def _iterate_stale_profiles(
     max_age_days: int,
     current_driver_version: str | None = None,
     current_binary_version: str | None = None,
-) -> list[tuple[Path, ProfileRecord, StalenessResult, str, str]]:
+) -> list[tuple[Path, ProfileRecord | None, StalenessResult | None, str, str]]:
     """Iterate over stale profiles in the profiles directory.
 
     Shared helper used by both _check_profiles (check path) and
@@ -317,7 +317,8 @@ def _iterate_stale_profiles(
         current_binary_version: Current llama-server binary version.
 
     Returns:
-        List of tuples: (profile_path, record, staleness, reasons, guidance).
+        List of tuples: (profile_path, record_or_None, staleness_or_None,
+        reasons, guidance).
     """
     entries = _scan_profiles(
         profiles_dir,
@@ -326,10 +327,7 @@ def _iterate_stale_profiles(
         current_driver_version=current_driver_version,
         current_binary_version=current_binary_version,
     )
-    return [
-        (e.path, e.record, e.staleness, e.reasons, e.guidance)  # type: ignore[list-item]
-        for e in entries
-    ]
+    return [(e.path, e.record, e.staleness, e.reasons, e.guidance) for e in entries]
 
 
 def _iterate_all_profiles(
@@ -337,7 +335,7 @@ def _iterate_all_profiles(
     max_age_days: int,
     current_driver_version: str | None = None,
     current_binary_version: str | None = None,
-) -> list[tuple[Path, ProfileRecord, StalenessResult | None, str, str]]:
+) -> list[tuple[Path, ProfileRecord | None, StalenessResult | None, str, str]]:
     """Iterate over ALL profiles in the profiles directory.
 
     Returns every profile (stale or not) along with its staleness result.
@@ -359,10 +357,7 @@ def _iterate_all_profiles(
         current_driver_version=current_driver_version,
         current_binary_version=current_binary_version,
     )
-    return [
-        (e.path, e.record, e.staleness, e.reasons, e.guidance)  # type: ignore[list-item]
-        for e in entries
-    ]
+    return [(e.path, e.record, e.staleness, e.reasons, e.guidance) for e in entries]
 
 
 def _check_profiles(

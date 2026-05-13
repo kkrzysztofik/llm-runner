@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
@@ -10,7 +11,7 @@ from textual.containers import Container
 
 from llama_manager.config import create_default_profile_registry
 
-from .components.config_modal import ConfigModal
+from .components.config_modal import ConfigModal, ConfigPayload
 from .components.menu import CommandMenu
 from .components.modal import AddSlotModal
 from .components.server_log import ServerLogPanel
@@ -98,10 +99,9 @@ class DashboardApp(App[None]):
             self._handle_config_modal_result,
         )
 
-    def _handle_config_modal_result(self, result: dict[str, str] | None) -> None:
+    def _handle_config_modal_result(self, result: ConfigPayload | None) -> None:
         if result is not None:
-            restart = result.pop("_restart", None) == "1"
-            self.controller.save_config(result, restart=restart)
+            self.controller.save_config(result)
         self.refresh_dashboard()
 
     def _handle_add_slot_modal_result(self, result: dict[str, str] | None) -> None:
@@ -173,13 +173,13 @@ class DashboardApp(App[None]):
 
         # Refresh each leaf widget.  SystemStatusWidget and SystemHealthWidget
         # use compose(), so their children own their own repaints.
-        self.query_one(DateTimeWidget).refresh(recompose=True)
-        self.query_one(CPUUsageWidget).refresh(recompose=True)
-        self.query_one(MemorySwapWidget).refresh(recompose=True)
-        self.query_one(SystemInfoWidget).refresh(recompose=True)
+        for widget_type in (DateTimeWidget, CPUUsageWidget, MemorySwapWidget, SystemInfoWidget):
+            with contextlib.suppress(Exception):
+                self.query_one(widget_type).refresh(recompose=True)
         for panel in self.query(ServerLogPanel):
             panel.refresh(recompose=True)
-        self.query_one(CommandMenu).refresh(recompose=True)
+        with contextlib.suppress(Exception):
+            self.query_one(CommandMenu).refresh(recompose=True)
 
     def _emit_status_toasts(self) -> None:
         notices = self.view_model.system_notices()

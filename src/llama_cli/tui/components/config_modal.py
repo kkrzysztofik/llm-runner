@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
@@ -11,15 +13,30 @@ from textual.widgets import Button, Input, Label
 
 from llama_manager.config import Config
 
-# Sentinel key added to the returned dict to signal "also restart servers".
-_RESTART_KEY = "_restart"
+
+@dataclass
+class ConfigPayload:
+    """Typed payload returned by the config modal on save."""
+
+    llama_cpp_root: str = ""
+    models_dir: str = ""
+    llama_server_bin_intel: str = ""
+    llama_server_bin_nvidia: str = ""
+    host: str = ""
+    build_git_remote: str = ""
+    build_git_branch: str = ""
+    smoke_listen_timeout_s: str = ""
+    smoke_http_request_timeout_s: str = ""
+    smoke_first_token_timeout_s: str = ""
+    smoke_total_chat_timeout_s: str = ""
+    restart: bool = False
 
 
-class ConfigModal(ModalScreen[dict[str, str] | None]):
+class ConfigModal(ModalScreen[ConfigPayload | None]):
     """Full-screen modal for editing global Config settings.
 
-    Returns a ``dict[str, str]`` with the edited values on save, with an
-    optional ``"_restart": "1"`` entry when the caller should also restart
+    Returns a ``ConfigPayload`` dataclass with the edited values on save,
+    with an explicit ``restart`` boolean when the caller should also restart
     all running server slots.  Returns ``None`` on cancel.
     """
 
@@ -118,25 +135,33 @@ class ConfigModal(ModalScreen[dict[str, str] | None]):
             classes="form-row config-row",
         )
 
-    def _collect_values(self) -> dict[str, str]:
-        """Read all Input widgets and return a flat string dict."""
-        field_ids = [
-            "llama_cpp_root",
-            "models_dir",
-            "llama_server_bin_intel",
-            "llama_server_bin_nvidia",
-            "host",
-            "build_git_remote",
-            "build_git_branch",
-            "smoke_listen_timeout_s",
-            "smoke_http_request_timeout_s",
-            "smoke_first_token_timeout_s",
-            "smoke_total_chat_timeout_s",
-        ]
-        return {
-            field_id: self.query_one(f"#cfg-{field_id}", Input).value.strip()
-            for field_id in field_ids
-        }
+    def _collect_values(self) -> ConfigPayload:
+        """Read all Input widgets and return a typed payload."""
+        return ConfigPayload(
+            llama_cpp_root=self.query_one("#cfg-llama_cpp_root", Input).value.strip(),
+            models_dir=self.query_one("#cfg-models_dir", Input).value.strip(),
+            llama_server_bin_intel=self.query_one(
+                "#cfg-llama_server_bin_intel", Input
+            ).value.strip(),
+            llama_server_bin_nvidia=self.query_one(
+                "#cfg-llama_server_bin_nvidia", Input
+            ).value.strip(),
+            host=self.query_one("#cfg-host", Input).value.strip(),
+            build_git_remote=self.query_one("#cfg-build_git_remote", Input).value.strip(),
+            build_git_branch=self.query_one("#cfg-build_git_branch", Input).value.strip(),
+            smoke_listen_timeout_s=self.query_one(
+                "#cfg-smoke_listen_timeout_s", Input
+            ).value.strip(),
+            smoke_http_request_timeout_s=self.query_one(
+                "#cfg-smoke_http_request_timeout_s", Input
+            ).value.strip(),
+            smoke_first_token_timeout_s=self.query_one(
+                "#cfg-smoke_first_token_timeout_s", Input
+            ).value.strip(),
+            smoke_total_chat_timeout_s=self.query_one(
+                "#cfg-smoke_total_chat_timeout_s", Input
+            ).value.strip(),
+        )
 
     # ------------------------------------------------------------------
     # Actions & event handlers
@@ -155,5 +180,5 @@ class ConfigModal(ModalScreen[dict[str, str] | None]):
             self.dismiss(self._collect_values())
         elif event.button.id == "save-restart-config":
             values = self._collect_values()
-            values[_RESTART_KEY] = "1"
+            values.restart = True
             self.dismiss(values)
