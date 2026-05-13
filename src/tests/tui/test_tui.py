@@ -159,6 +159,7 @@ class TestSystemHealthAlignment:
         assert rows[0].has_class("system-health-cpu-row")
         assert isinstance(rows[0]._pending_children[0], Container)
         assert rows[0]._pending_children[0].has_class("cpu-core-cell")
+        assert rows[0]._pending_children[0]._pending_children[2].has_class("cpu-core-percent")
 
     def test_memory_swap_widget_composes_stylable_rows(self) -> None:
         from textual.containers import Horizontal
@@ -188,6 +189,18 @@ class TestSystemHealthAlignment:
 
         assert len(lines) > 3
         assert all(len(line) <= 80 for line in lines)
+
+    def test_core_grid_auto_fits_more_columns_on_wide_terminals(self) -> None:
+        from llama_cli.tui.components.system_health import SystemHealthRenderer
+
+        renderer = SystemHealthRenderer()
+        cpu_samples = [0.0] * 24
+
+        standard_rows = renderer._build_core_grid_rows(cpu_samples, content_width=120)
+        wide_rows = renderer._build_core_grid_rows(cpu_samples, content_width=240)
+
+        assert len(standard_rows) == 4
+        assert len(wide_rows) == 2
 
     def test_system_health_sections_use_available_width(
         self,
@@ -240,7 +253,7 @@ class TestSystemHealthAlignment:
 
         view_model = MagicMock()
 
-        status = SystemStatusWidget(view_model)
+        status = SystemStatusWidget()
         gpu = GPUTelemetryWidget(view_model)
         panel = ServerLogPanel(0, view_model)
         menu = CommandMenu(view_model)
@@ -1841,3 +1854,95 @@ def test_add_slot_modal_on_input_submitted_only_for_slot_port() -> None:
 
     modal.on_input_submitted(cast(Any, SimpleNamespace(input=SimpleNamespace(id="slot-port"))))
     modal.dismiss.assert_called_once_with({"profile": "qwen", "port": "8080"})
+
+
+# =============================================================================
+# Layout geometry regression
+# =============================================================================
+
+
+@pytest.mark.anyio
+async def test_dashboard_app_layout_geometry_regression(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CPUUsageWidget stays compact; system widgets above #content; non-zero sizes."""
+    import llama_cli.tui.components.system_health as system_health_module
+
+    monkeypatch.setattr(
+        system_health_module.psutil,
+        "cpu_percent",
+        lambda interval=None, percpu=False: [0.0] * 24 if percpu else 0.0,
+    )
+    monkeypatch.setattr(
+        system_health_module.psutil,
+        "virtual_memory",
+        lambda: SimpleNamespace(percent=50.0, used=8 * 1024**3, total=16 * 1024**3),
+    )
+    monkeypatch.setattr(
+        system_health_module.psutil,
+        "swap_memory",
+        lambda: SimpleNamespace(percent=0.0, used=0, total=2 * 1024**3),
+    )
+    monkeypatch.setattr(system_health_module.psutil, "boot_time", lambda: 0.0)
+    monkeypatch.setattr(system_health_module.psutil, "getloadavg", lambda: (0.1, 0.2, 0.3))
+    monkeypatch.setattr(system_health_module.psutil, "process_iter", lambda attrs=[]: [])  # type: ignore[arg-type]
+
+    from llama_cli.tui.components.gpu_stats import GPUStatsPanel
+    from llama_cli.tui.components.gpu_telemetry import GPUTelemetryWidget
+    from llama_cli.tui.components.menu import CommandMenu
+    from llama_cli.tui.components.server_column import ServerColumnPanel
+    from llama_cli.tui.components.system_health import (
+        CPUUsageWidget,
+        MemorySwapWidget,
+        SystemInfoWidget,
+    )
+    from llama_cli.tui.textual_app import DashboardApp
+    from llama_cli.tui.types import ServerColumnState
+    from llama_manager.log_buffer import LogBuffer
+
+    controller = DashboardController(
+        configs=[_make_config()],
+        gpu_indices=[],
+        register_signals=False,
+    )
+
+    controller.view_model.gpu_telemetry_lines = MagicMock(return_value=[])  # type: ignore[method-assign]
+    controller.view_model.system_notices = MagicMock(return_value=[])  # type: ignore[method-assign]
+    controller.view_model.column = MagicMock(  # type: ignore[method-assign]
+        return_value=ServerColumnState(
+            config=_make_config(),
+            buffer=LogBuffer(),
+            gpu=None,
+            host="127.0.0.1",
+            stale_warning=None,
+            slot_states={},
+            server_processes={},
+            is_unsaved=False,
+        ),
+    )
+
+    app = DashboardApp(controller)
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+
+        cpu = app.query_one(CPUUsageWidget)
+        mem = app.query_one(MemorySwapWidget)
+        info = app.query_one(SystemInfoWidget)
+        content = app.query_one("#content")
+        cmd_menu = app.query_one(CommandMenu)
+
+        assert cpu.region.height < 10, f"CPUUsageWidget height {cpu.region.height} >= 10"
+
+        assert mem.region.y + mem.region.height <= content.region.y
+        assert info.region.y + info.region.height <= content.region.y
+        assert not list(app.query(GPUTelemetryWidget))
+
+        sc = app.query_one(ServerColumnPanel)
+        gs = app.query_one(GPUStatsPanel)
+
+        assert sc.region.width > 0
+        assert sc.region.height > 0
+        assert gs.region.width > 0
+        assert gs.region.height > 0
+
+        assert cmd_menu.region.height == 1, f"CommandMenu height {cmd_menu.region.height} != 1"

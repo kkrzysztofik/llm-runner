@@ -5,12 +5,15 @@
 }
 
 .server-log-panel {
-    border: round $panel;
+    border: round ansi_bright_blue;
     padding: 0 1;
     layout: vertical;
+    background: black;
+    color: ansi_bright_white;
 }
 
 .server-column {
+    width: 1fr;
     height: 1fr;
     layout: vertical;
 }
@@ -21,7 +24,7 @@
 }
 
 .server-column-header-row {
-    height: auto;
+    height: 1;
     layout: horizontal;
 }
 
@@ -47,44 +50,46 @@
 }
 
 .server-column-status-running {
-    color: green;
+    color: ansi_bright_green;
 }
 
 .server-column-status-launching,
 .server-column-status-degraded {
-    color: yellow;
+    color: ansi_bright_yellow;
 }
 
 .server-column-status-crashed {
-    color: red;
+    color: ansi_bright_red;
 }
 
 .server-column-status-offline,
 .server-column-status-idle {
-    color: dim;
+    color: ansi_bright_black;
 }
 
 .server-column-backend,
 .server-column-config {
-    color: cyan;
+    color: ansi_bright_cyan;
 }
 
 .server-column-url {
-    color: dim;
+    color: ansi_white;
 }
 
 .server-column-warning {
-    color: yellow;
+    color: ansi_bright_yellow;
 }
 
 .gpu-stats,
 .server-logs,
 .server-placeholder {
     height: auto;
-    border: round $surface;
+    border: round ansi_bright_black;
     padding: 0 1;
     margin-bottom: 1;
     layout: vertical;
+    background: black;
+    color: ansi_bright_white;
 }
 
 .gpu-stats-title,
@@ -96,7 +101,7 @@
 
 .gpu-stats-row,
 .gpu-stats-usage-row {
-    height: auto;
+    height: 1;
     layout: horizontal;
 }
 
@@ -104,24 +109,24 @@
 .gpu-stats-usage-label {
     width: auto;
     margin-right: 1;
-    color: bright_cyan;
+    color: ansi_bright_cyan;
 }
 
 .gpu-stats-value {
     width: auto;
     margin-right: 2;
-    color: bright_white;
+    color: ansi_bright_white;
 }
 
 .gpu-stats-muted-value,
 .gpu-stats-unavailable,
 .server-placeholder-body {
-    color: dim;
+    color: ansi_bright_black;
 }
 
 .gpu-stats-usage-item {
     width: 1fr;
-    height: auto;
+    height: 1;
     layout: horizontal;
 }
 
@@ -132,19 +137,19 @@
 }
 
 .gpu-stats-usage-low {
-    color: green;
+    color: ansi_bright_green;
 }
 
 .gpu-stats-usage-medium {
-    color: yellow;
+    color: ansi_bright_yellow;
 }
 
 .gpu-stats-usage-high {
-    color: red;
+    color: ansi_bright_red;
 }
 
 .gpu-stats-usage-unknown {
-    color: dim;
+    color: ansi_bright_black;
 }
 
 .server-logs {
@@ -153,7 +158,7 @@
 
 .server-log-content {
     height: 1fr;
-    color: $text;
+    color: ansi_bright_white;
     overflow-y: auto;
 }
 
@@ -171,12 +176,13 @@
     width: auto;
     min-width: 3;
     padding: 0 1;
-    background: $accent;
-    color: $text;
+    background: ansi_bright_yellow;
+    color: black;
     text-style: bold;
 }
 
 .command-menu-description {
     width: auto;
     padding: 0 1;
+    color: ansi_bright_white;
 }

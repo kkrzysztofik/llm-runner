@@ -11,7 +11,6 @@ from textual.containers import Container
 from llama_manager.config import create_default_profile_registry
 
 from .components.config_modal import ConfigModal
-from .components.gpu_telemetry import GPUTelemetryWidget
 from .components.menu import CommandMenu
 from .components.modal import AddSlotModal
 from .components.server_log import ServerLogPanel
@@ -63,7 +62,7 @@ class DashboardApp(App[None]):
 
     def compose(self) -> ComposeResult:
         with Container(id="dashboard"):
-            yield SystemStatusWidget(self.view_model)
+            yield SystemStatusWidget()
             with Container(id="content"):
                 for i in range(max(1, len(self.view_model.model.configs))):
                     yield ServerLogPanel(i, self.view_model)
@@ -178,7 +177,6 @@ class DashboardApp(App[None]):
         self.query_one(CPUUsageWidget).refresh(recompose=True)
         self.query_one(MemorySwapWidget).refresh(recompose=True)
         self.query_one(SystemInfoWidget).refresh(recompose=True)
-        self.query_one(GPUTelemetryWidget).refresh(recompose=True)
         for panel in self.query(ServerLogPanel):
             panel.refresh(recompose=True)
         self.query_one(CommandMenu).refresh(recompose=True)

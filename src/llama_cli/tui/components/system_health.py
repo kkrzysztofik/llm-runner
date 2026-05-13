@@ -33,7 +33,9 @@ class SystemHealthRenderer:
     """Builds system-health snapshots for the Textual widgets."""
 
     MIN_CONTENT_WIDTH = 40
-    MAX_CONTENT_WIDTH = 160
+    MAX_CONTENT_WIDTH = 240
+    CPU_CORE_BAR_WIDTH = 5
+    CPU_CORE_CELL_WIDTH = 16
 
     def __init__(self) -> None:
         self._task_cache: tuple[int, int, int] | None = None
@@ -144,9 +146,8 @@ class SystemHealthRenderer:
         if not cpu_per_core:
             return []
 
-        min_cell_width = len(self._build_core_cell_text(99, 100.0)) + 1
-        max_cols = max(1, content_width // min_cell_width)
-        rows = max(3, (len(cpu_per_core) + max_cols - 1) // max_cols)
+        max_cols = max(1, content_width // self.CPU_CORE_CELL_WIDTH)
+        rows = max(1, (len(cpu_per_core) + max_cols - 1) // max_cols)
         cols = (len(cpu_per_core) + rows - 1) // rows
         snapshot_rows: list[list[CPUCoreSnapshot]] = []
         for row in range(rows):
@@ -166,8 +167,7 @@ class SystemHealthRenderer:
 
         flat_count = sum(len(row) for row in rows)
         cols = max(1, (flat_count + len(rows) - 1) // len(rows))
-        min_cell_width = len(self._build_core_cell_text(99, 100.0)) + 1
-        cell_width = max(min_cell_width, content_width // max(1, cols))
+        cell_width = max(self.CPU_CORE_CELL_WIDTH, content_width // max(1, cols))
         lines: list[str] = []
         for row in rows:
             parts: list[str] = []
@@ -177,9 +177,10 @@ class SystemHealthRenderer:
             lines.append("".join(parts).rstrip())
         return lines
 
-    def _build_core_cell_text(self, idx: int, pct: float, bar_width: int = 5) -> str:
+    def _build_core_cell_text(self, idx: int, pct: float) -> str:
+        bar_width = self.CPU_CORE_BAR_WIDTH
         meter = self._usage_bar(pct, width=bar_width)
-        return f"{idx:>2}[{meter}] {pct:5.1f}%"
+        return f"{idx:>2} {meter} {pct:5.1f}%"
 
     def _format_memory_row(self, row: MemoryUsageSnapshot, content_width: int) -> str:
         meter = self._usage_bar(row.percent, width=self._memory_bar_width(content_width))
@@ -298,12 +299,15 @@ class CPUUsageWidget(Widget):
         return Container(
             Static(f"{core.index:>2}", classes="cpu-core-index"),
             Static(
-                self._renderer._usage_bar(core.percent, width=5),
+                self._renderer._usage_bar(
+                    core.percent,
+                    width=self._renderer.CPU_CORE_BAR_WIDTH,
+                ),
                 classes=(
                     f"cpu-core-bar system-health-meter-{self._renderer._usage_color(core.percent)}"
                 ),
             ),
-            Static(f"{core.percent:5.1f}%", classes=value_class),
+            Static(f"{core.percent:5.1f}%", classes=f"cpu-core-percent {value_class}"),
             classes="cpu-core-cell",
         )
 
