@@ -633,15 +633,6 @@ def _collect_staging_repair_actions(result: DoctorRepairResult, config: Config) 
                     requires_confirmation=True,
                 )
             )
-            result.actions.append(
-                RepairAction(
-                    action_type="remove_failed_marker",
-                    description=f"Remove .failed marker: {marker}",
-                    command=["rm", str(marker)],
-                    dry_run_command=f"# rm '{marker}'",
-                    requires_confirmation=False,
-                )
-            )
 
 
 def _collect_lock_repair_actions(result: DoctorRepairResult, config: Config) -> None:

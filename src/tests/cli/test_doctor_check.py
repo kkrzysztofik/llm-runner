@@ -314,7 +314,6 @@ class TestCmdDoctorRepair:
             assert len(result.actions) > 0
             action_types = [a.action_type for a in result.actions]
             assert "clean_failed_staging" in action_types
-            assert "remove_failed_marker" in action_types
 
     def test_doctor_repair_preserves_successful_artifacts(self, tmp_path, capsys) -> None:
         """doctor --repair should preserve successful artifacts (T082)."""

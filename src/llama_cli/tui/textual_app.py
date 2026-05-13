@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
+from textual.css.query import NoMatches
 
 from llama_manager.config import create_default_profile_registry
 
@@ -174,11 +175,11 @@ class DashboardApp(App[None]):
         # Refresh each leaf widget.  SystemStatusWidget and SystemHealthWidget
         # use compose(), so their children own their own repaints.
         for widget_type in (DateTimeWidget, CPUUsageWidget, MemorySwapWidget, SystemInfoWidget):
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(NoMatches):
                 self.query_one(widget_type).refresh(recompose=True)
         for panel in self.query(ServerLogPanel):
             panel.refresh(recompose=True)
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(NoMatches):
             self.query_one(CommandMenu).refresh(recompose=True)
 
     def _emit_status_toasts(self) -> None:

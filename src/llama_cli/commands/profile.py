@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -576,6 +577,10 @@ def _validate_slot_id(slot_id: str) -> str | None:
         return "slot_id must not be empty"
     if ".." in slot_id:
         return "slot_id must not contain path traversal sequences"
+    if "/" in slot_id or "\\" in slot_id:
+        return "slot_id must not contain path separators"
+    if not re.match(r"^[a-zA-Z0-9_-]+$", slot_id):
+        return "slot_id must only contain ASCII letters, digits, hyphens, and underscores"
     return None
 
 

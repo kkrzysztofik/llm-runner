@@ -113,5 +113,8 @@ def _toml_value(value: Any) -> str:
         return str(value)
     if isinstance(value, str):
         escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        escaped = escaped.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+        escaped = escaped.replace("\b", "\\b").replace("\f", "\\f")
+        escaped = "".join(c if c.isprintable() else f"\\u{ord(c):04X}" for c in escaped)
         return f'"{escaped}"'
     raise TypeError(f"unsupported TOML value type: {type(value).__name__}")
