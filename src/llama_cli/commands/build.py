@@ -11,7 +11,8 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from llama_cli.ui_output import emit_error, emit_plain, emit_success
+from llama_cli.commands._output import emit_json, emit_json_str, emit_plain
+from llama_cli.ui_output import emit_error, emit_success
 from llama_manager.build_pipeline import (
     BuildBackend,
     BuildConfig,
@@ -411,13 +412,13 @@ def run_build_command(args: argparse.Namespace) -> int:
 
     if all_success:
         if args.json:
-            emit_plain(_format_success_json(results))
+            emit_json_str(_format_success_json(results))
         else:
             _format_success_text(results)
         return 0
     else:
         if args.json:
-            emit_plain(_format_error_json(results))
+            emit_json_str(_format_error_json(results))
         else:
             _format_error_text(results)
         return 1
@@ -444,7 +445,7 @@ def main(args: list[str] | None = None) -> int:
         return 130  # Standard exit code for Ctrl+C
     except Exception as e:
         if args_parsed is not None and args_parsed.json:
-            emit_plain(json.dumps({"success": False, "error": str(e)}, indent=2))
+            emit_json({"success": False, "error": str(e)})
         else:
             emit_error(f"{e}")
         return 1

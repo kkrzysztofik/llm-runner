@@ -2,20 +2,26 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
+from textual.css.query import NoMatches
 
 from llama_manager.config import create_default_profile_registry
 
-from .components.gpu_telemetry import GPUTelemetryWidget
+from .components.config_modal import ConfigModal, ConfigPayload
 from .components.menu import CommandMenu
 from .components.modal import AddSlotModal
-from .components.notices import NoticesWidget
 from .components.server_log import ServerLogPanel
-from .components.system_health import SystemHealthWidget
+from .components.system_health import (
+    CPUUsageWidget,
+    DateTimeWidget,
+    MemorySwapWidget,
+    SystemInfoWidget,
+)
 from .components.system_status import SystemStatusWidget
 
 if TYPE_CHECKING:
@@ -26,10 +32,15 @@ class DashboardApp(App[None]):
     """Textual shell for the llm-runner dashboard."""
 
     TITLE = "llm-runner"
-    CSS_PATH = "textual_app.tcss"
+    CSS_PATH = [
+        "textual_app.tcss",
+        "system_status.tcss",
+        "dashboard_panels.tcss",
+        "modals.tcss",
+    ]
     BINDINGS = [
         Binding("q", "quit_dashboard", "Quit", priority=True),
-        Binding("ctrl+c", "cancel_pending_prompt", "Cancel", priority=True),
+        Binding("ctrl+c", "cancel_pending_prompt", "Cancel"),
         Binding("escape", "cancel_pending_prompt", "Cancel"),
         Binding("r", "refresh_dashboard", "Refresh"),
         Binding("p", "profile", "Profile"),
@@ -37,6 +48,7 @@ class DashboardApp(App[None]):
         Binding("b", "build", "Build"),
         Binding("s", "smoke", "Smoke"),
         Binding("a", "add_slot", "Add Slot"),
+        Binding("c", "open_config", "Config"),
         Binding("y", "confirm", "Confirm"),
         Binding("n", "reject", "Abort"),
     ]
@@ -46,14 +58,15 @@ class DashboardApp(App[None]):
         self.controller = controller
         self.view_model = controller.view_model
         self._last_notified_status_ts: float = 0.0
+        self._active_notice_toasts: set[str] = set()
         self._profile_options_cache: list[tuple[str, str]] | None = None
         self._profile_cache_config_id: int | None = None
 
     def compose(self) -> ComposeResult:
         with Container(id="dashboard"):
-            yield SystemStatusWidget(self.view_model)
+            yield SystemStatusWidget()
             with Container(id="content"):
-                for i in range(len(self.view_model.model.configs)):
+                for i in range(max(1, len(self.view_model.model.configs))):
                     yield ServerLogPanel(i, self.view_model)
             yield CommandMenu(self.view_model)
 
@@ -81,6 +94,17 @@ class DashboardApp(App[None]):
             self._handle_add_slot_modal_result,
         )
 
+    def action_open_config(self) -> None:
+        self.push_screen(
+            ConfigModal(config=self.controller.model.config),
+            self._handle_config_modal_result,
+        )
+
+    def _handle_config_modal_result(self, result: ConfigPayload | None) -> None:
+        if result is not None:
+            self.controller.save_config(result)
+        self.refresh_dashboard()
+
     def _handle_add_slot_modal_result(self, result: dict[str, str] | None) -> None:
         if result is None:
             self.controller.cancel_add_slot_form()
@@ -93,7 +117,7 @@ class DashboardApp(App[None]):
         """Ensure ServerLogPanel widgets match the current slot count."""
         container = self.query_one("#content", Container)
         current_panels = list(container.query(ServerLogPanel))
-        needed = len(self.view_model.model.configs)
+        needed = max(1, len(self.view_model.model.configs))
         for i in range(len(current_panels), needed):
             container.mount(ServerLogPanel(i, self.view_model))
 
@@ -148,16 +172,24 @@ class DashboardApp(App[None]):
 
         self._emit_status_toasts()
 
-        # Refresh each leaf widget.  SystemStatusWidget uses compose() so it
-        # is just a layout container — its children own their own repaints.
-        self.query_one(SystemHealthWidget).refresh()
-        self.query_one(GPUTelemetryWidget).refresh()
-        self.query_one(NoticesWidget).refresh()
+        # Refresh each leaf widget.  SystemStatusWidget and SystemHealthWidget
+        # use compose(), so their children own their own repaints.
+        for widget_type in (DateTimeWidget, CPUUsageWidget, MemorySwapWidget, SystemInfoWidget):
+            with contextlib.suppress(NoMatches):
+                self.query_one(widget_type).refresh(recompose=True)
         for panel in self.query(ServerLogPanel):
-            panel.refresh()
-        self.query_one(CommandMenu).refresh()
+            panel.refresh(recompose=True)
+        with contextlib.suppress(NoMatches):
+            self.query_one(CommandMenu).refresh(recompose=True)
 
     def _emit_status_toasts(self) -> None:
+        notices = self.view_model.system_notices()
+        current_notices = set(notices)
+        for notice in notices:
+            if notice not in self._active_notice_toasts:
+                self.notify(notice, title="Alert", severity="warning")
+        self._active_notice_toasts = current_notices
+
         updates = self.controller.get_status_messages_since(self._last_notified_status_ts)
         if not updates:
             return

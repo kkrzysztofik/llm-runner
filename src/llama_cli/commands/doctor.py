@@ -9,22 +9,23 @@ All commands support --json output for programmatic access.
 
 import argparse
 import json
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from llama_cli.colors import Colors
+from llama_cli.commands._output import emit_json, emit_plain
+from llama_cli.commands._subprocess import run_capture_command
 from llama_cli.commands._toolchain import (
     collect_toolchain_repair_actions,
     resolve_backend_enum,
+    toolchain_is_ready_for_backend,
 )
 from llama_cli.ui_output import (
     emit_error,
     emit_heading,
     emit_info,
-    emit_plain,
     emit_success,
     emit_warn,
 )
@@ -83,10 +84,9 @@ class RepairAction:
 
     action_type: str
     description: str
-    command: str | list[str] | None
+    command: list[str] | None
     dry_run_command: str | None
     requires_confirmation: bool = False
-    args: list[str] | None = None
     prerequisite_index: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -97,7 +97,6 @@ class RepairAction:
             "command": self.command,
             "dry_run_command": self.dry_run_command,
             "requires_confirmation": self.requires_confirmation,
-            "args": self.args,
             "prerequisite_index": self.prerequisite_index,
         }
 
@@ -129,12 +128,7 @@ def _check_toolchain(
     backend: BuildBackend | None,
 ) -> None:
     """Check toolchain completeness and update result."""
-    if backend == BuildBackend.SYCL:
-        result.toolchain_complete = toolchain_status.is_sycl_ready
-    elif backend == BuildBackend.CUDA:
-        result.toolchain_complete = toolchain_status.is_cuda_ready
-    else:
-        result.toolchain_complete = toolchain_status.is_complete
+    result.toolchain_complete = toolchain_is_ready_for_backend(toolchain_status, backend)
 
     if not result.toolchain_complete:
         result.is_healthy = False
@@ -215,12 +209,98 @@ def _check_reports_dir(result: DoctorCheckResult, config: Config) -> None:
         result.warnings.append("Reports directory does not exist")
 
 
+@dataclass
+class ProfileScanEntry:
+    """A single profile entry returned by the profile scanner."""
+
+    path: Path
+    record: ProfileRecord | None
+    staleness: StalenessResult | None
+    reasons: str
+    guidance: str
+
+
+def _scan_profiles(
+    profiles_dir: Path,
+    max_age_days: int,
+    stale_only: bool,
+    current_driver_version: str | None = None,
+    current_binary_version: str | None = None,
+) -> list[ProfileScanEntry]:
+    """Scan profiles directory and return scan entries.
+
+    Single canonical iterator for profile scanning. When stale_only=False,
+    returns all profiles (fresh and stale) with their staleness. When
+    stale_only=True, returns only stale profiles (or corrupt entries).
+
+    Args:
+        profiles_dir: Path to the profiles directory.
+        max_age_days: Maximum acceptable profile age in days.
+        stale_only: If True, only return stale entries; if False, return all.
+        current_driver_version: Current GPU driver version.
+        current_binary_version: Current llama-server binary version.
+
+    Returns:
+        List of ProfileScanEntry objects.
+    """
+    if not profiles_dir.exists():
+        return []
+
+    results: list[ProfileScanEntry] = []
+    for profile_path in sorted(profiles_dir.glob("*.json")):
+        try:
+            raw = profile_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            record = ProfileRecord.from_dict(data)
+        except (KeyError, TypeError, ValueError) as e:
+            results.append(
+                ProfileScanEntry(
+                    path=profile_path,
+                    record=None,
+                    staleness=None,
+                    reasons="",
+                    guidance=str(e),
+                )
+            )
+            continue
+
+        staleness = check_staleness(
+            record,
+            current_driver_version=current_driver_version or record.driver_version,
+            current_binary_version=current_binary_version or record.server_binary_version,
+            staleness_days=max_age_days,
+        )
+
+        if stale_only and not staleness.is_stale:
+            continue
+
+        if staleness.is_stale:
+            reasons = ", ".join(r.value for r in staleness.reasons)
+            guidance = _build_profile_guidance(staleness, record, max_age_days)
+            entry_staleness = staleness
+        else:
+            reasons = ""
+            guidance = ""
+            entry_staleness = None
+        results.append(
+            ProfileScanEntry(
+                path=profile_path,
+                record=record,
+                staleness=entry_staleness,
+                reasons=reasons,
+                guidance=guidance,
+            )
+        )
+
+    return results
+
+
 def _iterate_stale_profiles(
     profiles_dir: Path,
     max_age_days: int,
     current_driver_version: str | None = None,
     current_binary_version: str | None = None,
-) -> list[tuple[Path, ProfileRecord, StalenessResult, str, str]]:
+) -> list[tuple[Path, ProfileRecord | None, StalenessResult | None, str, str]]:
     """Iterate over stale profiles in the profiles directory.
 
     Shared helper used by both _check_profiles (check path) and
@@ -237,35 +317,17 @@ def _iterate_stale_profiles(
         current_binary_version: Current llama-server binary version.
 
     Returns:
-        List of tuples: (profile_path, record, staleness, reasons, guidance).
+        List of tuples: (profile_path, record_or_None, staleness_or_None,
+        reasons, guidance).
     """
-    if not profiles_dir.exists():
-        return []
-
-    results: list[tuple[Path, ProfileRecord, StalenessResult, str, str]] = []
-    for profile_path in sorted(profiles_dir.glob("*.json")):
-        try:
-            raw = profile_path.read_text(encoding="utf-8")
-            data = json.loads(raw)
-            record = ProfileRecord.from_dict(data)
-        except (KeyError, TypeError, ValueError) as e:
-            # Corrupt or unrecognised file — caller handles warning
-            results.append((profile_path, None, None, "", str(e)))  # type: ignore[list-item]
-            continue
-
-        staleness = check_staleness(
-            record,
-            current_driver_version=current_driver_version or record.driver_version,
-            current_binary_version=current_binary_version or record.server_binary_version,
-            staleness_days=max_age_days,
-        )
-
-        if staleness.is_stale:
-            reasons = ", ".join(r.value for r in staleness.reasons)
-            guidance = _build_profile_guidance(staleness, record, max_age_days)
-            results.append((profile_path, record, staleness, reasons, guidance))
-
-    return results
+    entries = _scan_profiles(
+        profiles_dir,
+        max_age_days,
+        stale_only=True,
+        current_driver_version=current_driver_version,
+        current_binary_version=current_binary_version,
+    )
+    return [(e.path, e.record, e.staleness, e.reasons, e.guidance) for e in entries]
 
 
 def _iterate_all_profiles(
@@ -273,7 +335,7 @@ def _iterate_all_profiles(
     max_age_days: int,
     current_driver_version: str | None = None,
     current_binary_version: str | None = None,
-) -> list[tuple[Path, ProfileRecord, StalenessResult | None, str, str]]:
+) -> list[tuple[Path, ProfileRecord | None, StalenessResult | None, str, str]]:
     """Iterate over ALL profiles in the profiles directory.
 
     Returns every profile (stale or not) along with its staleness result.
@@ -288,36 +350,14 @@ def _iterate_all_profiles(
     Returns:
         List of tuples: (profile_path, record, staleness_or_None, reasons, guidance).
     """
-    if not profiles_dir.exists():
-        return []
-
-    results: list[tuple[Path, ProfileRecord, StalenessResult | None, str, str]] = []
-    for profile_path in sorted(profiles_dir.glob("*.json")):
-        try:
-            raw = profile_path.read_text(encoding="utf-8")
-            data = json.loads(raw)
-            record = ProfileRecord.from_dict(data)
-        except (KeyError, TypeError, ValueError) as e:
-            # Corrupt or unrecognised file — caller handles warning
-            results.append((profile_path, None, None, "", str(e)))  # type: ignore[list-item]
-            continue
-
-        staleness = check_staleness(
-            record,
-            current_driver_version=current_driver_version or record.driver_version,
-            current_binary_version=current_binary_version or record.server_binary_version,
-            staleness_days=max_age_days,
-        )
-
-        if staleness.is_stale:
-            reasons = ", ".join(r.value for r in staleness.reasons)
-            guidance = _build_profile_guidance(staleness, record, max_age_days)
-            results.append((profile_path, record, staleness, reasons, guidance))
-        else:
-            # Fresh profile — include with None staleness for counting
-            results.append((profile_path, record, None, "", ""))
-
-    return results
+    entries = _scan_profiles(
+        profiles_dir,
+        max_age_days,
+        stale_only=False,
+        current_driver_version=current_driver_version,
+        current_binary_version=current_binary_version,
+    )
+    return [(e.path, e.record, e.staleness, e.reasons, e.guidance) for e in entries]
 
 
 def _check_profiles(
@@ -506,7 +546,7 @@ def cmd_doctor_check(parsed: argparse.Namespace) -> int:
     )
 
     if json_output:
-        emit_plain(json.dumps(result.to_dict()))
+        emit_json(result.to_dict())
         return 0 if result.is_healthy else 1
 
     return _print_check_results(result)
@@ -558,8 +598,7 @@ def _collect_venv_repair_actions(result: DoctorRepairResult) -> None:
         RepairAction(
             action_type="remove_venv",
             description=f"Remove broken virtual environment ({error})",
-            command="rm",
-            args=["-rf", str(venv_path)],
+            command=["rm", "-rf", str(venv_path)],
             dry_run_command=f"# rm -rf '{venv_path}'",
             requires_confirmation=True,
         )
@@ -589,20 +628,9 @@ def _collect_staging_repair_actions(result: DoctorRepairResult, config: Config) 
                 RepairAction(
                     action_type="clean_failed_staging",
                     description=f"Remove failed staging directory: {parent_dir}",
-                    command="rm",
-                    args=["-rf", str(parent_dir)],
+                    command=["rm", "-rf", str(parent_dir)],
                     dry_run_command=f"# rm -rf '{parent_dir}'",
                     requires_confirmation=True,
-                )
-            )
-            result.actions.append(
-                RepairAction(
-                    action_type="remove_failed_marker",
-                    description=f"Remove .failed marker: {marker}",
-                    command="rm",
-                    args=[str(marker)],
-                    dry_run_command=f"# rm '{marker}'",
-                    requires_confirmation=False,
                 )
             )
 
@@ -625,8 +653,7 @@ def _collect_lock_repair_actions(result: DoctorRepairResult, config: Config) -> 
                 RepairAction(
                     action_type="remove_stale_lock",
                     description=f"Remove stale build lock (PID {lock.pid})",
-                    command="rm",
-                    args=[str(lock_path)],
+                    command=["rm", str(lock_path)],
                     dry_run_command=f"# rm '{lock_path}'",
                     requires_confirmation=True,
                 )
@@ -636,8 +663,7 @@ def _collect_lock_repair_actions(result: DoctorRepairResult, config: Config) -> 
             RepairAction(
                 action_type="remove_corrupt_lock",
                 description=f"Remove corrupted build lock file ({e})",
-                command="rm",
-                args=[str(lock_path)],
+                command=["rm", str(lock_path)],
                 dry_run_command=f"# rm '{lock_path}'",
                 requires_confirmation=True,
             )
@@ -748,8 +774,7 @@ def _collect_profile_repair_actions(
                         f"Remove stale profile: {profile_path.name} "
                         f"({reasons}, {staleness.age_days:.0f} days old) — {guidance}"
                     ),
-                    command="rm",
-                    args=[str(profile_path)],
+                    command=["rm", str(profile_path)],
                     dry_run_command=f"# rm '{profile_path}'",
                     requires_confirmation=True,
                 )
@@ -762,26 +787,11 @@ def _execute_repair_action(action: RepairAction, result: DoctorRepairResult) -> 
         return
 
     try:
-        # Handle both string commands and list commands
-        cmd_list = action.command if isinstance(action.command, list) else [action.command]
-
-        # Add args if present
-        if action.args:
-            cmd_list = cmd_list + action.args
-
-        subprocess.run(
-            cmd_list,
-            shell=False,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        run_capture_command(action.command, check=True)
         result.performed_actions.append(action.description)
-    except subprocess.CalledProcessError as e:
-        result.failures.append(f"Failed to {action.description}: {e.stderr or str(e)}")
-        result.success = False
     except Exception as e:
-        result.failures.append(f"Failed to {action.description}: {e}")
+        stderr = getattr(e, "stderr", None)
+        result.failures.append(f"Failed to {action.description}: {stderr or str(e)}")
         result.success = False
 
 
@@ -892,7 +902,7 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
                     failed.add(idx)
 
     if json_output:
-        emit_plain(json.dumps(result.to_dict()))
+        emit_json(result.to_dict())
         return result
 
     _print_repair_results(result)

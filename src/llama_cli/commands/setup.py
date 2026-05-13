@@ -9,22 +9,22 @@ All commands support --json output for programmatic access.
 """
 
 import argparse
-import json
 import shutil
 from pathlib import Path
 from typing import Any
 
 from llama_cli.colors import Colors
+from llama_cli.commands._output import emit_json, emit_json_error
 from llama_cli.commands._toolchain import (
     filter_optional_tools,
     get_backend_hints,
     resolve_backend_enum,
+    toolchain_check_exit_code,
 )
 from llama_cli.ui_output import (
     emit_error,
     emit_heading,
     emit_info,
-    emit_plain,
     emit_success,
     emit_warn,
 )
@@ -142,20 +142,14 @@ def cmd_check(args: argparse.Namespace) -> int:
         hints = get_backend_hints(args.backend)
 
         if args.json:
-            emit_plain(json.dumps(_build_status_output(status)))
-            # Use backend-aware exit code logic (without printing)
-            if args.backend == "sycl":
-                return 0 if status.is_sycl_ready else 1
-            elif args.backend == "cuda":
-                return 0 if status.is_cuda_ready else 1
-            else:
-                return 0 if status.is_complete else 1
+            emit_json(_build_status_output(status))
+            return toolchain_check_exit_code(status, args.backend)
 
         _print_status(status)
         return _handle_missing_tools(status, hints, args.backend)
     except Exception as e:
         if getattr(args, "json", False):
-            emit_plain(json.dumps({"error": "Toolchain detection failed", "details": str(e)}))
+            emit_json_error("Toolchain detection failed", str(e))
         else:
             emit_error(f"Toolchain detection failed: {e}")
         return 1
@@ -185,20 +179,20 @@ def cmd_venv(args: argparse.Namespace) -> int:
             is_valid, error = check_venv_integrity(venv_path)
             if not is_valid:
                 if getattr(args, "json", False):
-                    emit_plain(json.dumps({"error": f"Venv integrity check failed: {error}", "success": False}))
+                    emit_json({"error": f"Venv integrity check failed: {error}", "success": False})
                 else:
                     emit_error(f"Venv integrity check failed: {error}")
                 return 1
 
         # Print JSON output if requested (VenvResult fields only)
         if args.json:
-            emit_plain(
-                json.dumps({
+            emit_json(
+                {
                     "venv_path": str(result.venv_path),
                     "created": result.created,
                     "reused": result.reused,
                     "activation_command": result.activation_command,
-                })
+                }
             )
             return 0
 
@@ -213,7 +207,7 @@ def cmd_venv(args: argparse.Namespace) -> int:
         return 0
     except Exception as e:
         if getattr(args, "json", False):
-            emit_plain(json.dumps({"error": "Venv creation failed", "details": str(e), "success": False}))
+            emit_json_error("Venv creation failed", str(e))
         else:
             emit_error(f"Venv creation failed: {e}")
         return 1
@@ -230,7 +224,7 @@ def _handle_venv_not_found(venv_path: Path, json_output: bool) -> int:
         Exit code (0)
     """
     if json_output:
-        emit_plain(json.dumps({"status": "not_found", "venv_path": str(venv_path)}))
+        emit_json({"status": "not_found", "venv_path": str(venv_path)})
     else:
         emit_success(f"Virtual environment does not exist at: {venv_path}")
     return 0
@@ -247,12 +241,12 @@ def _handle_confirmation_required(venv_path: Path, json_output: bool) -> int:
         Exit code (1)
     """
     if json_output:
-        emit_plain(
-            json.dumps({
+        emit_json(
+            {
                 "status": "exists",
                 "venv_path": str(venv_path),
                 "message": "Use --yes to confirm removal",
-            })
+            }
         )
     else:
         emit_error(f"Virtual environment exists at: {venv_path}")
@@ -273,20 +267,20 @@ def _remove_env(venv_path: Path, json_output: bool) -> int:
     try:
         shutil.rmtree(venv_path)
         if json_output:
-            emit_plain(json.dumps({"status": "removed", "venv_path": str(venv_path)}))
+            emit_json({"status": "removed", "venv_path": str(venv_path)})
         else:
             emit_success(f"Removed virtual environment at: {venv_path}")
         return 0
     except PermissionError as e:
         if json_output:
-            emit_plain(json.dumps({"status": "error", "error": str(e)}))
+            emit_json({"status": "error", "error": str(e)})
         else:
             emit_error(f"Permission denied removing virtual environment: {e}")
             emit_error("Check file ownership/permissions, consult system documentation")
         return 1
     except Exception as e:
         if json_output:
-            emit_plain(json.dumps({"status": "error", "error": str(e)}))
+            emit_json({"status": "error", "error": str(e)})
         else:
             emit_error(f"Error removing virtual environment: {e}")
         return 1

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rich.panel import Panel
-from rich.text import Text
-from textual.app import RenderResult
+from textual.app import ComposeResult
+from textual.containers import Container
 from textual.widget import Widget
+from textual.widgets import Static
 
 from .server_column import ServerColumnPanel
-from .slot_status import SlotStatusPanel
 
 if TYPE_CHECKING:
     from llama_cli.tui.viewmodel import DashboardViewModel
@@ -19,27 +18,24 @@ if TYPE_CHECKING:
 class ServerLogPanel(Widget):
     """Per-slot column widget: logs + GPU stats."""
 
-    DEFAULT_CSS = """
-    ServerLogPanel {
-        width: 1fr;
-        height: 1fr;
-    }
-    """
-
     def __init__(self, slot_index: int, view_model: DashboardViewModel) -> None:
-        super().__init__(classes="column")
+        super().__init__(classes="column server-log-panel")
         self._slot_index = slot_index
         self._view_model = view_model
 
-    def render(self) -> RenderResult:
+    def compose(self) -> ComposeResult:
         state = self._view_model.column(self._slot_index)
         if state is None:
-            if self._slot_index == 0:
-                return SlotStatusPanel(self._view_model.slot_status(configs=[])).render()
-            return Panel(
-                Text("No secondary config", style="dim"),
-                title="Status",
-                border_style="dim",
+            message = (
+                "No slots configured.\n\nPress 'a' to add a new slot."
+                if self._slot_index == 0
+                else "No secondary config"
             )
+            yield Container(
+                Static("Status", classes="panel-title server-placeholder-title"),
+                Static(message, classes="server-placeholder-body"),
+                classes="server-placeholder",
+            )
+            return
 
-        return ServerColumnPanel(state).render()
+        yield ServerColumnPanel(state)

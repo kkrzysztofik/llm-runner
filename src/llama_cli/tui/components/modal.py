@@ -17,54 +17,6 @@ class AddSlotModal(ModalScreen[dict[str, str] | None]):
     ``None`` on cancel.
     """
 
-    DEFAULT_CSS = """
-    AddSlotModal {
-        align: center middle;
-    }
-
-    #add-slot-dialog {
-        width: 80;
-        max-width: 95%;
-        height: auto;
-        padding: 1 2;
-        border: round $accent;
-        background: $surface;
-    }
-
-    #add-slot-title {
-        text-style: bold;
-        margin-bottom: 1;
-    }
-
-    .add-slot-row {
-        height: 3;
-    }
-
-    .add-slot-label {
-        width: 18;
-        content-align: left middle;
-    }
-
-    .add-slot-input {
-        width: 1fr;
-    }
-
-    #add-slot-actions {
-        height: 3;
-        align-horizontal: right;
-        margin-top: 1;
-    }
-
-    #cancel-slot {
-        border: tall $panel;
-    }
-
-    #submit-slot {
-        border: tall $success;
-        background: $success 20%;
-    }
-    """
-
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
         Binding("ctrl+c", "cancel", "Cancel"),
@@ -77,32 +29,39 @@ class AddSlotModal(ModalScreen[dict[str, str] | None]):
         self._profile_options = profile_options
 
     def compose(self) -> ComposeResult:
-        with Container(id="add-slot-dialog"):
-            yield Label("Add Slot", id="add-slot-title")
-
-            with Horizontal(classes="add-slot-row"):
-                yield Label("Profile", classes="add-slot-label")
-                yield Select(
+        yield Container(
+            Label("Add Slot", id="add-slot-title", classes="modal-title"),
+            Horizontal(
+                Label("Profile", classes="form-label add-slot-label"),
+                Select(
                     options=self._profile_options,
                     allow_blank=False,
                     value=self._profile_options[0][1],
                     prompt="Choose a profile",
                     id="slot-profile",
-                    classes="add-slot-input",
-                )
-
-            with Horizontal(classes="add-slot-row"):
-                yield Label("Port override", classes="add-slot-label")
-                yield Input(
+                    classes="form-input add-slot-input",
+                ),
+                classes="form-row add-slot-row",
+            ),
+            Horizontal(
+                Label("Port override", classes="form-label add-slot-label"),
+                Input(
                     value="",
                     placeholder="optional; leave blank for profile default",
                     id="slot-port",
-                    classes="add-slot-input",
-                )
-
-            with Horizontal(id="add-slot-actions"):
-                yield Button("Cancel", id="cancel-slot")
-                yield Button("Add Slot", id="submit-slot")
+                    classes="form-input add-slot-input",
+                ),
+                classes="form-row add-slot-row",
+            ),
+            Horizontal(
+                Button("Cancel", id="cancel-slot", classes="modal-button-cancel"),
+                Button("Add Slot", id="submit-slot", classes="modal-button-success"),
+                id="add-slot-actions",
+                classes="modal-actions",
+            ),
+            id="add-slot-dialog",
+            classes="modal-dialog add-slot-dialog",
+        )
 
     def on_mount(self) -> None:
         self.query_one("#slot-profile", Select).focus()

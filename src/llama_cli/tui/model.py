@@ -101,19 +101,3 @@ class DashboardModel:
         cutoff = time.monotonic() - self.STATUS_MESSAGE_LIFETIME_S
         with self.status_lock:
             return [(ts, msg) for ts, msg in self.status_messages if ts > since_ts and ts >= cutoff]
-
-    def prune_expired_status_messages(self) -> None:
-        """Remove expired status messages."""
-        cutoff = time.monotonic() - self.STATUS_MESSAGE_LIFETIME_S
-        with self.status_lock:
-            self.status_messages = [(ts, msg) for ts, msg in self.status_messages if ts >= cutoff]
-
-    def recent_status_messages(self) -> list[str]:
-        """Return unexpired status message text."""
-        with self.status_lock:
-            if not self.status_messages:
-                return []
-            now = time.monotonic()
-            return [
-                msg for ts, msg in self.status_messages if now - ts < self.STATUS_MESSAGE_LIFETIME_S
-            ]

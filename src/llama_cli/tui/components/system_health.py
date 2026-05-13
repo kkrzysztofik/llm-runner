@@ -1,15 +1,45 @@
-"""System health renderer and widget."""
+from __future__ import annotations
+
+"""System health widgets."""
 
 import time
+from dataclasses import dataclass
 
 import psutil
-from rich.text import Text
-from textual.app import RenderResult
+from textual.app import ComposeResult
+from textual.containers import Container, Horizontal
 from textual.widget import Widget
+from textual.widgets import Static
+
+_SYSTEM_INFO_LABEL = "system-health-label system-info-label"
+_SYSTEM_INFO_PRIMARY_VALUE = "system-info-value system-info-primary-value"
+_SYSTEM_INFO_ROW = "system-health-inline-row system-info-row"
+
+
+@dataclass(frozen=True)
+class CPUCoreSnapshot:
+    """Structured CPU core usage cell."""
+
+    index: int
+    percent: float
+
+
+@dataclass(frozen=True)
+class MemoryUsageSnapshot:
+    """Structured memory or swap usage row."""
+
+    label: str
+    percent: float
+    value_text: str
 
 
 class SystemHealthRenderer:
-    """Builds CPU, memory, swap, and uptime status text."""
+    """Builds system-health snapshots for the Textual widgets."""
+
+    MIN_CONTENT_WIDTH = 40
+    MAX_CONTENT_WIDTH = 240
+    CPU_CORE_BAR_WIDTH = 5
+    CPU_CORE_CELL_WIDTH = 16
 
     def __init__(self) -> None:
         self._task_cache: tuple[int, int, int] | None = None
@@ -20,122 +50,87 @@ class SystemHealthRenderer:
         _ = psutil.cpu_percent(interval=0.1, percpu=True)
         self._cpu_primed = True
 
-    def render(self) -> Text:
-        content_width = 116
-        right_block_width = min(44, max(36, content_width // 3))
-        left_block_width = max(28, content_width - right_block_width - 3)
+    def render_cpu_usage(self, width: int | None = None) -> str:
+        content_width = self._content_width(width)
+        cpu_per_core: list[float] = psutil.cpu_percent(interval=None, percpu=True)  # type: ignore[assignment]
+        return "\n".join(self._build_core_grid_lines(cpu_per_core, content_width=content_width))
 
-        cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
+    def cpu_usage_rows(self, width: int | None = None) -> list[list[CPUCoreSnapshot]]:
+        content_width = self._content_width(width)
+        cpu_per_core: list[float] = psutil.cpu_percent(interval=None, percpu=True)  # type: ignore[assignment]
+        return self._build_core_grid_rows(cpu_per_core, content_width=content_width)
+
+    def render_memory_swap_usage(self, width: int | None = None) -> str:
+        content_width = self._content_width(width)
+        rows = self.memory_usage_rows()
+        return "\n".join(self._format_memory_row(row, content_width) for row in rows)
+
+    def memory_usage_rows(self) -> list[MemoryUsageSnapshot]:
         mem = psutil.virtual_memory()
         swap = psutil.swap_memory()
+        return [
+            MemoryUsageSnapshot(
+                label="Mem",
+                percent=mem.percent,
+                value_text=f"{self._format_bytes(mem.used)}/{self._format_bytes(mem.total)}",
+            ),
+            MemoryUsageSnapshot(
+                label="Swp",
+                percent=swap.percent,
+                value_text=f"{self._format_bytes(swap.used)}/{self._format_bytes(swap.total)}",
+            ),
+        ]
+
+    def render_system_info(self) -> str:
+        snapshot = self.system_info_snapshot()
+
+        lines = [self._task_summary(snapshot.tasks, snapshot.threads, snapshot.running)]
+        if snapshot.load_values is None:
+            lines.append(self._load_summary(-1.0, -1.0, -1.0))
+        else:
+            lines.append(self._load_summary(*snapshot.load_values))
+        lines.append(f"Uptime: {snapshot.uptime}")
+        return "\n".join(lines)
+
+    def system_info_snapshot(self) -> SystemInfoSnapshot:
         uptime_s = int(time.time() - psutil.boot_time())
         tasks, threads, running = self._get_task_stats()
 
         try:
-            load_1, load_5, load_15 = psutil.getloadavg()
+            load_values: tuple[float, float, float] | None = psutil.getloadavg()
         except (AttributeError, OSError):
-            load_1 = load_5 = load_15 = -1.0
+            load_values = None
 
-        text = Text()
-        text.append("Date/Time: ", style="bright_cyan")
-        text.append(time.strftime("%Y-%m-%d %H:%M:%S"), style="bright_white")
-        text.append("\n")
-
-        for line in self._build_core_grid_lines(cpu_per_core, left_width=left_block_width):
-            text.append(line)
-            text.append("\n")
-
-        mem_bar_width = max(20, left_block_width - 6)
-        self._append_memory_line(
-            text,
-            label="Mem",
-            percent=mem.percent,
-            used=mem.used,
-            total=mem.total,
-            right_style="bright_white",
-            left_width=left_block_width,
-            right_suffix=self._task_summary(tasks, threads, running),
-            bar_width=mem_bar_width,
-        )
-        self._append_memory_line(
-            text,
-            label="Swp",
-            percent=swap.percent,
-            used=swap.used,
-            total=swap.total,
-            right_style="dim",
-            left_width=left_block_width,
-            right_suffix=self._load_summary(load_1, load_5, load_15),
-            bar_width=mem_bar_width,
+        return SystemInfoSnapshot(
+            tasks=tasks,
+            threads=threads,
+            running=running,
+            load_values=load_values,
+            uptime=self._format_uptime(uptime_s),
         )
 
-        uptime_left = Text()
-        uptime_right = Text()
-        self._append_aligned_value(uptime_right, "", width=14, style="dim")
-        uptime_right.append("  Uptime:", style="bright_cyan")
-        uptime_right.append(f" {self._format_uptime(uptime_s)}", style="bright_white")
-        self._append_two_column_line(text, uptime_left, uptime_right, left_width=left_block_width)
+    def _content_width(self, width: int | None) -> int:
+        if width is None or width <= 0:
+            return 116
+        return min(self.MAX_CONTENT_WIDTH, max(self.MIN_CONTENT_WIDTH, width))
 
-        return text
+    def _memory_bar_width(self, content_width: int) -> int:
+        label_width = len("Mem[]")
+        value_width = 14
+        column_gap = 3
+        return max(4, content_width - label_width - column_gap - value_width)
 
-    def _append_memory_line(
-        self,
-        text: Text,
-        label: str,
-        percent: float,
-        used: int,
-        total: int,
-        right_style: str,
-        left_width: int,
-        right_suffix: Text,
-        bar_width: int,
-    ) -> None:
-        left = Text()
-        left.append(label, style="bright_cyan")
-        left.append("[", style="bright_cyan")
-        self._append_segmented_bar(left, percent, bar_width)
-        left.append("]", style="bright_cyan")
+    def _task_summary(self, tasks: int, threads: int, running: int) -> str:
+        return f"  Tasks: {tasks:>3}  Thr: {threads:>4}  Run: {running:>2}"
 
-        right = Text()
-        self._append_aligned_value(
-            right,
-            f"{self._format_bytes(used)}/{self._format_bytes(total)}",
-            width=14,
-            style=right_style,
-        )
-        right.append_text(right_suffix)
-        self._append_two_column_line(text, left, right, left_width=left_width)
-
-    def _task_summary(self, tasks: int, threads: int, running: int) -> Text:
-        text = Text()
-        text.append("  Tasks:", style="bright_cyan")
-        text.append(f" {tasks:>3}", style="bright_white")
-        text.append("  Thr:", style="cyan")
-        text.append(f" {threads:>4}", style="bright_white")
-        text.append("  Run:", style="green")
-        text.append(f" {running:>2}", style="bright_white")
-        return text
-
-    def _load_summary(self, load_1: float, load_5: float, load_15: float) -> Text:
-        text = Text()
+    def _load_summary(self, load_1: float, load_5: float, load_15: float) -> str:
         if load_1 >= 0:
-            text.append("  Load:", style="bright_cyan")
-            text.append(f" {load_1:.2f}", style="bright_white")
-            text.append(f" {load_5:.2f}", style="cyan")
-            text.append(f" {load_15:.2f}", style="bright_blue")
-        else:
-            text.append("  Load: n/a", style="dim")
-        return text
+            return f"  Load: {load_1:.2f} {load_5:.2f} {load_15:.2f}"
+        return "  Load: n/a"
 
-    def _usage_bar(self, percent: float, width: int, style: str = "bright_white") -> Text:
+    def _usage_bar(self, percent: float, width: int) -> str:
         filled = int(round((max(0.0, min(100.0, percent)) / 100.0) * width))
-        bar = Text()
-        for i in range(width):
-            if i < filled:
-                bar.append("█", style=style)
-            else:
-                bar.append("░", style="dim")
-        return bar
+        return "|" * filled + " " * (width - filled)
 
     def _usage_color(self, percent: float) -> str:
         if percent >= 85:
@@ -144,69 +139,59 @@ class SystemHealthRenderer:
             return "yellow"
         return "green"
 
-    def _append_segmented_bar(self, text: Text, percent: float, width: int) -> None:
-        """Append an htop-like multi-color bar segment to ``text``."""
-        filled = int(round((max(0.0, min(100.0, percent)) / 100.0) * width))
-        if filled <= 0:
-            text.append(" " * width, style="dim")
-            return
-
-        palette = ["green", "green", "green", "green", "cyan", "magenta", "yellow", "yellow"]
-        for i in range(filled):
-            text.append("|", style=palette[i % len(palette)])
-        if filled < width:
-            text.append(" " * (width - filled), style="dim")
-
     def _format_uptime(self, seconds: int) -> str:
         hours, rem = divmod(seconds, 3600)
         minutes, secs = divmod(rem, 60)
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
-    def _build_core_grid_lines(self, cpu_per_core: list[float], left_width: int) -> list[Text]:
+    def _build_core_grid_rows(
+        self, cpu_per_core: list[float], content_width: int
+    ) -> list[list[CPUCoreSnapshot]]:
         if not cpu_per_core:
-            return [Text("No CPU data", style="dim")]
+            return []
 
-        rows = 3
+        max_cols = max(1, content_width // self.CPU_CORE_CELL_WIDTH)
+        rows = max(1, (len(cpu_per_core) + max_cols - 1) // max_cols)
         cols = (len(cpu_per_core) + rows - 1) // rows
-        cell_width = max(14, left_width // max(1, cols))
-        bar_width = 5
-        lines: list[Text] = []
+        snapshot_rows: list[list[CPUCoreSnapshot]] = []
         for row in range(rows):
-            line = Text()
+            snapshot_row: list[CPUCoreSnapshot] = []
             for col in range(cols):
                 idx = col * rows + row
                 if idx >= len(cpu_per_core):
                     continue
-                pct = cpu_per_core[idx]
-                cell = Text()
-                cell.append(f"{idx:>2}", style="bright_blue")
-                cell.append("[", style="bright_white")
-                cell.append(self._usage_bar(pct, width=bar_width, style=self._usage_color(pct)))
-                cell.append("]", style="bright_white")
-                cell.append(" ")
-                cell.append(f"{pct:5.1f}%", style="bright_white" if pct > 0 else "dim")
-                line.append_text(cell)
-                pad = max(1, cell_width - len(cell.plain))
-                line.append(" " * pad)
-            lines.append(line)
+                snapshot_row.append(CPUCoreSnapshot(index=idx, percent=cpu_per_core[idx]))
+            snapshot_rows.append(snapshot_row)
+        return snapshot_rows
+
+    def _build_core_grid_lines(self, cpu_per_core: list[float], content_width: int) -> list[str]:
+        rows = self._build_core_grid_rows(cpu_per_core, content_width)
+        if not rows:
+            return ["No CPU data"]
+
+        flat_count = sum(len(row) for row in rows)
+        cols = max(1, (flat_count + len(rows) - 1) // len(rows))
+        cell_width = max(self.CPU_CORE_CELL_WIDTH, content_width // max(1, cols))
+        lines: list[str] = []
+        for row in rows:
+            parts: list[str] = []
+            for cell in row:
+                text = self._build_core_cell_text(cell.index, cell.percent)
+                parts.append(text.ljust(cell_width))
+            lines.append("".join(parts).rstrip())
         return lines
 
-    def _append_two_column_line(
-        self,
-        text: Text,
-        left: Text,
-        right: Text,
-        left_width: int = 66,
-    ) -> None:
-        left_plain = left.plain
-        pad = max(3, left_width - len(left_plain))
-        text.append_text(left)
-        text.append(" " * pad)
-        text.append_text(right)
-        text.append("\n")
+    def _build_core_cell_text(self, idx: int, pct: float) -> str:
+        bar_width = self.CPU_CORE_BAR_WIDTH
+        meter = self._usage_bar(pct, width=bar_width)
+        return f"{idx:>2} {meter} {pct:5.1f}%"
 
-    def _append_aligned_value(self, text: Text, value: str, width: int, style: str) -> None:
-        text.append(value.rjust(width), style=style)
+    def _format_memory_row(self, row: MemoryUsageSnapshot, content_width: int) -> str:
+        meter = self._usage_bar(row.percent, width=self._memory_bar_width(content_width))
+        left = f"{row.label}[{meter}]"
+        value = row.value_text.rjust(14)
+        pad = max(1, content_width - len(left) - len(value))
+        return f"{left}{' ' * pad}{value}"
 
     def _format_bytes(self, num_bytes: int) -> str:
         gib = num_bytes / (1024**3)
@@ -245,17 +230,175 @@ class SystemHealthRenderer:
 
 
 class SystemHealthWidget(Widget):
-    """CPU, memory, swap, and uptime stats."""
-
-    DEFAULT_CSS = """
-    SystemHealthWidget {
-        height: auto;
-    }
-    """
+    """Container for focused system health sections."""
 
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(classes="system-health")
         self._renderer = SystemHealthRenderer()
 
-    def render(self) -> RenderResult:
-        return self._renderer.render()
+    def compose(self) -> ComposeResult:
+        yield DateTimeWidget(self._renderer)
+        yield CPUUsageWidget(self._renderer)
+        yield Horizontal(
+            MemorySwapWidget(self._renderer),
+            SystemInfoWidget(self._renderer),
+            classes="system-health-resource-row",
+        )
+
+
+@dataclass(frozen=True)
+class SystemInfoSnapshot:
+    """Structured values for the textual system info widget."""
+
+    tasks: int
+    threads: int
+    running: int
+    load_values: tuple[float, float, float] | None
+    uptime: str
+
+
+class DateTimeWidget(Widget):
+    """Date/time section for the system health area."""
+
+    def __init__(self, renderer: SystemHealthRenderer) -> None:
+        super().__init__(classes="system-health-section system-health-datetime")
+        self._renderer = renderer
+
+    def compose(self) -> ComposeResult:
+        yield Horizontal(
+            Static("Date/Time:", classes="system-health-label system-health-datetime-label"),
+            Static(
+                time.strftime("%Y-%m-%d %H:%M:%S"),
+                classes="system-health-value system-health-datetime-value",
+            ),
+            classes="system-health-inline-row system-health-datetime-row",
+        )
+
+
+class CPUUsageWidget(Widget):
+    """CPU per-core usage section for the system health area."""
+
+    def __init__(self, renderer: SystemHealthRenderer) -> None:
+        super().__init__(classes="system-health-section system-health-cpu")
+        self._renderer = renderer
+
+    def compose(self) -> ComposeResult:
+        rows = self._renderer.cpu_usage_rows(width=self.size.width)
+        if not rows:
+            yield Static("No CPU data", classes="system-health-muted-value")
+            return
+
+        for row in rows:
+            yield Horizontal(
+                *(self._core_cell(core) for core in row),
+                classes="system-health-cpu-row",
+            )
+
+    def _core_cell(self, core: CPUCoreSnapshot) -> Container:
+        value_class = (
+            "system-health-value system-health-muted-value"
+            if core.percent <= 0
+            else "system-health-value"
+        )
+        return Container(
+            Static(f"{core.index:>2}", classes="cpu-core-index"),
+            Static(
+                self._renderer._usage_bar(
+                    core.percent,
+                    width=self._renderer.CPU_CORE_BAR_WIDTH,
+                ),
+                classes=(
+                    f"cpu-core-bar system-health-meter-{self._renderer._usage_color(core.percent)}"
+                ),
+            ),
+            Static(f"{core.percent:5.1f}%", classes=f"cpu-core-percent {value_class}"),
+            classes="cpu-core-cell",
+        )
+
+
+class MemorySwapWidget(Widget):
+    """Memory and swap usage section."""
+
+    def __init__(self, renderer: SystemHealthRenderer) -> None:
+        super().__init__(classes="system-health-section system-health-memory-swap")
+        self._renderer = renderer
+
+    def compose(self) -> ComposeResult:
+        for row in self._renderer.memory_usage_rows():
+            value_class = (
+                "system-health-value system-health-muted-value"
+                if row.label == "Swp" and row.percent <= 0
+                else "system-health-value"
+            )
+            yield Horizontal(
+                Static(row.label, classes="memory-swap-label"),
+                Static(
+                    self._renderer._usage_bar(
+                        row.percent,
+                        width=self._renderer._memory_bar_width(
+                            self._renderer._content_width(self.size.width)
+                        ),
+                    ),
+                    classes=(
+                        "memory-swap-bar "
+                        f"system-health-meter-{self._renderer._usage_color(row.percent)}"
+                    ),
+                ),
+                Static(row.value_text, classes=value_class),
+                classes="memory-swap-row",
+            )
+
+
+class SystemInfoWidget(Widget):
+    """Task, load, and uptime section."""
+
+    def __init__(self, renderer: SystemHealthRenderer) -> None:
+        super().__init__(classes="system-health-section system-health-system-info")
+        self._renderer = renderer
+
+    def compose(self) -> ComposeResult:
+        snapshot = self._renderer.system_info_snapshot()
+
+        yield Horizontal(
+            Static("Tasks:", classes=_SYSTEM_INFO_LABEL),
+            Static(f"{snapshot.tasks:>3}", classes=_SYSTEM_INFO_PRIMARY_VALUE),
+            Static("Thr:", classes="system-info-label system-info-secondary-label"),
+            Static(
+                f"{snapshot.threads:>4}",
+                classes=_SYSTEM_INFO_PRIMARY_VALUE,
+            ),
+            Static("Run:", classes="system-info-label system-info-running-label"),
+            Static(f"{snapshot.running:>2}", classes=_SYSTEM_INFO_PRIMARY_VALUE),
+            classes=_SYSTEM_INFO_ROW,
+        )
+
+        if snapshot.load_values is None:
+            yield Horizontal(
+                Static("Load:", classes=_SYSTEM_INFO_LABEL),
+                Static("n/a", classes="system-info-value system-info-muted-value"),
+                classes=_SYSTEM_INFO_ROW,
+            )
+        else:
+            load_1, load_5, load_15 = snapshot.load_values
+            yield Horizontal(
+                Static("Load:", classes=_SYSTEM_INFO_LABEL),
+                Static(
+                    f"{load_1:.2f}",
+                    classes=_SYSTEM_INFO_PRIMARY_VALUE,
+                ),
+                Static(
+                    f"{load_5:.2f}",
+                    classes="system-info-value system-info-secondary-value",
+                ),
+                Static(
+                    f"{load_15:.2f}",
+                    classes="system-info-value system-info-tertiary-value",
+                ),
+                classes=_SYSTEM_INFO_ROW,
+            )
+
+        yield Horizontal(
+            Static("Uptime:", classes=_SYSTEM_INFO_LABEL),
+            Static(snapshot.uptime, classes=_SYSTEM_INFO_PRIMARY_VALUE),
+            classes=_SYSTEM_INFO_ROW,
+        )

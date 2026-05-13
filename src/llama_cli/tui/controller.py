@@ -1,14 +1,12 @@
 """Dashboard controller for the Textual TUI."""
 
+import dataclasses
 import signal
 import sys
 import threading
 from collections.abc import Callable
 from types import FrameType
 from typing import Any, Literal
-
-from rich.panel import Panel
-from rich.text import Text
 
 from llama_cli.ui_output import emit_error, emit_info, emit_plain, emit_success, emit_warn
 from llama_manager import (
@@ -32,16 +30,9 @@ from llama_manager.build_pipeline import (
     run_build_for_backend,
 )
 
-from .components.launch_status import LaunchStatusPanelRenderer
-from .components.profile_status import ProfileStatusPanelRenderer
-from .components.risk import RiskPanelRenderer
-from .components.server_column import ServerColumnPanel
-from .components.slot_status import SlotStatusPanel
-from .components.status_messages import StatusMessagesRenderer
-from .components.system_status import SystemStatusPanelRenderer
+from .components.config_modal import ConfigPayload
 from .model import DashboardModel
 from .textual_app import DashboardApp
-from .types import ServerColumnState
 from .viewmodel import DashboardViewModel
 
 
@@ -57,12 +48,6 @@ class DashboardController:
     ) -> None:
         self.model = DashboardModel(configs=configs, gpu_indices=gpu_indices, slots=slots)
         self.view_model = DashboardViewModel(self.model)
-        self._status_panel_renderer = LaunchStatusPanelRenderer()
-        self._risk_panel_renderer = RiskPanelRenderer()
-        self._profile_status_renderer = ProfileStatusPanelRenderer()
-        self._status_messages_renderer = StatusMessagesRenderer()
-        self._system_status_renderer = SystemStatusPanelRenderer()
-        self.status_panel: Panel | None = None
 
         # Build pipeline state
         self._build_pipeline: BuildPipeline | None = None
@@ -132,22 +117,6 @@ class DashboardController:
             self.model.clear_risk_prompt()
         else:
             self.model.set_risk_prompt(value, acknowledged=self.risks_acknowledged)
-
-    @property
-    def risk_panel(self) -> Panel | None:
-        prompt = self.model.risk_prompt
-        if prompt is None:
-            return None
-        if prompt.acknowledged:
-            return self._risk_panel_renderer.acknowledged()
-        return self._risk_panel_renderer.required(prompt.kind)
-
-    @risk_panel.setter
-    def risk_panel(self, value: object | None) -> None:
-        if value is None:
-            self.model.clear_risk_prompt()
-        elif self.model.risk_prompt is None:
-            self.model.set_risk_prompt("hardware", acknowledged=False)
 
     @property
     def profile_request(self) -> str | None:
@@ -252,44 +221,6 @@ class DashboardController:
         """Stop the TUI loop gracefully."""
         self.running = False
 
-    def render_panels(self) -> tuple[Panel, Panel | None, Panel, Text]:
-        """Render a snapshot of the dashboard for tests and non-Textual callers."""
-        alerts_panel = (
-            self.status_panel
-            if self.status_panel is not None
-            else self._system_status_renderer.render_panel(self.view_model.system_status())
-        )
-        left_panel: Panel | None = None
-        if self.configs:
-            cfg1 = self.configs[0]
-            buffer1 = self.log_buffers[cfg1.alias]
-            gpu1 = self.gpu_stats[0] if self.gpu_stats else None
-            left_panel = self._build_column_panel(cfg1, buffer1, gpu1)
-
-        if len(self.configs) > 1:
-            cfg2 = self.configs[1]
-            buffer2 = self.log_buffers[cfg2.alias]
-            gpu2 = self.gpu_stats[1] if len(self.gpu_stats) > 1 else None
-            right_panel = self._build_column_panel(cfg2, buffer2, gpu2)
-        else:
-            right_panel = self._build_placeholder_panel()
-
-        from .components.menu import CommandMenuRenderer
-
-        return (
-            alerts_panel,
-            left_panel,
-            right_panel,
-            CommandMenuRenderer().render(self.view_model.command_menu()),
-        )
-
-    # ------------------------------------------------------------------
-    # Rendering delegation helpers
-    # ------------------------------------------------------------------
-
-    def _build_status_panel(self, launch_result: LaunchResult) -> None:
-        self.status_panel = self._status_panel_renderer.render(launch_result)
-
     def _build_risk_panel_required(self, kind: Literal["vram", "hardware"] = "hardware") -> None:
         self.model.set_risk_prompt(kind=kind, acknowledged=False)
 
@@ -298,62 +229,12 @@ class DashboardController:
     ) -> None:
         self.model.set_risk_prompt(kind=kind, acknowledged=True)
 
-    def _build_column_panel(
-        self, cfg: ServerConfig, buffer: LogBuffer, gpu: GPUStats | None
-    ) -> Panel:
-        stale_warning = self.get_stale_warning(cfg)
-        return ServerColumnPanel(
-            ServerColumnState(
-                config=cfg,
-                buffer=buffer,
-                gpu=gpu,
-                host=self.config.host,
-                stale_warning=stale_warning,
-                slot_states=self.slot_states,
-                server_processes=self.server_processes,
-                is_unsaved=cfg.alias in self.unsaved_slots,
-            )
-        ).render()
-
-    def _build_placeholder_panel(self) -> Panel:
-        return SlotStatusPanel(self.view_model.slot_status(configs=[])).render()
-
-    def _build_profile_status_panel(self) -> Panel | None:
-        return self._profile_status_renderer.render(
-            self.view_model.active_profile_status(),
-            self._profile_flavor,
-        )
-
-    def build_system_notices(self) -> list[str]:
-        """Build concise status notices shown in the top system panel."""
-        notices = self.view_model.system_notices()
-
-        if self.build_in_progress and self.build_progress is not None:
-            notices.append(
-                f"Build {self.build_progress.stage}: {self.build_progress.status} "
-                f"({self.build_progress.progress_percent}%)"
-            )
-
-        return notices
-
     # How long (seconds) a status message remains visible across renders.
     _STATUS_MESSAGE_LIFETIME_S: float = DashboardModel.STATUS_MESSAGE_LIFETIME_S
-
-    def _build_status_messages_panel(self) -> Text | None:
-        return self._status_messages_renderer.render(self.view_model.status_messages())
 
     def get_status_messages_since(self, since_ts: float) -> list[tuple[float, str]]:
         """Return status messages newer than ``since_ts``."""
         return self.model.get_status_messages_since(since_ts)
-
-    def prune_expired_status_messages(self) -> None:
-        """Remove status messages older than ``_STATUS_MESSAGE_LIFETIME_S``."""
-        self.model.prune_expired_status_messages()
-
-    def _build_command_menu(self) -> Text:
-        from .components.menu import CommandMenuRenderer
-
-        return CommandMenuRenderer().render(self.view_model.command_menu())
 
     # ------------------------------------------------------------------
     # Print helpers
@@ -364,7 +245,7 @@ class DashboardController:
 
     def request_quit(self) -> None:
         """Request a graceful shutdown from the UI."""
-        if self.risk_panel is not None:
+        if self.model.risk_prompt is not None:
             if self.active_risk_kind == "hardware":
                 self.handle_hardware_warning("q")
             return
@@ -376,7 +257,7 @@ class DashboardController:
         Matches the legacy Ctrl+C path: abort a running profile if one exists,
         otherwise shut the app down.
         """
-        if self.risk_panel is not None:
+        if self.model.risk_prompt is not None:
             return
 
         with self._profile_lock:
@@ -393,13 +274,13 @@ class DashboardController:
 
     def refresh_display(self) -> None:
         """Request a refresh message from the UI."""
-        if self.risk_panel is not None:
+        if self.model.risk_prompt is not None:
             return
         self._push_status_message("Display refreshed.")
 
     def request_profile(self) -> None:
         """Start the profile selection flow from the UI."""
-        if self.risk_panel is not None or not self.configs:
+        if self.model.risk_prompt is not None or not self.configs:
             return
         alias = self.configs[0].alias
         with self._profile_lock:
@@ -408,14 +289,14 @@ class DashboardController:
 
     def request_build(self) -> None:
         """Start the build selection flow from the UI."""
-        if self.risk_panel is not None:
+        if self.model.risk_prompt is not None:
             return
         self._build_request = True
         self._push_status_message("Select build target: [1] SYCL  [2] CUDA  [3] Both")
 
     def request_smoke(self) -> None:
         """Start the smoke selection flow from the UI."""
-        if self.risk_panel is not None:
+        if self.model.risk_prompt is not None:
             return
         self._smoke_request = True
         self._push_status_message("Select smoke scope: [1] Both  [2] Active Slot")
@@ -441,7 +322,7 @@ class DashboardController:
 
     def acknowledge_risk(self) -> None:
         """Acknowledge the active risk prompt."""
-        if self.risk_panel is None:
+        if self.model.risk_prompt is None:
             return
         if self.active_risk_kind == "vram":
             self.handle_vram_risk("y")
@@ -450,7 +331,7 @@ class DashboardController:
 
     def reject_risk(self) -> None:
         """Reject the active risk prompt."""
-        if self.risk_panel is None:
+        if self.model.risk_prompt is None:
             return
         if self.active_risk_kind == "vram":
             self.handle_vram_risk("n")
@@ -569,11 +450,10 @@ class DashboardController:
             else:
                 self._build_risk_panel_required()
             return
-        self.risk_panel = None
+        self.model.clear_risk_prompt()
 
     def _apply_risk_action(self, action: str) -> None:
         if action in ("acknowledge", "proceed"):
-            self.risk_panel = None
             self.active_risk_kind = None
         elif action == "abort":
             self.running = False
@@ -627,10 +507,6 @@ class DashboardController:
             return
 
         message, _color = result
-        if old_state is None and new_state == SlotState.RUNNING:
-            # First launch - clear any previous status panels
-            self.status_panel = None
-
         self._push_status_message(message)
 
     def _graceful_shutdown(self) -> None:
@@ -642,6 +518,55 @@ class DashboardController:
         self.server_manager.cleanup_servers()
         self.running = False
 
+    def save_config(self, payload: ConfigPayload) -> None:
+        """Persist edited config values and optionally restart all servers.
+
+        Args:
+            payload: Typed config values and restart flag from the modal.
+        """
+        from llama_manager.config import config_file_path, save_config_to_file
+
+        cfg = self.model.config
+        int_fields = {
+            "smoke_listen_timeout_s",
+            "smoke_http_request_timeout_s",
+            "smoke_first_token_timeout_s",
+            "smoke_total_chat_timeout_s",
+        }
+
+        for field in dataclasses.fields(payload):
+            if field.name == "restart":
+                continue
+            field_name = field.name
+            raw_value = getattr(payload, field_name)
+            if not hasattr(cfg, field_name):
+                continue
+            if field_name in int_fields:
+                try:
+                    setattr(cfg, field_name, int(raw_value))
+                except ValueError:
+                    self._push_status_message(
+                        f"Invalid value '{raw_value}' for {field_name} — config not saved."
+                    )
+                    return
+            else:
+                setattr(cfg, field_name, raw_value)
+
+        try:
+            save_config_to_file(cfg, config_file_path())
+            self._push_status_message("Config saved to disk.")
+        except OSError as exc:
+            self._push_status_message(f"Config save failed: {exc}")
+            return
+
+        if payload.restart:
+            self._push_status_message("Restarting servers with new config…")
+            self.server_manager.cleanup_servers()
+            self._push_status_message(
+                "Servers stopped. Use 'uv run llm-runner' to relaunch with updated config."
+            )
+            self.running = False
+
     def _handle_build_progress(self, progress: BuildProgress) -> None:
         """Handle build progress updates from pipeline.
 
@@ -650,36 +575,16 @@ class DashboardController:
         """
         self.build_progress = progress
 
-        # Update status panel if build is in progress
         if self.build_in_progress:
             if progress.is_retrying:
-                status_text = Text()
-                status_text.append("STATUS: ", style="bold yellow")
-                status_text.append("RETRYING", style="bold yellow")
-                status_text.append(f" - {progress.message}\n", style="dim")
+                retry_message = f"Build retrying: {progress.message}"
                 if progress.retries_remaining is not None:
-                    status_text.append(
-                        f"Retries remaining: {progress.retries_remaining}",
-                        style="dim",
-                    )
-                self.status_panel = Panel(
-                    status_text,
-                    title="[yellow]Build In Progress[/yellow]",
-                    border_style="yellow",
-                )
+                    retry_message += f" (retries remaining: {progress.retries_remaining})"
+                self._push_status_message(retry_message)
             elif progress.status == "failed":
-                status_text = Text()
-                status_text.append("STATUS: ", style="bold red")
-                status_text.append("FAILED", style="bold red")
-                status_text.append(f" - {progress.message}\n", style="dim")
-                self.status_panel = Panel(
-                    status_text,
-                    title="[red]Build Failed[/red]",
-                    border_style="red",
-                )
+                self._push_status_message(f"Build failed: {progress.message}")
             elif progress.status == "success":
-                # Clear status panel on success
-                self.status_panel = None
+                self._push_status_message("Build completed successfully.")
 
     def _handle_launch_result(self, launch_result: LaunchResult | None) -> None:
         if launch_result is None:
@@ -766,7 +671,7 @@ class DashboardController:
             self._run_tui_loop_without_servers()
             return
 
-        # Map risk result to TUI panels
+        # Map risk result to Textual prompt state
         self._update_risk_panel_state(result.risk_result)
         if not acknowledged:
             for detail in result.risk_result.risk_details:
@@ -774,12 +679,8 @@ class DashboardController:
                     f"warning: risky operation in {detail['alias']}: {detail['risk']} — "
                     f"press 'y' to acknowledge, 'n' to abort"
                 )
-            if result.risk_result.risk_details:
-                self._build_risk_panel_required(result.risk_result.risk_details[0]["risk_kind"])
 
         self.launch_result = result.launch_result
-        if result.launch_result is not None:
-            self._build_status_panel(result.launch_result)
 
         # CLI boundary: stderr printing and SystemExit for blocked launches
         if result.launch_result is not None:

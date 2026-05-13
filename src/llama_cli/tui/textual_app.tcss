@@ -1,18 +1,21 @@
 Screen {
     layout: vertical;
+    background: black;
+    color: ansi_bright_white;
 }
 
 #dashboard {
     height: 1fr;
     layout: vertical;
+    background: black;
 }
 
 #content {
     height: 1fr;
     layout: horizontal;
+    background: black;
 }
 
-.column {
-    width: 1fr;
-    height: 1fr;
+.hidden {
+    display: none;
 }

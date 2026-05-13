@@ -17,6 +17,7 @@ from llama_manager import (
     ErrorCode,
     ErrorDetail,
     ServerConfig,
+    build_config,
     gpu_index_for_config,
     require_executable,
     require_model,
@@ -214,7 +215,7 @@ def _run_tui(parsed: argparse.Namespace) -> int:
     """
     from llama_cli.tui import DashboardController
 
-    cfg = Config()
+    cfg = build_config()
 
     # Standalone mode (no mode specified) - start with empty slots
     if parsed.tui_mode is None:

@@ -14,17 +14,16 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import json
 import sys
 import time
 import typing
 from typing import Any
 
+from llama_cli.commands._output import emit_json, emit_plain
 from llama_cli.ui_output import (
     emit_error,
     emit_heading,
     emit_info,
-    emit_plain,
 )
 from llama_manager import (
     Config,
@@ -32,19 +31,37 @@ from llama_manager import (
     SmokeProbeConfiguration,
     resolve_runtime_dir,
 )
-from llama_manager.config import create_smoke_config
+from llama_manager.config import (
+    ServerConfig,
+    create_default_profile_registry,
+    create_smoke_config,
+    resolve_profile_config,
+    resolve_profile_id,
+    resolve_run_group_configs,
+)
 from llama_manager.probe import SmokeProbeResult, probe_slot
 from llama_manager.probe.smoke import _ensure_report_dir
 
-# Canonical slot registry — single source of truth for slot config
-_SLOT_REGISTRY: dict[str, dict[str, str]] = {
-    "summary-balanced": {
-        "port_attr": "summary_balanced_port",
-        "model_attr": "model_summary_balanced",
-    },
-    "summary-fast": {"port_attr": "summary_fast_port", "model_attr": "model_summary_fast"},
-    "qwen35-coding": {"port_attr": "qwen35_port", "model_attr": "model_qwen35"},
-}
+
+def _valid_slot_labels(config: Config) -> str:
+    """Return user-facing slot labels from the canonical profile registry."""
+    registry = create_default_profile_registry(config)
+    return ", ".join(profile.alias for profile in registry.profiles)
+
+
+def _target_from_server_config(server_cfg: ServerConfig) -> tuple[str, str, str, int]:
+    """Convert a resolved ServerConfig into a smoke target tuple."""
+    return (server_cfg.alias, server_cfg.model, server_cfg.bind_address, server_cfg.port)
+
+
+def _resolve_smoke_slot_config(config: Config, slot_id: str) -> ServerConfig:
+    """Resolve a smoke slot through the canonical profile registry."""
+    registry = create_default_profile_registry(config)
+    profile_id = resolve_profile_id(registry, slot_id)
+    if profile_id is None:
+        emit_error(f"unknown slot '{slot_id}'. Valid slots: {_valid_slot_labels(config)}")
+        sys.exit(1)
+    return resolve_profile_config(registry, profile_id)
 
 
 def _build_slot_configs(
@@ -64,24 +81,18 @@ def _build_slot_configs(
         SystemExit: If mode is invalid.
     """
     cfg = Config()
+    registry = create_default_profile_registry(cfg)
 
     if mode == "both":
         return [
-            ("summary-balanced", cfg.model_summary_balanced, cfg.host, cfg.summary_balanced_port),
-            ("qwen35-coding", cfg.model_qwen35, cfg.host, cfg.qwen35_port),
+            _target_from_server_config(server_cfg)
+            for server_cfg in resolve_run_group_configs(registry, "both")
         ]
     if mode == "slot":
         if not slot_id:
             emit_error("'slot' mode requires a slot ID argument")
             sys.exit(1)
-        entry = _SLOT_REGISTRY.get(slot_id)
-        if entry is None:
-            valid_slots = ", ".join(_SLOT_REGISTRY.keys())
-            emit_error(f"unknown slot '{slot_id}'. Valid slots: {valid_slots}")
-            sys.exit(1)
-        slot_port = getattr(cfg, entry["port_attr"])
-        slot_model = getattr(cfg, entry["model_attr"])
-        return [(slot_id, slot_model, cfg.host, slot_port)]
+        return [_target_from_server_config(_resolve_smoke_slot_config(cfg, slot_id))]
 
     emit_error(f"unknown smoke mode '{mode}'. Valid modes: both, slot")
     sys.exit(1)
@@ -100,13 +111,7 @@ def _resolve_slot_port(cfg: Config, slot_id: str) -> int:
     Raises:
         SystemExit: If slot_id is unknown.
     """
-    entry = _SLOT_REGISTRY.get(slot_id)
-    if entry is None:
-        emit_error(
-            f"unknown slot '{slot_id}'. Valid slots: {', '.join(_SLOT_REGISTRY.keys())}",
-        )
-        sys.exit(1)
-    return getattr(cfg, entry["port_attr"])
+    return _resolve_smoke_slot_config(cfg, slot_id).port
 
 
 def _resolve_slot_model(cfg: Config, slot_id: str) -> str:
@@ -122,13 +127,7 @@ def _resolve_slot_model(cfg: Config, slot_id: str) -> str:
     Raises:
         SystemExit: If slot_id is unknown.
     """
-    entry = _SLOT_REGISTRY.get(slot_id)
-    if entry is None:
-        emit_error(
-            f"unknown slot '{slot_id}'. Valid slots: {', '.join(_SLOT_REGISTRY.keys())}",
-        )
-        sys.exit(1)
-    return getattr(cfg, entry["model_attr"])
+    return _resolve_smoke_slot_config(cfg, slot_id).model
 
 
 def _probe_server(
@@ -458,4 +457,4 @@ def _print_report_json(report: SmokeCompositeReport) -> None:
             for r in report.results
         ],
     }
-    emit_plain(json.dumps(output, indent=2))
+    emit_json(output)

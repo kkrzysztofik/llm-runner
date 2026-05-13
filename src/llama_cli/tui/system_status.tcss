@@ -1,0 +1,166 @@
+#alerts {
+    height: auto;
+    max-height: 35%;
+    layout: vertical;
+}
+
+.system-health {
+    height: auto;
+    layout: vertical;
+}
+
+.system-health-section {
+    height: auto;
+}
+
+.system-health-datetime {
+    height: 1;
+}
+
+.system-health-inline-row {
+    height: 1;
+    layout: horizontal;
+}
+
+.system-health-label {
+    width: auto;
+    margin-right: 1;
+    color: ansi_bright_cyan;
+}
+
+.system-health-value {
+    width: auto;
+    color: ansi_bright_white;
+}
+
+.system-health-resource-row {
+    height: auto;
+}
+
+.system-health-cpu-row,
+.memory-swap-row {
+    height: 1;
+    layout: horizontal;
+}
+
+.cpu-core-cell {
+    width: 15;
+    height: 1;
+    margin-right: 1;
+    layout: horizontal;
+}
+
+.cpu-core-index {
+    width: 2;
+    margin-right: 1;
+    color: ansi_bright_blue;
+}
+
+.cpu-core-bar {
+    width: 5;
+    min-width: 5;
+    margin-right: 1;
+}
+
+.memory-swap-bar {
+    width: auto;
+    margin-right: 1;
+}
+
+.cpu-core-percent {
+    width: 6;
+}
+
+.memory-swap-label {
+    width: auto;
+    margin-right: 1;
+    color: ansi_bright_cyan;
+}
+
+.system-health-meter-green {
+    color: ansi_bright_green;
+}
+
+.system-health-meter-yellow {
+    color: ansi_bright_yellow;
+}
+
+.system-health-meter-red {
+    color: ansi_bright_red;
+}
+
+.system-health-muted-value {
+    color: ansi_bright_black;
+}
+
+.system-health-memory-swap {
+    width: 1fr;
+}
+
+.system-health-system-info {
+    width: 1fr;
+}
+
+.system-info-row {
+    width: auto;
+    height: 1;
+}
+
+.system-info-label {
+    width: auto;
+    margin-right: 1;
+}
+
+.system-info-secondary-label {
+    color: ansi_bright_cyan;
+}
+
+.system-info-running-label {
+    color: ansi_bright_green;
+}
+
+.system-info-value {
+    width: auto;
+    margin-right: 2;
+}
+
+.system-info-primary-value {
+    color: ansi_bright_white;
+}
+
+.system-info-secondary-value {
+    color: ansi_bright_cyan;
+}
+
+.system-info-tertiary-value {
+    color: ansi_bright_blue;
+}
+
+.system-info-muted-value {
+    color: ansi_bright_black;
+}
+
+.gpu-telemetry {
+    height: 1;
+}
+
+.gpu-telemetry-row {
+    height: 1;
+    layout: horizontal;
+}
+
+.gpu-telemetry-label {
+    width: auto;
+    margin-right: 1;
+    color: ansi_bright_yellow;
+    text-style: bold;
+}
+
+.gpu-telemetry-value {
+    width: 1fr;
+    color: ansi_bright_yellow;
+}
+
+.gpu-telemetry.hidden {
+    display: none;
+}

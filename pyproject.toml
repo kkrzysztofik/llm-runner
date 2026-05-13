@@ -35,6 +35,9 @@ packages = ["src/llama_cli", "src/llama_manager"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/llama_cli/tui/textual_app.tcss" = "llama_cli/tui/textual_app.tcss"
+"src/llama_cli/tui/system_status.tcss" = "llama_cli/tui/system_status.tcss"
+"src/llama_cli/tui/dashboard_panels.tcss" = "llama_cli/tui/dashboard_panels.tcss"
+"src/llama_cli/tui/modals.tcss" = "llama_cli/tui/modals.tcss"
 
 [tool.hatch.build.targets.wheel.sources]
 "src" = ""

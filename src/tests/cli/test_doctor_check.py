@@ -135,7 +135,7 @@ class TestDoctorRepairResult:
                 RepairAction(
                     action_type="test",
                     description="Test action",
-                    command="test",
+                    command=["test"],
                     dry_run_command="# test",
                     requires_confirmation=True,
                 )
@@ -160,7 +160,7 @@ class TestRepairAction:
         action = RepairAction(
             action_type="test",
             description="Test action",
-            command="test",
+            command=["test"],
             dry_run_command="# test",
             requires_confirmation=True,
         )
@@ -175,7 +175,7 @@ class TestRepairAction:
         action = RepairAction(
             action_type="test",
             description="Test action",
-            command="test",
+            command=["test"],
             dry_run_command="# test",
         )
         data = action.to_dict()
@@ -314,7 +314,6 @@ class TestCmdDoctorRepair:
             assert len(result.actions) > 0
             action_types = [a.action_type for a in result.actions]
             assert "clean_failed_staging" in action_types
-            assert "remove_failed_marker" in action_types
 
     def test_doctor_repair_preserves_successful_artifacts(self, tmp_path, capsys) -> None:
         """doctor --repair should preserve successful artifacts (T082)."""
@@ -1418,15 +1417,15 @@ class TestExecuteRepairAction:
         action = RepairAction(
             action_type="test",
             description="Success",
-            command="echo",
-            args=["hello"],
+            command=["echo", "hello"],
             dry_run_command="# echo hello",
         )
 
-        with patch("llama_cli.commands.doctor.subprocess.run") as mock_run:
+        with patch("llama_cli.commands.doctor.run_capture_command") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
             _execute_repair_action(action, result)
 
+        mock_run.assert_called_once_with(["echo", "hello"], check=True)
         assert len(result.performed_actions) == 1
         assert "Success" in result.performed_actions[0]
 
@@ -1436,12 +1435,12 @@ class TestExecuteRepairAction:
         action = RepairAction(
             action_type="test",
             description="Fail",
-            command="false",
+            command=["false"],
             dry_run_command="# false",
         )
 
         with patch(
-            "llama_cli.commands.doctor.subprocess.run",
+            "llama_cli.commands.doctor.run_capture_command",
             side_effect=Exception("command failed"),
         ):
             _execute_repair_action(action, result)
@@ -1540,7 +1539,7 @@ class TestPrintRepairResults:
                 RepairAction(
                     action_type="test",
                     description="Test action",
-                    command="test",
+                    command=["test"],
                     dry_run_command="# test",
                 )
             ]
@@ -1556,7 +1555,7 @@ class TestPrintRepairResults:
                 RepairAction(
                     action_type="test",
                     description="Test",
-                    command="test",
+                    command=["test"],
                     dry_run_command="# test",
                 )
             ],
@@ -1573,7 +1572,7 @@ class TestPrintRepairResults:
                 RepairAction(
                     action_type="test",
                     description="Test",
-                    command="test",
+                    command=["test"],
                     dry_run_command="# test",
                 )
             ],

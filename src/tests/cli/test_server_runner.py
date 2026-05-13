@@ -864,7 +864,7 @@ class _FakeTextualDashboardApp:
         self.controller = controller
 
     def run(self) -> None:
-        self.controller.render_panels()
+        return None
 
 
 def _risky_cfg() -> ServerConfig:
@@ -917,25 +917,19 @@ def test_cleanup_clears_attempt_ack_cache() -> None:
     assert manager.is_risk_acknowledged("summary-balanced", "privileged_port", attempt_id) is False
 
 
-def test_tui_risk_panels_render_required_and_acknowledged_states() -> None:
+def test_tui_risk_prompt_tracks_required_and_acknowledged_states() -> None:
     app = DashboardController([_risky_cfg()], [0])
 
     app._build_risk_panel_required()
-    required_layout = app.render_panels()
-    assert required_layout is not None
-    assert app.risk_panel is not None
-    assert "ACKNOWLEDGEMENT REQUIRED" in str(app.risk_panel.renderable)
+    assert app.active_risk_kind == "hardware"
     assert app.risks_acknowledged is False
 
     app._build_risk_panel_acknowledged()
-    acknowledged_layout = app.render_panels()
-    assert acknowledged_layout is not None
-    assert app.risk_panel is not None
-    assert "ACKNOWLEDGED" in str(app.risk_panel.renderable)
+    assert app.active_risk_kind == "hardware"
     assert app.risks_acknowledged is True
 
 
-def test_tui_run_keeps_acknowledged_risk_panel_visible() -> None:
+def test_tui_run_keeps_acknowledged_risk_prompt_active() -> None:
     app = DashboardController([_risky_cfg()], [0])
     app.running = False
 
@@ -956,8 +950,7 @@ def test_tui_run_keeps_acknowledged_risk_panel_visible() -> None:
     ):
         app.run(acknowledged=True)
 
-    assert app.risk_panel is not None
-    assert "ACKNOWLEDGED" in str(app.risk_panel.renderable)
+    assert app.active_risk_kind == "hardware"
     assert app.risks_acknowledged is True
 
 

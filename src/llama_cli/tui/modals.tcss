@@ -1,0 +1,87 @@
+AddSlotModal,
+ConfigModal {
+    align: center middle;
+}
+
+.modal-dialog {
+    height: auto;
+    padding: 1 2;
+    border: round $accent;
+    background: $surface;
+}
+
+.modal-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.form-row {
+    height: 3;
+}
+
+.form-label {
+    content-align: left middle;
+}
+
+.form-input {
+    width: 1fr;
+}
+
+.form-section-label {
+    text-style: bold underline;
+    margin-top: 1;
+    margin-bottom: 0;
+    color: $text-muted;
+}
+
+.modal-actions {
+    height: 3;
+    align-horizontal: right;
+    margin-top: 1;
+}
+
+.modal-button-cancel {
+    border: tall $panel;
+}
+
+.modal-button-success {
+    border: tall $success;
+    background: $success 20%;
+}
+
+.modal-button-warning {
+    border: tall $warning;
+    background: $warning 20%;
+}
+
+.add-slot-dialog {
+    width: 80;
+    max-width: 95%;
+}
+
+.add-slot-label {
+    width: 18;
+}
+
+.config-dialog {
+    width: 90;
+    max-width: 98%;
+    max-height: 90%;
+}
+
+.config-title {
+    color: $accent;
+}
+
+.config-field-label {
+    width: 28;
+    color: $text;
+}
+
+.modal-scroll-body {
+    max-height: 1fr;
+}
+
+.config-actions Button {
+    margin-left: 1;
+}

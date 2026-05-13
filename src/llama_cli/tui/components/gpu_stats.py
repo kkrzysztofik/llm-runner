@@ -1,35 +1,40 @@
-"""Per-slot GPU stats panel."""
+"""Per-slot GPU stats widget."""
 
 from typing import Any
 
-from rich.panel import Panel
-from rich.text import Text
+from textual.app import ComposeResult
+from textual.containers import Container, Horizontal
 from textual.widget import Widget
+from textual.widgets import Static
 
 from llama_manager import GPUStats
 
 
 class GPUStatsPanel(Widget):
-    """Compact htop-style GPU telemetry panel."""
+    """Compact GPU telemetry card."""
 
     def __init__(self, gpu: GPUStats | None) -> None:
-        super().__init__()
+        super().__init__(classes="gpu-stats")
         self._gpu = gpu
 
-    def render(self) -> Panel:  # type: ignore[override]
-        if self._gpu is None:
-            return Panel(
-                Text("GPU stats unavailable", style="dim"), title="GPU", border_style="dim"
-            )
-        return self._build_panel(self._gpu)
+    def compose(self) -> ComposeResult:
+        yield Static("GPU", classes="panel-title gpu-stats-title")
 
-    @staticmethod
-    def _build_panel(gpu: GPUStats) -> Panel:
+        if self._gpu is None:
+            yield Static(
+                "GPU stats unavailable",
+                classes="gpu-stats-unavailable",
+            )
+            return
+
+        yield from self._build_rows(self._gpu)
+
+    def _build_rows(self, gpu: GPUStats) -> ComposeResult:
         stats = gpu.get_stats_snapshot()
-        gpu_pct = GPUStatsPanel._parse_percent(stats.get("gpu_util"))
-        mem_pct = GPUStatsPanel._parse_percent(stats.get("mem_util"))
-        cpu_pct = GPUStatsPanel._parse_percent(stats.get("cpu"))
-        sys_mem_pct = GPUStatsPanel._parse_percent(stats.get("mem"))
+        gpu_pct = self._parse_percent(stats.get("gpu_util"))
+        mem_pct = self._parse_percent(stats.get("mem_util"))
+        cpu_pct = self._parse_percent(stats.get("cpu"))
+        sys_mem_pct = self._parse_percent(stats.get("mem"))
 
         def _fmt(val: Any) -> str:
             if val is None:
@@ -37,54 +42,68 @@ class GPUStatsPanel(Widget):
             s = str(val).strip()
             return "N/A" if s == "" or s.lower() == "n/a" else s
 
-        text = Text()
-        text.append("Device: ", style="bright_white")
-        text.append(_fmt(stats.get("device")), style="cyan")
-        text.append("\n")
+        yield Horizontal(
+            Static("Device:", classes="gpu-stats-label"),
+            Static(_fmt(stats.get("device")), classes="gpu-stats-value"),
+            classes="gpu-stats-row",
+        )
 
         if gpu_pct is not None or mem_pct is not None:
-            GPUStatsPanel._append_usage_line(text, "GPU", gpu_pct, _fmt(stats.get("gpu_util")))
-            text.append("  ", style="dim")
-            GPUStatsPanel._append_usage_line(text, "VRAM", mem_pct, _fmt(stats.get("mem_util")))
+            yield Horizontal(
+                self._usage_item("GPU", gpu_pct, _fmt(stats.get("gpu_util"))),
+                self._usage_item("VRAM", mem_pct, _fmt(stats.get("mem_util"))),
+                classes="gpu-stats-usage-row",
+            )
         else:
-            GPUStatsPanel._append_usage_line(text, "CPU", cpu_pct, _fmt(stats.get("cpu")))
-            text.append("  ", style="dim")
-            GPUStatsPanel._append_usage_line(text, "Mem", sys_mem_pct, _fmt(stats.get("mem")))
-        text.append("\n")
+            yield Horizontal(
+                self._usage_item("CPU", cpu_pct, _fmt(stats.get("cpu"))),
+                self._usage_item("Mem", sys_mem_pct, _fmt(stats.get("mem"))),
+                classes="gpu-stats-usage-row",
+            )
 
         temp = _fmt(stats.get("temp"))
         power = _fmt(stats.get("power"))
         if temp != "N/A" or power != "N/A":
-            text.append("Temp:", style="bright_cyan")
-            text.append(f" {temp}", style="bright_white" if temp != "N/A" else "dim")
-            text.append("  ", style="dim")
-            text.append("Power:", style="bright_cyan")
-            text.append(f" {power}", style="bright_white" if power != "N/A" else "dim")
+            row = [
+                Static("Temp:", classes="gpu-stats-label"),
+                Static(temp, classes=self._value_class(temp)),
+                Static("Power:", classes="gpu-stats-label"),
+                Static(power, classes=self._value_class(power)),
+            ]
+            yield Horizontal(*row, classes="gpu-stats-row")
 
-        return Panel(text, title="GPU", border_style="yellow")
+    def _usage_item(self, label: str, percent: float | None, raw: str) -> Container:
+        level_class = self._usage_level_class(percent)
+        return Container(
+            Static(label, classes="gpu-stats-usage-label"),
+            Static(
+                self._usage_meter(percent),
+                classes=f"gpu-stats-usage-bar {level_class}",
+            ),
+            Static(raw, classes=self._value_class(raw)),
+            classes="gpu-stats-usage-item",
+        )
 
     @staticmethod
-    def _append_usage_line(text: Text, label: str, percent: float | None, raw: str) -> None:
-        text.append(f"{label}", style="bright_blue")
-        text.append("[", style="white")
+    def _usage_meter(percent: float | None) -> str:
         if percent is None:
-            text.append("?" * 10, style="dim")
-        else:
-            filled = int(round((max(0.0, min(100.0, percent)) / 100.0) * 10))
-            color = GPUStatsPanel._usage_color(percent)
-            text.append("|" * filled, style=color)
-            if filled < 10:
-                text.append(" " * (10 - filled), style="dim")
-        text.append("]", style="white")
-        text.append(f" {raw}", style="bright_white" if raw != "N/A" else "dim")
+            return "?" * 10
+        filled = int(round((max(0.0, min(100.0, percent)) / 100.0) * 10))
+        return "|" * filled + " " * (10 - filled)
 
     @staticmethod
-    def _usage_color(percent: float) -> str:
+    def _usage_level_class(percent: float | None) -> str:
+        if percent is None:
+            return "gpu-stats-usage-unknown"
         if percent >= 85:
-            return "red"
+            return "gpu-stats-usage-high"
         if percent >= 60:
-            return "yellow"
-        return "green"
+            return "gpu-stats-usage-medium"
+        return "gpu-stats-usage-low"
+
+    @staticmethod
+    def _value_class(raw: str) -> str:
+        return "gpu-stats-muted-value" if raw == "N/A" else "gpu-stats-value"
 
     @staticmethod
     def _parse_percent(value: object) -> float | None:
