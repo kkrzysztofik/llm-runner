@@ -9,6 +9,7 @@ from llama_manager import (
     ServerConfig,
     SlotState,
 )
+from llama_manager.build_pipeline import BuildConfig
 
 from .model import DashboardModel
 from .types import (
@@ -67,6 +68,10 @@ class DashboardViewModel:
     @property
     def build_error(self) -> str | None:
         return self.model.build_error
+
+    @property
+    def build_selected_backends_options(self) -> dict[str, BuildConfig | None]:
+        return self.model.build_selected_backends_options
 
     @property
     def build_stage(self) -> str | None:

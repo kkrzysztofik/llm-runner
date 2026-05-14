@@ -13,12 +13,56 @@ from .models import BuildBackend, BuildConfig, BuildProgress, BuildResult
 from .pipeline import BuildPipeline
 
 
+def _merge_config_overrides(base: BuildConfig, overrides: BuildConfig) -> BuildConfig:
+    """Merge non-None fields from *overrides* onto *base*.
+
+    Derived fields (backend, source_dir, build_dir, output_dir) are
+    **never** overwritten — they are always taken from *base*.  Only
+    the following overridable fields are merged:
+
+    - git_remote_url
+    - git_branch
+    - retry_attempts
+    - retry_delay
+    - shallow_clone
+    - jobs
+    - update_sources
+    - git_commit
+    - build_timeout_seconds
+    """
+    overridable: list[str] = [
+        "git_remote_url",
+        "git_branch",
+        "retry_attempts",
+        "retry_delay",
+        "shallow_clone",
+        "jobs",
+        "update_sources",
+        "git_commit",
+        "build_timeout_seconds",
+    ]
+    kwargs: dict = {}
+    for field_name in overridable:
+        val = getattr(overrides, field_name, None)
+        if val is not None:
+            kwargs[field_name] = val
+    return BuildConfig(
+        backend=base.backend,
+        source_dir=base.source_dir,
+        build_dir=base.build_dir,
+        output_dir=base.output_dir,
+        **kwargs,
+    )
+
+
 def run_build_for_backend(
     backend: str,
-    dry_run: bool,
+    *,
+    dry_run: bool = False,
     config: Config,
     progress_callback: Callable[[BuildProgress], None] | None = None,
     pipeline_callback: Callable[[BuildPipeline], None] | None = None,
+    config_overrides: BuildConfig | None = None,
 ) -> BuildResult:
     """Create and run a BuildPipeline for a single backend.
 
@@ -30,6 +74,10 @@ def run_build_for_backend(
         pipeline_callback: Optional callback invoked with the BuildPipeline
             instance *before* ``run()`` is called.  This lets the caller
             (e.g. the TUI controller) keep a reference for signal handling.
+        config_overrides: Optional BuildConfig whose non-None fields override
+            the derived defaults.  Derived fields (backend, source_dir,
+            build_dir, output_dir) are **never** overridden — they are
+            always computed from *backend* and *config*.
 
     Returns:
         BuildResult from the pipeline execution.
@@ -39,7 +87,8 @@ def run_build_for_backend(
 
     source_dir = Path(config.llama_cpp_root)
     build_dir = source_dir / ("build_cuda" if backend == "cuda" else "build")
-    output_dir = config.builds_dir
+    # Backend-scoped output dir: builds_dir/<backend>/build-artifact.json
+    output_dir = config.builds_dir / backend
 
     build_backend = BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA
     build_config = BuildConfig(
@@ -53,6 +102,9 @@ def run_build_for_backend(
         retry_attempts=config.build_retry_attempts,
         retry_delay=config.build_retry_delay,
     )
+
+    if config_overrides is not None:
+        build_config = _merge_config_overrides(build_config, config_overrides)
 
     pipeline = BuildPipeline(build_config, progress_callback=progress_callback)
     pipeline.dry_run = dry_run

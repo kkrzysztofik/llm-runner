@@ -16,6 +16,7 @@ from .models import (
 )
 from .orchestration import run_build_for_backend
 from .pipeline import BuildPipeline
+from .status import BuildStatus, get_build_status
 
 __all__ = [
     # Models
@@ -25,6 +26,9 @@ __all__ = [
     "BuildLock",
     "BuildProgress",
     "BuildResult",
+    # Status
+    "BuildStatus",
+    "get_build_status",
     # Pipeline
     "BuildPipeline",
     "run_build_for_backend",

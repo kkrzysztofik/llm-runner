@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from llama_manager.build_pipeline import BuildConfig
+
 
 @dataclass(frozen=True)
 class RiskPromptState:
@@ -82,3 +84,11 @@ class BuildViewState:
     artifact_path: str | None = None
     error_message: str | None = None
     progress_percent: int = 0
+
+
+@dataclass
+class BuildWizardResult:
+    """Result returned from the build wizard modal."""
+
+    backends: list[str]
+    options: dict[str, BuildConfig | None]

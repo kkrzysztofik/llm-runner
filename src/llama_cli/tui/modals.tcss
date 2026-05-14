@@ -127,3 +127,107 @@ BuildModalScreen {
     text-style: bold;
     margin-bottom: 1;
 }
+
+/* ---- Build wizard steps ---- */
+
+.build-wizard-step-select {
+    width: 90;
+    max-width: 95%;
+}
+
+.build-wizard-step-options {
+    width: 90;
+    max-width: 95%;
+    max-height: 90%;
+}
+
+.build-wizard-step-building {
+    width: 90;
+    max-width: 95%;
+}
+
+/* Build log */
+#build-log {
+    height: 14;
+    border: solid $panel;
+    margin-top: 1;
+    margin-bottom: 1;
+    background: $surface-darken-1;
+}
+
+.build-wizard-step-result {
+    width: 70;
+    max-width: 90%;
+}
+
+.build-step-label {
+    text-style: bold;
+    color: $text-muted;
+    margin-top: 1;
+    margin-bottom: 0;
+}
+
+/* Status table */
+#build-status {
+    margin-top: 1;
+    margin-bottom: 1;
+    height: auto;
+}
+
+#build-status .datatable--header {
+    text-style: bold;
+    color: cyan;
+}
+
+/* Backend selection */
+#backend-select {
+    margin-top: 1;
+    margin-bottom: 1;
+    height: auto;
+    border: none;
+}
+
+/* Options form */
+.build-options-form {
+    height: auto;
+    max-height: 50;
+    overflow-y: auto;
+}
+
+.build-option-label {
+    width: 30;
+    color: $text;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+.build-option-input {
+    width: 1fr;
+}
+
+.build-option-checkbox {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+.build-derived-path {
+    color: $text-muted;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+/* Building step */
+.build-message {
+    margin-bottom: 1;
+}
+
+.build-retry-info {
+    color: $warning;
+    margin-top: 1;
+}
+
+/* Result step */
+.build-result-panel {
+    margin-top: 1;
+    margin-bottom: 1;
+}

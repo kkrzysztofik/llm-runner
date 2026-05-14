@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -24,6 +24,7 @@ from .components.system_health import (
     SystemInfoWidget,
 )
 from .components.system_status import SystemStatusWidget
+from .types import BuildWizardResult
 
 if TYPE_CHECKING:
     from .controller import DashboardController
@@ -62,6 +63,7 @@ class DashboardApp(App[None]):
         self._active_notice_toasts: set[str] = set()
         self._profile_options_cache: list[tuple[str, str]] | None = None
         self._profile_cache_config_id: int | None = None
+        self.last_build_backend: str = "sycl"
 
     def compose(self) -> ComposeResult:
         with Container(id="dashboard"):
@@ -114,11 +116,13 @@ class DashboardApp(App[None]):
             self._reconcile_server_log_panels()
         self.refresh_dashboard()
 
-    def _handle_build_modal_result(self, result: dict[str, Any] | None) -> None:
+    def _handle_build_modal_result(self, result: BuildWizardResult | None) -> None:
         if result is None:
             self.controller.cancel_pending_prompt()
-        elif "backends" in result:
-            self.controller.handle_build_selection(result["backends"])
+        else:
+            self.last_build_backend = result.backends[0] if result.backends else "sycl"
+            self.controller.model.build_selected_backends_options = result.options
+            self.controller.handle_build_selection(result.backends)
         self.refresh_dashboard()
 
     def _reconcile_server_log_panels(self) -> None:
@@ -146,7 +150,7 @@ class DashboardApp(App[None]):
         return self._profile_options_cache
 
     def action_build(self) -> None:
-        screen = BuildModalScreen()
+        screen = BuildModalScreen(last_backend=self.last_build_backend)
         self.push_screen(screen, self._handle_build_modal_result)
 
     def action_smoke(self) -> None:

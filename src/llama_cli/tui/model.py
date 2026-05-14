@@ -23,6 +23,7 @@ from llama_manager import (
     ServerConfig,
     ServerManager,
 )
+from llama_manager.build_pipeline import BuildConfig
 
 from .types import MemoryUsageSnapshot, RiskPromptState, SystemInfoSnapshot
 
@@ -77,6 +78,7 @@ class DashboardModel:
         self.build_is_retrying = False
         self.build_retries_remaining: int = 0
         self.build_cancel_event: threading.Event | None = None
+        self.build_selected_backends_options: dict[str, BuildConfig | None] = {}
         self.smoke_request = False
         self.unsaved_slots: set[str] = set()
 

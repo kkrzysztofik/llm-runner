@@ -5,7 +5,7 @@ import signal
 import threading
 from collections.abc import Callable
 from types import FrameType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from llama_manager import (
     Config,
@@ -31,6 +31,9 @@ from llama_manager.build_pipeline import (
     run_build_for_backend,
 )
 
+if TYPE_CHECKING:
+    pass
+
 from .components.config_modal import ConfigPayload
 from .model import DashboardModel
 from .textual_app import DashboardApp
@@ -55,6 +58,7 @@ class DashboardController:
         self.build_in_progress = False
         self.build_progress: BuildProgress | None = None
         self._original_sigint_handler: Callable[[int, FrameType | None], Any] | int | None = None
+        self._build_wizard: Any = None  # BuildModalScreen | None
 
         if register_signals:
             signal.signal(signal.SIGINT, self._signal_handler)
@@ -633,6 +637,11 @@ class DashboardController:
             else:
                 self._push_status_message(f"Build {progress.status}: {progress.message}")
 
+        # Push to wizard modal if active
+        wizard = self._build_wizard
+        if wizard is not None:
+            wizard.update_progress(progress)
+
     # -- Build lifecycle --------------------------------------------------
 
     def handle_build_selection(self, backends: list[str]) -> None:
@@ -643,20 +652,38 @@ class DashboardController:
         """
         self._run_build_background(backends)
 
+    def handle_build_with_wizard(
+        self, backends: list[str], wizard: Any
+    ) -> None:  # BuildModalScreen
+        """Initiate build for the given backends, keeping the wizard modal open.
+
+        The wizard modal stays open showing live progress. When the build
+        completes (success or failure), the controller calls back to the
+        wizard to display the result and dismiss.
+        """
+        self._run_build_background(backends, wizard=wizard)
+
     def cancel_build(self) -> None:
         """Signal cancellation to a running build."""
         cancel_event = getattr(self.model, "build_cancel_event", None)
         if cancel_event is not None:
             cancel_event.set()
 
-    def _run_build_background(self, backends: list[str]) -> None:
-        """Run the build pipeline in a daemon thread."""
+    def _run_build_background(
+        self, backends: list[str], wizard: Any = None
+    ) -> None:  # BuildModalScreen | None
+        """Run the build pipeline in a daemon thread.
+
+        Args:
+            backends: List of backends to build (e.g. ["sycl"] or ["sycl", "cuda"]).
+            wizard: Optional wizard modal that stays open during the build.
+        """
         self.model.build_in_progress = True
         self.model.build_selected_backends = backends
         self.model.build_cancel_event = threading.Event()
+        self._build_wizard = wizard
 
         def _do_build() -> None:
-            self._original_sigint_handler = signal.signal(signal.SIGINT, self._signal_handler_build)
             try:
                 for backend in backends:
                     if backend == "both":
@@ -665,29 +692,46 @@ class DashboardController:
                             if cancel_evt is not None and cancel_evt.is_set():
                                 self._push_status_message("Build cancelled")
                                 return
+                            if wizard is not None:
+                                wizard.set_building_backend(sub)
                             ok = self._build_single_backend(sub)
                             if not ok:
                                 self.model.build_result = "failed"
+                                if wizard is not None:
+                                    wizard.set_build_result(
+                                        False,
+                                        error_message=self.model.build_error or "Build failed",
+                                    )
                                 return
                     else:
                         cancel_evt = self.model.build_cancel_event
                         if cancel_evt is not None and cancel_evt.is_set():
                             self._push_status_message("Build cancelled")
                             return
+                        if wizard is not None:
+                            wizard.set_building_backend(backend)
                         ok = self._build_single_backend(backend)
                         if not ok:
                             self.model.build_result = "failed"
+                            if wizard is not None:
+                                wizard.set_build_result(
+                                    False, error_message=self.model.build_error or "Build failed"
+                                )
                             return
                 self.model.build_result = "success"
                 self._push_status_message("Build completed successfully!")
+                if wizard is not None:
+                    artifact_path = self.model.build_artifact
+                    wizard.set_build_result(True, artifact_path=artifact_path)
             except Exception as exc:
                 self.model.build_result = "failed"
                 self.model.build_error = str(exc)
                 self._push_status_message(f"Build failed: {exc}")
+                if wizard is not None:
+                    wizard.set_build_result(False, error_message=str(exc))
             finally:
                 self.model.build_in_progress = False
-                if self._original_sigint_handler is not None:
-                    signal.signal(signal.SIGINT, self._original_sigint_handler)
+                self._build_wizard = None
 
         threading.Thread(target=_do_build, name="build-worker", daemon=True).start()
 
@@ -695,18 +739,21 @@ class DashboardController:
         """Build for a single backend; returns True on success."""
         try:
             self._push_status_message(f"Building for {backend} backend...")
+            config_overrides = self.model.build_selected_backends_options.get(backend)
             result = run_build_for_backend(
                 backend=backend,
                 dry_run=False,
                 config=self.config,
                 progress_callback=self._handle_build_progress,
                 pipeline_callback=lambda p: setattr(self, "_build_pipeline", p),
+                config_overrides=config_overrides,
             )
             if not result.success:
                 self.model.build_error = result.error_message or "Build failed"
                 self._push_status_message(f"Build failed: {result.error_message}")
                 return False
-            if result.artifact:
+            if result.artifact and result.artifact.binary_path:
+                self.model.build_artifact = str(result.artifact.binary_path)
                 self._push_status_message(f"Artifact: {result.artifact.binary_path}")
             return True
         except Exception as exc:

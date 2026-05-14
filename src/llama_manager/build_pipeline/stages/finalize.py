@@ -11,7 +11,15 @@ from ..models import BuildArtifact, BuildProgress
 
 
 def run_finalize(ctx: _BuildContext, build_progress: BuildProgress) -> BuildArtifact | None:
-    """Collect metadata and write build provenance atomically."""
+    """Collect metadata and write build provenance atomically.
+
+    The artifact JSON is written to::
+
+        config.output_dir / "build-artifact.json"
+
+    Where ``output_dir`` is backend-scoped (e.g.
+    ``config.builds_dir / "sycl"`` or ``config.builds_dir / "cuda"``).
+    """
     if not build_progress.is_complete or build_progress.status != "success":
         logger.warning("[finalize] build stage incomplete or failed; skipping finalize")
         return None
