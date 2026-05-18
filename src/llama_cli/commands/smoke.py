@@ -10,8 +10,6 @@ Usage::
     llm-runner smoke both --json --api-key KEY
 """
 
-from __future__ import annotations
-
 import argparse
 import dataclasses
 import sys

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for TUI application (llama_cli.tui_app).
 
 Tests for T016c-T016f:
@@ -8,7 +6,6 @@ Tests for T016c-T016f:
 - T016e: Slot state transition handling
 - T016f: Graceful shutdown key handler (Ctrl+C)
 """
-
 
 import signal
 import threading

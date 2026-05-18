@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 """Tests for the process launcher abstraction."""
-
 
 import time
 from typing import Any

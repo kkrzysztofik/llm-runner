@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for run_build_for_backend orchestration.
 
 Tests:

@@ -30,7 +30,7 @@ def _extract_architecture_from_reader(
         return None
     try:
         return str(field.contents())
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return None
 
 
@@ -53,7 +53,7 @@ def _extract_field_from_reader(
         return None
     try:
         return str(field.contents())
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return None
 
 
@@ -77,7 +77,7 @@ def _extract_int_field_from_reader(
     try:
         val = field.contents()
         return int(val)
-    except (ValueError, TypeError, AttributeError):
+    except ValueError, TypeError, AttributeError:
         return None
 
 

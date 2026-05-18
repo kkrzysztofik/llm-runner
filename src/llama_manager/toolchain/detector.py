@@ -1,7 +1,5 @@
 """Toolchain detection — find tools, parse versions, check availability."""
 
-from __future__ import annotations
-
 import re
 import subprocess
 import sys
@@ -71,7 +69,7 @@ def _try_tool(cmd: list[str], name: str, timeout: int) -> tuple[bool, str | None
             version = _extract_version(result.stdout.strip(), name)
             if version is not None:
                 return (True, version)
-    except (subprocess.TimeoutExpired, OSError):
+    except subprocess.TimeoutExpired, OSError:
         pass
     return (False, None)
 
@@ -122,7 +120,7 @@ def detect_tool(
     return (False, None)
 
 
-def get_toolchain_hints(backend: str) -> list[ToolchainErrorDetail]:
+def get_toolchain_hints(backend: str) -> list["ToolchainErrorDetail"]:  # noqa: UP037
     """Get error details for missing toolchain tools for a specific backend.
 
     Args:

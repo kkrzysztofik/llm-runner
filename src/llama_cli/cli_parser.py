@@ -58,7 +58,7 @@ def parse_jobs_arg(arg: str) -> int:
         else:
             emit_error(f"invalid jobs value '{arg}'")
             sys.exit(1)
-    except (ValueError, IndexError):
+    except ValueError, IndexError:
         emit_error(f"invalid jobs value '{arg}'")
         sys.exit(1)
 

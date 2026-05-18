@@ -1,7 +1,5 @@
 """AddSlotModal — modal form for adding a new server slot."""
 
-from __future__ import annotations
-
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal

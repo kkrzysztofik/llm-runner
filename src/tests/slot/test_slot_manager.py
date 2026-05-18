@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Characterization tests for llama_manager.slot_manager.
 
 These tests lock in the behaviour extracted from TUIApp controller methods:
@@ -7,7 +5,6 @@ add_slot_from_form, _upsert_profile_slot, _register_and_start_slot,
 _remove_slot_runtime_state, _normalize_slot_port, _device_class_for_config,
 and _gpu_index_for_config.
 """
-
 
 from collections.abc import Callable
 from typing import Any

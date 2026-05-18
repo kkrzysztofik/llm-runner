@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Audit log and sensitive-value redaction tests."""
 
 import json

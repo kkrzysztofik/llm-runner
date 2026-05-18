@@ -500,7 +500,7 @@ def _populate_profile_mock_defaults(mock_cfg: Any, tmp_path: Path) -> None:
 @contextmanager
 def _build_mock_config(
     tmp_path: Path, cuda_exists: bool = False
-) -> Generator[tuple[MagicMock, str, Path, Any], None, None]:
+) -> Generator[tuple[MagicMock, str, Path, Any]]:
     """Build a mocked Config and registry that makes cmd_profile succeed.
 
     Args:

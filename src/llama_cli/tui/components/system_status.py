@@ -1,7 +1,5 @@
 """Top system status renderer and compound widget."""
 
-from __future__ import annotations
-
 from textual.app import ComposeResult
 from textual.widget import Widget
 

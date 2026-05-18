@@ -309,7 +309,7 @@ def _get_lspci_output() -> str | None:
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         pass
     return None
 
@@ -329,7 +329,7 @@ def _get_cpu_model() -> str | None:
             for line in result.stdout.splitlines():
                 if line.startswith("model name"):
                     return "cpu:" + line.split(":", 1)[1].strip()
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         pass
     return None
 
@@ -349,7 +349,7 @@ def _get_os_name() -> str | None:
             for line in result.stdout.splitlines():
                 if line.startswith("NAME="):
                     return "os:" + line.split("=", 1)[1].strip().strip('"')
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         pass
     return None
 

@@ -1,7 +1,5 @@
 """ConfigModal — global config editor for the TUI dashboard."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 from textual.app import ComposeResult

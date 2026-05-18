@@ -240,7 +240,7 @@ def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
 
 def _artifact_error(
     why_blocked: str, how_to_fix: str, check: str = ARTIFACT_CHECK_NAME
-) -> "ValidationException":
+) -> ValidationException:
     """Build artifact ValidationException."""
     from ..config import ErrorDetail, MultiValidationError
     from ..orchestration.lockfile import ValidationException

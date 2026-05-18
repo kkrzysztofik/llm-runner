@@ -5,8 +5,6 @@ Only the modal-exposed fields are written/read — the full Config dataclass
 handles all remaining fields via its own defaults and env-var factories.
 """
 
-from __future__ import annotations
-
 import os
 import tomllib
 from pathlib import Path

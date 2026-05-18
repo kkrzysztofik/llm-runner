@@ -7,8 +7,6 @@ Exports:
     DefaultProcessLauncher – concrete launcher backed by subprocess.Popen
 """
 
-from __future__ import annotations
-
 import subprocess
 from io import TextIOWrapper
 from typing import Protocol

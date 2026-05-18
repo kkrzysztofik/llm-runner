@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for US1: Slot-based launch flow with lock collision detection.
 
 Tests T014: Dual-slot success and collision launch tests covering:
@@ -8,7 +6,6 @@ Tests T014: Dual-slot success and collision launch tests covering:
 
 These tests target real US1 APIs that will be implemented in T017-T019.
 """
-
 
 import os
 import time

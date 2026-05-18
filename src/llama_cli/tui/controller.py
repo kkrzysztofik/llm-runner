@@ -371,7 +371,7 @@ class DashboardController:
                     current_binary_version=self.config.server_binary_version or "unknown",
                     staleness_days=self.config.profile_staleness_days,
                 )
-            except (OSError, FileNotFoundError, ValueError, KeyError):
+            except OSError, FileNotFoundError, ValueError, KeyError:
                 continue
 
             if staleness is None or not staleness.is_stale:

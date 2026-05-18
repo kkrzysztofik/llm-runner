@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Config builder and server config resolution tests."""
 
 import os

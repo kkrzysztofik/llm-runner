@@ -4,8 +4,6 @@ Contains the legacy BuildPanel (unused, kept for reference) and the active
 BuildModalScreen that drives the multi-step build wizard workflow.
 """
 
-from __future__ import annotations
-
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any

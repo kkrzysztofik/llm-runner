@@ -130,7 +130,7 @@ class LaunchOrchestrationResult:
     processes: dict[str, Any]
     slot_states: dict[str, str]
     status_messages: list[str]
-    risk_result: "RiskAckResult"
+    risk_result: RiskAckResult
     empty: bool = False
 
 
@@ -225,7 +225,7 @@ def _verify_shutdown_ownership(pid: int, port: int) -> bool:
 
     try:
         proc = psutil.Process(pid)
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
+    except psutil.NoSuchProcess, psutil.AccessDenied:
         return False
 
     try:
@@ -236,7 +236,7 @@ def _verify_shutdown_ownership(pid: int, port: int) -> bool:
             if conn.pid is not None
         ):
             return False
-    except (psutil.AccessDenied, OSError):
+    except psutil.AccessDenied, OSError:
         return False
 
     try:
@@ -244,7 +244,7 @@ def _verify_shutdown_ownership(pid: int, port: int) -> bool:
         proc_uid = proc.uids().real
         if proc_uid != current_uid:
             return False
-    except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError, TypeError, OSError):
+    except psutil.AccessDenied, psutil.NoSuchProcess, AttributeError, TypeError, OSError:
         pass
 
     return True
@@ -279,7 +279,7 @@ def _append_audit_log(
 def launch_orchestrate(
     configs: list[ServerConfig],
     base_config: Config,
-    server_manager: "ServerManager",
+    server_manager: "ServerManager",  # noqa: UP037
     log_buffers: Mapping[str, LogBuffer],
     get_driver_version: Callable[[str], str],
     acknowledged: bool = False,
@@ -599,7 +599,7 @@ class ServerManager:
                         proc_uid = proc.uids().real
                         if proc_uid != current_uid:
                             return False
-                except (psutil.AccessDenied, AttributeError, TypeError):
+                except psutil.AccessDenied, AttributeError, TypeError:
                     pass
 
                 return True
@@ -656,7 +656,7 @@ class ServerManager:
             proc_obj = psutil.Process(proc.pid)
             create_time = proc_obj.create_time()
             self.pid_metadata[proc.pid] = create_time
-        except (psutil.AccessDenied, psutil.NoSuchProcess):
+        except psutil.AccessDenied, psutil.NoSuchProcess:
             pass
 
         threading.Thread(
@@ -689,7 +689,7 @@ class ServerManager:
 
     def start_servers(
         self,
-        configs: list["ServerConfig"],
+        configs: list[ServerConfig],
         log_handlers: dict[str, Callable[[str], None]] | None = None,
     ) -> list[ProcessHandle]:
         """Start multiple servers and return their processes."""

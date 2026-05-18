@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """T003-T005, T007: Tests for BuildConfig, BuildArtifact, BuildProgress, BuildLock dataclasses.
 
 Test Tasks:
@@ -8,7 +6,6 @@ Test Tasks:
 - T005: BuildProgress dataclass tests
 - T007: BuildLock dataclass tests
 """
-
 
 import json
 import time

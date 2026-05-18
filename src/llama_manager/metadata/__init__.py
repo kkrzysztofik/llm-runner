@@ -23,7 +23,7 @@ def _parse_gguf_in_thread(
     model_path: str,
     prefix_cap_bytes: int,
     parse_timeout_s: float,
-    result_queue: "Queue[GGUFMetadataRecord | BaseException]",
+    result_queue: Queue[GGUFMetadataRecord | BaseException],
     cancel_event: Event,
 ) -> None:
     """Run GGUF parse logic inside a worker thread.

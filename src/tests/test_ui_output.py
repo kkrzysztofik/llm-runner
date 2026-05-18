@@ -1,7 +1,5 @@
 """Tests for llama_cli.ui_output — stream routing, TTY detection, ANSI styling."""
 
-from __future__ import annotations
-
 from unittest.mock import patch
 
 import pytest

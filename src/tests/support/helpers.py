@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 """Reusable assertion helpers for tests."""
-
 
 from contextlib import ExitStack
 from typing import Any

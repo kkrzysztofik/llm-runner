@@ -7,7 +7,7 @@ name = "llm-runner"
 version = "0.1.0"
 description = "TUI for managing llama.cpp server instances (Intel SYCL + NVIDIA CUDA)"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">= 3.14"
 dependencies = [
     "loguru>=0.7.3",
     "rich>=15.0.0",
@@ -46,7 +46,7 @@ packages = ["src/llama_cli", "src/llama_manager"]
 # Ruff — linter + formatter
 # ---------------------------------------------------------------------------
 [tool.ruff]
-target-version = "py312"
+target-version = "py314"
 line-length = 100
 exclude = ["src/llama.cpp"]
 
@@ -85,7 +85,7 @@ known-first-party = ["llama_cli", "llama_manager", "tests"]
 # Pyright — type checker
 # ---------------------------------------------------------------------------
 [tool.pyright]
-pythonVersion = "3.12"
+pythonVersion = "3.14"
 typeCheckingMode = "standard"
 include = ["src/llama_cli", "src/llama_manager", "src/tests"]
 exclude = [".venv", "dist"]

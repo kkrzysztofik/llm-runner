@@ -4,8 +4,6 @@ The model owns mutable runtime state. It intentionally avoids Textual objects
 and Rich renderables so it can be inspected independently from the UI layer.
 """
 
-from __future__ import annotations
-
 import threading
 import time
 from collections.abc import Callable
@@ -150,7 +148,7 @@ class DashboardModel:
 
         try:
             load_values: tuple[float, float, float] | None = psutil.getloadavg()
-        except (AttributeError, OSError):
+        except AttributeError, OSError:
             load_values = None
 
         return SystemInfoSnapshot(

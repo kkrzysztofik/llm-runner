@@ -1,7 +1,5 @@
 """Unit tests for llama_manager.config.persistence."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

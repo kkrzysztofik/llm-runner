@@ -40,7 +40,7 @@ class LockMetadata:
 class ValidationException(Exception):
     """Exception wrapper for MultiValidationError to enable raising as exception."""
 
-    def __init__(self, multi_error: "MultiValidationError") -> None:
+    def __init__(self, multi_error: MultiValidationError) -> None:
         self.multi_error = multi_error
         if multi_error.errors:
             details = "; ".join(e.why_blocked for e in multi_error.errors)
@@ -94,7 +94,7 @@ def resolve_runtime_dir() -> Path:
             candidate.mkdir(parents=True, exist_ok=True, mode=DIR_MODE_OWNER_ONLY)
             if candidate.is_dir() and os.access(candidate, os.W_OK):
                 return candidate
-        except (OSError, RuntimeError):
+        except OSError, RuntimeError:
             pass
 
     xdg_dir = os.environ.get("XDG_RUNTIME_DIR")
@@ -104,7 +104,7 @@ def resolve_runtime_dir() -> Path:
             candidate.mkdir(parents=True, exist_ok=True, mode=DIR_MODE_OWNER_ONLY)
             if candidate.is_dir() and os.access(candidate, os.W_OK):
                 return candidate
-        except (OSError, RuntimeError):
+        except OSError, RuntimeError:
             pass
 
     raise _make_validation_error(
@@ -167,7 +167,7 @@ def _coerce_lock_data(lock_data: dict) -> LockMetadata | None:
             port=int(lock_data["port"]),
             started_at=float(lock_data["started_at"]),
         )
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 
@@ -330,7 +330,7 @@ def _verify_lock_owner(
 
             if not port_matches:
                 return _build_indeterminate_owner_error()
-        except (psutil.AccessDenied, OSError):
+        except psutil.AccessDenied, OSError:
             return _build_indeterminate_owner_error()
     except (OSError, psutil.AccessDenied) as e:
         return _build_indeterminate_owner_error(why_blocked=f"indeterminate_owner: {e}")

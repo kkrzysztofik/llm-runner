@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Phase 7 — T079: State-machine integration test.
 
 Verifies the full SlotRuntime lifecycle:
@@ -12,7 +10,6 @@ Tests:
   - dataclass field integrity after each transition
   - Serialization (to_dict) correctness throughout
 """
-
 
 import time
 from unittest.mock import MagicMock

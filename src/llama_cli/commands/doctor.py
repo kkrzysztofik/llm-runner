@@ -174,7 +174,7 @@ def _check_build_lock(result: DoctorCheckResult, config: Config) -> None:
         else:
             result.build_lock_free = False
             result.warnings.append(f"Build lock held by PID {lock.pid} (backend: {lock.backend})")
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         result.is_healthy = False
         result.errors.append("Build lock file corrupted")
 
@@ -421,8 +421,8 @@ def _check_profiles(
 
 
 def _build_profile_guidance(
-    staleness: "StalenessResult",
-    record: "ProfileRecord",
+    staleness: StalenessResult,
+    record: ProfileRecord,
     max_age_days: int = 90,
 ) -> str:
     """Build actionable guidance for a stale profile.

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Build pipeline clone and source update tests."""
 
 import json
@@ -8,7 +6,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -56,7 +54,7 @@ class _MockPopen:
         self.stderr = MagicMock()
         self.stderr.__iter__ = Mock(return_value=iter(self._stderr_lines))
 
-    def __enter__(self) -> _MockPopen:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *args: object) -> None:

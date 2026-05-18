@@ -33,7 +33,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Install dev dependencies
         run: uv sync --extra dev
@@ -63,7 +63,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Install dev dependencies
         run: uv sync --extra dev
@@ -84,7 +84,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Install dev dependencies
         run: uv sync --extra dev
@@ -111,7 +111,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Install dev dependencies
         run: uv sync --extra dev
@@ -142,7 +142,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Export requirements for Snyk Open Source scan
         run: |
@@ -195,7 +195,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Install dev dependencies
         run: uv sync --extra dev

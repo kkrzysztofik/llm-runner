@@ -1,7 +1,5 @@
 """View models for the Textual dashboard."""
 
-from __future__ import annotations
-
 import psutil
 
 from llama_manager import (

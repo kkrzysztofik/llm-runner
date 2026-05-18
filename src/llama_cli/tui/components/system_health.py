@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """System health widgets."""
 
 from typing import Protocol

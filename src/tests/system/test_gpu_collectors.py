@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 """Tests for GPU collectors module."""
-
 
 from unittest.mock import MagicMock, patch
 

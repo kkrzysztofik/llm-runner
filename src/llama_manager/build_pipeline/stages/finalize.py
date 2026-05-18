@@ -38,7 +38,7 @@ def run_finalize(ctx: _BuildContext, build_progress: BuildProgress) -> BuildArti
             )
             git_commit_sha = result.stdout.strip()
             logger.info("[finalize] git commit=%s", git_commit_sha)
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except subprocess.CalledProcessError, FileNotFoundError:
             logger.warning("[finalize] could not determine git commit SHA")
 
     binary_path = None

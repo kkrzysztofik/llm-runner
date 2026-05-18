@@ -675,7 +675,7 @@ def apply_profile_overrides(
                 current_binary_version=binary_version,
                 staleness_days=base_config.profile_staleness_days,
             )
-        except (OSError, FileNotFoundError, ValueError, KeyError):
+        except OSError, FileNotFoundError, ValueError, KeyError:
             logger.info("No profile found for %s; falling back to defaults", cfg.alias)
             messages.append(f"No profile found for {cfg.alias}; using defaults")
             updated_configs.append(cfg)

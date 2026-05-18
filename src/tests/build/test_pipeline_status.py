@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for BuildStatus and get_build_status().
 
 Tests the read-only build status inspection:

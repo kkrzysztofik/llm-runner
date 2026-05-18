@@ -12,8 +12,6 @@ Usage
     configure_logging(level="DEBUG", log_file="/var/log/llm-runner/app.log")
 """
 
-from __future__ import annotations
-
 import json
 import logging
 import sys

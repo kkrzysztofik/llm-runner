@@ -1,7 +1,5 @@
 """Textual App shell for the llm-runner TUI dashboard."""
 
-from __future__ import annotations
-
 import contextlib
 from typing import TYPE_CHECKING
 
