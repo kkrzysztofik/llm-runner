@@ -2,6 +2,7 @@
 
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,6 +22,7 @@ class _BuildContext:
     build_output: str = ""
     last_build_command: list[str] = field(default_factory=list)
     last_exit_code: int = 1
+    progress_callback: Callable[[BuildProgress], None] | None = None
 
     def append_command_output(
         self,

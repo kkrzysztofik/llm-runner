@@ -123,6 +123,7 @@ class BuildProgress:
     message: str
     progress_percent: float
     retries_remaining: int | None = None
+    output_line: str | None = None
 
     @property
     def is_complete(self) -> bool:

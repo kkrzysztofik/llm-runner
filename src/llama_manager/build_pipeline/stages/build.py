@@ -69,17 +69,30 @@ def _run_build_subprocess(
         stdout_lines: list[str] = []
         stderr_lines: list[str] = []
 
+        def emit_line(line: str) -> None:
+            if ctx.progress_callback:
+                line_progress = BuildProgress(
+                    stage="build",
+                    status="running",
+                    message="",
+                    progress_percent=progress.progress_percent,
+                    output_line=line.rstrip("\n"),
+                )
+                ctx.progress_callback(line_progress)
+
         def read_stdout() -> None:
             if proc.stdout:
                 for line in proc.stdout:
                     stdout_lines.append(line.rstrip("\n"))
                     logger.debug("[build] stdout: {}", line.rstrip("\n"))
+                    emit_line(line)
 
         def read_stderr() -> None:
             if proc.stderr:
                 for line in proc.stderr:
                     stderr_lines.append(line.rstrip("\n"))
                     logger.debug("[build] stderr: {}", line.rstrip("\n"))
+                    emit_line(line)
 
         stdout_t = threading.Thread(target=read_stdout)
         stderr_t = threading.Thread(target=read_stderr)

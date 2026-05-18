@@ -179,14 +179,27 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         step = self._wizard_state["step"]
         if step == self.STEP_SELECT:
             self._compose_step_select(placeholder)
+            self.call_after_refresh(self._focus_step_select)
         elif step == self.STEP_SYCL_OPTS:
             self._compose_step_options(placeholder, "sycl")
+            self.call_after_refresh(self._focus_step_options)
         elif step == self.STEP_CUDA_OPTS:
             self._compose_step_options(placeholder, "cuda")
+            self.call_after_refresh(self._focus_step_options)
         elif step == self.STEP_BUILDING:
             self._compose_step_building(placeholder)
         elif step == self.STEP_RESULT:
             self._compose_step_result(placeholder)
+
+    def _focus_step_select(self) -> None:
+        """Set focus on the backend RadioSet."""
+        if self._select_backend:
+            self.set_focus(self._select_backend)
+
+    def _focus_step_options(self) -> None:
+        """Set focus on the Next/Start Build button."""
+        if self._btn_next:
+            self.set_focus(self._btn_next)
 
     def _clear_mounted(self) -> None:
         """Remove all children from the placeholder (for re-compose on back navigation)."""
@@ -412,9 +425,12 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         pb = ProgressBar(id="build-progress", total=100, show_eta=False)
         self._progress_bar = pb
 
-        log = Log(id="build-log", highlight=False)
-        log.can_focus = False
-        self._build_log = log
+        if self._build_log is not None:
+            log = self._build_log
+        else:
+            log = Log(id="build-log", highlight=False)
+            log.can_focus = False
+            self._build_log = log
 
         retry = Static("", id="build-retry-info", classes="build-retry-info")
         self._retry_info = retry
@@ -463,6 +479,11 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
                 self.call_later(self._render_step)
                 return
 
+            # Stream live compiler output lines
+            if progress.output_line is not None and self._build_log:
+                self._build_log.write_line(progress.output_line)
+                return
+
             msg_text = f"Building {backend.upper()}... [{progress.stage}]"
             if self._build_message:
                 self._build_message.update(msg_text)
@@ -486,17 +507,6 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
                 else:
                     self._retry_info.update("")
                     self._retry_info.add_class("hidden")
-
-            # Handle terminal states
-            if progress.status == "success":
-                self._wizard_state["build_result_success"] = True
-                self._wizard_state["step"] = self.STEP_RESULT
-                self.call_later(self._render_step)
-            elif progress.status == "failed":
-                self._wizard_state["build_result_success"] = False
-                self._wizard_state["build_result_error"] = progress.message
-                self._wizard_state["step"] = self.STEP_RESULT
-                self.call_later(self._render_step)
 
     def set_building_backend(self, backend: str) -> None:
         """Mark the start of building for a specific backend."""

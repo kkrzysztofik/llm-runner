@@ -102,7 +102,10 @@ class BuildPipeline:
 
         build_start_time = time.time()
         ctx = _BuildContext(
-            config=self.config, dry_run=self._dry_run, build_start_time=build_start_time
+            config=self.config,
+            dry_run=self._dry_run,
+            build_start_time=build_start_time,
+            progress_callback=self._progress_callback,
         )
 
         logger.info("[pipeline] starting build for backend=%s", self.config.backend.value)
