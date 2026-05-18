@@ -27,13 +27,13 @@ LLAMA_SERVER_BIN_INTEL="$LLAMA_CPP_ROOT/build/bin/llama-server"
 LLAMA_SERVER_BIN_NVIDIA="$LLAMA_CPP_ROOT/build_cuda/bin/llama-server"
 MODEL_SUMMARY_BALANCED="/home/kmk/models/unsloth/Qwen3.5-2B-MTP-GGUF/Qwen3.5-2B-UD-Q6_K_XL.gguf"
 MODEL_SUMMARY_FAST="/home/kmk/models/unsloth/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q4_K_M.gguf"
-MODEL_QWEN35="/home/kmk/models/Qwen3.6-35BA3B-MTP-unsloth-pattern-imatrix.gguf"
-# MODEL_QWEN35_BOTH intentionally uses Qwen 3.6 for the dual-run (both-qwen35) mode while
-# MODEL_QWEN35 uses the MTP variant for the single-run (qwen35) mode — this is deliberate version
-# differentiation to support different model configurations per mode.
+# Qwen3.6-35B-A3B-UD-Q6_K MTP: used for both qwen35 single-run and both-qwen35 dual-run modes.
+# Spread across dual RTX 3090 via --tensor-split 1,1 (see DEFAULT_TENSOR_SPLIT_QWEN35).
+MODEL_QWEN35="/home/kmk/models/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q6_K.gguf"
+# MODEL_QWEN35_BOTH kept for reference (IQ4_XS, single-GPU); superseded by MODEL_QWEN35_BOTH_MTP.
 MODEL_QWEN35_BOTH="/home/kmk/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf"
-MODEL_QWEN35_BOTH_MTP="/home/kmk/models/Qwen3.6-35BA3B-MTP-unsloth-pattern-imatrix.gguf"
-MODEL_QWEN27B_MTP="/home/kmk/models/Qwen3.6-27B-MTP-unsloth-pattern-imatrix.gguf"
+MODEL_QWEN35_BOTH_MTP="/home/kmk/models/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q6_K.gguf"
+MODEL_QWEN27B_MTP="/home/kmk/models/unsloth/Qwen3.6-27B-MTP-GGUF/Qwen3.6-27B-UD-Q6_K_XL.gguf"
 MODEL_GEMMA4_E4B="/home/kmk/models/unsloth/gemma-4-E4B-it-GGUF/gemma-4-E4B-it-UD-Q6_K_XL.gguf"
 MODEL_GEMMA4_E4B_MMPROJ="/home/kmk/models/unsloth/gemma-4-E4B-it-GGUF/mmproj-BF16.gguf"
 MODEL_GEMMA4_27B="/home/kmk/models/unsloth/gemma-4-26B-A4B-it-GGUF/gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf"
@@ -46,7 +46,7 @@ HOST="127.0.0.1"
 SUMMARY_BALANCED_PORT="8080"
 SUMMARY_FAST_PORT="8082"
 QWEN35_PORT="8081"
-QWEN27B_PORT="8084"
+QWEN27B_PORT="$QWEN35_PORT"
 GEMMA4_E4B_PORT="$SUMMARY_BALANCED_PORT"
 GEMMA4_27B_PORT="$QWEN35_PORT"
 GEMMA4_31B_PORT="8085"
@@ -70,6 +70,8 @@ DEFAULT_CTX_SIZE_BOTH_QWEN35=262144      # Match NVIDIA qwen35 dual-run config
 DEFAULT_CTX_SIZE_BOTH_GEMMA4_27B=262144   # Same as single-GPU 27B when paired with E4B on Intel
 DEFAULT_N_GPU_LAYERS_QWEN35=all
 DEFAULT_N_GPU_LAYERS_QWEN27B=all
+DEFAULT_TENSOR_SPLIT_QWEN35="1,1"          # Dual RTX 3090 equal split
+DEFAULT_TENSOR_SPLIT_QWEN27B="1,1"
 DEFAULT_N_GPU_LAYERS_QWEN35_BOTH=all
 DEFAULT_N_GPU_LAYERS_GEMMA4_27B=99
 DEFAULT_N_GPU_LAYERS_GEMMA4_27B_BOTH=99
@@ -81,8 +83,8 @@ DEFAULT_UBATCH_SIZE_QWEN27B=1024
 DEFAULT_UBATCH_SIZE_GEMMA4_E4B=512
 DEFAULT_UBATCH_SIZE_GEMMA4_27B=1024
 DEFAULT_UBATCH_SIZE_GEMMA4_31B=512
-DEFAULT_BATCH_SIZE_QWEN35_BOTH=1024
-DEFAULT_UBATCH_SIZE_QWEN35_BOTH=512
+DEFAULT_BATCH_SIZE_QWEN35_BOTH=2048
+DEFAULT_UBATCH_SIZE_QWEN35_BOTH=1024
 DEFAULT_UBATCH_SIZE_GEMMA4_27B_BOTH=1024
 DEFAULT_THREADS_SUMMARY_BALANCED=8
 DEFAULT_THREADS_SUMMARY_FAST=8
@@ -180,6 +182,7 @@ server_color_code() {
     summary-balanced) code='1;34' ;;
     summary-fast)     code='1;33' ;;
     qwen35-coding)  code='1;32' ;;
+    qwen27b-coding) code='1;93' ;;
     gemma4-e4b)     code='1;36' ;;
     gemma4-27b-coding) code='1;92' ;;
     gemma4-31b-coding) code='1;95' ;;
@@ -460,7 +463,6 @@ start_summary_balanced() {
   cmd+=(--parallel "$DEFAULT_PARALLEL_SUMMARY")
   cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
-  append_qwen_mtp_spec_flags cmd
 
   exec_server "summary-balanced" cmd
 }
@@ -512,11 +514,12 @@ start_qwen35() {
   require_executable "$LLAMA_SERVER_BIN_NVIDIA" "NVIDIA llama-server"
   build_server_cmd cmd "$MODEL_QWEN35" "qwen35-coding" "" "$port" \
     "$DEFAULT_CTX_SIZE_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35" "$DEFAULT_THREADS_QWEN35" \
-    "" on deepseek '{"enable_thinking":true}' "" "false" \
+    "$DEFAULT_TENSOR_SPLIT_QWEN35" on deepseek '{"enable_thinking":true}' "" "false" \
     "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
   cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   append_qwen_mtp_spec_flags cmd
+  cmd=(env CUDA_SCALE_LAUNCH_QUEUES=4x "${cmd[@]}")
   
   exec_server "qwen35-coding" cmd
 }
@@ -529,8 +532,8 @@ start_qwen27b() {
   require_executable "$LLAMA_SERVER_BIN_NVIDIA" "NVIDIA llama-server"
   build_server_cmd cmd "$MODEL_QWEN27B_MTP" "qwen27b-coding" "" "$port" \
     "$DEFAULT_CTX_SIZE_QWEN27B" "$DEFAULT_UBATCH_SIZE_QWEN27B" "$DEFAULT_THREADS_QWEN27B" \
-    "" on deepseek '{"preserve_thinking":true}' "" "false" \
-    "$DEFAULT_CACHE_TYPE_QWEN27B_K" "$DEFAULT_CACHE_TYPE_QWEN27B_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN27B"
+    "$DEFAULT_TENSOR_SPLIT_QWEN27B" on deepseek '{"preserve_thinking":true}' "" "false" \
+    "$DEFAULT_CACHE_TYPE_QWEN27B_K" "$DEFAULT_CACHE_TYPE_QWEN27B_V" "$DEFAULT_N_GPU_LAYERS_QWEN27B" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN27B"
   cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN27B")
@@ -599,11 +602,10 @@ start_both_qwen35() {
   summary_balanced_cmd+=(--parallel "$DEFAULT_PARALLEL_SUMMARY")
   summary_balanced_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   summary_balanced_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
-  append_qwen_mtp_spec_flags summary_balanced_cmd
   
   build_server_cmd qwen35_cmd "$MODEL_QWEN35_BOTH_MTP" "qwen35-coding" "" "$qwen35_port" \
     "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
-    "" on deepseek '{"preserve_thinking":true}' "" "false" \
+    "$DEFAULT_TENSOR_SPLIT_QWEN35" on deepseek '{"preserve_thinking":true}' "" "false" \
     "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35" "$DEFAULT_BATCH_SIZE_QWEN35_BOTH"
   qwen35_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   qwen35_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
@@ -617,6 +619,7 @@ start_both_qwen35() {
   
   # Launch servers in background
   start_server_background "summary-balanced" summary_balanced_cmd
+  qwen35_cmd=(env CUDA_SCALE_LAUNCH_QUEUES=4x "${qwen35_cmd[@]}")
   start_server_background "qwen35-coding" qwen35_cmd
 
   echo "summary-balanced: http://$HOST:$summary_balanced_port/v1"
@@ -760,14 +763,13 @@ dry_run() {
       echo "  Chat Template Kwargs: (none)"
       echo "  Sampling: temperature=0.6 top-p=0.95 top-k=20 min-p=0.0"
       echo "  Penalties: presence=0.0 repeat=1.0"
-      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP)"
+      echo "  Speculative: disabled"
       build_server_cmd tmp_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
         "$DEFAULT_CTX_SIZE_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
         "" off "" "" "" false
       tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_SUMMARY")
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
-      append_qwen_mtp_spec_flags tmp_cmd
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
@@ -894,6 +896,7 @@ dry_run() {
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_QWEN35"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_QWEN35_K/$DEFAULT_CACHE_TYPE_QWEN35_V"
       echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN35"
+      echo "  Tensor Split: $DEFAULT_TENSOR_SPLIT_QWEN35"
       echo "  Reasoning: on"
       echo "  Reasoning Format: deepseek"
       echo "  Chat Template Kwargs: {\"enable_thinking\":true}"
@@ -901,7 +904,7 @@ dry_run() {
       echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP)"
       build_server_cmd tmp_cmd "$MODEL_QWEN35" "qwen35-coding" "" "$qwen35_port_single" \
         "$DEFAULT_CTX_SIZE_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35" "$DEFAULT_THREADS_QWEN35" \
-        "" on deepseek '{"enable_thinking":true}' "" "false" \
+        "$DEFAULT_TENSOR_SPLIT_QWEN35" on deepseek '{"enable_thinking":true}' "" "false" \
         "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
@@ -918,7 +921,8 @@ dry_run() {
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_QWEN27B"
       echo "  Parallel slots: $DEFAULT_PARALLEL_QWEN27B"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_QWEN27B_K/$DEFAULT_CACHE_TYPE_QWEN27B_V"
-     echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN27B"
+      echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN27B"
+      echo "  Tensor Split: $DEFAULT_TENSOR_SPLIT_QWEN27B"
       echo "  Reasoning: on"
       echo "  Reasoning Format: deepseek"
       echo "  Chat Template Kwargs: {\"preserve_thinking\":true}"
@@ -926,7 +930,7 @@ dry_run() {
       echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP)"
       build_server_cmd tmp_cmd "$MODEL_QWEN27B_MTP" "qwen27b-coding" "" "$qwen27b_port_single" \
         "$DEFAULT_CTX_SIZE_QWEN27B" "$DEFAULT_UBATCH_SIZE_QWEN27B" "$DEFAULT_THREADS_QWEN27B" \
-        "" on deepseek '{"preserve_thinking":true}' "" "false" \
+        "$DEFAULT_TENSOR_SPLIT_QWEN27B" on deepseek '{"preserve_thinking":true}' "" "false" \
         "$DEFAULT_CACHE_TYPE_QWEN27B_K" "$DEFAULT_CACHE_TYPE_QWEN27B_V" "$DEFAULT_N_GPU_LAYERS_QWEN27B" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN27B"
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
@@ -950,14 +954,13 @@ dry_run() {
       echo "  Chat Template Kwargs: (none)"
       echo "  Sampling: temperature=0.6 top-p=0.95 top-k=20 min-p=0.0"
       echo "  Penalties: presence=0.0 repeat=1.0"
-      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP)"
+      echo "  Speculative: disabled"
       build_server_cmd tmp_cmd "$MODEL_SUMMARY_BALANCED" "summary-balanced" "SYCL0" "$summary_balanced_port" \
         "$DEFAULT_CTX_SIZE_BOTH_SUMMARY" "$DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED" "$DEFAULT_THREADS_SUMMARY_BALANCED" \
         "" off "" "" "" false "$DEFAULT_CACHE_TYPE_SUMMARY_K" "$DEFAULT_CACHE_TYPE_SUMMARY_V"
       tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_SUMMARY")
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
-      append_qwen_mtp_spec_flags tmp_cmd
       echo "  Command: ${tmp_cmd[*]}"
       unset tmp_cmd
       echo ""
@@ -971,6 +974,7 @@ dry_run() {
       echo "  Parallel slots: $DEFAULT_PARALLEL_QWEN35_BOTH"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_QWEN35_BOTH_K/$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V"
       echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN35_BOTH"
+      echo "  Tensor Split: $DEFAULT_TENSOR_SPLIT_QWEN35"
       echo "  Reasoning: on"
       echo "  Reasoning Format: deepseek"
       echo "  Chat Template Kwargs: {\"preserve_thinking\":true}"
@@ -978,7 +982,7 @@ dry_run() {
       echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP)"
       build_server_cmd tmp_cmd "$MODEL_QWEN35_BOTH_MTP" "qwen35-coding" "" "$qwen35_port_both" \
         "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
-        "" on deepseek '{"preserve_thinking":true}' "" "false" \
+        "$DEFAULT_TENSOR_SPLIT_QWEN35" on deepseek '{"preserve_thinking":true}' "" "false" \
         "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_K" "$DEFAULT_CACHE_TYPE_QWEN35_BOTH_V" "$DEFAULT_N_GPU_LAYERS_QWEN35_BOTH" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35" "$DEFAULT_BATCH_SIZE_QWEN35_BOTH"
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
