@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ..common.security import REDACTED_VALUE
 from ..reports import redact_sensitive
+from .models import BuildBackend
 
 # Message constants used across pipeline stages
 MSG_SOURCES_ALREADY_EXIST = "Sources already exist"
@@ -17,6 +18,25 @@ MSG_SOURCES_NOT_GIT_REPO = (
 # Intel oneAPI environment setup script (default install location)
 _INTEL_SETVARS_SH = Path("/opt/intel/oneapi/setvars.sh")
 _MAX_OUTPUT_SUMMARY_LINES = 12
+
+
+def get_build_env_cmd(cmd: list[str], backend: BuildBackend) -> list[str]:
+    """Wrap a command with the Intel oneAPI environment when building for SYCL.
+
+    Sources ``/opt/intel/oneapi/setvars.sh`` via ``bash -c`` so that Intel
+    compilers and libraries are on PATH. Returns the command unchanged for
+    non-SYCL backends or when the script is missing.
+    """
+    if backend != BuildBackend.SYCL:
+        return cmd
+    if not _INTEL_SETVARS_SH.exists():
+        return cmd
+    cmd_str = shlex.join(cmd)
+    return [
+        "bash",
+        "-c",
+        f'source "{_INTEL_SETVARS_SH}" && {cmd_str}',
+    ]
 
 
 def _format_command(command: list[str]) -> str:

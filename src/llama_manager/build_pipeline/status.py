@@ -1,6 +1,8 @@
 """Build status helper — read-only inspection of build artifacts and source state."""
 
 import json
+import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +11,7 @@ from loguru import logger
 
 from ..config import Config
 from .models import BuildArtifact, BuildBackend
+from .utils import get_build_env_cmd
 
 
 @dataclass
@@ -64,24 +67,49 @@ def _default_binary_path(backend: BuildBackend, config: Config) -> Path:
     return Path(config.llama_server_bin_nvidia)
 
 
+def _extract_llama_server_version(stdout: str, stderr: str) -> str | None:
+    """Parse ``version: …`` from llama-server --version output (stdout or stderr)."""
+    for line in f"{stdout}\n{stderr}".splitlines():
+        stripped = line.strip()
+        if stripped.startswith("version:"):
+            return stripped
+    return None
+
+
 def _probe_binary_version(binary_path: Path, backend: BuildBackend) -> str | None:
-    """Run ``llama-server --version`` and return stdout, or None on failure."""
+    """Run ``llama-server --version`` on the executable and return the version line."""
     if not binary_path.is_file():
         logger.debug("[status] %s binary path does not exist: %s", backend.value, binary_path)
         return None
     logger.debug("[status] probing binary version: %s", binary_path)
+    cmd = get_build_env_cmd([str(binary_path), "--version"], backend)
     try:
         r = subprocess.run(
-            [str(binary_path), "--version"],
+            cmd,
             capture_output=True,
             text=True,
             timeout=10,
+            env=os.environ.copy(),
+            cwd=binary_path.parent,
         )
-        if r.returncode == 0 and r.stdout.strip():
-            output = r.stdout.strip()
-            logger.debug("[status] %s binary version: %s", backend.value, output)
-            return output
-        logger.debug("[status] %s binary --version returned non-zero or empty", backend.value)
+        version_line = _extract_llama_server_version(r.stdout, r.stderr)
+        if version_line:
+            logger.debug("[status] %s binary version: %s", backend.value, version_line)
+            return version_line
+        if r.returncode == 0:
+            combined = f"{r.stdout}\n{r.stderr}".strip()
+            if combined:
+                first_line = combined.splitlines()[0].strip()
+                if first_line and not re.match(r"^(⚠️|warning:|\[Thread)", first_line):
+                    logger.debug(
+                        "[status] %s binary version (fallback): %s", backend.value, first_line
+                    )
+                    return first_line
+        logger.debug(
+            "[status] %s binary --version produced no parseable version (exit %s)",
+            backend.value,
+            r.returncode,
+        )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
         logger.debug("[status] %s binary version probe failed: %s", backend.value, exc)
     return None

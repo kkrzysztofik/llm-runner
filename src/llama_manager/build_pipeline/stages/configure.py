@@ -1,6 +1,5 @@
 """Configure stage — CMake configuration, flags, and build environment."""
 
-import shlex
 import subprocess
 import time
 
@@ -9,10 +8,10 @@ from loguru import logger
 from .._context import _BuildContext
 from ..models import BuildBackend, BuildConfig, BuildProgress
 from ..utils import (
-    _INTEL_SETVARS_SH,
     _format_command,
     _format_command_failure,
     _format_duration,
+    get_build_env_cmd,
 )
 
 
@@ -151,22 +150,3 @@ def get_cmake_flags(backend: BuildBackend) -> list[str]:
     elif backend == BuildBackend.CUDA:
         flags.append(f"-D{BuildConfig.GGML_CUDA}=ON")
     return flags
-
-
-def get_build_env_cmd(cmd: list[str], backend: BuildBackend) -> list[str]:
-    """Wrap a command with the Intel oneAPI environment when building for SYCL.
-
-    Sources ``/opt/intel/oneapi/setvars.sh`` via ``bash -c`` so that Intel
-    compilers and libraries are on PATH. Returns the command unchanged for
-    non-SYCL backends or when the script is missing.
-    """
-    if backend != BuildBackend.SYCL:
-        return cmd
-    if not _INTEL_SETVARS_SH.exists():
-        return cmd
-    cmd_str = shlex.join(cmd)
-    return [
-        "bash",
-        "-c",
-        f'source "{_INTEL_SETVARS_SH}" && {cmd_str}',
-    ]

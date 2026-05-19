@@ -16,7 +16,11 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from llama_manager.build_pipeline import BuildBackend, BuildStatus
-from llama_manager.build_pipeline.status import get_build_status
+from llama_manager.build_pipeline.status import (
+    _extract_llama_server_version,
+    _probe_binary_version,
+    get_build_status,
+)
 from llama_manager.config import Config
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -270,7 +274,7 @@ class TestBinaryVersionProbe:
         assert status.binary_version_output is None
 
     def test_binary_version_probe_skips_when_exit_nonzero(self, tmp_path: Path) -> None:
-        """get_build_status should skip version when binary returns non-zero."""
+        """get_build_status should skip version when binary returns non-zero with no version line."""
         config = _make_config(tmp_path)
         fake_bin = tmp_path / "bin" / "llama-server"
         fake_bin.parent.mkdir(parents=True, exist_ok=True)
@@ -283,10 +287,82 @@ class TestBinaryVersionProbe:
             patch("llama_manager.build_pipeline.status._run_git", return_value=None),
             patch("subprocess.run") as mock_run,
         ):
-            mock_run.return_value = Mock(returncode=1, stdout="")
+            mock_run.return_value = Mock(returncode=1, stdout="", stderr="fatal error\n")
             status = get_build_status(BuildBackend.SYCL, config)
 
         assert status.binary_version_output is None
+
+    def test_binary_version_probe_parses_version_line_on_nonzero_exit(self, tmp_path: Path) -> None:
+        """get_build_status should parse version: line even when exit code is non-zero."""
+        config = _make_config(tmp_path)
+        fake_bin = tmp_path / "bin" / "llama-server"
+        fake_bin.parent.mkdir(parents=True, exist_ok=True)
+        fake_bin.write_text("#!/bin/sh\necho 'version: 9219 (45b455e66)'")
+        fake_bin.chmod(0o755)
+
+        _write_artifact_json(config, "sycl", tmp_path, binary_path=str(fake_bin))
+
+        with (
+            patch("llama_manager.build_pipeline.status._run_git", return_value=None),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = Mock(
+                returncode=139,
+                stdout="version: 9219 (45b455e66)\n",
+                stderr="",
+            )
+            status = get_build_status(BuildBackend.SYCL, config)
+
+        assert status.binary_version_output == "version: 9219 (45b455e66)"
+
+
+class TestExtractLlamaServerVersion:
+    """Tests for parsing llama-server --version output."""
+
+    def test_extract_from_stdout(self) -> None:
+        assert (
+            _extract_llama_server_version(
+                "version: 9219 (45b455e66)\nbuilt with IntelLLVM 2026.0.0\n",
+                "",
+            )
+            == "version: 9219 (45b455e66)"
+        )
+
+    def test_extract_from_stderr(self) -> None:
+        assert (
+            _extract_llama_server_version("", "version: 1 (abc12345)\n") == "version: 1 (abc12345)"
+        )
+
+    def test_extract_returns_none_when_missing(self) -> None:
+        assert _extract_llama_server_version("no version here\n", "") is None
+
+
+class TestProbeBinaryVersionEnv:
+    """Tests for executable version probing command construction."""
+
+    def test_probe_uses_build_env_cmd_for_sycl(self, tmp_path: Path) -> None:
+        binary = tmp_path / "llama-server"
+        binary.write_text("#!/bin/sh\necho ok")
+        binary.chmod(0o755)
+
+        with (
+            patch(
+                "llama_manager.build_pipeline.status.get_build_env_cmd",
+                return_value=["bash", "-c", "wrapped"],
+            ) as mock_env,
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = Mock(
+                returncode=0,
+                stdout="version: 1 (abc)\n",
+                stderr="",
+            )
+            result = _probe_binary_version(binary, BuildBackend.SYCL)
+
+        mock_env.assert_called_once_with([str(binary), "--version"], BuildBackend.SYCL)
+        mock_run.assert_called_once()
+        assert mock_run.call_args[0][0] == ["bash", "-c", "wrapped"]
+        assert result == "version: 1 (abc)"
 
 
 # ── Local source tests ──────────────────────────────────────────────────────

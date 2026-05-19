@@ -545,7 +545,7 @@ class TestConfigureStageCmakeFlags:
         with (
             patch("subprocess.run", return_value=mock_result),
             patch(
-                "llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH",
+                "llama_manager.build_pipeline.utils._INTEL_SETVARS_SH",
                 config.build_dir / "nonexistent",
             ),
         ):
@@ -600,7 +600,7 @@ class TestBuildStageExecution:
         with (
             patch("subprocess.Popen", return_value=mock_popen) as mock_popen_factory,
             patch(
-                "llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH",
+                "llama_manager.build_pipeline.utils._INTEL_SETVARS_SH",
                 config.build_dir / "nonexistent",
             ),
         ):
@@ -649,7 +649,7 @@ class TestBuildStageExecution:
         with (
             patch("subprocess.Popen", return_value=mock_popen),
             patch(
-                "llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH",
+                "llama_manager.build_pipeline.utils._INTEL_SETVARS_SH",
                 config.build_dir / "nonexistent",
             ),
         ):
@@ -731,7 +731,7 @@ class TestBuildStageExecution:
             ),
             patch("subprocess.Popen", return_value=mock_popen),
             patch(
-                "llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH",
+                "llama_manager.build_pipeline.utils._INTEL_SETVARS_SH",
                 pipeline.config.build_dir / "nonexistent",
             ),
         ):
@@ -760,7 +760,7 @@ class TestBuildEnvCmd:
 
     def test_get_build_env_cmd_wraps_sycl_when_setvars_exists(self, tmp_path: Path) -> None:
         """get_build_env_cmd should wrap cmake for SYCL when setvars.sh exists."""
-        from llama_manager.build_pipeline.stages.configure import get_build_env_cmd
+        from llama_manager.build_pipeline.utils import get_build_env_cmd
 
         config = BuildConfig(
             backend=BuildBackend.SYCL,
@@ -774,7 +774,7 @@ class TestBuildEnvCmd:
         fake_setvars = tmp_path / "setvars.sh"
         fake_setvars.write_text("# mock")
 
-        with patch("llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH", fake_setvars):
+        with patch("llama_manager.build_pipeline.utils._INTEL_SETVARS_SH", fake_setvars):
             cmd = ["cmake", "--build", str(config.build_dir)]
             wrapped = get_build_env_cmd(cmd, config.backend)
             assert wrapped[0] == "bash"
@@ -784,7 +784,7 @@ class TestBuildEnvCmd:
 
     def test_get_build_env_cmd_shell_quotes_user_paths(self, tmp_path: Path) -> None:
         """SYCL environment wrapper should quote command args for bash -c safely."""
-        from llama_manager.build_pipeline.stages.configure import get_build_env_cmd
+        from llama_manager.build_pipeline.utils import get_build_env_cmd
 
         config = BuildConfig(
             backend=BuildBackend.SYCL,
@@ -797,7 +797,7 @@ class TestBuildEnvCmd:
         fake_setvars = tmp_path / "setvars.sh"
         fake_setvars.write_text("# mock")
 
-        with patch("llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH", fake_setvars):
+        with patch("llama_manager.build_pipeline.utils._INTEL_SETVARS_SH", fake_setvars):
             wrapped = get_build_env_cmd(["cmake", "--build", str(config.build_dir)], config.backend)
 
         assert f"'{config.build_dir}'" in wrapped[2]
@@ -814,7 +814,7 @@ class TestBuildEnvCmd:
         self, tmp_path: Path, backend: BuildBackend, setvars_path: str, expect_wrap: bool
     ) -> None:
         """get_build_env_cmd should not wrap when conditions don't require it."""
-        from llama_manager.build_pipeline.stages.configure import get_build_env_cmd
+        from llama_manager.build_pipeline.utils import get_build_env_cmd
 
         config = BuildConfig(
             backend=backend,
@@ -832,7 +832,7 @@ class TestBuildEnvCmd:
         else:
             patch_target = tmp_path / "nonexistent"
 
-        with patch("llama_manager.build_pipeline.stages.configure._INTEL_SETVARS_SH", patch_target):
+        with patch("llama_manager.build_pipeline.utils._INTEL_SETVARS_SH", patch_target):
             cmd = ["cmake", "--build", str(config.build_dir)]
             wrapped = get_build_env_cmd(cmd, config.backend)
             assert wrapped == cmd
