@@ -1,4 +1,4 @@
-# ServerConfig creation helpers
+"""ServerConfig creation helpers."""
 
 import dataclasses
 import os

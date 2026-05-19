@@ -1,4 +1,4 @@
-# Config and SmokeProbeConfiguration dataclasses
+"""Config and SmokeProbeConfiguration dataclasses."""
 
 import os
 import tempfile

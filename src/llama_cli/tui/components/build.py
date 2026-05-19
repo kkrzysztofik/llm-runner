@@ -638,16 +638,19 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
 
 def _artifact_status_text(status: BuildStatus) -> str:
-    if not status.artifact_exists:
-        return "No artifact"
-    a = status.artifact
-    if a is None:
-        return "Artifact (parse error)"
-    sha = a.git_commit_sha[:8] if a.git_commit_sha else "unknown"
     ver = ""
     if status.binary_version_output:
         ver = f" v:{status.binary_version_output[:30]}"
-    return f"[green]{sha}[/]{ver}"
+    if status.artifact_exists:
+        a = status.artifact
+        if a is None:
+            return "Artifact (parse error)"
+        sha = a.git_commit_sha[:8] if a.git_commit_sha else "unknown"
+        return f"[green]{sha}[/]{ver}"
+    if status.binary_exists_untracked:
+        sha = status.source_head_sha[:8] if status.source_head_sha else "unknown"
+        return f"[yellow]Binary @ {sha} (no provenance)[/]{ver}"
+    return "No artifact"
 
 
 def _source_status_text(status: BuildStatus) -> str:

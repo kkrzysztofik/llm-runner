@@ -1,4 +1,4 @@
-# Profile cache schema types, metrics, staleness, flavor enums, and I/O helpers.
+"""Profile cache schema types, metrics, staleness, flavor enums, and I/O helpers."""
 
 import hashlib
 import json

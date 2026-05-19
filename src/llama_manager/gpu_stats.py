@@ -1,4 +1,4 @@
-# GPU statistics collection via nvtop/psutil
+"""GPU statistics collection via nvtop/psutil."""
 
 import time
 from collections.abc import Callable
@@ -88,13 +88,19 @@ class GPUStats:
 
     @property
     def gpu_util(self) -> str:
-        """Get GPU utilization string"""
+        """Current GPU utilization percentage (e.g. ``"72%"``) or ``"N/A"``.
+
+        Triggers a stats update if the last sample is stale.
+        """
         self.update()
         return self.stats.get("gpu_util", "N/A")
 
     @property
     def memory_util(self) -> str:
-        """Get memory utilization string"""
+        """Current GPU memory utilization percentage (e.g. ``"4.2 GB / 8.0 GB"``) or ``"N/A"``.
+
+        Triggers a stats update if the last sample is stale.
+        """
         self.update()
         return self.stats.get("mem_util", "N/A")
 

@@ -25,6 +25,8 @@ class BuildStatus:
     artifact_exists: bool
     artifact: BuildArtifact | None  # Parsed from build-artifact.json, or None
     binary_version_output: str | None  # llama-server --version stdout, or None
+    binary_exists_untracked: bool  # True when Config default binary exists without provenance
+    untracked_binary_path: Path | None  # Path to binary found outside build-artifact.json
 
     # Local source
     source_exists: bool
@@ -53,6 +55,36 @@ def _run_git(args: list[str], *, cwd: Path | None = None, timeout: int = 5) -> s
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
         logger.debug("[status] git command failed: %s — %s", " ".join(args), exc)
         return None
+
+
+def _default_binary_path(backend: BuildBackend, config: Config) -> Path:
+    """Return the Config default llama-server path for a backend."""
+    if backend == BuildBackend.SYCL:
+        return Path(config.llama_server_bin_intel)
+    return Path(config.llama_server_bin_nvidia)
+
+
+def _probe_binary_version(binary_path: Path, backend: BuildBackend) -> str | None:
+    """Run ``llama-server --version`` and return stdout, or None on failure."""
+    if not binary_path.is_file():
+        logger.debug("[status] %s binary path does not exist: %s", backend.value, binary_path)
+        return None
+    logger.debug("[status] probing binary version: %s", binary_path)
+    try:
+        r = subprocess.run(
+            [str(binary_path), "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            output = r.stdout.strip()
+            logger.debug("[status] %s binary version: %s", backend.value, output)
+            return output
+        logger.debug("[status] %s binary --version returned non-zero or empty", backend.value)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        logger.debug("[status] %s binary version probe failed: %s", backend.value, exc)
+    return None
 
 
 def _parse_artifact_json(json_path: Path) -> BuildArtifact | None:
@@ -106,32 +138,26 @@ def get_build_status(backend: BuildBackend, config: Config) -> BuildStatus:
             logger.warning("[status] %s artifact JSON parse error: %s", backend.value, exc)
             artifact = None
 
-    # 2. Binary version probe
+    # 2. Binary version probe (provenance path first)
     binary_version_output: str | None = None
     if artifact is not None and artifact.binary_path is not None:
-        binary_path = artifact.binary_path
-        if binary_path.is_file():
-            logger.debug("[status] probing binary version: %s", binary_path)
-            try:
-                r = subprocess.run(
-                    [str(binary_path), "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if r.returncode == 0 and r.stdout.strip():
-                    binary_version_output = r.stdout.strip()
-                    logger.debug(
-                        "[status] %s binary version: %s", backend.value, binary_version_output
-                    )
-                else:
-                    logger.debug(
-                        "[status] %s binary --version returned non-zero or empty", backend.value
-                    )
-            except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
-                logger.debug("[status] %s binary version probe failed: %s", backend.value, exc)
-        else:
-            logger.debug("[status] %s binary path does not exist: %s", backend.value, binary_path)
+        binary_version_output = _probe_binary_version(artifact.binary_path, backend)
+
+    # 2b. Untracked binary at Config default path when no provenance JSON
+    untracked_binary_path: Path | None = None
+    binary_exists_untracked = False
+    if not artifact_exists:
+        fallback_path = _default_binary_path(backend, config)
+        if fallback_path.is_file():
+            binary_exists_untracked = True
+            untracked_binary_path = fallback_path
+            logger.debug(
+                "[status] %s untracked binary at %s (no build-artifact.json)",
+                backend.value,
+                fallback_path,
+            )
+            if binary_version_output is None:
+                binary_version_output = _probe_binary_version(fallback_path, backend)
 
     # 3. Local source clone info
     source_dir = Path(config.llama_cpp_root)
@@ -178,6 +204,8 @@ def get_build_status(backend: BuildBackend, config: Config) -> BuildStatus:
         artifact_exists=artifact_exists,
         artifact=artifact,
         binary_version_output=binary_version_output,
+        binary_exists_untracked=binary_exists_untracked,
+        untracked_binary_path=untracked_binary_path,
         source_exists=source_exists,
         source_is_repo=source_is_repo,
         source_branch=source_branch,

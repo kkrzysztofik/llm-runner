@@ -41,7 +41,39 @@ from .viewmodel import DashboardViewModel
 
 
 class DashboardController:
-    """Controller for TUI commands, lifecycle, and background work."""
+    """Controller for the Textual TUI dashboard — commands, lifecycle, and background work.
+
+    The controller is the central hub that coordinates between the model
+    (:class:`~.model.DashboardModel`), the view model
+    (:class:`~.viewmodel.DashboardViewModel`), and the Textual app
+    (:class:`~.textual_app.DashboardApp`). It owns all user-facing command
+    handlers (launch, build, profile, slot management, config editing, risk
+    prompts) and manages background threads for builds and profiling.
+
+    Responsibilities:
+
+    * **Lifecycle** — register signal handlers (SIGINT/SIGTERM), start/stop the
+      TUI loop, and perform graceful shutdown of server processes.
+    * **Launch orchestration** — delegate to :func:`~llama_manager.launch_orchestrate`
+      and map results to UI state (risk prompts, slot states, status messages).
+    * **Build pipeline** — run :func:`~llama_manager.build_pipeline.run_build_for_backend`
+      in a daemon thread, expose progress via :attr:`build_progress`, and
+      coordinate with the build wizard modal.
+    * **Profiling** — run benchmark profiles in a daemon thread, handle cancel
+      events, and update profile status per slot.
+    * **Slot management** — create/replace slots from the add-slot modal, track
+      slot state transitions, and detect duplicate slot IDs.
+    * **Config editing** — persist edited values from the config modal and
+      optionally trigger a server restart.
+    * **Risk prompts** — surface VRAM and hardware mismatch warnings, resolve
+      user acknowledgment (proceed / abort / quit).
+
+    Args:
+        configs: List of :class:`~llama_manager.ServerConfig` instances to manage.
+        gpu_indices: GPU device indices to monitor (one per backend).
+        slots: Optional list of :class:`~llama_manager.ModelSlot` instances.
+        register_signals: If ``True``, register SIGINT/SIGTERM handlers on init.
+    """
 
     def __init__(
         self,

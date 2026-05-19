@@ -1,4 +1,4 @@
-# Run profile and run group definitions
+"""Run profile and run group definitions."""
 
 from collections.abc import Iterable
 from dataclasses import dataclass

@@ -88,7 +88,7 @@ known-first-party = ["llama_cli", "llama_manager", "tests"]
 pythonVersion = "3.14"
 typeCheckingMode = "standard"
 include = ["src/llama_cli", "src/llama_manager", "src/tests"]
-exclude = [".venv", "dist"]
+exclude = [".venv", "dist", "**/node_modules", "**/__pycache__", "**/.*"]
 reportMissingImports = true
 reportMissingModuleSource = false
 

@@ -115,6 +115,8 @@ class TestArtifactExists:
         assert status.artifact_exists is False
         assert status.artifact is None
         assert status.binary_version_output is None
+        assert status.binary_exists_untracked is False
+        assert status.untracked_binary_path is None
 
     def test_artifact_exists_true_parses_json(self, tmp_path: Path) -> None:
         """get_build_status should parse artifact JSON and set artifact fields."""
@@ -134,6 +136,7 @@ class TestArtifactExists:
         assert status.artifact is not None
         assert status.artifact.git_commit_sha == "deadbeef1234567890deadbeef1234567890deadbeef"
         assert status.artifact.binary_path == tmp_path / "bin" / "llama-server"
+        assert status.binary_exists_untracked is False
 
     def test_artifact_json_parse_error_sets_artifact_none(self, tmp_path: Path) -> None:
         """get_build_status should handle invalid JSON gracefully (artifact=None)."""
@@ -147,6 +150,79 @@ class TestArtifactExists:
 
         assert status.artifact_exists is True
         assert status.artifact is None
+
+
+class TestUntrackedBinary:
+    """Tests for detecting Config default binaries without provenance JSON."""
+
+    def test_untracked_binary_detected_sycl(self, tmp_path: Path) -> None:
+        """get_build_status should detect llama-server at Config intel path without JSON."""
+        config = _make_config(tmp_path)
+        binary = Path(config.llama_server_bin_intel)
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_text("#!/bin/sh\necho ok")
+        binary.chmod(0o755)
+
+        with patch("llama_manager.build_pipeline.status._run_git", return_value=None):
+            status = get_build_status(BuildBackend.SYCL, config)
+
+        assert status.artifact_exists is False
+        assert status.binary_exists_untracked is True
+        assert status.untracked_binary_path == binary
+
+    def test_untracked_binary_detected_cuda(self, tmp_path: Path) -> None:
+        """get_build_status should detect llama-server at Config nvidia path without JSON."""
+        config = _make_config(tmp_path)
+        binary = Path(config.llama_server_bin_nvidia)
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_text("#!/bin/sh\necho ok")
+        binary.chmod(0o755)
+
+        with patch("llama_manager.build_pipeline.status._run_git", return_value=None):
+            status = get_build_status(BuildBackend.CUDA, config)
+
+        assert status.artifact_exists is False
+        assert status.binary_exists_untracked is True
+        assert status.untracked_binary_path == binary
+
+    def test_untracked_binary_probes_version(self, tmp_path: Path) -> None:
+        """get_build_status should probe --version on untracked binary."""
+        config = _make_config(tmp_path)
+        binary = Path(config.llama_server_bin_intel)
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_text("#!/bin/sh\necho 'llama-server v9.9.9'")
+        binary.chmod(0o755)
+
+        with (
+            patch("llama_manager.build_pipeline.status._run_git", return_value=None),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = Mock(returncode=0, stdout="llama-server v9.9.9\n")
+            status = get_build_status(BuildBackend.SYCL, config)
+
+        assert status.binary_exists_untracked is True
+        assert status.binary_version_output == "llama-server v9.9.9"
+
+    def test_provenance_takes_precedence_over_untracked_binary(self, tmp_path: Path) -> None:
+        """When build-artifact.json exists, untracked fallback is not used."""
+        config = _make_config(tmp_path)
+        default_bin = Path(config.llama_server_bin_intel)
+        default_bin.parent.mkdir(parents=True, exist_ok=True)
+        default_bin.write_text("#!/bin/sh\necho default")
+        default_bin.chmod(0o755)
+
+        provenance_bin = tmp_path / "provenance" / "llama-server"
+        provenance_bin.parent.mkdir(parents=True, exist_ok=True)
+        provenance_bin.write_text("#!/bin/sh\necho provenance")
+        provenance_bin.chmod(0o755)
+        _write_artifact_json(config, "sycl", tmp_path, binary_path=str(provenance_bin))
+
+        with patch("llama_manager.build_pipeline.status._run_git", return_value=None):
+            status = get_build_status(BuildBackend.SYCL, config)
+
+        assert status.artifact_exists is True
+        assert status.binary_exists_untracked is False
+        assert status.untracked_binary_path is None
 
 
 # ── Binary version probe tests ──────────────────────────────────────────────
@@ -346,6 +422,8 @@ class TestBuildStatusDataclass:
             artifact_exists=True,
             artifact=None,
             binary_version_output="v1.0.0",
+            binary_exists_untracked=False,
+            untracked_binary_path=None,
             source_exists=True,
             source_is_repo=True,
             source_branch="main",
@@ -373,6 +451,8 @@ class TestBuildStatusDataclass:
             artifact_exists=False,
             artifact=None,
             binary_version_output=None,
+            binary_exists_untracked=False,
+            untracked_binary_path=None,
             source_exists=True,
             source_is_repo=False,
             source_branch=None,
