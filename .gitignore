@@ -9,6 +9,8 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+!docs/build/
+!docs/build/**
 !src/tests/build/
 !src/tests/build/**
 src/tests/build/**/__pycache__/

@@ -131,6 +131,9 @@ uv run llm-runner build both
 Use `LLAMA_CPP_ROOT=/path/to/llama.cpp` or `--source-dir /path/to/llama.cpp`
 to build from an explicit checkout instead of the XDG-managed default.
 
+Full build pipeline, paths, and workstation setup (Intel oneAPI + CUDA):
+[docs/build/README.md](docs/build/README.md).
+
 ### Setup
 
 ```bash

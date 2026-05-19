@@ -2,6 +2,7 @@
 
 > **Audience:** Developers and AI agents (Copilot, OpenCode) maintaining this codebase.
 > **Scope:** `src/` only. Shell scripts, `specs/`, and `docs/plans/` are out of scope.
+> **Related:** llama.cpp build paths, toolchain, and pipeline stages — [docs/build/README.md](build/README.md) (XDG layout and workstation setup).
 > **Last updated:** 2026-05-19
 
 ---
@@ -21,7 +22,8 @@
 11. [External Dependencies](#11-external-dependencies)
 12. [Test Architecture](#12-test-architecture)
 13. [Inter-Module Dependency Graph](#13-inter-module-dependency-graph)
-14. [Appendix](#14-appendix)
+14. [llama.cpp Build System](#14-llamacpp-build-system)
+15. [Appendix](#15-appendix)
 
 ---
 
@@ -350,22 +352,22 @@ def detect_risky_operations(cfg: ServerConfig) -> list[str]: ...
 
 ### `build_pipeline/` — llama.cpp Build Orchestration
 
-5-stage pipeline: **preflight → clone → configure → build → finalize**.
+5-stage pipeline: **preflight → clone → configure → build → finalize**. Stage behavior, CMake flags, paths, and operator docs: [docs/build/pipeline-stages.md](build/pipeline-stages.md).
 
 | File | Key Symbols | Purpose |
 |------|------------|---------|
-| `pipeline.py` | `BuildPipeline` | 5-stage orchestration; `run()` for single backend, `run_both_backends()` for sequential SYCL+CUDA |
-| `orchestration.py` | `run_build_for_backend()` | Backend-specific build coordination |
+| `pipeline.py` | `BuildPipeline` | 5-stage orchestration; `run()` per backend; `run_both_backends()` for tests only |
+| `orchestration.py` | `run_build_for_backend()` | TUI/CLI path: derives `build` / `build_cuda` dirs and `builds_dir/<backend>` |
 | `models.py` | `BuildArtifact`, `BuildProgress`, `BuildResult`, `BuildLock`, `BuildBackend` | Build state dataclasses |
 | `_context.py` | `_BuildContext` | Shared mutable state across stages; `progress_callback` for real-time TUI updates |
 | `lock.py` | `acquire_lock()`, `release_lock()` | Build lock for concurrent safety |
 | `status.py` | `get_build_status()` | Build artifact/source/remote status for TUI |
-| `utils.py` | — | Build environment helpers |
-| `stages/build.py` | `run_build()`, `_run_build_subprocess()` | cmake --build with real-time output streaming via `emit_line()` |
+| `utils.py` | `get_build_env_cmd()` | SYCL oneAPI `setvars.sh` wrapper for cmake invocations |
+| `stages/build.py` | `run_build()`, `_run_build_subprocess()` | cmake --build with real-time output streaming |
 | `stages/clone.py` | `run_clone()` | Git clone/fetch llama.cpp sources |
-| `stages/configure.py` | `run_configure()` | CMake configuration with backend flags |
-| `stages/preflight.py` | `run_preflight()` | Pre-flight checks (toolchain, disk space) |
-| `stages/finalize.py` | `run_finalize()` | Binary provenance and artifact writing |
+| `stages/configure.py` | `run_configure()`, `get_cmake_flags()` | CMake configuration with backend flags |
+| `stages/preflight.py` | `run_preflight()` | Toolchain validation via `detect_toolchain()` |
+| `stages/finalize.py` | `run_finalize()` | Binary discovery and `build-artifact.json` provenance |
 
 ### `probe/` — Smoke Testing
 
@@ -930,11 +932,12 @@ llm-runner
 │       Handler: commands/profile.main()
 │
 ├── build <backend> [--dry-run] [-j N]
-│   ├── <backend>: sycl | cuda | both
-│   ├── Clones llama.cpp if not present
-│   ├── Configures cmake with backend-specific flags
-│   ├── Compiles (parallel with -j N)
-│   └── Installs binary to $XDG_CACHE_HOME/llm-runner/builds/
+│   ├── <backend>: sycl | cuda | both (serialized: SYCL then CUDA)
+│   ├── Clones/updates llama.cpp under $XDG_CACHE_HOME/llm-runner/llama.cpp (or LLAMA_CPP_ROOT)
+│   ├── Configures cmake → <source>/build or <source>/build_cuda
+│   ├── Compiles llama-server (parallel with -j N)
+│   ├── Binaries: build/bin/llama-server (SYCL), build_cuda/bin/llama-server (CUDA)
+│   └── Provenance: $XDG_STATE_HOME/llm-runner/builds/<backend>/build-artifact.json
 │       Handler: commands/build.main()
 │
 ├── setup <subcommand>
@@ -1233,7 +1236,39 @@ The graph is a **DAG** (directed acyclic graph). Key guarantees:
 
 ---
 
-## 14. Appendix
+## 14. llama.cpp Build System
+
+`llama_manager/build_pipeline/` clones and compiles upstream llama.cpp for **SYCL** (Intel Arc) and **CUDA** (NVIDIA). Compiled `llama-server` binaries stay under the source tree; provenance JSON and build logs live under XDG state. Launch resolves binaries via `Config.llama_server_bin_intel` / `llama_server_bin_nvidia` (derived from `llama_cpp_root`).
+
+```mermaid
+flowchart LR
+    P1[preflight] --> P2[clone]
+    P2 --> P3[configure]
+    P3 --> P4[build]
+    P4 --> P5[finalize]
+```
+
+| Entry point | Module |
+|-------------|--------|
+| CLI `build` | `llama_cli/commands/build.py` |
+| TUI wizard | `llama_cli/tui/controller.py` → `run_build_for_backend()` |
+| Library | `BuildPipeline.run()` |
+
+### Path summary
+
+| Artifact | Default location |
+|----------|------------------|
+| Source | `$XDG_CACHE_HOME/llm-runner/llama.cpp` (`LLAMA_CPP_ROOT`) |
+| SYCL binary | `<source>/build/bin/llama-server` |
+| CUDA binary | `<source>/build_cuda/bin/llama-server` |
+| Provenance | `$XDG_STATE_HOME/llm-runner/builds/{sycl,cuda}/build-artifact.json` |
+| Build lock | `$XDG_CACHE_HOME/llm-runner/.build.lock` |
+
+**Detailed documentation:** [docs/build/README.md](build/README.md) — workstation setup, pipeline stages, CMake flags, CLI/TUI, troubleshooting.
+
+---
+
+## 15. Appendix
 
 ### Naming Conventions
 
