@@ -167,16 +167,59 @@ BuildModalScreen {
     margin-bottom: 0;
 }
 
-/* Status table */
-#build-status {
+/* Per-backend status cards */
+.build-status-cards {
     margin-top: 1;
     margin-bottom: 1;
     height: auto;
+    width: 100%;
 }
 
-#build-status .datatable--header {
+.build-backend-card {
+    border: solid $primary;
+    padding: 1;
+    margin-bottom: 1;
+    height: auto;
+    min-height: 5;
+}
+
+.build-backend-header {
+    height: 1;
+    layout: horizontal;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+.build-backend-name {
+    width: auto;
+    margin-right: 1;
+}
+
+.build-backend-spinner {
+    width: auto;
+    height: 1;
+}
+
+.build-backend-badge {
+    width: auto;
     text-style: bold;
-    color: cyan;
+}
+
+.build-badge-current {
+    color: $success;
+}
+
+.build-badge-needs_update {
+    color: $warning;
+}
+
+.build-badge-missing {
+    color: $error;
+}
+
+.build-backend-line {
+    color: $text-muted;
+    height: auto;
 }
 
 /* Backend selection */

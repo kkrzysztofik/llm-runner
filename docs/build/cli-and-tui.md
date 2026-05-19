@@ -138,4 +138,8 @@ So dry-run is **not** preflight-only; it walks all stages with simulated clone/c
 - Probes git remote/branch in `source_dir`
 - Falls back to version probe on default `llama_server_bin_*` if no JSON
 
-Used to populate build panels without re-running the pipeline.
+Used to populate build panels without re-running the pipeline. The TUI Build Wizard
+fetches SYCL and CUDA status on a background worker (parallel probes) and refreshes
+per-backend status cards in place after the modal is shown. Each card shows a
+**Current** or **Needs update** badge (or **Missing** when sources are absent) plus
+binary, source, and remote detail lines; cards use a loading indicator until data arrives.

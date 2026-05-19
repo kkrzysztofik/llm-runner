@@ -8,7 +8,6 @@ Tests for T016c-T016f:
 """
 
 import signal
-import threading
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
@@ -757,20 +756,16 @@ class TestGracefulShutdownKeyHandler:
 
         mock_shutdown.assert_called_once()
 
-    def test_interrupt_aborts_running_profile(self) -> None:
-        """interrupt should abort a running profile before shutdown."""
+    def test_interrupt_triggers_graceful_shutdown(self) -> None:
+        """interrupt should shut down when no risk prompt is active."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config(alias="slot0")], gpu_indices=[0])
-        cancel_event = threading.Event()
-        with app._profile_lock:
-            app._profile_status["slot0"] = "running"
-            app._profile_cancel_events["slot0"] = cancel_event
 
-        app.interrupt()
+        with patch.object(app, "_graceful_shutdown") as mock_shutdown:
+            app.interrupt()
 
-        assert cancel_event.is_set()
-        assert app._profile_status["slot0"] == "failed"
+        mock_shutdown.assert_called_once()
 
     def test_refresh_display_appends_message(self) -> None:
         """refresh_display should add a visible status message."""
@@ -781,17 +776,6 @@ class TestGracefulShutdownKeyHandler:
         app.refresh_display()
 
         assert any("refreshed" in msg.lower() for _, msg in app._status_messages)
-
-    def test_request_profile_sets_pending_request(self) -> None:
-        """request_profile should queue the first profile for selection."""
-        from llama_cli.tui import DashboardController
-
-        app = DashboardController(configs=[_make_minimal_config(alias="slot0")], gpu_indices=[0])
-
-        app.request_profile()
-
-        assert app.profile_request == "slot0"
-        assert app._profile_status["slot0"] == "idle"
 
     def test_request_build_and_cancel_pending_prompt(self) -> None:
         """request_build should set build state and cancel_pending_prompt should clear it."""
@@ -805,19 +789,6 @@ class TestGracefulShutdownKeyHandler:
         cancelled = app.cancel_pending_prompt()
         assert cancelled is True
         assert app._build_request is False
-
-    def test_request_smoke_and_cancel_pending_prompt(self) -> None:
-        """request_smoke should set smoke state and cancel_pending_prompt should clear it."""
-        from llama_cli.tui import DashboardController
-
-        app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-
-        app.request_smoke()
-        assert app._smoke_request is True
-
-        cancelled = app.cancel_pending_prompt()
-        assert cancelled is True
-        assert app._smoke_request is False
 
     def test_push_status_message(self) -> None:
         """_push_status_message should add messages to the status buffer."""
@@ -843,23 +814,6 @@ class TestGracefulShutdownKeyHandler:
             app._push_status_message(f"message {i}")
 
         assert len(app._status_messages) <= 5
-
-    def test_abort_profile(self) -> None:
-        """_abort_profile should cancel any running profile."""
-        from llama_cli.tui import DashboardController
-
-        app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-
-        # Set up a fake running profile
-        with app._profile_lock:
-            app._profile_status["test-slot"] = "running"
-            app._profile_cancel_events["test-slot"] = threading.Event()
-
-        # Abort should not raise
-        app._abort_profile()
-
-        # Profile should be marked as failed
-        assert app._profile_status["test-slot"] == "failed"
 
 
 class TestHandleHardwareWarning:
@@ -988,11 +942,11 @@ class TestMVVMArchitecture:
         controller = DashboardController(
             configs=[_make_minimal_config(alias="slot0")], gpu_indices=[]
         )
-        controller.request_profile()
+        controller.request_build()
 
         state = controller.view_model.command_menu()
 
-        assert state.profile_request == "slot0"
+        assert state.build_request is True
         assert state.risk_prompt is None
 
     def test_risk_prompt_lives_in_model_state(self) -> None:
@@ -1102,24 +1056,20 @@ class TestTextualDashboardAppActions:
             patch.object(app, "refresh_dashboard") as mock_refresh,
             patch.object(app, "push_screen") as mock_push,
         ):
-            app.action_profile()
             app.action_build()
-            app.action_smoke()
             app.action_confirm()
             app.action_reject()
             app.action_cancel_pending_prompt()
             app.action_refresh_dashboard()
             app.action_interrupt_dashboard()
 
-        controller.request_profile.assert_called_once()
         mock_push.assert_called_once()
-        controller.request_smoke.assert_called_once()
         controller.acknowledge_risk.assert_called_once()
         controller.reject_risk.assert_called_once()
         controller.cancel_pending_prompt.assert_called_once()
         controller.refresh_display.assert_called_once()
         controller.interrupt.assert_called_once()
-        assert mock_refresh.call_count == 6
+        assert mock_refresh.call_count == 4
 
     def test_emit_status_toasts_uses_popups_for_notices_and_status(self) -> None:
         controller = MagicMock()
@@ -1239,6 +1189,201 @@ class TestRiskPanels:
         app._update_risk_panel_state(result)
         assert app.active_risk_kind is None
         assert app.risks_acknowledged is False
+
+
+# =============================================================================
+# Build wizard async status
+# =============================================================================
+
+
+def _minimal_build_status(backend: Any) -> Any:
+    """Minimal BuildStatus for build wizard unit tests."""
+    from llama_manager.build_pipeline import BuildStatus
+
+    return BuildStatus(
+        backend=backend,
+        artifact_exists=False,
+        artifact=None,
+        binary_version_output=None,
+        binary_exists_untracked=False,
+        untracked_binary_path=None,
+        source_exists=True,
+        source_is_repo=True,
+        source_branch="master",
+        source_head_sha="a" * 40,
+        source_remote_url="https://github.com/ggerganov/llama.cpp.git",
+        configured_branch="master",
+        remote_branch_sha="b" * 40,
+    )
+
+
+class TestBackendReadiness:
+    """Tests for derive_backend_readiness badge and detail lines."""
+
+    def test_loading_when_status_none(self) -> None:
+        from llama_cli.tui.components.build import derive_backend_readiness
+
+        readiness = derive_backend_readiness(None)
+        assert readiness.level == "loading"
+        assert readiness.badge == ""
+
+    def test_missing_when_source_absent(self) -> None:
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildBackend, BuildStatus
+
+        status = BuildStatus(
+            backend=BuildBackend.SYCL,
+            artifact_exists=False,
+            artifact=None,
+            binary_version_output=None,
+            binary_exists_untracked=False,
+            untracked_binary_path=None,
+            source_exists=False,
+            source_is_repo=False,
+            source_branch=None,
+            source_head_sha=None,
+            source_remote_url=None,
+            configured_branch="master",
+            remote_branch_sha=None,
+        )
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "missing"
+        assert readiness.badge == "Missing"
+
+    def test_needs_update_when_no_binary(self) -> None:
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildBackend
+
+        status = _minimal_build_status(BuildBackend.SYCL)
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "needs_update"
+        assert readiness.badge == "Needs update"
+
+    def test_needs_update_when_source_behind_remote(self) -> None:
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildBackend, BuildStatus
+
+        sha = "a" * 40
+        status = BuildStatus(
+            backend=BuildBackend.CUDA,
+            artifact_exists=True,
+            artifact=None,
+            binary_version_output="version: 1 (bbbbbbbb)",
+            binary_exists_untracked=False,
+            untracked_binary_path=None,
+            source_exists=True,
+            source_is_repo=True,
+            source_branch="master",
+            source_head_sha=sha,
+            source_remote_url="https://github.com/ggerganov/llama.cpp.git",
+            configured_branch="master",
+            remote_branch_sha="c" * 40,
+        )
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "needs_update"
+
+    def test_needs_update_when_binary_commit_mismatch(self) -> None:
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildBackend, BuildStatus
+
+        sha = "a" * 40
+        status = BuildStatus(
+            backend=BuildBackend.SYCL,
+            artifact_exists=True,
+            artifact=None,
+            binary_version_output="version: 1 (bbbbbbbb)",
+            binary_exists_untracked=False,
+            untracked_binary_path=None,
+            source_exists=True,
+            source_is_repo=True,
+            source_branch="master",
+            source_head_sha=sha,
+            source_remote_url="https://github.com/ggerganov/llama.cpp.git",
+            configured_branch="master",
+            remote_branch_sha=sha,
+        )
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "needs_update"
+
+    def test_current_when_aligned(self) -> None:
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildBackend, BuildStatus
+
+        sha = "a" * 40
+        short = sha[:8]
+        status = BuildStatus(
+            backend=BuildBackend.CUDA,
+            artifact_exists=True,
+            artifact=None,
+            binary_version_output=f"version: 1 ({short})",
+            binary_exists_untracked=False,
+            untracked_binary_path=None,
+            source_exists=True,
+            source_is_repo=True,
+            source_branch="master",
+            source_head_sha=sha,
+            source_remote_url="https://github.com/ggerganov/llama.cpp.git",
+            configured_branch="master",
+            remote_branch_sha=sha,
+        )
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "current"
+        assert readiness.badge == "Current"
+        assert "[bold]Binary:[/]" in readiness.binary_line
+
+
+class TestBuildModalAsyncStatus:
+    """Tests for async build status fetch in BuildModalScreen."""
+
+    def test_apply_single_backend_status_updates_sycl_only(self) -> None:
+        """_apply_single_backend_status should update one backend without touching the other."""
+        from llama_cli.tui.components.build import BuildModalScreen
+        from llama_manager.build_pipeline import BuildBackend
+
+        screen = BuildModalScreen()
+        sycl = _minimal_build_status(BuildBackend.SYCL)
+        mock_sycl_card = MagicMock()
+
+        with (
+            patch.object(screen, "_screen_can_apply_status", return_value=True),
+            patch.object(screen, "_sycl_card", mock_sycl_card),
+            patch.object(screen, "_cuda_card", None),
+        ):
+            screen._apply_single_backend_status("sycl", sycl)
+
+        assert screen._wizard_state["sycl_status"] is sycl
+        assert screen._wizard_state["cuda_status"] is None
+        mock_sycl_card.set_status.assert_called_once_with(sycl)
+
+    def test_apply_single_backend_status_skipped_when_detached(self) -> None:
+        """_apply_single_backend_status should no-op when the screen is not attached."""
+        from llama_cli.tui.components.build import BuildModalScreen
+        from llama_manager.build_pipeline import BuildBackend
+
+        screen = BuildModalScreen()
+        sycl = _minimal_build_status(BuildBackend.SYCL)
+
+        with patch.object(screen, "_screen_can_apply_status", return_value=False):
+            screen._apply_single_backend_status("sycl", sycl)
+
+        assert screen._wizard_state["sycl_status"] is None
+
+    def test_on_mount_starts_worker_without_sync_get_build_status(self) -> None:
+        """on_mount should render immediately and defer get_build_status to a worker."""
+        from llama_cli.tui.components.build import BuildModalScreen
+
+        screen = BuildModalScreen()
+
+        with (
+            patch("llama_cli.tui.components.build.get_build_status") as mock_get_status,
+            patch.object(screen, "call_later") as mock_call_later,
+            patch.object(screen, "_fetch_build_status_worker") as mock_worker,
+        ):
+            screen.on_mount()
+
+        mock_get_status.assert_not_called()
+        mock_call_later.assert_called_once()
+        mock_worker.assert_called_once()
 
 
 # =============================================================================
@@ -1478,47 +1623,12 @@ class TestSignalHandler:
 
 
 # =============================================================================
-# Profiling input/cancellation and staleness wiring
+# Stale profile cache warnings (read-only in TUI)
 # =============================================================================
 
 
-class TestProfilingFlow:
-    """Tests for non-blocking profiling input and cancellation behavior."""
-
-    def test_execute_profile_returns_1_when_cancel_event_missing(self) -> None:
-        app = TUIApp(configs=[_make_config(alias="slot0")], gpu_indices=[0])
-
-        exit_code = app._execute_profile("slot0", "balanced")
-
-        assert exit_code == 1
-
-    def test_execute_profile_uses_silent_callback_mode(self) -> None:
-        app = TUIApp(configs=[_make_config(alias="slot0")], gpu_indices=[0])
-        cancel_event = threading.Event()
-        app._profile_cancel_events["slot0"] = cancel_event
-
-        with patch("llama_cli.commands.profile.cmd_profile", return_value=0) as mock_cmd_profile:
-            exit_code = app._execute_profile("slot0", "balanced")
-
-        assert exit_code == 0
-        mock_cmd_profile.assert_called_once_with(
-            slot_id="slot0",
-            flavor="balanced",
-            quiet=True,
-            progress_callback=app._push_status_message,
-            cancel_event=cancel_event,
-        )
-
-    def test_abort_profile_sets_cancel_event_and_failed_status(self) -> None:
-        app = TUIApp(configs=[_make_config(alias="slot0")], gpu_indices=[0])
-        event = threading.Event()
-        app._profile_status["slot0"] = "running"
-        app._profile_cancel_events["slot0"] = event
-
-        app._abort_profile()
-
-        assert event.is_set()
-        assert app._profile_status["slot0"] == "failed"
+class TestStaleProfileWarnings:
+    """Tests for cached benchmark profile staleness display in the TUI."""
 
     def test_get_stale_warning_uses_gpu_identifier_and_driver_binary_versions(self) -> None:
         app = TUIApp(configs=[_make_config(alias="slot0", device="SYCL0")], gpu_indices=[0])
@@ -1559,16 +1669,8 @@ class TestBuildCommandMenu:
 
     def test_normal_mode_shows_expected_commands(self) -> None:
         state = TUIApp(configs=[_make_config()], gpu_indices=[0]).view_model.command_menu()
-        assert state.profile_request is None
         assert state.risk_prompt is None
         assert state.build_request is False
-        assert state.smoke_request is False
-
-    def test_profile_pending_shows_flavor_commands(self) -> None:
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app.profile_request = "slot0"
-        state = app.view_model.command_menu()
-        assert state.profile_request == "slot0"
 
     def test_risk_prompt_shows_confirm_commands(self) -> None:
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
@@ -1709,14 +1811,12 @@ def test_command_menu_composes_stylable_items() -> None:
     view_model = MagicMock()
     view_model.command_menu.return_value = SimpleNamespace(
         build_request=False,
-        smoke_request=False,
-        profile_request=None,
         risk_prompt=None,
     )
 
     items = list(CommandMenu(view_model).compose())
 
-    assert len(items) == 8
+    assert len(items) == 6
     assert isinstance(items[0], Horizontal)
     assert items[0].has_class("command-menu-item")
     first_item_children = items[0]._pending_children
@@ -1955,3 +2055,77 @@ async def test_dashboard_app_layout_geometry_regression() -> None:
         assert list(app.query(GPUStatsPanel))
 
         assert cmd_menu.region.height == 1, f"CommandMenu height {cmd_menu.region.height} != 1"
+
+
+# =============================================================================
+# ViewModel profile_options (Task 7: MVVM registry leakage cleanup)
+# =============================================================================
+
+
+class TestViewModelProfileOptions:
+    """Tests for DashboardViewModel.profile_options()."""
+
+    def test_profile_options_returns_label_value_tuples(self) -> None:
+        """profile_options should return (label, value) pairs for each profile."""
+        controller = DashboardController(configs=[_make_config()], gpu_indices=[])
+        options = controller.view_model.profile_options()
+
+        assert isinstance(options, list)
+        assert all(isinstance(item, tuple) and len(item) == 2 for item in options)
+
+    def test_profile_options_contains_expected_profiles(self) -> None:
+        """profile_options should include the built-in profiles."""
+        controller = DashboardController(configs=[_make_config()], gpu_indices=[])
+        options = controller.view_model.profile_options()
+
+        profile_ids = [value for _, value in options]
+        assert "summary-balanced" in profile_ids
+        assert "summary-fast" in profile_ids
+        assert "qwen35" in profile_ids
+
+    def test_profile_options_labels_include_profile_id_and_description(self) -> None:
+        """Profile labels should combine profile_id and description."""
+        controller = DashboardController(configs=[_make_config()], gpu_indices=[])
+        options = controller.view_model.profile_options()
+
+        labels = [label for label, _ in options]
+        assert any("summary-balanced" in label for label in labels)
+        assert any("summary-fast" in label for label in labels)
+        assert any("qwen35" in label for label in labels)
+
+    def test_profile_options_with_config_passes_config_to_registry(self) -> None:
+        """profile_options should accept and pass a Config to create_default_profile_registry."""
+        from llama_manager.config import Config
+
+        controller = DashboardController(configs=[_make_config()], gpu_indices=[])
+        custom_config = Config()
+        options = controller.view_model.profile_options(custom_config)
+
+        assert isinstance(options, list)
+        assert len(options) > 0
+
+    def test_app_delegates_profile_options_to_viewmodel(self) -> None:
+        """DashboardApp._build_profile_options should call viewmodel.profile_options()."""
+        controller = DashboardController(configs=[_make_config()], gpu_indices=[0])
+        app = DashboardApp(controller)
+
+        # The app caches results, so first call populates the cache
+        options = app._build_profile_options()
+
+        profile_ids = [value for _, value in options]
+        assert "summary-balanced" in profile_ids
+        assert "summary-fast" in profile_ids
+        assert "qwen35" in profile_ids
+
+    def test_app_profile_options_uses_controller_config(self) -> None:
+        """_build_profile_options should pass controller.config to viewmodel."""
+        controller = DashboardController(configs=[_make_config()], gpu_indices=[0])
+        app = DashboardApp(controller)
+
+        # Clear cache to force a fresh call
+        app._profile_options_cache = None
+        app._profile_cache_config_id = None
+
+        # Should not raise and should use controller.config
+        options = app._build_profile_options()
+        assert len(options) > 0

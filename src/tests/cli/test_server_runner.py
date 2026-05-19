@@ -954,10 +954,19 @@ def test_tui_run_keeps_acknowledged_risk_prompt_active() -> None:
 
 
 def test_dry_run_prompts_for_risky_operation_with_exact_prompt() -> None:
+    from llama_manager import DryRunResult
+
+    mock_result = DryRunResult(
+        mode="summary-balanced",
+        slot_payloads=[],
+        has_error=False,
+        errors=[],
+        warnings=["privileged_port"],
+        artifact_payload=None,
+    )
+
     with (
-        patch(
-            "llama_cli.commands.dry_run.detect_risky_operations", return_value=["privileged_port"]
-        ),
+        patch("llama_cli.commands.dry_run.run_dry_run", return_value=mock_result),
         patch("builtins.input", return_value="n") as mock_input,
         pytest.raises(SystemExit) as exc,
     ):
@@ -978,15 +987,19 @@ def test_dry_run_invalid_mode_exits_with_usage_error(capsys: pytest.CaptureFixtu
 
 
 def test_dry_run_exits_when_backend_validation_fails() -> None:
-    backend_error = ErrorDetail(
-        error_code=ErrorCode.BACKEND_NOT_ELIGIBLE,
-        failed_check="vllm_launch_eligibility",
-        why_blocked="backend blocked",
-        how_to_fix="switch backend",
+    from llama_manager import DryRunResult
+
+    mock_result = DryRunResult(
+        mode="summary-fast",
+        slot_payloads=[],
+        has_error=True,
+        errors=["backend blocked"],
+        warnings=[],
+        artifact_payload=None,
     )
 
     with (
-        patch("llama_cli.commands.dry_run.validate_server_config", return_value=backend_error),
+        patch("llama_cli.commands.dry_run.run_dry_run", return_value=mock_result),
         pytest.raises(SystemExit) as exc,
     ):
         dry_run("summary-fast")

@@ -857,10 +857,12 @@ class TestDryRunSmokeFlagBundleOutput:
         from llama_cli.commands.dry_run import dry_run
 
         with (
-            patch("llama_cli.commands.dry_run._run_registry_mode") as mock_run,
-            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
+            patch("llama_manager.dry_run.run_dry_run") as mock_run,
+            patch("llama_manager.dry_run.write_dry_run_artifact"),
         ):
-            mock_run.return_value = False
+            mock_run.return_value = MagicMock(
+                slot_payloads=[], warnings=[], errors=[], artifact_payload=None
+            )
 
             with contextlib.suppress(SystemExit):
                 dry_run(mode=mode, **kwargs)
@@ -899,10 +901,12 @@ class TestDryRunSmokeFlagBundleOutput:
         from llama_cli.commands.dry_run import dry_run
 
         with (
-            patch("llama_cli.commands.dry_run._run_registry_mode") as mock_run,
-            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
+            patch("llama_manager.dry_run.run_dry_run") as mock_run,
+            patch("llama_manager.dry_run.write_dry_run_artifact"),
         ):
-            mock_run.return_value = False
+            mock_run.return_value = MagicMock(
+                slot_payloads=[], warnings=[], errors=[], artifact_payload=None
+            )
 
             with contextlib.suppress(SystemExit):
                 dry_run(mode=mode, **kwargs)

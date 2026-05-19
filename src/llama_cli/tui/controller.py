@@ -47,8 +47,8 @@ class DashboardController:
     (:class:`~.model.DashboardModel`), the view model
     (:class:`~.viewmodel.DashboardViewModel`), and the Textual app
     (:class:`~.textual_app.DashboardApp`). It owns all user-facing command
-    handlers (launch, build, profile, slot management, config editing, risk
-    prompts) and manages background threads for builds and profiling.
+    handlers (launch, build, slot management, config editing, risk prompts)
+    and manages background threads for builds.
 
     Responsibilities:
 
@@ -59,8 +59,6 @@ class DashboardController:
     * **Build pipeline** — run :func:`~llama_manager.build_pipeline.run_build_for_backend`
       in a daemon thread, expose progress via :attr:`build_progress`, and
       coordinate with the build wizard modal.
-    * **Profiling** — run benchmark profiles in a daemon thread, handle cancel
-      events, and update profile status per slot.
     * **Slot management** — create/replace slots from the add-slot modal, track
       slot state transitions, and detect duplicate slot IDs.
     * **Config editing** — persist edited values from the config modal and
@@ -156,28 +154,12 @@ class DashboardController:
             self.model.set_risk_prompt(value, acknowledged=self.risks_acknowledged)
 
     @property
-    def profile_request(self) -> str | None:
-        return self.model.profile_request
-
-    @profile_request.setter
-    def profile_request(self, value: str | None) -> None:
-        self.model.profile_request = value
-
-    @property
     def _build_request(self) -> bool:
         return self.model.build_request
 
     @_build_request.setter
     def _build_request(self, value: bool) -> None:
         self.model.build_request = value
-
-    @property
-    def _smoke_request(self) -> bool:
-        return self.model.smoke_request
-
-    @_smoke_request.setter
-    def _smoke_request(self, value: bool) -> None:
-        self.model.smoke_request = value
 
     @property
     def unsaved_slots(self) -> set[str]:
@@ -202,22 +184,6 @@ class DashboardController:
     @server_processes.setter
     def server_processes(self, value: dict[str, Any]) -> None:
         self.model.server_processes = value
-
-    @property
-    def _profile_status(self) -> dict[str, str]:
-        return self.model.profile_status
-
-    @property
-    def _profile_flavor(self) -> dict[str, str]:
-        return self.model.profile_flavor
-
-    @property
-    def _profile_cancel_events(self) -> dict[str, threading.Event]:
-        return self.model.profile_cancel_events
-
-    @property
-    def _profile_lock(self) -> threading.Lock:
-        return self.model.profile_lock
 
     @property
     def _status_messages(self) -> list[tuple[float, str]]:
@@ -295,23 +261,9 @@ class DashboardController:
         self._graceful_shutdown()
 
     def interrupt(self) -> None:
-        """Request an interrupt from the UI.
-
-        Matches the legacy Ctrl+C path: abort a running profile if one exists,
-        otherwise shut the app down.
-        """
+        """Request an interrupt from the UI (graceful shutdown when no risk prompt)."""
         if self.model.risk_prompt is not None:
             return
-
-        with self._profile_lock:
-            for cfg in self.configs:
-                if self._profile_status.get(cfg.alias) == "running":
-                    cancel_event = self._profile_cancel_events.get(cfg.alias)
-                    if cancel_event is not None:
-                        cancel_event.set()
-                    self._profile_status[cfg.alias] = "failed"
-                    self._push_status_message(f"Profile '{cfg.alias}' aborted.")
-                    return
 
         self._graceful_shutdown()
 
@@ -321,15 +273,6 @@ class DashboardController:
             return
         self._push_status_message("Display refreshed.")
 
-    def request_profile(self) -> None:
-        """Start the profile selection flow from the UI."""
-        if self.model.risk_prompt is not None or not self.configs:
-            return
-        alias = self.configs[0].alias
-        with self._profile_lock:
-            self._profile_status[alias] = "idle"
-        self.profile_request = alias
-
     def request_build(self) -> None:
         """Start the build selection flow from the UI."""
         if self.model.risk_prompt is not None:
@@ -337,28 +280,11 @@ class DashboardController:
         self._build_request = True
         self._push_status_message("Select build target: [1] SYCL  [2] CUDA  [3] Both")
 
-    def request_smoke(self) -> None:
-        """Start the smoke selection flow from the UI."""
-        if self.model.risk_prompt is not None:
-            return
-        self._smoke_request = True
-        self._push_status_message("Select smoke scope: [1] Both  [2] Active Slot")
-
     def cancel_pending_prompt(self) -> bool:
-        """Cancel any pending profile, build, or smoke prompt."""
-        if self.profile_request is not None:
-            self.profile_request = None
-            self._push_status_message("Profile selection cancelled.")
-            return True
-
+        """Cancel any pending build prompt."""
         if self._build_request:
             self._build_request = False
             self._push_status_message("Build selection cancelled.")
-            return True
-
-        if self._smoke_request:
-            self._smoke_request = False
-            self._push_status_message("Smoke selection cancelled.")
             return True
 
         return False
@@ -449,72 +375,6 @@ class DashboardController:
         """Emit a status message when the add-slot modal is cancelled."""
         self._push_status_message("Slot configuration cancelled")
 
-    def _run_profile_background(self, alias: str, flavor: str) -> None:
-        """Run profiling in a background thread so the TUI stays responsive."""
-        with self._profile_lock:
-            self._profile_status[alias] = "running"
-            self._profile_flavor[alias] = flavor
-            self._profile_cancel_events[alias] = threading.Event()
-
-        def _do_profile() -> None:
-            try:
-                exit_code = self._execute_profile(alias, flavor)
-                if exit_code == 0:
-                    with self._profile_lock:
-                        self._profile_status[alias] = "done"
-                else:
-                    with self._profile_lock:
-                        self._profile_status[alias] = "failed"
-            except Exception:
-                with self._profile_lock:
-                    self._profile_status[alias] = "failed"
-            finally:
-                with self._profile_lock:
-                    self._profile_cancel_events.pop(alias, None)
-
-        threading.Thread(
-            target=_do_profile,
-            name=f"profile-{alias}",
-            daemon=True,
-        ).start()
-
-    def _execute_profile(self, alias: str, flavor: str) -> int:
-        """Execute the profile benchmark for a given slot.
-
-        Uses ``profile_cli.cmd_profile`` directly (no subprocess).
-        Returns 0 on success, 1 on failure.
-        """
-        from llama_cli.commands.profile import cmd_profile
-
-        with self._profile_lock:
-            cancel_event = self._profile_cancel_events.get(alias)
-
-        if cancel_event is None:
-            return 1
-
-        return cmd_profile(
-            slot_id=alias,
-            flavor=flavor,
-            quiet=True,
-            progress_callback=self._push_status_message,
-            cancel_event=cancel_event,
-        )
-
-    def _abort_profile(self) -> None:
-        """Abort the currently running profile for any slot."""
-        for cfg in self.configs:
-            with self._profile_lock:
-                if self._profile_status.get(cfg.alias) == "running":
-                    cancel_event = self._profile_cancel_events.get(cfg.alias)
-                    if cancel_event is not None:
-                        cancel_event.set()
-                    self._profile_status[cfg.alias] = "failed"
-                    self._push_status_message(f"Profile '{cfg.alias}' aborted.")
-
-    # ------------------------------------------------------------------
-    # Profile staleness helpers
-    # ------------------------------------------------------------------
-
     def get_stale_warning(self, cfg: ServerConfig) -> str | None:
         """Return a warning string when the cached profile is stale."""
         return self.view_model.stale_warning(cfg)
@@ -600,40 +460,24 @@ class DashboardController:
         Args:
             payload: Typed config values and restart flag from the modal.
         """
-        from llama_manager.config import config_file_path, save_config_to_file
+        from llama_manager import apply_config_updates
 
-        cfg = self.model.config
-        int_fields = {
-            "smoke_listen_timeout_s",
-            "smoke_http_request_timeout_s",
-            "smoke_first_token_timeout_s",
-            "smoke_total_chat_timeout_s",
-        }
-
+        # Convert ConfigPayload to update dict (exclude restart flag)
+        updates: dict[str, object] = {}
         for field in dataclasses.fields(payload):
             if field.name == "restart":
                 continue
-            field_name = field.name
-            raw_value = getattr(payload, field_name)
-            if not hasattr(cfg, field_name):
-                continue
-            if field_name in int_fields:
-                try:
-                    setattr(cfg, field_name, int(raw_value))
-                except ValueError:
-                    self._push_status_message(
-                        f"Invalid value '{raw_value}' for {field_name} — config not saved."
-                    )
-                    return
-            else:
-                setattr(cfg, field_name, raw_value)
+            updates[field.name] = getattr(payload, field.name)
 
-        try:
-            save_config_to_file(cfg, config_file_path())
-            self._push_status_message("Config saved to disk.")
-        except OSError as exc:
-            self._push_status_message(f"Config save failed: {exc}")
+        result = apply_config_updates(self.model.config, updates)
+
+        if result.errors:
+            for error in result.errors:
+                self._push_status_message(error)
             return
+
+        if result.updated_fields:
+            self._push_status_message("Config saved to disk.")
 
         if payload.restart:
             self._push_status_message("Restarting servers with new config…")

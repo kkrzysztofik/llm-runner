@@ -18,10 +18,8 @@ class RiskPromptState:
 class CommandMenuState:
     """State needed to render the bottom command menu."""
 
-    profile_request: str | None
     risk_prompt: RiskPromptState | None
     build_request: bool
-    smoke_request: bool
 
 
 @dataclass(frozen=True)

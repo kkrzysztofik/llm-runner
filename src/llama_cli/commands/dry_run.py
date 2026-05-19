@@ -2,30 +2,25 @@
 
 This module provides command preview without execution, including
 validation results, vLLM eligibility checks, and artifact persistence.
+
+Delegates to llama_manager.dry_run for domain logic; owns all I/O.
 """
 
 import sys
-import time
 from typing import Any, NoReturn
 
 from llama_cli.ui_output import emit_error, emit_heading, emit_info, emit_success, emit_warn
 from llama_manager import (
     RISK_ACK_LABEL,
     Config,
+    DryRunResult,
     DryRunSlotPayload,
     ServerConfig,
     ServerManager,
-    build_dry_run_slot_payload,
-    resolve_runtime_dir,
-    validate_server_config,
-    write_artifact,
-)
-from llama_manager.config import (
-    RunProfileRegistry,
     create_default_profile_registry,
-    resolve_run_group_configs,
+    run_dry_run,
+    write_dry_run_artifact,
 )
-from llama_manager.validation import detect_risky_operations
 
 RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
 ELIGIBLE_LABEL = "    Eligible"
@@ -43,56 +38,6 @@ def _print_acknowledgement_required_and_exit() -> NoReturn:
         "  how_to_fix: use --acknowledge-risky flag or confirm with 'y'",
     )
     raise SystemExit(1)
-
-
-def _verify_dry_run_risks(
-    manager: ServerManager,
-    configs: list[ServerConfig],
-    acknowledged: bool,
-) -> None:
-    launch_attempt_id = manager.begin_launch_attempt()
-    ack_token = manager.issue_ack_token(launch_attempt_id)
-
-    for cfg in configs:
-        if acknowledged and RISK_ACK_LABEL not in cfg.risky_acknowledged:
-            cfg.risky_acknowledged.append(RISK_ACK_LABEL)
-        for risk in detect_risky_operations(cfg):
-            _acknowledge_risk_if_required(
-                manager,
-                cfg,
-                risk,
-                launch_attempt_id,
-                ack_token,
-                acknowledged,
-            )
-
-
-def _acknowledge_risk_if_required(
-    manager: ServerManager,
-    cfg: ServerConfig,
-    risk: str,
-    launch_attempt_id: str,
-    ack_token: str,
-    acknowledged: bool,
-) -> None:
-    if manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
-        return
-
-    if not acknowledged:
-        emit_warn(f"risky operation detected in {cfg.alias}: {risk}")
-        try:
-            response = input(RISK_CONFIRM_PROMPT).strip().lower()
-        except EOFError:
-            _print_acknowledgement_required_and_exit()
-        if response != "y":
-            _print_acknowledgement_required_and_exit()
-
-    manager.acknowledge_risk(
-        cfg.alias,
-        risk,
-        launch_attempt_id=launch_attempt_id,
-        ack_token=ack_token,
-    )
 
 
 def _print_backend_error(backend_error: Any) -> None:
@@ -133,80 +78,6 @@ def _print_smoke_probe_info(cfg: Config) -> None:
         emit_info("    API key: [not set]")
 
 
-def _build_payload(
-    server_cfg: ServerConfig,
-    slot_id: str,
-    slot_payloads: list[DryRunSlotPayload],
-) -> bool:
-    backend_error = validate_server_config(server_cfg)
-    if backend_error is not None:
-        _print_backend_error(backend_error)
-        return True
-
-    payload = build_dry_run_slot_payload(
-        server_cfg,
-        slot_id=slot_id,
-        validation_results=None,
-        warnings=[],
-    )
-    slot_payloads.append(payload)
-    return False
-
-
-def _print_dry_run_header(mode: str, cfg: Config, registry: RunProfileRegistry) -> None:
-    """Print dry-run mode header information.
-
-    Args:
-        mode: The dry-run mode being executed.
-        cfg: Config instance with model paths and binary locations.
-        registry: Pre-built profile registry.
-    """
-    emit_heading("DRY RUN MODE", level=2)
-    emit_info(f"Mode: {mode}")
-    emit_info(f"llama-server (Intel): {cfg.llama_server_bin_intel}")
-    emit_info(f"llama-server (NVIDIA): {cfg.llama_server_bin_nvidia}")
-    for profile_id in registry.profile_ids:
-        profile = registry.get_profile(profile_id)
-        emit_info(f"{profile_id} model: {profile.model}")
-
-
-def _parse_port_overrides(primary_port: str | None, secondary_port: str | None) -> tuple[int, ...]:
-    """Return positional port overrides for a dry-run group."""
-    overrides: list[int] = []
-    for name, raw in (("primary", primary_port), ("secondary", secondary_port)):
-        if raw:
-            if not raw.isdigit():
-                raise ValueError(f"{name} port {raw!r} is not a valid integer")
-            port = int(raw)
-            if not (1 <= port <= 65535):
-                raise ValueError(f"{name} port {port} is out of range (1\u201365535)")
-            overrides.append(port)
-    return tuple(overrides)
-
-
-def _slot_ids_for_group(mode: str, registry: RunProfileRegistry) -> tuple[str, ...]:
-    """Return profile identifiers for the dry-run group in launch order."""
-    return registry.get_run_group(mode).profile_ids
-
-
-def _resolve_dry_run_configs(
-    mode: str,
-    registry: RunProfileRegistry,
-    primary_port: str | None,
-    secondary_port: str | None,
-) -> list[ServerConfig]:
-    """Resolve dry-run configs through the profile registry."""
-    if mode not in registry.run_group_ids:
-        allowed_modes = ", ".join(registry.run_group_ids)
-        emit_error(f"invalid mode '{mode}'. Valid modes: {allowed_modes}")
-        raise SystemExit(1)
-    return resolve_run_group_configs(
-        registry,
-        mode,
-        _parse_port_overrides(primary_port, secondary_port),
-    )
-
-
 def _print_resolved_slot(
     slot_id: str, server_cfg: ServerConfig, payload: DryRunSlotPayload
 ) -> None:
@@ -230,68 +101,68 @@ def _print_resolved_slot(
     _print_common_payload_sections(payload)
 
 
-def _run_registry_mode(
-    mode: str,
-    cfg: Config,
-    manager: ServerManager,
-    primary_port: str | None,
-    secondary_port: str | None,
-    acknowledged: bool,
-    slot_payloads: list[DryRunSlotPayload],
-    registry: RunProfileRegistry,
-) -> bool:
-    """Resolve and print any run group through the profile registry."""
-    configs = _resolve_dry_run_configs(mode, registry, primary_port, secondary_port)
-    slot_ids = _slot_ids_for_group(mode, registry)
-    _verify_dry_run_risks(manager, configs, acknowledged)
-
-    has_error = False
-    for slot_id, server_cfg in zip(slot_ids, configs, strict=True):
-        if _build_payload(server_cfg, slot_id, slot_payloads):
-            has_error = True
-            continue
-        _print_resolved_slot(slot_id, server_cfg, slot_payloads[-1])
-    return has_error
-
-
-def _write_dry_run_artifact(mode: str, slot_payloads: list[DryRunSlotPayload]) -> None:
-    """Write dry-run artifact to runtime directory.
+def _print_dry_run_header(mode: str, cfg: Config, registry: Any) -> None:
+    """Print dry-run mode header information.
 
     Args:
-        mode: The dry-run mode that was executed.
-        slot_payloads: List of slot payloads to include in artifact.
-
-    Raises:
-        SystemExit: On artifact persistence failure.
+        mode: The dry-run mode being executed.
+        cfg: Config instance with model paths and binary locations.
+        registry: Pre-built profile registry.
     """
-    runtime_dir = resolve_runtime_dir()
-    canonical_payload = {
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "slot_scope": [p.slot_id for p in slot_payloads],
-        "resolved_command": {p.slot_id: p.command_args for p in slot_payloads},
-        "validation_results": {
-            p.slot_id: {
-                "passed": p.validation_results.passed if p.validation_results else False,
-                "checks": p.validation_results.checks if p.validation_results else [],
-            }
-            for p in slot_payloads
-        },
-        "warnings": [warning for p in slot_payloads for warning in p.warnings],
-        "environment_redacted": slot_payloads[0].environment_redacted if slot_payloads else {},
-    }
-    try:
-        artifact_path = write_artifact(runtime_dir, f"dryrun-{mode}", canonical_payload)
-        emit_success(f"Artifact written: {artifact_path}")
-    except Exception as e:
-        emit_error(f"artifact persistence failed: {e}")
-        emit_error("  failed_check: artifact_persistence")
-        emit_error(
-            "  why_blocked: artifact persistence failed to enforce required permissions",
-        )
-        emit_error(
-            "  how_to_fix: verify runtime path and permission support before retry",
-        )
-        sys.exit(1)
+    emit_heading("DRY RUN MODE", level=2)
+    emit_info(f"Mode: {mode}")
+    emit_info(f"llama-server (Intel): {cfg.llama_server_bin_intel}")
+    emit_info(f"llama-server (NVIDIA): {cfg.llama_server_bin_nvidia}")
+    for profile_id in registry.profile_ids:
+        profile = registry.get_profile(profile_id)
+        emit_info(f"{profile_id} model: {profile.model}")
+
+
+def _parse_port_overrides(primary_port: str | None, secondary_port: str | None) -> dict[str, int]:
+    """Return positional port overrides for a dry-run group."""
+    overrides: dict[str, int] = {}
+    for name, raw in (("primary", primary_port), ("secondary", secondary_port)):
+        if raw:
+            if not raw.isdigit():
+                raise ValueError(f"{name} port {raw!r} is not a valid integer")
+            port = int(raw)
+            if not (1 <= port <= 65535):
+                raise ValueError(f"{name} port {port} is out of range (1\u201365535)")
+            overrides[name] = port
+    return overrides
+
+
+def _run_with_risk_acknowledgement(
+    result: DryRunResult,
+    manager: ServerManager,
+    configs: list[Any],
+    acknowledged: bool,
+) -> bool:
+    """Handle risk acknowledgement for dry-run results.
+
+    Returns True if processing should continue, False if blocked.
+    """
+    if not result.warnings:
+        return True
+
+    for warning in result.warnings:
+        emit_warn(warning)
+
+    if not acknowledged:
+        try:
+            response = input(RISK_CONFIRM_PROMPT).strip().lower()
+        except EOFError:
+            _print_acknowledgement_required_and_exit()
+        if response != "y":
+            _print_acknowledgement_required_and_exit()
+
+    # Update configs with risk acknowledgement
+    for cfg in configs:
+        if acknowledged and RISK_ACK_LABEL not in cfg.risky_acknowledged:
+            cfg.risky_acknowledged.append(RISK_ACK_LABEL)
+        manager.acknowledge_risk(cfg.alias, RISK_ACK_LABEL)
+
+    return True
 
 
 def dry_run(
@@ -306,29 +177,74 @@ def dry_run(
 
     _print_dry_run_header(mode, cfg, registry)
 
-    slot_payloads: list[DryRunSlotPayload] = []
-    manager = ServerManager()
-
     try:
-        has_error = _run_registry_mode(
-            mode,
-            cfg,
-            manager,
-            primary_port,
-            secondary_port,
-            acknowledged,
-            slot_payloads,
-            registry,
+        port_overrides = _parse_port_overrides(primary_port, secondary_port)
+        result = run_dry_run(
+            mode=mode,
+            config=cfg,
+            registry=registry,
+            port_overrides=port_overrides,
+            acknowledged=acknowledged,
         )
 
-        if not has_error:
+        # Handle errors from manager
+        if result.errors:
+            for error in result.errors:
+                emit_error(error)
+            sys.exit(1)
+
+        # Handle risk acknowledgement
+        configs = []
+        if result.slot_payloads:
+            configs = [
+                ServerConfig(
+                    model=p.model_path,
+                    alias=p.slot_id,
+                    device="",
+                    port=p.port,
+                    ctx_size=4096,
+                    ubatch_size=512,
+                    threads=4,
+                    server_bin=p.binary_path,
+                )
+                for p in result.slot_payloads
+            ]
+
+        manager = ServerManager()
+        if not _run_with_risk_acknowledgement(result, manager, configs, acknowledged):
+            sys.exit(1)
+
+        # Print slot details
+        for payload in result.slot_payloads:
+            server_cfg = ServerConfig(
+                model=payload.model_path,
+                alias=payload.slot_id,
+                device="",
+                port=payload.port,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                server_bin=payload.binary_path,
+            )
+            _print_resolved_slot(payload.slot_id, server_cfg, payload)
+
+        if not result.has_error:
             _print_smoke_probe_info(cfg)
 
-        if not has_error and slot_payloads:
-            _write_dry_run_artifact(mode, slot_payloads)
-
-        if has_error:
-            sys.exit(1)
+        if not result.has_error and result.slot_payloads:
+            try:
+                artifact_path = write_dry_run_artifact(mode, result.slot_payloads)
+                emit_success(f"Artifact written: {artifact_path}")
+            except Exception as e:
+                emit_error(f"artifact persistence failed: {e}")
+                emit_error("  failed_check: artifact_persistence")
+                emit_error(
+                    "  why_blocked: artifact persistence failed to enforce required permissions",
+                )
+                emit_error(
+                    "  how_to_fix: verify runtime path and permission support before retry",
+                )
+                sys.exit(1)
 
     except SystemExit:
         raise

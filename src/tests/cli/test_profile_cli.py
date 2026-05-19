@@ -591,7 +591,7 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
-                    "llama_cli.commands.profile.create_default_profile_registry",
+                    "llama_manager.profile_orchestrator.create_default_profile_registry",
                     return_value=registry,
                 ),
             ):
@@ -647,7 +647,7 @@ class TestCmdProfile:
             patch("llama_cli.commands.profile.run_benchmark", return_value=None),
             patch("llama_cli.commands.profile.ProfileFlavor"),
             patch("llama_cli.commands.profile.ProfileRecord"),
-            patch("llama_cli.commands.profile.create_default_profile_registry"),
+            patch("llama_manager.profile_orchestrator.create_default_profile_registry"),
         ):
             exit_code = cmd_profile(
                 slot_id="test-slot",
@@ -682,7 +682,7 @@ class TestCmdProfile:
             ),
             patch("llama_cli.commands.profile.ProfileFlavor"),
             patch("llama_cli.commands.profile.ProfileRecord"),
-            patch("llama_cli.commands.profile.create_default_profile_registry"),
+            patch("llama_manager.profile_orchestrator.create_default_profile_registry"),
         ):
             exit_code = cmd_profile(
                 slot_id="test-slot",
@@ -732,7 +732,7 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
-                    "llama_cli.commands.profile.create_default_profile_registry",
+                    "llama_manager.profile_orchestrator.create_default_profile_registry",
                     return_value=registry,
                 ),
             ):
@@ -767,7 +767,7 @@ class TestCmdProfile:
                 side_effect=FileNotFoundError("file not found: /no/such/binary"),
             ),
             patch(
-                "llama_cli.commands.profile.create_default_profile_registry",
+                "llama_manager.profile_orchestrator.create_default_profile_registry",
                 return_value=registry,
             ),
         ):
@@ -797,7 +797,7 @@ class TestCmdProfile:
             with (
                 patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
                 patch(
-                    "llama_cli.commands.profile._resolve_bench_bin",
+                    "llama_manager.profile_orchestrator.resolve_benchmark_binary",
                     return_value="/fake/llama-bench",
                 ),
                 patch("llama_cli.commands.profile.require_executable"),
@@ -813,7 +813,7 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
-                    "llama_cli.commands.profile.create_default_profile_registry",
+                    "llama_manager.profile_orchestrator.create_default_profile_registry",
                     return_value=registry,
                 ),
             ):
@@ -885,7 +885,7 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
-                    "llama_cli.commands.profile.create_default_profile_registry",
+                    "llama_manager.profile_orchestrator.create_default_profile_registry",
                     return_value=registry,
                 ),
             ):
@@ -917,7 +917,7 @@ class TestCmdProfile:
                 with (
                     patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
                     patch(
-                        "llama_cli.commands.profile._resolve_bench_bin",
+                        "llama_manager.profile_orchestrator.resolve_benchmark_binary",
                         return_value="/fake/llama-bench",
                     ),
                     patch("llama_cli.commands.profile.require_executable"),
@@ -935,7 +935,7 @@ class TestCmdProfile:
                     patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                     patch("llama_cli.commands.profile.write_profile") as mock_write,
                     patch(
-                        "llama_cli.commands.profile.create_default_profile_registry",
+                        "llama_manager.profile_orchestrator.create_default_profile_registry",
                         return_value=registry,
                     ),
                 ):
@@ -963,7 +963,7 @@ class TestCmdProfile:
             with (
                 patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
                 patch(
-                    "llama_cli.commands.profile._resolve_bench_bin",
+                    "llama_manager.profile_orchestrator.resolve_benchmark_binary",
                     return_value="/fake/llama-bench",
                 ),
                 patch("llama_cli.commands.profile.require_executable"),
@@ -979,7 +979,7 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
-                    "llama_cli.commands.profile.create_default_profile_registry",
+                    "llama_manager.profile_orchestrator.create_default_profile_registry",
                     return_value=registry,
                 ),
             ):

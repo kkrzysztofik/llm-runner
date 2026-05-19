@@ -8,8 +8,6 @@ from textual.binding import Binding
 from textual.containers import Container
 from textual.css.query import NoMatches
 
-from llama_manager.config import create_default_profile_registry
-
 from .components.build import BuildModalScreen
 from .components.config_modal import ConfigModal, ConfigPayload
 from .components.menu import CommandMenu
@@ -43,10 +41,7 @@ class DashboardApp(App[None]):
         Binding("ctrl+c", "cancel_pending_prompt", "Cancel"),
         Binding("escape", "cancel_pending_prompt", "Cancel"),
         Binding("r", "refresh_dashboard", "Refresh"),
-        Binding("p", "profile", "Profile"),
-        Binding("P", "profile", "Profile"),
         Binding("b", "build", "Build"),
-        Binding("s", "smoke", "Smoke"),
         Binding("a", "add_slot", "Add Slot"),
         Binding("c", "open_config", "Config"),
         Binding("y", "confirm", "Confirm"),
@@ -136,28 +131,13 @@ class DashboardApp(App[None]):
         if self._profile_options_cache is not None and self._profile_cache_config_id == config_id:
             return self._profile_options_cache
 
-        registry = create_default_profile_registry(self.controller.config)
-        self._profile_options_cache = [
-            (
-                f"{profile.profile_id} - {profile.description}",
-                profile.profile_id,
-            )
-            for profile in registry.profiles
-        ]
+        self._profile_options_cache = self.view_model.profile_options(self.controller.config)
         self._profile_cache_config_id = config_id
         return self._profile_options_cache
 
     def action_build(self) -> None:
         screen = BuildModalScreen(last_backend=self.last_build_backend)
         self.push_screen(screen, self._handle_build_modal_result)
-
-    def action_smoke(self) -> None:
-        self.controller.request_smoke()
-        self.refresh_dashboard()
-
-    def action_profile(self) -> None:
-        self.controller.request_profile()
-        self.refresh_dashboard()
 
     def action_confirm(self) -> None:
         self.controller.acknowledge_risk()

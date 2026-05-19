@@ -757,33 +757,33 @@ class TestBuildSlotConfigs:
     """T090: _build_slot_configs mode branches, slot resolution, and error paths."""
 
     def test_build_slot_configs_both_returns_two_slots(self) -> None:
-        """mode 'both' should return summary-balanced and qwen35-coding tuples."""
+        """mode 'both' should return summary-balanced and qwen35-coding targets."""
         from llama_cli.commands.smoke import _build_slot_configs
 
         targets = _build_slot_configs("both")
 
         assert len(targets) == 2
         # First slot: summary-balanced
-        assert targets[0][0] == "summary-balanced"
-        assert targets[0][2] == "127.0.0.1"
-        assert targets[0][3] == 8080  # summary_balanced_port
+        assert targets[0].slot_id == "summary-balanced"
+        assert targets[0].host == "127.0.0.1"
+        assert targets[0].port == 8080  # summary_balanced_port
         # Second slot: qwen35-coding
-        assert targets[1][0] == "qwen35-coding"
-        assert targets[1][2] == "127.0.0.1"
-        assert targets[1][3] == 8081  # qwen35_port
+        assert targets[1].slot_id == "qwen35-coding"
+        assert targets[1].host == "127.0.0.1"
+        assert targets[1].port == 8081  # qwen35_port
 
     def test_build_slot_configs_slot_resolves_port_and_model(
         self,
     ) -> None:
-        """mode 'slot' with slot_id should return one tuple with resolved port/model."""
+        """mode 'slot' with slot_id should return one target with resolved port/model."""
         from llama_cli.commands.smoke import _build_slot_configs
 
         targets = _build_slot_configs("slot", "summary-fast")
 
         assert len(targets) == 1
-        assert targets[0][0] == "summary-fast"
-        assert targets[0][2] == "127.0.0.1"
-        assert targets[0][3] == 8082  # summary_fast_port
+        assert targets[0].slot_id == "summary-fast"
+        assert targets[0].host == "127.0.0.1"
+        assert targets[0].port == 8082  # summary_fast_port
 
     def test_build_slot_configs_slot_missing_id_exits(self) -> None:
         """mode 'slot' without slot_id should exit with code 1 and stderr message."""
@@ -882,44 +882,6 @@ class TestResolveSlotModel:
 # ---------------------------------------------------------------------------
 # T093 — _probe_server delegation (line 141-148)
 # ---------------------------------------------------------------------------
-
-
-class TestProbeServer:
-    """T093: _probe_server delegates to probe_slot with correct args."""
-
-    def test_probe_server_calls_probe_slot_with_args(self) -> None:
-        """_probe_server should call probe_slot(host, port, smoke_cfg, model_path, model_id, expected_model_id=None)."""
-        from unittest.mock import MagicMock, patch
-
-        from llama_cli.commands.smoke import _probe_server
-        from llama_manager.probe import SmokeProbeResult
-
-        model_path = "/path/to/model.gguf"
-        host = "127.0.0.1"
-        port = 9090
-        smoke_cfg = MagicMock()
-        smoke_cfg.model_id_override = "test-model"
-
-        expected_result = SmokeProbeResult(
-            slot_id=f"{host}:{port}",
-            status=SmokeProbeStatus.PASS,
-            phase_reached=MagicMock(),
-        )
-
-        with patch(
-            "llama_cli.commands.smoke.probe_slot", return_value=expected_result
-        ) as mock_probe:
-            result = _probe_server(model_path, host, port, smoke_cfg)
-
-        mock_probe.assert_called_once_with(
-            host=host,
-            port=port,
-            smoke_cfg=smoke_cfg,
-            model_path=model_path,
-            model_id=smoke_cfg.model_id_override,
-            expected_model_id=None,
-        )
-        assert result is expected_result
 
 
 # ---------------------------------------------------------------------------
@@ -1055,18 +1017,31 @@ class TestBuildSmokeConfig:
 
 
 class TestRunProbes:
-    """T096: _run_probes calls _probe_server per target and sleep before second target."""
+    """T096: _run_probes delegates to manager and returns results."""
 
-    def test_run_probes_calls_probe_once_per_target(self) -> None:
-        """_run_probes should call _probe_server once for each target."""
+    def test_run_probes_returns_results(self) -> None:
+        """_run_probes should return results from the manager."""
         from unittest.mock import MagicMock, patch
 
         from llama_cli.commands.smoke import _run_probes
         from llama_manager.probe import SmokeProbeResult
+        from llama_manager.smoke import SmokeTarget
 
         targets = [
-            ("slot1", "/model1.gguf", "127.0.0.1", 8080),
-            ("slot2", "/model2.gguf", "127.0.0.1", 8081),
+            SmokeTarget(
+                slot_id="slot1",
+                model="/model1.gguf",
+                host="127.0.0.1",
+                port=8080,
+                backend="llama_cpp",
+            ),
+            SmokeTarget(
+                slot_id="slot2",
+                model="/model2.gguf",
+                host="127.0.0.1",
+                port=8081,
+                backend="llama_cpp",
+            ),
         ]
         smoke_cfg = MagicMock()
         smoke_cfg.inter_slot_delay_s = 0
@@ -1077,55 +1052,39 @@ class TestRunProbes:
             phase_reached=MagicMock(),
         )
 
-        with patch(
-            "llama_cli.commands.smoke._probe_server", return_value=mock_result
-        ) as mock_probe:
+        with (
+            patch(
+                "llama_cli.commands.smoke.run_smoke_probes",
+            ) as mock_manager,
+        ):
+            mock_manager.return_value = MagicMock(results=[mock_result, mock_result])
             results = _run_probes(targets, smoke_cfg)
 
         assert len(results) == 2
-        assert mock_probe.call_count == 2
-
-    def test_run_probes_sleeps_before_second_target_when_delay_gt_0(
-        self,
-    ) -> None:
-        """_run_probes should call time.sleep before the second target when delay > 0."""
-        from unittest.mock import MagicMock, patch
-
-        from llama_cli.commands.smoke import _run_probes
-        from llama_manager.probe import SmokeProbeResult
-
-        targets = [
-            ("slot1", "/model1.gguf", "127.0.0.1", 8080),
-            ("slot2", "/model2.gguf", "127.0.0.1", 8081),
-        ]
-        smoke_cfg = MagicMock()
-        smoke_cfg.inter_slot_delay_s = 3
-
-        mock_result = SmokeProbeResult(
-            slot_id="slot1",
-            status=SmokeProbeStatus.PASS,
-            phase_reached=MagicMock(),
-        )
-
-        with (
-            patch("llama_cli.commands.smoke._probe_server", return_value=mock_result),
-            patch("llama_cli.commands.smoke.time.sleep") as mock_sleep,
-        ):
-            _run_probes(targets, smoke_cfg)
-
-        assert mock_sleep.call_count == 1
-        mock_sleep.assert_called_once_with(3)
 
     def test_run_probes_no_sleep_when_delay_is_zero(self) -> None:
-        """_run_probes should not call time.sleep when delay is 0."""
+        """_run_probes should not call sleep when delay is 0 (manager handles this)."""
         from unittest.mock import MagicMock, patch
 
         from llama_cli.commands.smoke import _run_probes
         from llama_manager.probe import SmokeProbeResult
+        from llama_manager.smoke import SmokeTarget
 
         targets = [
-            ("slot1", "/model1.gguf", "127.0.0.1", 8080),
-            ("slot2", "/model2.gguf", "127.0.0.1", 8081),
+            SmokeTarget(
+                slot_id="slot1",
+                model="/model1.gguf",
+                host="127.0.0.1",
+                port=8080,
+                backend="llama_cpp",
+            ),
+            SmokeTarget(
+                slot_id="slot2",
+                model="/model2.gguf",
+                host="127.0.0.1",
+                port=8081,
+                backend="llama_cpp",
+            ),
         ]
         smoke_cfg = MagicMock()
         smoke_cfg.inter_slot_delay_s = 0
@@ -1137,12 +1096,14 @@ class TestRunProbes:
         )
 
         with (
-            patch("llama_cli.commands.smoke._probe_server", return_value=mock_result),
-            patch("llama_cli.commands.smoke.time.sleep") as mock_sleep,
+            patch(
+                "llama_cli.commands.smoke.run_smoke_probes",
+            ) as mock_manager,
         ):
-            _run_probes(targets, smoke_cfg)
+            mock_manager.return_value = MagicMock(results=[mock_result, mock_result])
+            results = _run_probes(targets, smoke_cfg)
 
-        assert mock_sleep.call_count == 0
+        assert len(results) == 2
 
 
 # ---------------------------------------------------------------------------

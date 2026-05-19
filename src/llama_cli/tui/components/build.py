@@ -4,19 +4,24 @@ Contains the legacy BuildPanel (unused, kept for reference) and the active
 BuildModalScreen that drives the multi-step build wizard workflow.
 """
 
+import re
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
+from textual.widget import Widget
 from textual.widgets import (
     Button,
     Checkbox,
-    DataTable,
     Input,
+    LoadingIndicator,
     Log,
     ProgressBar,
     RadioButton,
@@ -77,6 +82,72 @@ _BACKEND_OPTIONS: list[tuple[str, str]] = [
     ("Both (SYCL + CUDA)", "both"),
 ]
 
+ReadinessLevel = Literal["loading", "current", "needs_update", "missing"]
+BackendKey = Literal["sycl", "cuda"]
+
+_LOADING_DETAIL_LINES: tuple[str, str, str] = (
+    "[bold]Binary:[/] …",
+    "[bold]Source:[/] …",
+    "[bold]Remote:[/] …",
+)
+
+
+@dataclass(frozen=True)
+class BackendReadiness:
+    """Summarized build readiness for one backend card."""
+
+    level: ReadinessLevel
+    badge: str
+    binary_line: str
+    source_line: str
+    remote_line: str
+
+
+class BackendStatusCard(Widget):
+    """Per-backend status card with a header spinner until status is fetched."""
+
+    def __init__(self, backend_name: str, *, card_id: str) -> None:
+        super().__init__(id=card_id, classes="build-backend-card")
+        self._backend_name = backend_name
+        self.can_focus = False
+
+    def compose(self) -> ComposeResult:
+        yield Horizontal(
+            Static(f"[bold]{self._backend_name}[/]", classes="build-backend-name"),
+            LoadingIndicator(classes="build-backend-spinner"),
+            Static("", classes="build-backend-badge"),
+            classes="build-backend-header",
+        )
+        for line in _LOADING_DETAIL_LINES:
+            yield Static(line, classes="build-backend-line")
+
+    def set_status(self, status: BuildStatus | None) -> None:
+        """Show header spinner + placeholders, or badge and detail lines."""
+        header = self.query_one(".build-backend-header", Horizontal)
+        spinner = header.query_one(".build-backend-spinner", LoadingIndicator)
+        badge = header.query_one(".build-backend-badge", Static)
+        lines = list(self.query(".build-backend-line"))
+
+        if status is None:
+            spinner.display = True
+            badge.display = False
+            badge.update("")
+            badge.set_classes("build-backend-badge")
+            for index, placeholder in enumerate(_LOADING_DETAIL_LINES):
+                if index < len(lines):
+                    cast(Static, lines[index]).update(placeholder)
+            return
+
+        spinner.display = False
+        badge.display = True
+        readiness = derive_backend_readiness(status)
+        badge.update(readiness.badge)
+        badge.set_classes(f"build-backend-badge build-badge-{readiness.level}")
+        if len(lines) >= 3:
+            cast(Static, lines[0]).update(readiness.binary_line)
+            cast(Static, lines[1]).update(readiness.source_line)
+            cast(Static, lines[2]).update(readiness.remote_line)
+
 
 class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
     """Multi-step build wizard modal screen.
@@ -117,7 +188,9 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
         # Widgets — created lazily per step
         self._select_backend: RadioSet | None = None
-        self._status_panel: DataTable | None = None
+        self._status_cards: Vertical | None = None
+        self._sycl_card: BackendStatusCard | None = None
+        self._cuda_card: BackendStatusCard | None = None
         self._btn_next: Button | None = None
         self._btn_back: Button | None = None
         self._btn_cancel: Button | None = None
@@ -163,12 +236,42 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
     # -- Lifecycle ----------------------------------------------------------
 
     def on_mount(self) -> None:
-        """Fetch build status for both backends and schedule step 1 render."""
-        config = self._dashboard_app.controller.config
-        self._wizard_state["sycl_status"] = get_build_status(BuildBackend.SYCL, config)
-        self._wizard_state["cuda_status"] = get_build_status(BuildBackend.CUDA, config)
-        # Defer rendering until the screen is fully attached
+        """Render step 1 immediately; fetch build status on a background worker."""
+        self._wizard_state["sycl_status"] = None
+        self._wizard_state["cuda_status"] = None
         self.call_later(self._render_step)
+        self._fetch_build_status_worker()
+
+    @work(thread=True, exclusive=True)
+    def _fetch_build_status_worker(self) -> None:
+        """Probe SYCL and CUDA build status off the UI thread; apply each as it completes."""
+        config = self._dashboard_app.controller.config
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = {
+                pool.submit(get_build_status, BuildBackend.SYCL, config): "sycl",
+                pool.submit(get_build_status, BuildBackend.CUDA, config): "cuda",
+            }
+            for future in as_completed(futures):
+                backend_key = futures[future]
+                status = future.result()
+                self.app.call_from_thread(self._apply_single_backend_status, backend_key, status)
+
+    def _screen_can_apply_status(self) -> bool:
+        """Return True when the modal is still attached and can accept UI updates."""
+        return bool(self.is_attached)
+
+    def _apply_single_backend_status(self, backend: BackendKey, status: BuildStatus) -> None:
+        """Store one backend's status and refresh its card when step 1 is visible."""
+        if not self._screen_can_apply_status():
+            return
+        if backend == "sycl":
+            self._wizard_state["sycl_status"] = status
+            if self._sycl_card is not None:
+                self._sycl_card.set_status(status)
+        else:
+            self._wizard_state["cuda_status"] = status
+            if self._cuda_card is not None:
+                self._cuda_card.set_status(status)
 
     def _render_step(self) -> None:
         """Clear and re-compose the current step inside the placeholder."""
@@ -219,40 +322,40 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         )
         self._select_backend = sel
 
-        status = self._build_status_table()
-        self._status_panel = status
+        status_cards = self._build_status_cards()
 
         self._btn_cancel = Button("Cancel", id="build-cancel", classes="modal-button-cancel")
         self._btn_next = Button("Next", id="build-next", classes="modal-button-success")
         actions = Horizontal(self._btn_cancel, self._btn_next, classes="modal-actions")
 
         parent.mount(
-            Container(title, label, sel, status, actions, classes="build-wizard-step-select")
+            Container(title, label, sel, status_cards, actions, classes="build-wizard-step-select")
         )
 
-    def _build_status_table(self) -> DataTable:
-        """Build a Textual DataTable showing artifact/source/remote status per backend."""
-        table: DataTable[str] = DataTable(
-            id="build-status",
-            show_cursor=False,
-            cursor_type="none",
+    def _refresh_status_cards(self) -> None:
+        """Update step-1 status cards in place after async fetch completes."""
+        if self._wizard_state["step"] != self.STEP_SELECT:
+            return
+        if self._sycl_card is not None:
+            self._sycl_card.set_status(self._wizard_state.get("sycl_status"))
+        if self._cuda_card is not None:
+            self._cuda_card.set_status(self._wizard_state.get("cuda_status"))
+
+    def _build_status_cards(self) -> Vertical:
+        """Build per-backend status cards with loading indicators until fetch completes."""
+        sycl_card = BackendStatusCard("SYCL", card_id="build-status-sycl")
+        cuda_card = BackendStatusCard("CUDA", card_id="build-status-cuda")
+        self._sycl_card = sycl_card
+        self._cuda_card = cuda_card
+        sycl_card.set_status(self._wizard_state.get("sycl_status"))
+        cuda_card.set_status(self._wizard_state.get("cuda_status"))
+        self._status_cards = Vertical(
+            sycl_card,
+            cuda_card,
+            id="build-status-cards",
+            classes="build-status-cards",
         )
-        table.can_focus = False
-        table.add_columns("Backend", "Artifact", "Source", "Remote")
-
-        for backend_str, status in [
-            ("SYCL", self._wizard_state.get("sycl_status")),
-            ("CUDA", self._wizard_state.get("cuda_status")),
-        ]:
-            if status is None:
-                artifact_txt = source_txt = remote_txt = "—"
-            else:
-                artifact_txt = _artifact_status_text(status)
-                source_txt = _source_status_text(status)
-                remote_txt = _remote_status_text(status)
-
-            table.add_row(backend_str, artifact_txt, source_txt, remote_txt)
-        return table
+        return self._status_cards
 
     # -- Step 2/3: Build options -------------------------------------------
 
@@ -635,6 +738,69 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
 
 # -- Status text helpers (module-level for staticmethod compatibility) -------
+
+
+def _has_binary(status: BuildStatus) -> bool:
+    return status.artifact_exists or status.binary_exists_untracked
+
+
+def _binary_commit_prefix(status: BuildStatus) -> str | None:
+    if not status.binary_version_output:
+        return None
+    match = re.search(r"\(([0-9a-fA-F]+)\)", status.binary_version_output)
+    if not match:
+        return None
+    return match.group(1)[:8]
+
+
+def derive_backend_readiness(status: BuildStatus | None) -> BackendReadiness:
+    """Derive card badge and detail lines from a BuildStatus snapshot."""
+    if status is None:
+        return BackendReadiness(
+            level="loading",
+            badge="",
+            binary_line="",
+            source_line="",
+            remote_line="",
+        )
+
+    binary_line = f"[bold]Binary:[/] {_artifact_status_text(status)}"
+    source_line = f"[bold]Source:[/] {_source_status_text(status)}"
+    remote_line = f"[bold]Remote:[/] {_remote_status_text(status)}"
+
+    if not status.source_exists:
+        return BackendReadiness(
+            level="missing",
+            badge="Missing",
+            binary_line=binary_line,
+            source_line=source_line,
+            remote_line=remote_line,
+        )
+
+    level: ReadinessLevel = "current"
+    if not _has_binary(status) or (
+        status.source_head_sha
+        and status.remote_branch_sha
+        and status.source_head_sha != status.remote_branch_sha
+    ):
+        level = "needs_update"
+    if level == "current":
+        binary_commit = _binary_commit_prefix(status)
+        if binary_commit and status.source_head_sha and binary_commit != status.source_head_sha[:8]:
+            level = "needs_update"
+
+    badge_by_level = {
+        "current": "Current",
+        "needs_update": "Needs update",
+        "missing": "Missing",
+    }
+    return BackendReadiness(
+        level=level,
+        badge=badge_by_level[level],
+        binary_line=binary_line,
+        source_line=source_line,
+        remote_line=remote_line,
+    )
 
 
 def _artifact_status_text(status: BuildStatus) -> str:

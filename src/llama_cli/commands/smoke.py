@@ -13,7 +13,6 @@ Usage::
 import argparse
 import dataclasses
 import sys
-import time
 import typing
 from typing import Any
 
@@ -27,7 +26,10 @@ from llama_manager import (
     Config,
     SmokeCompositeReport,
     SmokeProbeConfiguration,
+    SmokeTarget,
     resolve_runtime_dir,
+    resolve_smoke_targets,
+    run_smoke_probes,
 )
 from llama_manager.config import (
     ServerConfig,
@@ -35,9 +37,8 @@ from llama_manager.config import (
     create_smoke_config,
     resolve_profile_config,
     resolve_profile_id,
-    resolve_run_group_configs,
 )
-from llama_manager.probe import SmokeProbeResult, probe_slot
+from llama_manager.probe import SmokeProbeResult
 from llama_manager.probe.smoke import _ensure_report_dir
 
 
@@ -45,11 +46,6 @@ def _valid_slot_labels(config: Config) -> str:
     """Return user-facing slot labels from the canonical profile registry."""
     registry = create_default_profile_registry(config)
     return ", ".join(profile.alias for profile in registry.profiles)
-
-
-def _target_from_server_config(server_cfg: ServerConfig) -> tuple[str, str, str, int]:
-    """Convert a resolved ServerConfig into a smoke target tuple."""
-    return (server_cfg.alias, server_cfg.model, server_cfg.bind_address, server_cfg.port)
 
 
 def _resolve_smoke_slot_config(config: Config, slot_id: str) -> ServerConfig:
@@ -65,32 +61,33 @@ def _resolve_smoke_slot_config(config: Config, slot_id: str) -> ServerConfig:
 def _build_slot_configs(
     mode: str,
     slot_id: str | None = None,
-) -> list[tuple[str, str, str, int]]:
-    """Build list of (slot_id, model, host, port) for the given mode.
+) -> list[SmokeTarget]:
+    """Build list of SmokeTarget for the given mode.
 
     Args:
         mode: Either "both" or "slot".
         slot_id: User-supplied slot identifier (required when mode is "slot").
 
     Returns:
-        List of (slot_id, model_path, host, port) tuples.
+        List of SmokeTarget objects.
 
     Raises:
         SystemExit: If mode is invalid.
     """
     cfg = Config()
-    registry = create_default_profile_registry(cfg)
 
     if mode == "both":
-        return [
-            _target_from_server_config(server_cfg)
-            for server_cfg in resolve_run_group_configs(registry, "both")
-        ]
+        targets = resolve_smoke_targets(cfg, "both")
+        return list(targets)
     if mode == "slot":
         if not slot_id:
             emit_error("'slot' mode requires a slot ID argument")
             sys.exit(1)
-        return [_target_from_server_config(_resolve_smoke_slot_config(cfg, slot_id))]
+        targets = resolve_smoke_targets(cfg, "slot", slot_id)
+        if not targets:
+            emit_error(f"unknown slot '{slot_id}'. Valid slots: {_valid_slot_labels(cfg)}")
+            sys.exit(1)
+        return list(targets)
 
     emit_error(f"unknown smoke mode '{mode}'. Valid modes: both, slot")
     sys.exit(1)
@@ -126,33 +123,6 @@ def _resolve_slot_model(cfg: Config, slot_id: str) -> str:
         SystemExit: If slot_id is unknown.
     """
     return _resolve_smoke_slot_config(cfg, slot_id).model
-
-
-def _probe_server(
-    model_path: str,
-    host: str,
-    port: int,
-    smoke_cfg: SmokeProbeConfiguration,
-) -> SmokeProbeResult:
-    """Probe a single server instance.
-
-    Args:
-        model_path: Path to the GGUF model file.
-        host: Server hostname.
-        port: Server port.
-        smoke_cfg: Smoke probe configuration.
-
-    Returns:
-        SmokeProbeResult with probe outcome.
-    """
-    return probe_slot(
-        host=host,
-        port=port,
-        smoke_cfg=smoke_cfg,
-        model_path=model_path,
-        model_id=smoke_cfg.model_id_override,
-        expected_model_id=None,
-    )
 
 
 def _validate_smoke_args(parsed: argparse.Namespace) -> int | None:
@@ -211,26 +181,22 @@ def _build_smoke_config(parsed: argparse.Namespace) -> SmokeProbeConfiguration:
 
 
 def _run_probes(
-    targets: list[tuple[str, str, str, int]],
+    targets: list[SmokeTarget],
     smoke_cfg: SmokeProbeConfiguration,
 ) -> list[SmokeProbeResult]:
     """Run smoke probes sequentially against server targets.
 
+    Delegates to the manager's run_smoke_probes function.
+
     Args:
-        targets: List of (slot_id, model, host, port) tuples.
+        targets: List of SmokeTarget objects.
         smoke_cfg: Smoke probe configuration.
 
     Returns:
         List of SmokeProbeResult objects.
     """
-    results: list[SmokeProbeResult] = []
-    for idx, (_sid, model, host, port) in enumerate(targets):
-        if idx > 0 and smoke_cfg.inter_slot_delay_s > 0:
-            time.sleep(smoke_cfg.inter_slot_delay_s)
-
-        result = _probe_server(model, host, port, smoke_cfg)
-        results.append(result)
-    return results
+    report = run_smoke_probes(targets, smoke_cfg)
+    return list(report.results)
 
 
 def run_smoke(args: list[str]) -> int:
@@ -261,7 +227,7 @@ def run_smoke(args: list[str]) -> int:
     # Build smoke probe configuration
     smoke_cfg = _build_smoke_config(parsed)
 
-    # Run probes
+    # Run probes (manager returns list of results)
     results = _run_probes(targets, smoke_cfg)
 
     # Build composite report

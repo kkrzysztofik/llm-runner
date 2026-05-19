@@ -412,3 +412,19 @@ For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
 specs/001-m4-op-hardening/plan.md
 <!-- SPECKIT END -->
+
+## Learned User Preferences
+
+- Remove smoke testing and llama.cpp GPU profiling from the **TUI only**; keep `llm-runner smoke` and `llm-runner profile` CLI commands and backend libraries unless the user explicitly requests full removal.
+- When removing smoke or profiling, confirm TUI-only vs CLI/libraries scope before deleting shared modules.
+- Do not edit attached Speckit/plan files during “implement the plan” work—change code and tests only.
+- Ask scope-clarifying questions before large removals (smoke/profile, profiling cache) rather than assuming full deletion.
+
+## Learned Workspace Facts
+
+- For build wizard binary display, run `llama-server --version` on the executable and parse the `version:` line; do not substitute git `source_head_sha` as the binary version.
+- SYCL `llama-server --version` probes need oneAPI via `get_build_env_cmd()` in `build_pipeline/utils.py` (sources `/opt/intel/oneapi/setvars.sh` when present).
+- Build wizard step 1 must mount immediately: fetch `get_build_status` on a Textual `@work(thread=True)` worker with parallel SYCL/CUDA probes; show Loading… until results apply via `app.call_from_thread`.
+- Build wizard “Artifact” means provenance JSON at `builds_dir/{sycl|cuda}/build-artifact.json`; untracked binaries fall back to `llama_server_bin_intel` / `llama_server_bin_nvidia` on Config.
+- Default runtime binaries live under `llama_cpp_root`: SYCL at `build/bin/llama-server`, CUDA at `build_cuda/bin/llama-server`; provenance JSON lives under XDG state `builds_dir`.
+- llama.cpp build documentation lives under `docs/build/` (linked from `docs/ARCHITECTURE.md`).

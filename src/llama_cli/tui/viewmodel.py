@@ -1,13 +1,13 @@
 """View models for the Textual dashboard."""
 
-import psutil
-
 from llama_manager import (
     GPUStats,
     ServerConfig,
     SlotState,
+    resolve_slot_runtime_status,
 )
 from llama_manager.build_pipeline import BuildConfig
+from llama_manager.config import Config, create_default_profile_registry
 
 from .model import DashboardModel
 from .types import (
@@ -33,10 +33,8 @@ class DashboardViewModel:
 
     def command_menu(self) -> CommandMenuState:
         return CommandMenuState(
-            profile_request=self.model.profile_request,
             risk_prompt=self.model.risk_prompt,
             build_request=self.model.build_request,
-            smoke_request=self.model.smoke_request,
         )
 
     def gpu_telemetry_lines(self) -> list[str]:
@@ -126,22 +124,7 @@ class DashboardViewModel:
             else:
                 notices.append("Hardware risk acknowledgement required [y/n]")
 
-        with self.model.profile_lock:
-            running_profiles = [
-                alias for alias, status in self.model.profile_status.items() if status == "running"
-            ]
-        if running_profiles:
-            notices.append(f"Profiles running: {', '.join(running_profiles)}")
-
         return notices
-
-    def active_profile_status(self) -> dict[str, str]:
-        with self.model.profile_lock:
-            return {
-                alias: status
-                for alias, status in self.model.profile_status.items()
-                if status != "idle"
-            }
 
     def column(self, slot_index: int) -> ServerColumnState | None:
         configs = self.model.configs
@@ -172,21 +155,21 @@ class DashboardViewModel:
         """Return the cached stale-profile warning for a config."""
         return self.model.stale_warnings.get(cfg.alias)
 
+    def profile_options(self, config: Config | None = None) -> list[tuple[str, str]]:
+        """Return display label/value pairs for the profile dropdown."""
+        registry = create_default_profile_registry(config)
+        return [
+            (
+                f"{profile.profile_id} - {profile.description}",
+                profile.profile_id,
+            )
+            for profile in registry.profiles
+        ]
+
     def _resolve_slot_status(self, alias: str) -> str:
         state = self.model.slot_states.get(alias, SlotState.OFFLINE.value)
-        status = state
-        if state == SlotState.RUNNING.value:
-            proc = self.model.server_processes.get(alias)
-            if not proc:
-                status = SlotState.CRASHED.value
-            elif hasattr(proc, "poll"):
-                if proc.poll() is not None:
-                    status = SlotState.CRASHED.value
-            else:
-                pid = getattr(proc, "pid", None)
-                if not (pid and psutil.pid_exists(pid)):
-                    status = SlotState.CRASHED.value
-        return status
+        proc = self.model.server_processes.get(alias)
+        return resolve_slot_runtime_status(state, proc)
 
     @staticmethod
     def _content_width(width: int | None) -> int:

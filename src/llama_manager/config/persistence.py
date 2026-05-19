@@ -5,8 +5,10 @@ Only the modal-exposed fields are written/read — the full Config dataclass
 handles all remaining fields via its own defaults and env-var factories.
 """
 
+import dataclasses
 import os
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -116,3 +118,79 @@ def _toml_value(value: Any) -> str:
         escaped = "".join(c if c.isprintable() else f"\\u{ord(c):04X}" for c in escaped)
         return f'"{escaped}"'
     raise TypeError(f"unsupported TOML value type: {type(value).__name__}")
+
+
+# Fields that require integer coercion from string input.
+_INT_FIELDS: frozenset[str] = frozenset(
+    {
+        "smoke_listen_timeout_s",
+        "smoke_http_request_timeout_s",
+        "smoke_first_token_timeout_s",
+        "smoke_total_chat_timeout_s",
+    }
+)
+
+
+@dataclasses.dataclass
+class ConfigUpdateResult:
+    """Result of applying config updates."""
+
+    success: bool
+    updated_fields: list[str]
+    errors: list[str]
+
+
+def apply_config_updates(
+    config: Config,
+    updates: Mapping[str, object],
+    *,
+    persist: bool = True,
+) -> ConfigUpdateResult:
+    """Apply configuration updates to a Config instance.
+
+    Validates known fields against the Config dataclass, coerces
+    integer fields from string input, and optionally persists to disk.
+
+    Args:
+        config: The Config instance to update.
+        updates: Mapping of field name → value.
+        persist: If True, write changes to the config file.
+
+    Returns:
+        ConfigUpdateResult with success status, updated fields, and errors.
+    """
+    updated_fields: list[str] = []
+    errors: list[str] = []
+
+    config_fields = {f.name for f in dataclasses.fields(config)}
+
+    for field_name, raw_value in updates.items():
+        # Skip unknown fields silently
+        if field_name not in config_fields:
+            continue
+
+        # Coerce integer fields
+        if field_name in _INT_FIELDS:
+            try:
+                value = int(raw_value)  # type: ignore[arg-type]
+            except ValueError, TypeError:
+                errors.append(f"Invalid value '{raw_value}' for {field_name} — config not saved.")
+                continue
+        else:
+            value = raw_value
+
+        setattr(config, field_name, value)
+        updated_fields.append(field_name)
+
+    # Persist if requested and no errors
+    if persist and updated_fields and not errors:
+        try:
+            save_config_to_file(config, config_file_path())
+        except OSError as exc:
+            errors.append(f"Config save failed: {exc}")
+
+    return ConfigUpdateResult(
+        success=len(errors) == 0,
+        updated_fields=updated_fields,
+        errors=errors,
+    )

@@ -27,6 +27,8 @@ from .enums import (
 )
 from .errors import ErrorDetail, MultiValidationError, ValidationResult
 from .persistence import (
+    ConfigUpdateResult,
+    apply_config_updates,
     build_config,
     config_file_path,
     load_config_overrides_from_file,
@@ -133,4 +135,6 @@ __all__ = [
     "config_file_path",
     "load_config_overrides_from_file",
     "save_config_to_file",
+    "ConfigUpdateResult",
+    "apply_config_updates",
 ]

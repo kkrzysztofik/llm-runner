@@ -24,15 +24,6 @@ def _command_menu_items(state: CommandMenuState) -> list[tuple[str, str]]:
         add_item("2", "CUDA")
         add_item("3", "Both")
         add_item("^C", "Cancel")
-    elif state.smoke_request:
-        add_item("1", "Both")
-        add_item("2", "Active Slot")
-        add_item("^C", "Cancel")
-    elif state.profile_request is not None:
-        add_item("1", "Balanced")
-        add_item("2", "Fast")
-        add_item("3", "Quality")
-        add_item("^C", "Cancel")
     elif state.risk_prompt is not None:
         add_item("y", "Confirm")
         add_item("n", "Abort")
@@ -43,8 +34,6 @@ def _command_menu_items(state: CommandMenuState) -> list[tuple[str, str]]:
         add_item("r", "Refresh")
         add_item("a", "Add slot")
         add_item("b", "Build")
-        add_item("s", "Smoke")
-        add_item("P", "Profile")
         add_item("c", "Config")
         add_item("^C", "Stop")
 
@@ -60,7 +49,7 @@ class CommandMenu(Widget):
     """Bottom command menu bar — context-aware hotkey display.
 
     Replaces the anonymous ``Static(id="menu")`` widget.  Renders different
-    key hints depending on the current TUI mode (normal / profile-select /
+    key hints depending on the current TUI mode (normal / build-select /
     risk-acknowledgement).
     """
 
