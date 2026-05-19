@@ -83,6 +83,7 @@ def _without_none(values: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_port_override_count(group: RunGroupSpec, port_overrides: tuple[int, ...]) -> None:
+    """Ensure port overrides do not exceed the number of profiles in the group."""
     if len(port_overrides) > len(group.profile_ids):
         raise RunProfileError(
             f"run group {group.group_id} accepts at most {len(group.profile_ids)} port override(s), "
@@ -91,6 +92,7 @@ def _validate_port_override_count(group: RunGroupSpec, port_overrides: tuple[int
 
 
 def _validate_resolved_profile_data(data: dict[str, Any]) -> None:
+    """Validate required fields and value ranges in resolved profile data."""
     port = data.get("port")
     if not isinstance(port, int) or not (1024 <= port <= 65535):
         raise ValueError(f"port must be between 1024 and 65535, got: {port}")

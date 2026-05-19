@@ -81,6 +81,7 @@ def _make_validation_error(
 
 
 def _lockfile_error(why_blocked: str, how_to_fix: str) -> ValidationException:
+    """Build a lockfile-integrity ValidationException."""
     return _make_validation_error(
         ErrorCode.LOCKFILE_INTEGRITY_FAILURE, LOCKFILE_CHECK_NAME, why_blocked, how_to_fix
     )
@@ -89,6 +90,7 @@ def _lockfile_error(why_blocked: str, how_to_fix: str) -> ValidationException:
 def _artifact_error(
     why_blocked: str, how_to_fix: str, check: str = ARTIFACT_CHECK_NAME
 ) -> ValidationException:
+    """Build an artifact-persistence ValidationException."""
     return _make_validation_error(
         ErrorCode.ARTIFACT_PERSISTENCE_FAILURE, check, why_blocked, how_to_fix
     )

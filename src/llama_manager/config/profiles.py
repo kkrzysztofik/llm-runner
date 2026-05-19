@@ -140,21 +140,25 @@ class RunProfileRegistry:
 
 
 def _require_text(value: str, field_name: str) -> None:
+    """Raise if *value* is empty or whitespace-only."""
     if not value.strip():
         raise RunProfileError(f"{field_name} must not be empty")
 
 
 def _require_positive_int(value: int, field_name: str) -> None:
+    """Raise if *value* is less than 1."""
     if value < 1:
         raise RunProfileError(f"{field_name} must be greater than 0")
 
 
 def _require_port(port: int) -> None:
+    """Raise if *port* is outside the valid TCP range (1–65535)."""
     if not (1 <= port <= 65535):
         raise RunProfileError(f"port must be between 1 and 65535, got: {port}")
 
 
 def _first_duplicate(values: Iterable[str]) -> str | None:
+    """Return the first value that appears more than once, or None."""
     seen: set[str] = set()
     for value in values:
         if value in seen:
