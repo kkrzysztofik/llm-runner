@@ -7,15 +7,14 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
 from textual.css.query import NoMatches
+from textual.widgets import Footer
 
 from .components.build import BuildModalScreen
 from .components.config_modal import ConfigModal, ConfigPayload
-from .components.menu import CommandMenu
 from .components.modal import AddSlotModal
 from .components.server_log import ServerLogPanel
 from .components.system_health import (
     CPUUsageWidget,
-    DateTimeWidget,
     MemorySwapWidget,
     SystemInfoWidget,
 )
@@ -24,6 +23,11 @@ from .types import BuildWizardResult
 
 if TYPE_CHECKING:
     from .controller import DashboardController
+
+_RISK_HIDDEN_ACTIONS = frozenset(
+    {"refresh_dashboard", "add_slot", "build", "open_config"},
+)
+_NORMAL_HIDDEN_ACTIONS = frozenset({"confirm", "reject"})
 
 
 class DashboardApp(App[None]):
@@ -38,8 +42,13 @@ class DashboardApp(App[None]):
     ]
     BINDINGS = [
         Binding("q", "quit_dashboard", "Quit", priority=True),
-        Binding("ctrl+c", "cancel_pending_prompt", "Cancel"),
-        Binding("escape", "cancel_pending_prompt", "Cancel"),
+        Binding(
+            "ctrl+c",
+            "cancel_pending_prompt",
+            "Cancel",
+            key_display="^C",
+        ),
+        Binding("escape", "cancel_pending_prompt", "Cancel", show=False),
         Binding("r", "refresh_dashboard", "Refresh"),
         Binding("b", "build", "Build"),
         Binding("a", "add_slot", "Add Slot"),
@@ -64,7 +73,21 @@ class DashboardApp(App[None]):
             with Container(id="content"):
                 for i in range(self.view_model.server_column_count()):
                     yield ServerLogPanel(i, self.view_model)
-            yield CommandMenu(self.view_model)
+        yield Footer(show_command_palette=False)
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """Control which bindings appear in the footer for the current mode."""
+        state = self.view_model.command_menu()
+
+        if state.build_request:
+            return action == "cancel_pending_prompt"
+
+        if state.risk_prompt is not None:
+            if action in _RISK_HIDDEN_ACTIONS:
+                return False
+            return not (action == "quit_dashboard" and state.risk_prompt.kind == "vram")
+
+        return action not in _NORMAL_HIDDEN_ACTIONS
 
     def on_mount(self) -> None:
         self.refresh_dashboard()
@@ -164,13 +187,12 @@ class DashboardApp(App[None]):
 
         # Refresh each leaf widget.  SystemStatusWidget and SystemHealthWidget
         # use compose(), so their children own their own repaints.
-        for widget_type in (DateTimeWidget, CPUUsageWidget, MemorySwapWidget, SystemInfoWidget):
+        for widget_type in (CPUUsageWidget, MemorySwapWidget, SystemInfoWidget):
             with contextlib.suppress(NoMatches):
                 self.query_one(widget_type).refresh(recompose=True)
         for panel in self.query(ServerLogPanel):
             panel.refresh(recompose=True)
-        with contextlib.suppress(NoMatches):
-            self.query_one(CommandMenu).refresh(recompose=True)
+        self.refresh_bindings()
 
     def _emit_status_toasts(self) -> None:
         notices = self.view_model.system_notices()

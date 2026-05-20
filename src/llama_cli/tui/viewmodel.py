@@ -13,6 +13,7 @@ from .model import DashboardModel
 from .types import (
     CommandMenuState,
     CPUCoreSnapshot,
+    DateTimeSnapshot,
     MemoryUsageSnapshot,
     ServerColumnState,
     SystemInfoSnapshot,
@@ -103,8 +104,8 @@ class DashboardViewModel:
     def system_info_snapshot(self) -> SystemInfoSnapshot:
         return self.model.system_info_snapshot()
 
-    def current_datetime_text(self) -> str:
-        return self.model.current_datetime_text()
+    def current_datetime_snapshot(self) -> DateTimeSnapshot:
+        return self.model.current_datetime_snapshot()
 
     def system_notices(self) -> list[str]:
         notices: list[str] = []

@@ -162,27 +162,3 @@
     overflow-y: auto;
 }
 
-.command-menu {
-    layout: horizontal;
-    height: 1;
-}
-
-.command-menu-item {
-    width: auto;
-    height: 1;
-}
-
-.command-menu-key {
-    width: auto;
-    min-width: 3;
-    padding: 0 1;
-    background: ansi_bright_yellow;
-    color: black;
-    text-style: bold;
-}
-
-.command-menu-description {
-    width: auto;
-    padding: 0 1;
-    color: ansi_bright_white;
-}

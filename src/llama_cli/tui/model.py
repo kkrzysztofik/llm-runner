@@ -7,6 +7,7 @@ and Rich renderables so it can be inspected independently from the UI layer.
 import threading
 import time
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, Literal
 
 import psutil
@@ -23,7 +24,7 @@ from llama_manager import (
 )
 from llama_manager.build_pipeline import BuildConfig
 
-from .types import MemoryUsageSnapshot, RiskPromptState, SystemInfoSnapshot
+from .types import DateTimeSnapshot, MemoryUsageSnapshot, RiskPromptState, SystemInfoSnapshot
 
 
 class DashboardModel:
@@ -144,6 +145,7 @@ class DashboardModel:
             uptime=data["uptime"],  # type: ignore[arg-type]
         )
 
-    def current_datetime_text(self) -> str:
-        """Return the current local date/time string for display."""
-        return time.strftime("%Y-%m-%d %H:%M:%S")
+    def current_datetime_snapshot(self) -> DateTimeSnapshot:
+        """Return the current local date for display (Wed 2026-05-20)."""
+        now = datetime.now()
+        return DateTimeSnapshot(date_text=f"{now.strftime('%a')} {now.strftime('%Y-%m-%d')}")

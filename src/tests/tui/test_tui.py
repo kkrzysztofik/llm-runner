@@ -78,22 +78,56 @@ class TestSystemHealthAlignment:
 
     def test_datetime_widget_composes_stylable_row(self) -> None:
         from textual.containers import Horizontal
-        from textual.widgets import Static
+        from textual.widgets import Digits, Static
 
+        from llama_cli.tui.components.digital_clock import DigitalClockWidget
         from llama_cli.tui.components.system_health import DateTimeWidget, SystemHealthRenderer
+        from llama_cli.tui.types import DateTimeSnapshot
 
-        sections = list(DateTimeWidget(SystemHealthRenderer()).compose())
+        renderer = SystemHealthRenderer()
+        renderer.current_datetime_snapshot = lambda: DateTimeSnapshot(  # type: ignore[method-assign]
+            date_text="Wed 2026-05-20"
+        )
+        sections = list(DateTimeWidget(renderer).compose())
 
         assert len(sections) == 1
-        assert isinstance(sections[0], Horizontal)
-        assert sections[0].has_class("system-health-inline-row")
-        children = sections[0]._pending_children
+        row = sections[0]
+        assert isinstance(row, Horizontal)
+        assert row.has_class("system-health-datetime-row")
+        children = row._pending_children
         assert isinstance(children[0], Static)
-        assert children[0].has_class("system-health-label")
-        assert children[0].has_class("system-health-datetime-label")
+        assert children[0].has_class("llm-runner-logo")
         assert isinstance(children[1], Static)
-        assert children[1].has_class("system-health-value")
-        assert children[1].has_class("system-health-datetime-value")
+        assert children[1].has_class("datetime-header-spacer")
+        assert isinstance(children[2], Horizontal)
+        assert children[2].has_class("datetime-far-right")
+        far_right = children[2]._pending_children
+        assert isinstance(far_right[0], Static)
+        assert far_right[0].has_class("datetime-date")
+        assert isinstance(far_right[1], DigitalClockWidget)
+        clock_parts = list(far_right[1].compose())
+        assert len(clock_parts) == 1
+        assert isinstance(clock_parts[0], Digits)
+        assert clock_parts[0].has_class("datetime-digits")
+
+    def test_digital_clock_widget_composes_digits_only(self) -> None:
+        from textual.widgets import Digits
+
+        from llama_cli.tui.components.digital_clock import DigitalClockWidget
+
+        sections = list(DigitalClockWidget().compose())
+        assert len(sections) == 1
+        assert isinstance(sections[0], Digits)
+        assert sections[0].has_class("datetime-digits")
+
+    def test_llm_runner_logo_reads_llm_block_letters(self) -> None:
+        from llama_cli.tui.components.digital_clock import LLM_RUNNER_LOGO, _clean_markup
+
+        clean_logo = _clean_markup(LLM_RUNNER_LOGO)
+        assert "██╗       ██╗" in clean_logo
+        assert "███╗   ███╗" in clean_logo
+        assert "╚█████╝" in clean_logo
+        assert LLM_RUNNER_LOGO.count("\n") == 6
 
     def test_system_info_widget_composes_stylable_rows(self) -> None:
         from textual.containers import Horizontal
@@ -214,6 +248,7 @@ class TestSystemHealthAlignment:
 
     def test_system_health_sections_use_available_width(self) -> None:
         import llama_cli.tui.components.system_health as system_health
+        from llama_cli.tui.types import DateTimeSnapshot
 
         base_renderer = system_health.SystemHealthRenderer()
         provider = cast(
@@ -233,7 +268,7 @@ class TestSystemHealthAlignment:
                     load_values=(0.1, 0.2, 0.3),
                     uptime="00:00:00",
                 ),
-                current_datetime_text=lambda: "2026-05-13 12:00:00",
+                current_datetime_snapshot=lambda: DateTimeSnapshot(date_text="Wed 2026-05-13"),
             ),
         )
         renderer = system_health.SystemHealthRenderer(provider)
@@ -255,7 +290,6 @@ class TestSystemHealthAlignment:
 
     def test_core_widgets_expose_semantic_css_classes(self) -> None:
         from llama_cli.tui.components.gpu_telemetry import GPUTelemetryWidget
-        from llama_cli.tui.components.menu import CommandMenu
         from llama_cli.tui.components.server_log import ServerLogPanel
         from llama_cli.tui.components.system_status import SystemStatusWidget
 
@@ -264,15 +298,12 @@ class TestSystemHealthAlignment:
         status = SystemStatusWidget()
         gpu = GPUTelemetryWidget(view_model)
         panel = ServerLogPanel(0, view_model)
-        menu = CommandMenu(view_model)
 
         assert status.id == "alerts"
         assert status.has_class("system-status")
         assert gpu.has_class("gpu-telemetry")
         assert panel.has_class("column")
         assert panel.has_class("server-log-panel")
-        assert menu.id == "menu"
-        assert menu.has_class("command-menu")
 
     def test_gpu_telemetry_widget_composes_stylable_row(self) -> None:
         from textual.containers import Horizontal
@@ -1899,28 +1930,56 @@ def test_add_slot_modal_composes_shared_modal_classes() -> None:
     assert action_buttons[1].has_class("modal-button-success")
 
 
-def test_command_menu_composes_stylable_items() -> None:
-    from textual.containers import Horizontal
-    from textual.widgets import Static
+class TestDashboardAppCheckAction:
+    """Footer visibility is driven by DashboardApp.check_action()."""
 
-    from llama_cli.tui.components.menu import CommandMenu
+    @staticmethod
+    def _app_for_state(
+        *,
+        risk_prompt: Any = None,
+        build_request: bool = False,
+    ) -> Any:
+        from llama_cli.tui.textual_app import DashboardApp
+        from llama_cli.tui.types import CommandMenuState
 
-    view_model = MagicMock()
-    view_model.command_menu.return_value = SimpleNamespace(
-        build_request=False,
-        risk_prompt=None,
-    )
+        controller = MagicMock()
+        controller.view_model.command_menu.return_value = CommandMenuState(
+            risk_prompt=risk_prompt,
+            build_request=build_request,
+        )
+        return DashboardApp(controller)
 
-    items = list(CommandMenu(view_model).compose())
+    def test_normal_mode_shows_dashboard_actions(self) -> None:
+        app = self._app_for_state()
+        assert app.check_action("quit_dashboard", ()) is True
+        assert app.check_action("refresh_dashboard", ()) is True
+        assert app.check_action("confirm", ()) is False
+        assert app.check_action("reject", ()) is False
 
-    assert len(items) == 6
-    assert isinstance(items[0], Horizontal)
-    assert items[0].has_class("command-menu-item")
-    first_item_children = items[0]._pending_children
-    assert isinstance(first_item_children[0], Static)
-    assert first_item_children[0].has_class("command-menu-key")
-    assert isinstance(first_item_children[1], Static)
-    assert first_item_children[1].has_class("command-menu-description")
+    def test_risk_prompt_hides_dashboard_actions(self) -> None:
+        from llama_cli.tui.types import RiskPromptState
+
+        app = self._app_for_state(
+            risk_prompt=RiskPromptState(kind="hardware", acknowledged=False),
+        )
+        assert app.check_action("confirm", ()) is True
+        assert app.check_action("build", ()) is False
+        assert app.check_action("quit_dashboard", ()) is True
+
+    def test_vram_risk_hides_quit(self) -> None:
+        from llama_cli.tui.types import RiskPromptState
+
+        app = self._app_for_state(
+            risk_prompt=RiskPromptState(kind="vram", acknowledged=False),
+        )
+        assert app.check_action("quit_dashboard", ()) is False
+        assert app.check_action("confirm", ()) is True
+
+    def test_build_request_only_shows_cancel(self) -> None:
+        app = self._app_for_state(build_request=True)
+        assert app.check_action("cancel_pending_prompt", ()) is True
+        assert app.check_action("quit_dashboard", ()) is False
+        assert app.check_action("build", ()) is False
 
 
 @pytest.mark.anyio
@@ -2070,16 +2129,17 @@ async def test_dashboard_app_layout_geometry_regression() -> None:
     """CPUUsageWidget stays compact; system widgets above #content; non-zero sizes."""
     from llama_cli.tui.components.gpu_stats import GPUStatsPanel
     from llama_cli.tui.components.gpu_telemetry import GPUTelemetryWidget
-    from llama_cli.tui.components.menu import CommandMenu
     from llama_cli.tui.components.server_column import ServerColumnPanel
     from llama_cli.tui.components.system_health import (
         CPUUsageWidget,
+        DateTimeWidget,
         MemorySwapWidget,
         SystemInfoWidget,
     )
     from llama_cli.tui.textual_app import DashboardApp
     from llama_cli.tui.types import (
         CPUCoreSnapshot,
+        DateTimeSnapshot,
         MemoryUsageSnapshot,
         ServerColumnState,
         SystemInfoSnapshot,
@@ -2111,8 +2171,8 @@ async def test_dashboard_app_layout_geometry_regression() -> None:
             uptime="00:00:00",
         )
     )
-    controller.view_model.current_datetime_text = MagicMock(  # type: ignore[method-assign]
-        return_value="2026-05-13 12:00:00"
+    controller.view_model.current_datetime_snapshot = MagicMock(  # type: ignore[method-assign]
+        return_value=DateTimeSnapshot(date_text="Wed 2026-05-13")
     )
 
     controller.view_model.gpu_telemetry_lines = MagicMock(return_value=[])  # type: ignore[method-assign]
@@ -2136,13 +2196,19 @@ async def test_dashboard_app_layout_geometry_regression() -> None:
     async with app.run_test(size=(120, 30)) as pilot:
         await pilot.pause()
 
+        datetime_row = app.query_one(DateTimeWidget)
         cpu = app.query_one(CPUUsageWidget)
         mem = app.query_one(MemorySwapWidget)
         info = app.query_one(SystemInfoWidget)
         content = app.query_one("#content")
-        cmd_menu = app.query_one(CommandMenu)
 
+        assert datetime_row.region.height >= 7, (
+            f"DateTimeWidget height {datetime_row.region.height} < 7 (logo row)"
+        )
         assert cpu.region.height < 10, f"CPUUsageWidget height {cpu.region.height} >= 10"
+
+        datetime_bottom = datetime_row.region.y + datetime_row.region.height
+        assert content.region.y >= datetime_bottom
 
         assert mem.region.y + mem.region.height <= content.region.y
         assert info.region.y + info.region.height <= content.region.y
@@ -2151,7 +2217,18 @@ async def test_dashboard_app_layout_geometry_regression() -> None:
         assert list(app.query(ServerColumnPanel))
         assert list(app.query(GPUStatsPanel))
 
-        assert cmd_menu.region.height == 1, f"CommandMenu height {cmd_menu.region.height} != 1"
+        from textual.widgets import Footer
+
+        footer = app.query_one(Footer)
+        assert footer.region.height == 1, f"Footer height {footer.region.height} != 1"
+        assert footer.show_command_palette is False
+        descriptions = {
+            binding.description
+            for (_, binding, _enabled, _tooltip) in app.screen.active_bindings.values()
+            if binding.show and app.check_action(binding.action, ()) is not False
+        }
+        assert "Quit" in descriptions
+        assert "Refresh" in descriptions
 
 
 # =============================================================================

@@ -1,3 +1,8 @@
+$footer-key-background: ansi_bright_yellow;
+$footer-key-foreground: black;
+$footer-description-foreground: ansi_bright_white;
+$footer-description-background: transparent;
+
 Screen {
     layout: vertical;
     background: black;

@@ -7,7 +7,14 @@ from textual.containers import Container, Horizontal
 from textual.widget import Widget
 from textual.widgets import Static
 
-from llama_cli.tui.types import CPUCoreSnapshot, MemoryUsageSnapshot, SystemInfoSnapshot
+from llama_cli.tui.types import (
+    CPUCoreSnapshot,
+    DateTimeSnapshot,
+    MemoryUsageSnapshot,
+    SystemInfoSnapshot,
+)
+
+from .digital_clock import LLM_RUNNER_LOGO, DigitalClockWidget
 
 _SYSTEM_INFO_LABEL = "system-health-label system-info-label"
 _SYSTEM_INFO_PRIMARY_VALUE = "system-info-value system-info-primary-value"
@@ -23,7 +30,7 @@ class SystemHealthProvider(Protocol):
 
     def system_info_snapshot(self) -> SystemInfoSnapshot: ...
 
-    def current_datetime_text(self) -> str: ...
+    def current_datetime_snapshot(self) -> DateTimeSnapshot: ...
 
 
 class _EmptySystemHealthProvider:
@@ -44,8 +51,8 @@ class _EmptySystemHealthProvider:
             uptime="00:00:00",
         )
 
-    def current_datetime_text(self) -> str:
-        return ""
+    def current_datetime_snapshot(self) -> DateTimeSnapshot:
+        return DateTimeSnapshot(date_text="")
 
 
 class SystemHealthRenderer:
@@ -90,8 +97,8 @@ class SystemHealthRenderer:
     def system_info_snapshot(self) -> SystemInfoSnapshot:
         return self._provider.system_info_snapshot()
 
-    def current_datetime_text(self) -> str:
-        return self._provider.current_datetime_text()
+    def current_datetime_snapshot(self) -> DateTimeSnapshot:
+        return self._provider.current_datetime_snapshot()
 
     def _content_width(self, width: int | None) -> int:
         if width is None or width <= 0:
@@ -207,13 +214,16 @@ class DateTimeWidget(Widget):
         self._renderer = renderer
 
     def compose(self) -> ComposeResult:
+        snapshot = self._renderer.current_datetime_snapshot()
         yield Horizontal(
-            Static("Date/Time:", classes="system-health-label system-health-datetime-label"),
-            Static(
-                self._renderer.current_datetime_text(),
-                classes="system-health-value system-health-datetime-value",
+            Static(LLM_RUNNER_LOGO, markup=True, classes="llm-runner-logo"),
+            Static("", classes="datetime-header-spacer"),
+            Horizontal(
+                Static(snapshot.date_text, classes="datetime-date"),
+                DigitalClockWidget(),
+                classes="datetime-far-right",
             ),
-            classes="system-health-inline-row system-health-datetime-row",
+            classes="system-health-datetime-row",
         )
 
 

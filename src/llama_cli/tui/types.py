@@ -67,6 +67,13 @@ class SystemInfoSnapshot:
 
 
 @dataclass(frozen=True)
+class DateTimeSnapshot:
+    """Formatted date for the system health datetime row (e.g. Wed 2026-05-20)."""
+
+    date_text: str
+
+
+@dataclass(frozen=True)
 class BuildViewState:
     """State needed to render the build progress panel."""
 

@@ -1,6 +1,5 @@
 #alerts {
     height: auto;
-    max-height: 35%;
     layout: vertical;
 }
 
@@ -14,7 +13,48 @@
 }
 
 .system-health-datetime {
+    height: auto;
+}
+
+.system-health-datetime-row {
+    width: 100%;
+    height: auto;
+    layout: horizontal;
+}
+
+.llm-runner-logo {
+    width: auto;
+    height: auto;
+    color: ansi_bright_cyan;
+}
+
+.datetime-header-spacer {
+    width: 1fr;
     height: 1;
+}
+
+.datetime-far-right {
+    width: auto;
+    height: auto;
+    layout: horizontal;
+    content-align: right middle;
+}
+
+.datetime-date {
+    width: auto;
+    margin-right: 1;
+    color: ansi_bright_white;
+}
+
+.datetime-digits-wrap {
+    width: auto;
+    height: auto;
+}
+
+.datetime-digits {
+    width: auto;
+    color: ansi_bright_white;
+    text-style: bold;
 }
 
 .system-health-inline-row {

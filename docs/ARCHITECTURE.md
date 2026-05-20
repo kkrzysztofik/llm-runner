@@ -89,7 +89,7 @@ src/
 │       ├── model.py                # DashboardModel — mutable runtime state
 │       ├── modals.tcss             # Textual CSS: modal dialogs
 │       ├── system_status.tcss      # Textual CSS: system status bar
-│       ├── textual_app.py          # DashboardApp(App) — main Textual application
+│       ├── textual_app.py          # DashboardApp(App) — Footer + check_action bindings
 │       ├── textual_app.tcss        # Textual CSS: top-level layout
 │       ├── types.py                # TypedDicts for TUI components
 │       ├── viewmodel.py            # DashboardViewModel — display-only derived state
@@ -99,7 +99,6 @@ src/
 │           ├── config_modal.py     # Config modal display
 │           ├── gpu_stats.py        # GPU stats widget
 │           ├── gpu_telemetry.py    # GPU telemetry display
-│           ├── menu.py             # Command menu widget
 │           ├── modal.py            # Base modal utilities
 │           ├── server_column.py    # Server column layout
 │           ├── server_log.py       # Server log view
