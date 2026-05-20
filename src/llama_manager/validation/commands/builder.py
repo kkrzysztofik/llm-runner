@@ -96,6 +96,7 @@ class DryRunSlotPayload:
     vllm_eligibility: VllmEligibility
     warnings: list[str]
     validation_results: ValidationResults
+    server_config: ServerConfig | None = None
 
 
 def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[str]:
@@ -218,6 +219,7 @@ def build_dry_run_slot_payload(
         vllm_eligibility=vllm_eligibility,
         warnings=warnings,
         validation_results=validation_results,
+        server_config=cfg,
     )
 
 

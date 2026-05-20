@@ -212,5 +212,8 @@ Thumbs.db
 coderabbit_review*.txt
 coderabbit_review*.json
 
+# Cursor hooks runtime state (mutable, not source-controlled)
+.cursor/hooks/state/
+
 # Review/analysis output files (temporary)
 /out.json

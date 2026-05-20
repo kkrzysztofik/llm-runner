@@ -559,6 +559,7 @@ class DashboardController:
             wizard: Optional wizard modal that stays open during the build.
         """
         self.model.build_in_progress = True
+        self.build_in_progress = True
         self.model.build_selected_backends = backends
         self.model.build_cancel_event = threading.Event()
         self._build_wizard = wizard

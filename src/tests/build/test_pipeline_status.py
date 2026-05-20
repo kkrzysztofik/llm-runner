@@ -113,7 +113,10 @@ class TestArtifactExists:
         """get_build_status should return artifact_exists=False when no artifact file."""
         config = _make_config(tmp_path)
 
-        with patch("llama_manager.build_pipeline.status._run_git", return_value=None):
+        with (
+            patch("llama_manager.build_pipeline.status._run_git", return_value=None),
+            patch("llama_manager.build_pipeline.status._probe_binary_version", return_value=None),
+        ):
             status = get_build_status(BuildBackend.SYCL, config)
 
         assert status.artifact_exists is False
@@ -133,7 +136,10 @@ class TestArtifactExists:
             binary_path=str(tmp_path / "bin" / "llama-server"),
         )
 
-        with patch("llama_manager.build_pipeline.status._run_git", return_value=None):
+        with (
+            patch("llama_manager.build_pipeline.status._run_git", return_value=None),
+            patch("llama_manager.build_pipeline.status._probe_binary_version", return_value=None),
+        ):
             status = get_build_status(BuildBackend.SYCL, config)
 
         assert status.artifact_exists is True
@@ -149,7 +155,10 @@ class TestArtifactExists:
         backend_dir.mkdir(parents=True, exist_ok=True)
         (backend_dir / "build-artifact.json").write_text("not valid json {{{")
 
-        with patch("llama_manager.build_pipeline.status._run_git", return_value=None):
+        with (
+            patch("llama_manager.build_pipeline.status._run_git", return_value=None),
+            patch("llama_manager.build_pipeline.status._probe_binary_version", return_value=None),
+        ):
             status = get_build_status(BuildBackend.SYCL, config)
 
         assert status.artifact_exists is True
@@ -167,7 +176,10 @@ class TestUntrackedBinary:
         binary.write_text("#!/bin/sh\necho ok")
         binary.chmod(0o755)
 
-        with patch("llama_manager.build_pipeline.status._run_git", return_value=None):
+        with (
+            patch("llama_manager.build_pipeline.status._run_git", return_value=None),
+            patch("llama_manager.build_pipeline.status._probe_binary_version", return_value=None),
+        ):
             status = get_build_status(BuildBackend.SYCL, config)
 
         assert status.artifact_exists is False
@@ -182,7 +194,10 @@ class TestUntrackedBinary:
         binary.write_text("#!/bin/sh\necho ok")
         binary.chmod(0o755)
 
-        with patch("llama_manager.build_pipeline.status._run_git", return_value=None):
+        with (
+            patch("llama_manager.build_pipeline.status._run_git", return_value=None),
+            patch("llama_manager.build_pipeline.status._probe_binary_version", return_value=None),
+        ):
             status = get_build_status(BuildBackend.CUDA, config)
 
         assert status.artifact_exists is False
@@ -221,7 +236,10 @@ class TestUntrackedBinary:
         provenance_bin.chmod(0o755)
         _write_artifact_json(config, "sycl", tmp_path, binary_path=str(provenance_bin))
 
-        with patch("llama_manager.build_pipeline.status._run_git", return_value=None):
+        with (
+            patch("llama_manager.build_pipeline.status._run_git", return_value=None),
+            patch("llama_manager.build_pipeline.status._probe_binary_version", return_value=None),
+        ):
             status = get_build_status(BuildBackend.SYCL, config)
 
         assert status.artifact_exists is True

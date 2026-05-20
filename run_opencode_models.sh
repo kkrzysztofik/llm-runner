@@ -909,7 +909,7 @@ dry_run() {
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       append_qwen_mtp_spec_flags tmp_cmd
-      echo "  Command: ${tmp_cmd[*]}"
+      echo "  Command: env CUDA_SCALE_LAUNCH_QUEUES=4x ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
     qwen27b)
@@ -988,7 +988,7 @@ dry_run() {
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN35_BOTH")
       append_qwen_mtp_spec_flags tmp_cmd
-      echo "  Command: ${tmp_cmd[*]}"
+      echo "  Command: env CUDA_SCALE_LAUNCH_QUEUES=4x ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
     both-gemma4-27b)

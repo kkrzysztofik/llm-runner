@@ -509,15 +509,20 @@ def _default_subprocess_runner(
         )
 
 
-def _stream_to_text(data: bytes | None) -> str:
+def _stream_to_text(data: bytes | str | None) -> str:
     """Convert bytes (or None) to a string.
 
+    When *data* is already a ``str`` (e.g. from ``subprocess.run(text=True)``),
+    returns it unchanged.  When *data* is ``bytes``, decodes it.
+
     Args:
-        data: Bytes to decode, or ``None``.
+        data: Bytes, string, or ``None``.
 
     Returns:
         Decoded string, or empty string.
     """
     if data is None:
         return ""
+    if isinstance(data, str):
+        return data
     return data.decode("utf-8", errors="replace")

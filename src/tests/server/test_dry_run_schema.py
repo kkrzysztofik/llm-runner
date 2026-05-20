@@ -251,6 +251,7 @@ class TestFR003DeterministicFieldOrdering:
             "vllm_eligibility",
             "warnings",
             "validation_results",
+            "server_config",
         ]
         assert field_names == expected_order, (
             f"Field order mismatch. Expected: {expected_order}, Got: {field_names}"

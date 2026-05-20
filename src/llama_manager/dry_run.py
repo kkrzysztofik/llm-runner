@@ -85,7 +85,8 @@ def run_dry_run(
     # Parse port overrides from positional format
     position_overrides: tuple[int, ...] = ()
     if port_overrides:
-        position_overrides = tuple(port_overrides.values())
+        group = registry.get_run_group(mode)
+        position_overrides = tuple(port_overrides.get(pid, 0) for pid in group.profile_ids)
 
     try:
         configs = resolve_run_group_configs(
@@ -141,7 +142,7 @@ def run_dry_run(
         slot_payloads.append(payload)
 
     # Build artifact payload
-    artifact_payload = _build_artifact_payload(mode, slot_payloads)
+    artifact_payload = _build_artifact_payload(mode, slot_payloads, warnings)
 
     return DryRunResult(
         mode=mode,
@@ -156,12 +157,14 @@ def run_dry_run(
 def _build_artifact_payload(
     mode: str,
     slot_payloads: list[DryRunSlotPayload],
+    run_warnings: list[str] | None = None,
 ) -> DryRunArtifactPayload:
     """Build the canonical artifact payload from slot payloads.
 
     Args:
         mode: The dry-run mode that was executed.
         slot_payloads: List of slot payloads to include.
+        run_warnings: Optional run-level warnings to merge into the artifact.
 
     Returns:
         DryRunArtifactPayload with the canonical schema.
@@ -171,6 +174,9 @@ def _build_artifact_payload(
     resolved_commands = {p.slot_id: p.command_args for p in slot_payloads}
     validation_results: dict[str, dict[str, Any]] = {}
     all_warnings: list[str] = []
+
+    if run_warnings:
+        all_warnings.extend(run_warnings)
 
     for p in slot_payloads:
         validation_results[p.slot_id] = {

@@ -172,16 +172,16 @@ def dry_run(
     acknowledged: bool = False,
 ) -> None:
     """Print command without executing."""
-    cfg = Config()
-    registry = create_default_profile_registry(cfg)
+    app_cfg = Config()
+    registry = create_default_profile_registry(app_cfg)
 
-    _print_dry_run_header(mode, cfg, registry)
+    _print_dry_run_header(mode, app_cfg, registry)
 
     try:
         port_overrides = _parse_port_overrides(primary_port, secondary_port)
         result = run_dry_run(
             mode=mode,
-            config=cfg,
+            config=app_cfg,
             registry=registry,
             port_overrides=port_overrides,
             acknowledged=acknowledged,
@@ -214,22 +214,25 @@ def dry_run(
         if not _run_with_risk_acknowledgement(result, manager, configs, acknowledged):
             sys.exit(1)
 
-        # Print slot details
+        # Print slot details — use the resolved ServerConfig from the manager
         for payload in result.slot_payloads:
-            server_cfg = ServerConfig(
-                model=payload.model_path,
-                alias=payload.slot_id,
-                device="",
-                port=payload.port,
-                ctx_size=4096,
-                ubatch_size=512,
-                threads=4,
-                server_bin=payload.binary_path,
-            )
-            _print_resolved_slot(payload.slot_id, server_cfg, payload)
+            cfg = payload.server_config
+            if cfg is None:
+                # Fallback for payloads created without server_config
+                cfg = ServerConfig(
+                    model=payload.model_path,
+                    alias=payload.slot_id,
+                    device="",
+                    port=payload.port,
+                    ctx_size=4096,
+                    ubatch_size=512,
+                    threads=4,
+                    server_bin=payload.binary_path,
+                )
+            _print_resolved_slot(payload.slot_id, cfg, payload)
 
         if not result.has_error:
-            _print_smoke_probe_info(cfg)
+            _print_smoke_probe_info(app_cfg)
 
         if not result.has_error and result.slot_payloads:
             try:

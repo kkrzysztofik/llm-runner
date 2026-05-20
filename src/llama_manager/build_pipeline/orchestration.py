@@ -47,13 +47,15 @@ def _merge_config_overrides(base: BuildConfig, overrides: BuildConfig) -> BuildC
         val = getattr(overrides, field_name, None)
         if val is not None:
             kwargs[field_name] = val
-    return BuildConfig(
-        backend=base.backend,
-        source_dir=base.source_dir,
-        build_dir=base.build_dir,
-        output_dir=base.output_dir,
-        **kwargs,
-    )
+    # Start from base fields, then overlay overrides
+    base_dict = {
+        "backend": base.backend,
+        "source_dir": base.source_dir,
+        "build_dir": base.build_dir,
+        "output_dir": base.output_dir,
+    }
+    base_dict.update(kwargs)
+    return BuildConfig(**base_dict)
 
 
 def run_build_for_backend(

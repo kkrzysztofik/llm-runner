@@ -289,7 +289,7 @@ def collect_nvtop_stats() -> dict[int, dict[str, Any]]: ...
 | `dry_run.py` | `dry_run(target_mode, port1, port2, acknowledged)` | `dry-run <mode>` |
 | `build.py` | `main(parsed)` | `build <backend>` |
 | `profile.py` | `main(parsed)` | `profile <slot_id> <flavor>` |
-| `smoke.py` | `main(parsed)` | `smoke [both | slot <id>]` |
+| `smoke.py` | `main(parsed)` | `smoke [both\|slot <id>]` |
 | `setup.py` | `main(parsed)` | `setup check|venv|clean-venv` |
 | `doctor.py` | `main(parsed)` | `doctor check|repair` |
 | `_output.py` | — | Shared JSON/plain output helpers |

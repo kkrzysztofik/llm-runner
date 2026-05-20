@@ -497,6 +497,7 @@ class TestPreflightStageValidation:
             output_dir=tmp_path / "output",
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
+            retry_attempts=1,
         )
 
         pipeline = BuildPipeline(config)
@@ -1520,7 +1521,10 @@ class TestUpdateSources:
 
         ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
 
-        with patch("subprocess.run", return_value=Mock(returncode=0, stdout="", stderr="")):
+        with patch(
+            "llama_manager.build_pipeline.stages.configure.run_command_with_cancel",
+            return_value=(0, "", ""),
+        ):
             progress = run_configure(ctx)
 
         # Should NOT be skipped even though CMakeCache.txt exists

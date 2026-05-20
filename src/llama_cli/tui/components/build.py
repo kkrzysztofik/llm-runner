@@ -539,6 +539,10 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
                 classes="build-wizard-step-options",
             )
         )
+        # Store computed paths for _collect_options
+        self._wizard_state[f"{backend}_source_dir"] = source_dir
+        self._wizard_state[f"{backend}_build_dir"] = build_dir
+        self._wizard_state[f"{backend}_output_dir"] = output_dir
 
     def _collect_options(self, backend: str) -> BuildConfig | None:
         """Collect form values into a BuildConfig override."""
@@ -595,9 +599,9 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
         return BuildConfig(
             backend=BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA,
-            source_dir=Path("/dev/null"),
-            build_dir=Path("/dev/null"),
-            output_dir=Path("/dev/null"),
+            source_dir=self._wizard_state.get(f"{backend}_source_dir", Path("/dev/null")),
+            build_dir=self._wizard_state.get(f"{backend}_build_dir", Path("/dev/null")),
+            output_dir=self._wizard_state.get(f"{backend}_output_dir", Path("/dev/null")),
             git_remote_url="",
             git_branch=git_branch or "master",
             git_commit=git_commit,
@@ -767,12 +771,9 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
         if already_on_build_step:
             # Remounting the building step destroys the RichLog and can orphan workers.
-            # Update in place when already on this step.
+            # Update in place when already on this step — preserve scrollback.
             self._pending_output_lines.clear()
             self._output_flush_pending = False
-            log = self._build_log
-            if log is not None:
-                log.clear()
             if self._build_message is not None and self._build_message.is_mounted:
                 self._build_message.update(f"Building {backend.upper()}...")
             if self._btn_stop is not None:

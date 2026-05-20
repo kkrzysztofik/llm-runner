@@ -62,7 +62,7 @@ git clone --branch <git_branch> [--depth 1] <git_remote_url> <source_dir>
 
 If clone fails but a non-empty source directory already existed, status becomes **skipped** with “sources already exist” so configure can proceed offline.
 
-### Dry-run
+### Dry-run — clone
 
 Prints the `git clone` command that would run; does not touch disk.
 
@@ -91,7 +91,7 @@ only when `setvars.sh` exists (`build_pipeline/utils.py`). If missing, cmake run
 
 **Timeout:** `build_timeout_seconds` (default **3600**).
 
-### Dry-run
+### Dry-run — configure
 
 Returns success with message `Would run: <full command>` without creating `build_dir`.
 
@@ -112,7 +112,7 @@ Same SYCL `setvars.sh` wrapper as configure. Uses `subprocess.Popen` with line-b
 
 **Timeout:** Same `build_timeout_seconds` as configure.
 
-### Dry-run
+### Dry-run — build
 
 Success with `Would run: cmake --build ...`.
 

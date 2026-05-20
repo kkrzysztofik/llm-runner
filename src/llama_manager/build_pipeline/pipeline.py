@@ -78,8 +78,13 @@ class BuildPipeline:
             last_result = result
             if self._progress_callback:
                 self._progress_callback(result)
-            if result.status == "success":
-                logger.info("[retry] stage=%s succeeded on attempt %s", stage_name, attempt + 1)
+            if result.status in {"success", "skipped"}:
+                logger.info(
+                    "[retry] stage=%s completed with status=%s on attempt %s",
+                    stage_name,
+                    result.status,
+                    attempt + 1,
+                )
                 return result
             if result.message == "Build cancelled":
                 logger.info("[retry] stage=%s stopped (build cancelled)", stage_name)
@@ -299,7 +304,7 @@ class BuildPipeline:
                 update_sources=self.config.update_sources,
                 git_commit=self.config.git_commit,
             )
-            sub_pipeline = BuildPipeline(sub_config, self._progress_callback)
+            sub_pipeline = BuildPipeline(sub_config, self._progress_callback, self._cancel_event)
             sub_pipeline.dry_run = self._dry_run
             result = sub_pipeline.run()
             logger.info(

@@ -4,6 +4,7 @@ import contextlib
 import os
 import re
 import signal
+import sys
 import threading
 import time
 import traceback
@@ -576,6 +577,8 @@ class ServerManager:
                 formatted = self._format_output(server_name, redacted)
                 if log_handler is not None:
                     log_handler(formatted)
+                else:
+                    print(formatted, file=sys.stderr if is_stderr else sys.stdout, flush=True)
         finally:
             pipe.close()
 
