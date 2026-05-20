@@ -426,6 +426,15 @@ class TestRunProfile:
 
         try:
             cfg = _make_config()
+            server_bin = tmp_path / "llama-server"
+            server_bin.write_text("#!/bin/sh\n")
+            server_bin.chmod(0o755)
+
+            bench_bin = tmp_path / "llama-bench"
+            bench_bin.write_text("#!/bin/sh\n")
+            bench_bin.chmod(0o755)
+
+            cfg.llama_server_bin_intel = str(server_bin)
             cfg.server_binary_version = "llama-server 1.0.0"
             cfg.model_summary_balanced = str(tmp_path / "model.gguf")
             cfg.default_threads_summary_balanced = 8
