@@ -58,6 +58,13 @@ def run_configure(ctx: _BuildContext) -> BuildProgress:
         cmd.extend(cmake_args)
         cmd = get_build_env_cmd(cmd, ctx.config.backend)
 
+        # Fail fast if cancellation was requested before spawning cmake
+        if _cancel_requested(ctx.cancel_event):
+            logger.info("[configure] cancelled before spawn")
+            progress.status = "failed"
+            progress.message = "Build cancelled"
+            return progress
+
         logger.info("[configure] running cmake (this may take a while)")
         logger.debug("[configure] command: %s", _format_command(cmd))
 

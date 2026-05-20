@@ -137,8 +137,7 @@ class DashboardApp(App[None]):
             self.controller.cancel_pending_prompt()
         else:
             self.last_build_backend = result.backends[0] if result.backends else "sycl"
-            self.controller.model.build_selected_backends_options = result.options
-            self.controller.handle_build_selection(result.backends)
+            self.controller.handle_build_selection(result.backends, result.options)
         self.refresh_dashboard()
 
     def _reconcile_server_log_panels(self) -> None:
@@ -146,6 +145,9 @@ class DashboardApp(App[None]):
         container = self.query_one("#content", Container)
         current_panels = list(container.query(ServerLogPanel))
         needed = self.view_model.server_column_count()
+        if len(current_panels) > needed:
+            for panel in current_panels[needed:]:
+                panel.remove()
         for i in range(len(current_panels), needed):
             container.mount(ServerLogPanel(i, self.view_model))
 

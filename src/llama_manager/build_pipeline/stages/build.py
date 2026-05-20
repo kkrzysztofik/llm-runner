@@ -12,9 +12,9 @@ from ..utils import (
     _format_command,
     _format_command_failure,
     _format_duration,
+    get_build_env_cmd,
     run_command_with_cancel,
 )
-from .configure import get_build_env_cmd
 
 
 def run_build(ctx: _BuildContext) -> BuildProgress:

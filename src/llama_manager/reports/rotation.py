@@ -1,5 +1,7 @@
 """Report rotation — clean old report directories by timestamp."""
 
+from __future__ import annotations
+
 import contextlib
 import shutil
 from datetime import datetime

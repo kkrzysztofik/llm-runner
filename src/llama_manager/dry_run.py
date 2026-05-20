@@ -82,11 +82,14 @@ def run_dry_run(
             errors=[f"invalid mode '{mode}'. Valid modes: {allowed_modes}"],
         )
 
-    # Parse port overrides from positional format
-    position_overrides: tuple[int, ...] = ()
+    # Parse port overrides from positional format.
+    # The CLI dict uses "primary"/"secondary" keys mapped to positional indices.
+    position_overrides: tuple[int | None, ...] = ()
     if port_overrides:
-        group = registry.get_run_group(mode)
-        position_overrides = tuple(port_overrides.get(pid, 0) for pid in group.profile_ids)
+        position_overrides = tuple(
+            port_overrides.get(name) if name in port_overrides else None
+            for name in ("primary", "secondary")
+        )
 
     try:
         configs = resolve_run_group_configs(

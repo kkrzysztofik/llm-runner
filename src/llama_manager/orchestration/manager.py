@@ -248,7 +248,7 @@ def _verify_shutdown_ownership(pid: int, port: int) -> bool:
         if proc_uid != current_uid:
             return False
     except psutil.AccessDenied, psutil.NoSuchProcess, AttributeError, TypeError, OSError:
-        pass
+        return False
 
     return True
 

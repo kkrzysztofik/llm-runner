@@ -182,7 +182,19 @@ def cmd_profile(
     )
 
     # Run benchmark
-    effective_runner: BenchmarkRunner = runner if runner is not None else _default_subprocess_runner
+    if runner is not None:
+        # Wrap user-provided runner to forward cancel_event
+        def _wrapped_runner(cmd: list[str]) -> SubprocessResult:
+            return runner(cmd)
+
+        effective_runner: BenchmarkRunner = _wrapped_runner
+    else:
+
+        def _default_runner(cmd: list[str]) -> SubprocessResult:
+            return _default_subprocess_runner(cmd, cancel_event=cancel_event)
+
+        effective_runner = _default_runner
+
     benchmark_result = run_benchmark(cmd, effective_runner)
 
     # Handle benchmark result or cancellation
@@ -235,12 +247,20 @@ def cmd_profile(
     return 0
 
 
-def _default_subprocess_runner(cmd: list[str], timeout_seconds: int = 600) -> SubprocessResult:
-    """Execute *cmd* via ``subprocess.run`` and return the result.
+def _default_subprocess_runner(
+    cmd: list[str],
+    timeout_seconds: int = 600,
+    cancel_event: threading.Event | None = None,
+) -> SubprocessResult:
+    """Execute *cmd* via ``subprocess.Popen`` with cancellation support.
+
+    Checks *cancel_event* during execution and terminates the child process
+    when set.
 
     Args:
         cmd: Command list to execute (shell=False).
         timeout_seconds: Subprocess timeout in seconds.
+        cancel_event: Optional event; when set the child is terminated.
 
     Returns:
         A :class:`SubprocessResult` with exit code and captured output.
@@ -248,19 +268,36 @@ def _default_subprocess_runner(cmd: list[str], timeout_seconds: int = 600) -> Su
     import subprocess
 
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            shell=False,
-            timeout=timeout_seconds,
-            check=False,
+            start_new_session=True,
         )
-        return SubprocessResult(
-            exit_code=result.returncode,
-            stdout=result.stdout,
-            stderr=result.stderr,
-        )
+        try:
+            while True:
+                ret = proc.poll()
+                if ret is not None:
+                    return SubprocessResult(
+                        exit_code=ret,
+                        stdout=proc.stdout.read() if proc.stdout else "",
+                        stderr=proc.stderr.read() if proc.stderr else "",
+                    )
+                if cancel_event is not None and cancel_event.is_set():
+                    import os
+                    import signal
+
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    proc.wait(timeout=5)
+                    return SubprocessResult(exit_code=130, stdout="", stderr="benchmark cancelled")
+                proc.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            return SubprocessResult(
+                exit_code=124,
+                stdout="",
+                stderr=f"benchmark timed out after {timeout_seconds}s",
+            )
     except subprocess.TimeoutExpired as exc:
         timeout_stdout_text = _stream_to_text(exc.stdout)
         timeout_stderr_detail = _stream_to_text(exc.stderr)

@@ -835,27 +835,20 @@ class TestCmdProfile:
                 assert "lockfile" in captured.err.lower() or "appears to be running" in captured.err
 
     def test_default_subprocess_runner(self) -> None:
-        """_default_subprocess_runner should execute via subprocess.run."""
-        with patch("subprocess.run") as mock_run:
-            mock_result = MagicMock()
-            mock_result.returncode = 0
-            mock_result.stdout = "tokens/s: 100.0"
-            mock_result.stderr = ""
-            mock_run.return_value = mock_result
+        """_default_subprocess_runner should execute via subprocess.Popen with cancel support."""
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = 0
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.read.return_value = "tokens/s: 100.0"
+        mock_proc.stderr = MagicMock()
+        mock_proc.stderr.read.return_value = ""
 
+        with patch("subprocess.Popen", return_value=mock_proc):
             result = _default_subprocess_runner(["echo", "hello"])
 
             assert result.exit_code == 0
             assert result.stdout == "tokens/s: 100.0"
             assert result.stderr == ""
-            mock_run.assert_called_once_with(
-                ["echo", "hello"],
-                capture_output=True,
-                text=True,
-                shell=False,
-                timeout=600,
-                check=False,
-            )
 
     def test_cuda_backend_detection_in_profile(
         self,

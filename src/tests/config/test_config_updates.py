@@ -42,6 +42,7 @@ class TestApplyConfigUpdates:
     def test_invalid_integer_field_errors(self) -> None:
         """Invalid integer fields should produce errors."""
         cfg = Config()
+        original_timeout = cfg.smoke_listen_timeout_s
 
         result = apply_config_updates(
             cfg,
@@ -52,7 +53,7 @@ class TestApplyConfigUpdates:
         assert result.success is False
         assert len(result.errors) > 0
         assert "Invalid value" in result.errors[0]
-        assert cfg.smoke_listen_timeout_s == cfg.smoke_listen_timeout_s  # unchanged
+        assert cfg.smoke_listen_timeout_s == original_timeout  # unchanged
 
     def test_unknown_fields_ignored(self) -> None:
         """Unknown fields should be silently ignored."""

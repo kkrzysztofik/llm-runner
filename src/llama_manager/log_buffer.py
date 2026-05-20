@@ -33,10 +33,14 @@ class LogBuffer:
 
         Thread-safe: acquires ``self.lock`` before mutating ``self.lines``.
 
+        After ``stop()`` is called, new lines are silently ignored.
+
         Args:
             line: The log line string to append.
         """
         with self.lock:
+            if not self.running:
+                return
             if self.redact_sensitive:
                 line = redact_log_line(line)
             self.lines.append(line)

@@ -1039,7 +1039,7 @@ def test_tui_run_exits_when_launch_is_blocked() -> None:
             ),
         ),
         patch.object(app.server_manager, "start_servers"),
-        patch("builtins.input", return_value="y"),
+        patch("builtins.input", side_effect=RuntimeError("unexpected prompt")),
         pytest.raises(SystemExit) as exc,
     ):
         app.run(acknowledged=False)

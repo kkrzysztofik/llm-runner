@@ -5,7 +5,7 @@ import signal
 import threading
 from collections.abc import Callable
 from types import FrameType
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from llama_manager import (
     Config,
@@ -26,14 +26,12 @@ from llama_manager import (
     resolve_risk_action,
 )
 from llama_manager.build_pipeline import (
+    BuildConfig,
     BuildPipeline,
     BuildProgress,
     run_build_for_backend,
 )
 from llama_manager.logging_setup import suppress_build_pipeline_stderr_for_tui
-
-if TYPE_CHECKING:
-    pass
 
 from .components.config_modal import ConfigPayload
 from .model import DashboardModel
@@ -521,12 +519,20 @@ class DashboardController:
 
     # -- Build lifecycle --------------------------------------------------
 
-    def handle_build_selection(self, backends: list[str]) -> None:
+    def handle_build_selection(
+        self, backends: list[str], options: dict[str, BuildConfig | None] | None = None
+    ) -> None:
         """Initiate build for the given backends.
 
         Called from BuildModalScreen when the user presses 1/2/3.
         Starts a background thread so the TUI stays responsive.
+
+        Args:
+            backends: List of backend names to build.
+            options: Optional build configuration options from the wizard.
         """
+        if options is not None:
+            self.model.build_selected_backends_options = options
         self._run_build_background(backends)
 
     def handle_build_with_wizard(
@@ -687,6 +693,9 @@ class DashboardController:
 
         # Capture original SIGINT handler before replacing it
         self._original_sigint_handler = signal.signal(signal.SIGINT, self._signal_handler_build)
+
+        # Create a fresh cancel event for this build
+        self.model.build_cancel_event = threading.Event()
 
         try:
             self._push_status_message(f"Building for {backend} backend...")

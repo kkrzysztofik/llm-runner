@@ -416,8 +416,17 @@ def run_profile(
         driver_version = get_driver_version(backend)
 
     # Resolve flavor-based benchmark config
-    flavor_obj = ProfileFlavor(flavor)
-    bench_cfg = resolve_benchmark_config(server_config, flavor_obj, config)
+    flavor_obj: ProfileFlavor | None = None
+    try:
+        flavor_obj = ProfileFlavor(flavor)
+    except ValueError:
+        logger.error("Unknown profile flavor: {}", flavor)
+        return None
+
+    if flavor_obj is not None:
+        bench_cfg = resolve_benchmark_config(server_config, flavor_obj, config)
+    else:
+        return None
 
     # Build benchmark command
     from .benchmark import build_benchmark_cmd

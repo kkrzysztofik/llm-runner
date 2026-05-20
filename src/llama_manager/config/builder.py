@@ -82,7 +82,9 @@ def _without_none(values: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
 
 
-def _validate_port_override_count(group: RunGroupSpec, port_overrides: tuple[int, ...]) -> None:
+def _validate_port_override_count(
+    group: RunGroupSpec, port_overrides: tuple[int | None, ...]
+) -> None:
     """Ensure port overrides do not exceed the number of profiles in the group."""
     if len(port_overrides) > len(group.profile_ids):
         raise RunProfileError(
@@ -206,7 +208,7 @@ def resolve_profile_config(
 def resolve_run_group_configs(
     registry: RunProfileRegistry,
     group_id: str,
-    port_overrides: tuple[int, ...] = (),
+    port_overrides: tuple[int | None, ...] = (),
 ) -> list[ServerConfig]:
     """Resolve a registered run group into ordered ServerConfig objects.
 
@@ -214,6 +216,7 @@ def resolve_run_group_configs(
         registry: Profile registry containing group and profile definitions.
         group_id: Run group identifier to resolve.
         port_overrides: Optional positional port overrides for group members.
+            ``None`` entries are skipped (profile default port is used).
 
     Returns:
         ServerConfig objects in run-group profile order.
@@ -226,7 +229,10 @@ def resolve_run_group_configs(
 
     configs: list[ServerConfig] = []
     for index, profile_id in enumerate(group.profile_ids):
-        override_config = {"port": port_overrides[index]} if index < len(port_overrides) else None
+        if index < len(port_overrides) and port_overrides[index] is not None:
+            override_config = {"port": port_overrides[index]}
+        else:
+            override_config = None
         configs.append(resolve_profile_config(registry, profile_id, override_config))
     return configs
 

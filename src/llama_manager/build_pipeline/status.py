@@ -56,7 +56,7 @@ def _run_git(args: list[str], *, cwd: Path | None = None, timeout: int = 5) -> s
         )
         return result.stdout.strip() or None
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
-        logger.debug("[status] git command failed: %s — %s", " ".join(args), exc)
+        logger.debug("[status] git command failed: {} — {}", " ".join(args), exc)
         return None
 
 
@@ -161,9 +161,9 @@ def get_build_status(backend: BuildBackend, config: Config) -> BuildStatus:
     if artifact_exists:
         try:
             artifact = _parse_artifact_json(artifact_json)
-            logger.debug("[status] %s artifact loaded from %s", backend.value, artifact_json)
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-            logger.warning("[status] %s artifact JSON parse error: %s", backend.value, exc)
+            logger.debug("[status] {} artifact loaded from {}", backend.value, artifact_json)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError, OSError) as exc:
+            logger.warning("[status] %s artifact JSON parse error: {}", backend.value, exc)
             artifact = None
 
     # 2. Binary version probe (provenance path first)

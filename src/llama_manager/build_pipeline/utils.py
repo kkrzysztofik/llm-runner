@@ -136,6 +136,12 @@ def run_command_with_cancel(
     line_callback: Callable[[str], None] | None = None,
 ) -> tuple[int, str, str]:
     """Run a command; terminate the process tree when *cancel_event* is set."""
+    # Check for pre-existing cancellation before spawning
+    if _cancel_requested(cancel_event):
+        if set_active_proc is not None:
+            set_active_proc(None)
+        return (1, "", "build cancelled")
+
     stdout_lines: list[str] = []
     stderr_lines: list[str] = []
 

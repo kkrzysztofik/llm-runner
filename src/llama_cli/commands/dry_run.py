@@ -101,6 +101,23 @@ def _print_resolved_slot(
     _print_common_payload_sections(payload)
 
 
+def _payload_server_config(payload: DryRunSlotPayload) -> ServerConfig:
+    """Return the resolved ServerConfig carried by a dry-run payload."""
+    if payload.server_config is not None:
+        return payload.server_config
+
+    return ServerConfig(
+        model=payload.model_path,
+        alias=payload.slot_id,
+        device="",
+        port=payload.port,
+        ctx_size=4096,
+        ubatch_size=512,
+        threads=4,
+        server_bin=payload.binary_path,
+    )
+
+
 def _print_dry_run_header(mode: str, cfg: Config, registry: Any) -> None:
     """Print dry-run mode header information.
 
@@ -194,21 +211,7 @@ def dry_run(
             sys.exit(1)
 
         # Handle risk acknowledgement
-        configs = []
-        if result.slot_payloads:
-            configs = [
-                ServerConfig(
-                    model=p.model_path,
-                    alias=p.slot_id,
-                    device="",
-                    port=p.port,
-                    ctx_size=4096,
-                    ubatch_size=512,
-                    threads=4,
-                    server_bin=p.binary_path,
-                )
-                for p in result.slot_payloads
-            ]
+        configs = [_payload_server_config(payload) for payload in result.slot_payloads]
 
         manager = ServerManager()
         if not _run_with_risk_acknowledgement(result, manager, configs, acknowledged):
@@ -216,19 +219,7 @@ def dry_run(
 
         # Print slot details — use the resolved ServerConfig from the manager
         for payload in result.slot_payloads:
-            cfg = payload.server_config
-            if cfg is None:
-                # Fallback for payloads created without server_config
-                cfg = ServerConfig(
-                    model=payload.model_path,
-                    alias=payload.slot_id,
-                    device="",
-                    port=payload.port,
-                    ctx_size=4096,
-                    ubatch_size=512,
-                    threads=4,
-                    server_bin=payload.binary_path,
-                )
+            cfg = _payload_server_config(payload)
             _print_resolved_slot(payload.slot_id, cfg, payload)
 
         if not result.has_error:
