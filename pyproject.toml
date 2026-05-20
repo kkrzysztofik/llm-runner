@@ -11,7 +11,7 @@ requires-python = ">= 3.14"
 dependencies = [
     "loguru>=0.7.3",
     "rich>=15.0.0",
-    "textual>=8.2.5,<9",
+    "textual>=8.2.6,<9",
     "psutil>=7.2.2",
     "httpx>=0.28.1",
     "gguf>=0.19.0",
@@ -24,7 +24,7 @@ llm-runner = "llama_cli.server_runner:cli_main"
 dev = [
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
-    "ruff>=0.15.12",
+    "ruff>=0.15.13",
     "pyright>=1.1.409",
     "pre-commit>=4.6.0",
     "pip-audit>=2.10.0",
