@@ -17,6 +17,7 @@ from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import (
@@ -178,7 +179,12 @@ class BackendStatusCard(Widget):
 
     def set_status(self, status: BuildStatus | None) -> None:
         """Show header spinner + placeholders, or badge and detail lines."""
-        header = self.query_one(".build-backend-header", Horizontal)
+        if not self.is_mounted:
+            return
+        try:
+            header = self.query_one(".build-backend-header", Horizontal)
+        except NoMatches:
+            return
         spinner = header.query_one(".build-backend-spinner", LoadingIndicator)
         badge = header.query_one(".build-backend-badge", Static)
         lines = list(self.query(".build-backend-line"))
@@ -323,19 +329,45 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             return
         if backend == "sycl":
             self._wizard_state["sycl_status"] = status
-            if self._sycl_card is not None:
-                self._sycl_card.set_status(status)
         else:
             self._wizard_state["cuda_status"] = status
-            if self._cuda_card is not None:
-                self._cuda_card.set_status(status)
+        card = self._status_card_for_backend(backend)
+        if card is not None:
+            card.set_status(status)
+
+    def _release_select_step_widgets(self) -> None:
+        """Drop stale references after step-1 widgets are removed from the tree."""
+        self._select_backend = None
+        self._sycl_card = None
+        self._cuda_card = None
+        self._status_cards = None
+
+    def _status_card_for_backend(self, backend: BackendKey) -> BackendStatusCard | None:
+        """Return the live status card for *backend*, or None when step 1 is not shown."""
+        if self._wizard_state["step"] != self.STEP_SELECT:
+            return None
+        cached = self._sycl_card if backend == "sycl" else self._cuda_card
+        if cached is not None and cached.is_mounted:
+            return cached
+        card_id = "build-status-sycl" if backend == "sycl" else "build-status-cuda"
+        try:
+            card = self.query_one(f"#{card_id}", BackendStatusCard)
+        except NoMatches:
+            return None
+        if backend == "sycl":
+            self._sycl_card = card
+        else:
+            self._cuda_card = card
+        return card
 
     def _render_step(self) -> None:
         """Clear and re-compose the current step inside the placeholder."""
         placeholder = self.query_one("#build-wizard-placeholder", Container)
+        step = self._wizard_state["step"]
+        if step != self.STEP_SELECT:
+            self._release_select_step_widgets()
         placeholder.remove_children()
         placeholder.remove_class("build-modal-building")
-        step = self._wizard_state["step"]
         if step == self.STEP_SELECT:
             self._compose_step_select(placeholder)
             self.call_after_refresh(self._focus_step_select)
@@ -399,10 +431,12 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         """Update step-1 status cards in place after async fetch completes."""
         if self._wizard_state["step"] != self.STEP_SELECT:
             return
-        if self._sycl_card is not None:
-            self._sycl_card.set_status(self._wizard_state.get("sycl_status"))
-        if self._cuda_card is not None:
-            self._cuda_card.set_status(self._wizard_state.get("cuda_status"))
+        sycl_card = self._status_card_for_backend("sycl")
+        if sycl_card is not None:
+            sycl_card.set_status(self._wizard_state.get("sycl_status"))
+        cuda_card = self._status_card_for_backend("cuda")
+        if cuda_card is not None:
+            cuda_card.set_status(self._wizard_state.get("cuda_status"))
 
     def _build_status_cards(self) -> Vertical:
         """Build per-backend status cards with loading indicators until fetch completes."""

@@ -1430,6 +1430,27 @@ class TestBuildModalAsyncStatus:
 
         assert screen._wizard_state["sycl_status"] is None
 
+    def test_apply_single_backend_status_stores_state_without_stale_card(self) -> None:
+        """Status fetch after leaving step 1 must not touch removed cards."""
+        from llama_cli.tui.components.build import BuildModalScreen
+        from llama_manager.build_pipeline import BuildBackend
+
+        screen = BuildModalScreen()
+        cuda = _minimal_build_status(BuildBackend.CUDA)
+        mock_cuda_card = MagicMock()
+        mock_cuda_card.is_mounted = False
+
+        screen._wizard_state["step"] = screen.STEP_BUILDING
+        with (
+            patch.object(screen, "_screen_can_apply_status", return_value=True),
+            patch.object(screen, "_cuda_card", mock_cuda_card),
+            patch.object(screen, "_status_card_for_backend", return_value=None),
+        ):
+            screen._apply_single_backend_status("cuda", cuda)
+
+        assert screen._wizard_state["cuda_status"] is cuda
+        mock_cuda_card.set_status.assert_not_called()
+
     def test_on_mount_starts_worker_without_sync_get_build_status(self) -> None:
         """on_mount should render immediately and defer get_build_status to a worker."""
         from llama_cli.tui.components.build import BuildModalScreen
