@@ -154,13 +154,13 @@ def _run_with_risk_acknowledgement(
     manager: ServerManager,
     configs: list[Any],
     acknowledged: bool,
-) -> bool:
+) -> None:
     """Handle risk acknowledgement for dry-run results.
 
-    Returns True if processing should continue, False if blocked.
+    Exits via SystemExit when the user declines a risky operation.
     """
     if not result.warnings:
-        return True
+        return
 
     for warning in result.warnings:
         emit_warn(warning)
@@ -178,8 +178,6 @@ def _run_with_risk_acknowledgement(
         if acknowledged and RISK_ACK_LABEL not in cfg.risky_acknowledged:
             cfg.risky_acknowledged.append(RISK_ACK_LABEL)
         manager.acknowledge_risk(cfg.alias, RISK_ACK_LABEL)
-
-    return True
 
 
 def dry_run(
@@ -214,8 +212,7 @@ def dry_run(
         configs = [_payload_server_config(payload) for payload in result.slot_payloads]
 
         manager = ServerManager()
-        if not _run_with_risk_acknowledgement(result, manager, configs, acknowledged):
-            sys.exit(1)
+        _run_with_risk_acknowledgement(result, manager, configs, acknowledged)
 
         # Print slot details — use the resolved ServerConfig from the manager
         for payload in result.slot_payloads:

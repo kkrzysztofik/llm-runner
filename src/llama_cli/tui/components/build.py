@@ -40,6 +40,11 @@ from llama_manager.build_pipeline import (
 )
 from llama_manager.build_pipeline.models import BuildBackend
 
+from ..constants import (
+    BUILD_WIZARD_TITLE,
+    STYLE_BOLD_GREEN,
+    STYLE_BOLD_RED,
+)
 from ..types import BuildWizardResult
 
 if TYPE_CHECKING:
@@ -86,17 +91,18 @@ _BACKEND_OPTIONS: list[tuple[str, str]] = [
 ]
 
 _BUILD_LOG_PCT = re.compile(r"^(\s*)(\[\s*\d+%\])(\s*)(.*)$")
+_PLACEHOLDER_PATH = Path("/dev/null")
 
 
 def _build_log_line_style(fragment: str) -> str | None:
     """Return a Rich style name for a build log fragment, or None for default."""
     low = fragment.lower()
     if "fatal error" in low or " error:" in low or low.startswith("error:"):
-        return "bold red"
+        return STYLE_BOLD_RED
     if "warning" in low:
         return "yellow"
     if "built target" in low:
-        return "bold green"
+        return STYLE_BOLD_GREEN
     if "linking " in low:
         return "bold blue"
     if "building " in low:
@@ -132,7 +138,7 @@ def _rich_build_stage_line(status_tag: str, stage: str, message: str) -> Text:
     """Timestamp + coloured tag for pipeline stage messages."""
     line = Text()
     line.append(datetime.now().strftime("%H:%M:%S "), style="dim")
-    tag_styles = {"OK": "bold green", "ERR": "bold red", "RTY": "bold yellow"}
+    tag_styles = {"OK": STYLE_BOLD_GREEN, "ERR": STYLE_BOLD_RED, "RTY": "bold yellow"}
     line.append(f"[{status_tag}] ", style=tag_styles.get(status_tag, "bold"))
     line.append(f"{stage}: {message}")
     return line
@@ -403,7 +409,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
     # -- Step 1: Select target + status ------------------------------------
 
     def _compose_step_select(self, parent: Container) -> None:
-        title = Static("Build Wizard", id="build-title", classes="build-title")
+        title = Static(BUILD_WIZARD_TITLE, id="build-title", classes="build-title")
         label = Static("Select build target:", classes="build-step-label")
 
         sel = RadioSet(
@@ -465,7 +471,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         inputs = self._get_inputs(backend)
 
         title = Static(
-            f"Build Wizard — {title_label} Options",
+            f"{BUILD_WIZARD_TITLE} — {title_label} Options",
             id="build-title",
             classes="build-title",
         )
@@ -544,21 +550,18 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         self._wizard_state[f"{backend}_build_dir"] = build_dir
         self._wizard_state[f"{backend}_output_dir"] = output_dir
 
-    def _collect_options(self, backend: str) -> BuildConfig | None:
-        """Collect form values into a BuildConfig override."""
-        inputs = self._get_inputs(backend)
-        if not inputs:
-            return None
-
-        def _str_val(key: str) -> str | None:
+    def _read_build_form_fields(
+        self, inputs: dict[str, Input | Checkbox]
+    ) -> dict[str, str | int | bool | None]:
+        def str_val(key: str) -> str | None:
             widget = inputs.get(key)
             if isinstance(widget, Input):
-                v = widget.value.strip()
-                return v or None
+                value = widget.value.strip()
+                return value or None
             return None
 
-        def _int_val(key: str) -> int | None:
-            raw = _str_val(key)
+        def int_val(key: str) -> int | None:
+            raw = str_val(key)
             if raw is None:
                 return None
             try:
@@ -566,42 +569,47 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             except ValueError:
                 return None
 
-        def _bool_val(key: str) -> bool | None:
+        def bool_val(key: str) -> bool | None:
             widget = inputs.get(key)
             if isinstance(widget, Checkbox):
                 return widget.value
             return None
 
-        git_branch = _str_val("git_branch")
-        git_commit = _str_val("git_commit")
-        jobs = _int_val("jobs")
-        retry_attempts = _int_val("retry_attempts")
-        retry_delay = _int_val("retry_delay")
-        shallow_clone = _bool_val("shallow_clone")
-        update_sources = _bool_val("update_sources")
-        build_timeout = _int_val("build_timeout_seconds")
+        return {
+            "git_branch": str_val("git_branch"),
+            "git_commit": str_val("git_commit"),
+            "jobs": int_val("jobs"),
+            "retry_attempts": int_val("retry_attempts"),
+            "retry_delay": int_val("retry_delay"),
+            "shallow_clone": bool_val("shallow_clone"),
+            "update_sources": bool_val("update_sources"),
+            "build_timeout_seconds": int_val("build_timeout_seconds"),
+        }
 
-        # Only create override if at least one field is set
-        if all(
-            v is None
-            for v in [
-                git_branch,
-                git_commit,
-                jobs,
-                retry_attempts,
-                retry_delay,
-                shallow_clone,
-                update_sources,
-                build_timeout,
-            ]
-        ):
+    def _collect_options(self, backend: str) -> BuildConfig | None:
+        """Collect form values into a BuildConfig override."""
+        inputs = self._get_inputs(backend)
+        if not inputs:
             return None
+
+        fields = self._read_build_form_fields(inputs)
+        if all(value is None for value in fields.values()):
+            return None
+
+        git_branch = cast(str | None, fields["git_branch"])
+        git_commit = cast(str | None, fields["git_commit"])
+        jobs = cast(int | None, fields["jobs"])
+        retry_attempts = cast(int | None, fields["retry_attempts"])
+        retry_delay = cast(int | None, fields["retry_delay"])
+        shallow_clone = cast(bool | None, fields["shallow_clone"])
+        update_sources = cast(bool | None, fields["update_sources"])
+        build_timeout = cast(int | None, fields["build_timeout_seconds"])
 
         return BuildConfig(
             backend=BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA,
-            source_dir=self._wizard_state.get(f"{backend}_source_dir", Path("/dev/null")),
-            build_dir=self._wizard_state.get(f"{backend}_build_dir", Path("/dev/null")),
-            output_dir=self._wizard_state.get(f"{backend}_output_dir", Path("/dev/null")),
+            source_dir=self._wizard_state.get(f"{backend}_source_dir", _PLACEHOLDER_PATH),
+            build_dir=self._wizard_state.get(f"{backend}_build_dir", _PLACEHOLDER_PATH),
+            output_dir=self._wizard_state.get(f"{backend}_output_dir", _PLACEHOLDER_PATH),
             git_remote_url="",
             git_branch=git_branch or "master",
             git_commit=git_commit,
@@ -618,7 +626,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
     def _compose_step_building(self, parent: Container) -> None:
         backend = self._wizard_state.get("progress_backend", "unknown")
 
-        title = Static("Build Wizard", id="build-title", classes="build-title")
+        title = Static(BUILD_WIZARD_TITLE, id="build-title", classes="build-title")
         msg = Static(f"Building {backend.upper()}...", classes="build-message")
         self._build_message = msg
 
@@ -654,7 +662,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
     def _compose_step_result(self, parent: Container) -> None:
         success = self._wizard_state.get("build_result_success")
 
-        title = Static("Build Wizard", id="build-title", classes="build-title")
+        title = Static(BUILD_WIZARD_TITLE, id="build-title", classes="build-title")
         panel = Static(classes="build-result-panel")
         panel.update(self._result_content(success))
         self._result_panel = panel
@@ -668,13 +676,13 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         """Build result copy as Rich Text (avoids markup parse errors in error messages)."""
         if success is True:
             content = Text()
-            content.append("Build completed successfully!\n", style="bold green")
+            content.append("Build completed successfully!\n", style=STYLE_BOLD_GREEN)
             artifact = self._wizard_state.get("build_result_artifact")
             if artifact:
                 content.append(f"  Binary: {artifact}\n")
             return content
         content = Text()
-        content.append("Build failed:\n", style="bold red")
+        content.append("Build failed:\n", style=STYLE_BOLD_RED)
         error = str(self._wizard_state.get("build_result_error", "Unknown error"))
         content.append(error)
         return content
@@ -698,60 +706,73 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             self._build_log.write(_rich_build_output_line(line))
         self._pending_output_lines.clear()
 
-    def _apply_build_progress(self, progress: BuildProgress) -> None:
-        """Apply a progress update on the main thread."""
+    def _sync_building_step_ui(self) -> bool:
+        """Ensure the wizard is on the building step. Return False if update cannot apply."""
         if not self._screen_can_apply_status():
-            return
+            return False
         with self._progress_lock:
             step_wrong = self._wizard_state["step"] != self.STEP_BUILDING
             if step_wrong:
                 self._wizard_state["step"] = self.STEP_BUILDING
         if step_wrong:
             self._render_step()
+            return False
+        return True
+
+    def _queue_build_output_line(self, progress: BuildProgress) -> None:
+        if (
+            progress.output_line is None
+            or self._build_log is None
+            or not self._build_log.is_mounted
+        ):
+            return
+        self._pending_output_lines.append(progress.output_line)
+        if self._output_flush_pending:
+            return
+        self._output_flush_pending = True
+        self.set_timer(0.08, self._flush_build_output_buffer)
+
+    def _update_build_progress_widgets(self, progress: BuildProgress, backend: str) -> None:
+        if progress.output_line is not None and not (progress.message and progress.message.strip()):
+            return
+
+        msg_text = f"Building {backend.upper()}... [{progress.stage}]"
+        if self._build_message is not None and self._build_message.is_mounted:
+            self._build_message.update(msg_text)
+
+        if (
+            self._build_log is not None
+            and self._build_log.is_mounted
+            and progress.output_line is None
+        ):
+            status_tag = {"success": "OK", "failed": "ERR", "retrying": "RTY"}.get(
+                progress.status, progress.status.upper()[:3]
+            )
+            self._build_log.write(
+                _rich_build_stage_line(status_tag, progress.stage, progress.message)
+            )
+
+        if self._progress_bar is not None and self._progress_bar.is_mounted:
+            pct = int(progress.progress_percent)
+            self._progress_bar.update(total=100, progress=max(0, min(100, pct)))
+
+        if self._retry_info is None or not self._retry_info.is_mounted:
+            return
+        if progress.is_retrying and progress.retries_remaining is not None:
+            self._retry_info.update(f"Retrying... ({progress.retries_remaining} retries remaining)")
+            self._retry_info.remove_class("hidden")
+            return
+        self._retry_info.update("")
+        self._retry_info.add_class("hidden")
+
+    def _apply_build_progress(self, progress: BuildProgress) -> None:
+        """Apply a progress update on the main thread."""
+        if not self._sync_building_step_ui():
             return
 
         backend = self._wizard_state.get("progress_backend", "")
-
-        if (
-            progress.output_line is not None
-            and self._build_log is not None
-            and self._build_log.is_mounted
-        ):
-            self._pending_output_lines.append(progress.output_line)
-            if not self._output_flush_pending:
-                self._output_flush_pending = True
-                self.set_timer(0.08, self._flush_build_output_buffer)
-
-        if progress.output_line is None or bool(progress.message and progress.message.strip()):
-            msg_text = f"Building {backend.upper()}... [{progress.stage}]"
-            if self._build_message is not None and self._build_message.is_mounted:
-                self._build_message.update(msg_text)
-
-            if (
-                self._build_log is not None
-                and self._build_log.is_mounted
-                and progress.output_line is None
-            ):
-                status_tag = {"success": "OK", "failed": "ERR", "retrying": "RTY"}.get(
-                    progress.status, progress.status.upper()[:3]
-                )
-                self._build_log.write(
-                    _rich_build_stage_line(status_tag, progress.stage, progress.message)
-                )
-
-            if self._progress_bar is not None and self._progress_bar.is_mounted:
-                pct = int(progress.progress_percent)
-                self._progress_bar.update(total=100, progress=max(0, min(100, pct)))
-
-            if self._retry_info is not None and self._retry_info.is_mounted:
-                if progress.is_retrying and progress.retries_remaining is not None:
-                    self._retry_info.update(
-                        f"Retrying... ({progress.retries_remaining} retries remaining)"
-                    )
-                    self._retry_info.remove_class("hidden")
-                else:
-                    self._retry_info.update("")
-                    self._retry_info.add_class("hidden")
+        self._queue_build_output_line(progress)
+        self._update_build_progress_widgets(progress, backend)
 
     def set_building_backend(self, backend: str) -> None:
         """Mark the start of building for a specific backend (may run on a worker thread)."""
@@ -837,7 +858,6 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
         if bid == "build-next":
             self._handle_next()
-            return
 
     def _handle_next(self) -> None:
         """Handle Next button press — navigate or start build."""
@@ -866,7 +886,6 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         if step == self.STEP_CUDA_OPTS:
             self._wizard_state["cuda_options"] = self._collect_options("cuda")
             self._start_build_from_wizard()
-            return
 
     def _start_build_from_wizard(self) -> None:
         """Store options in model and delegate build to controller.

@@ -9,7 +9,13 @@ from loguru import logger
 
 from ._context import _BuildContext
 from .lock import acquire_lock, get_lock_error_message, is_lock_stale, release_lock
-from .models import BuildBackend, BuildConfig, BuildProgress, BuildResult
+from .models import (
+    BUILD_CANCELLED_MESSAGE,
+    BuildBackend,
+    BuildConfig,
+    BuildProgress,
+    BuildResult,
+)
 from .stages.build import run_build
 from .stages.clone import run_clone
 from .stages.configure import run_configure
@@ -44,6 +50,33 @@ class BuildPipeline:
     def dry_run(self, value: bool) -> None:
         self._dry_run = value
 
+    def _cancelled_progress(self, stage_name: str) -> BuildProgress:
+        return BuildProgress(
+            stage=stage_name,
+            status="failed",
+            message=BUILD_CANCELLED_MESSAGE,
+            progress_percent=0.0,
+        )
+
+    def _cancelled_build_result(self) -> BuildResult:
+        return BuildResult(success=False, error_message=BUILD_CANCELLED_MESSAGE)
+
+    def _emit_retry_wait(self, stage_name: str, attempt: int, delay: float) -> BuildProgress | None:
+        """Sleep between retries; return cancelled progress if the user stopped the build."""
+        retry_p = BuildProgress(
+            stage=stage_name,
+            status="retrying",
+            message=f"Stage failed, retrying in {delay}s "
+            f"(attempt {attempt + 2}/{self.config.retry_attempts})",
+            progress_percent=0.0,
+            retries_remaining=self.config.retry_attempts - attempt - 1,
+        )
+        if self._progress_callback:
+            self._progress_callback(retry_p)
+        if self._sleep_until_cancel_or_timeout(delay):
+            return self._cancelled_progress(stage_name)
+        return None
+
     def _run_with_retry(
         self, stage_func: Callable[[], BuildProgress], stage_name: str
     ) -> BuildProgress:
@@ -62,12 +95,7 @@ class BuildPipeline:
         )
         for attempt in range(self.config.retry_attempts):
             if self._cancel_requested():
-                return BuildProgress(
-                    stage=stage_name,
-                    status="failed",
-                    message="Build cancelled",
-                    progress_percent=0.0,
-                )
+                return self._cancelled_progress(stage_name)
             logger.info(
                 "[retry] stage=%s attempt=%s/%s",
                 stage_name,
@@ -86,7 +114,7 @@ class BuildPipeline:
                     attempt + 1,
                 )
                 return result
-            if result.message == "Build cancelled":
+            if result.message == BUILD_CANCELLED_MESSAGE:
                 logger.info("[retry] stage=%s stopped (build cancelled)", stage_name)
                 return result
             logger.warning(
@@ -98,23 +126,9 @@ class BuildPipeline:
             if attempt < self.config.retry_attempts - 1:
                 delay = self.config.retry_delay * (2**attempt)
                 logger.info("[retry] stage=%s waiting %ss before retry", stage_name, delay)
-                retry_p = BuildProgress(
-                    stage=stage_name,
-                    status="retrying",
-                    message=f"Stage failed, retrying in {delay}s "
-                    f"(attempt {attempt + 2}/{self.config.retry_attempts})",
-                    progress_percent=0.0,
-                    retries_remaining=self.config.retry_attempts - attempt - 1,
-                )
-                if self._progress_callback:
-                    self._progress_callback(retry_p)
-                if self._sleep_until_cancel_or_timeout(delay):
-                    return BuildProgress(
-                        stage=stage_name,
-                        status="failed",
-                        message="Build cancelled",
-                        progress_percent=0.0,
-                    )
+                cancelled = self._emit_retry_wait(stage_name, attempt, delay)
+                if cancelled is not None:
+                    return cancelled
         logger.error(
             "[retry] stage=%s exhausted all %s attempts", stage_name, self.config.retry_attempts
         )
@@ -140,6 +154,47 @@ class BuildPipeline:
         if ctx is None or ctx.active_proc is None:
             return
         terminate_process_tree(ctx.active_proc, use_process_group=True)
+
+    def _run_stage_batch(
+        self,
+        ctx: _BuildContext,
+        stages: list[tuple[str, Callable[[], BuildProgress]]],
+        *,
+        write_artifact: bool,
+        progress: BuildProgress,
+    ) -> tuple[BuildResult | None, BuildProgress]:
+        """Run a group of pipeline stages; return an error result or (None, progress)."""
+        for stage_name, stage_fn in stages:
+            if self._cancel_requested():
+                return self._cancelled_build_result(), progress
+            progress = self._run_with_retry(stage_fn, stage_name)
+            if progress.status != "failed":
+                logger.info("[pipeline] %s completed: %s", stage_name, progress.message)
+                continue
+            if progress.message == BUILD_CANCELLED_MESSAGE:
+                return self._cancelled_build_result(), progress
+            logger.error("[pipeline] %s failed: %s", stage_name, progress.message)
+            if write_artifact:
+                artifact = ctx.write_failure_artifact(progress)
+                return (
+                    BuildResult(
+                        success=False,
+                        artifact=artifact,
+                        error_message=f"{stage_name.capitalize()} failed: "
+                        f"{_redact_build_text(progress.message)}",
+                        progress=progress,
+                    ),
+                    progress,
+                )
+            return (
+                BuildResult(
+                    success=False,
+                    error_message=f"{stage_name.capitalize()} failed: {progress.message}",
+                    progress=progress,
+                ),
+                progress,
+            )
+        return None, progress
 
     def run(self) -> BuildResult:
         """Execute the full 5-stage pipeline and return a BuildResult."""
@@ -191,53 +246,35 @@ class BuildPipeline:
             )
 
         try:
-            # Stages 1–2: no failure artifact on error (no build output yet)
             progress = BuildProgress(
                 stage="pipeline", status="pending", message="", progress_percent=0
             )
-            for stage_name, stage_fn in [
-                ("preflight", lambda: run_preflight(ctx)),
-                ("clone", lambda: run_clone(ctx)),
-            ]:
-                if self._cancel_requested():
-                    return BuildResult(success=False, error_message="Build cancelled")
-                progress = self._run_with_retry(stage_fn, stage_name)
-                if progress.status == "failed":
-                    if progress.message == "Build cancelled":
-                        return BuildResult(success=False, error_message="Build cancelled")
-                    logger.error("[pipeline] %s failed: %s", stage_name, progress.message)
-                    return BuildResult(
-                        success=False,
-                        error_message=f"{stage_name.capitalize()} failed: {progress.message}",
-                        progress=progress,
-                    )
-                logger.info("[pipeline] %s completed: %s", stage_name, progress.message)
+            early_error, progress = self._run_stage_batch(
+                ctx,
+                [
+                    ("preflight", lambda: run_preflight(ctx)),
+                    ("clone", lambda: run_clone(ctx)),
+                ],
+                write_artifact=False,
+                progress=progress,
+            )
+            if early_error is not None:
+                return early_error
 
-            # Stages 3–4: write failure artifact on error (build output captured)
-            for stage_name, stage_fn in [
-                ("configure", lambda: run_configure(ctx)),
-                ("build", lambda: run_build(ctx)),
-            ]:
-                if self._cancel_requested():
-                    return BuildResult(success=False, error_message="Build cancelled")
-                progress = self._run_with_retry(stage_fn, stage_name)
-                if progress.status == "failed":
-                    if progress.message == "Build cancelled":
-                        return BuildResult(success=False, error_message="Build cancelled")
-                    logger.error("[pipeline] %s failed: %s", stage_name, progress.message)
-                    artifact = ctx.write_failure_artifact(progress)
-                    return BuildResult(
-                        success=False,
-                        artifact=artifact,
-                        error_message=f"{stage_name.capitalize()} failed: "
-                        f"{_redact_build_text(progress.message)}",
-                        progress=progress,
-                    )
-                logger.info("[pipeline] %s completed: %s", stage_name, progress.message)
+            build_error, progress = self._run_stage_batch(
+                ctx,
+                [
+                    ("configure", lambda: run_configure(ctx)),
+                    ("build", lambda: run_build(ctx)),
+                ],
+                write_artifact=True,
+                progress=progress,
+            )
+            if build_error is not None:
+                return build_error
 
-            # Stage 5: finalize
             if self._cancel_requested():
-                return BuildResult(success=False, error_message="Build cancelled")
+                return self._cancelled_build_result()
             artifact = run_finalize(ctx, progress)
             if artifact is None:
                 logger.error("[pipeline] finalize failed: could not write provenance")

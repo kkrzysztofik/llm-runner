@@ -34,7 +34,7 @@ _LOGO_ROWS = max(len(_LLM_BLOCK), len(_ROBOT_BLOCK))
 
 
 def _clean_markup(s: str) -> str:
-    return re.sub(r"\[.*?\]", "", s)
+    return re.sub(r"\[[^\]]*\]", "", s)
 
 
 _LLM_WIDTH = max(len(_clean_markup(line)) for line in _LLM_BLOCK)

@@ -6,7 +6,7 @@ import time
 from loguru import logger
 
 from .._context import _BuildContext
-from ..models import BuildProgress
+from ..models import BUILD_CANCELLED_MESSAGE, BuildProgress
 from ..utils import (
     _cancel_requested,
     _format_command,
@@ -103,7 +103,7 @@ def _run_build_subprocess(
     if _cancel_requested(ctx.cancel_event):
         logger.info("[build] cancelled by user")
         progress.status = "failed"
-        progress.message = "Build cancelled"
+        progress.message = BUILD_CANCELLED_MESSAGE
         return progress
 
     if returncode == -1:

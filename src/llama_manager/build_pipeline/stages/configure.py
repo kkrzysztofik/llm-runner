@@ -5,7 +5,7 @@ import time
 from loguru import logger
 
 from .._context import _BuildContext
-from ..models import BuildBackend, BuildConfig, BuildProgress
+from ..models import BUILD_CANCELLED_MESSAGE, BuildBackend, BuildConfig, BuildProgress
 from ..utils import (
     _cancel_requested,
     _format_command,
@@ -62,7 +62,7 @@ def run_configure(ctx: _BuildContext) -> BuildProgress:
         if _cancel_requested(ctx.cancel_event):
             logger.info("[configure] cancelled before spawn")
             progress.status = "failed"
-            progress.message = "Build cancelled"
+            progress.message = BUILD_CANCELLED_MESSAGE
             return progress
 
         logger.info("[configure] running cmake (this may take a while)")
@@ -90,7 +90,7 @@ def run_configure(ctx: _BuildContext) -> BuildProgress:
         if _cancel_requested(ctx.cancel_event):
             logger.info("[configure] cancelled by user")
             progress.status = "failed"
-            progress.message = "Build cancelled"
+            progress.message = BUILD_CANCELLED_MESSAGE
             return progress
 
         if returncode == -1:

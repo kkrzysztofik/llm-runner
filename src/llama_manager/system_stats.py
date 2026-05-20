@@ -19,10 +19,9 @@ def collect_cpu_percentages(percpu: bool = True) -> list[float]:
     Returns:
         List of CPU usage percentages (0.0–100.0).
     """
-    samples = psutil.cpu_percent(interval=None, percpu=percpu)
-    if isinstance(samples, list):
-        return [float(s) for s in samples]
-    return [float(samples)]
+    if percpu:
+        return [float(s) for s in psutil.cpu_percent(interval=None, percpu=True)]
+    return [float(psutil.cpu_percent(interval=None, percpu=False))]
 
 
 def collect_memory_usage() -> dict[str, dict[str, object]]:

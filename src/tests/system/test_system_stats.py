@@ -14,14 +14,14 @@ class TestCollectCpuPercentages:
 
     def test_returns_list_of_floats(self) -> None:
         """Should return a list of float values."""
-        with patch("psutil.cpu_percent", return_value=42.5):
+        with patch("psutil.cpu_percent", return_value=[42.5]):
             result = collect_cpu_percentages()
         assert isinstance(result, list)
         assert all(isinstance(v, float) for v in result)
 
     def test_returns_single_value_when_not_percpu(self) -> None:
         """Should return one value when percpu=False."""
-        with patch("psutil.cpu_percent", return_value=[33.0]):
+        with patch("psutil.cpu_percent", return_value=33.0):
             result = collect_cpu_percentages(percpu=False)
         assert len(result) == 1
 

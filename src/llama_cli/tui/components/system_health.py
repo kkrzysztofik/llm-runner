@@ -33,10 +33,13 @@ class SystemHealthProvider(Protocol):
     def current_datetime_snapshot(self) -> DateTimeSnapshot: ...
 
 
+_NO_CPU_DATA = "No CPU data"
+
+
 class _EmptySystemHealthProvider:
     """Fallback provider for isolated widget tests."""
 
-    def cpu_usage_rows(self, width: int | None = None) -> list[list[CPUCoreSnapshot]]:
+    def cpu_usage_rows(self, _width: int | None = None) -> list[list[CPUCoreSnapshot]]:
         return []
 
     def memory_usage_rows(self) -> list[MemoryUsageSnapshot]:
@@ -69,7 +72,7 @@ class SystemHealthRenderer:
     def render_cpu_usage(self, width: int | None = None) -> str:
         rows = self.cpu_usage_rows(width)
         if not rows:
-            return "No CPU data"
+            return _NO_CPU_DATA
         return "\n".join(self._format_core_grid_lines(rows, self._content_width(width)))
 
     def cpu_usage_rows(self, width: int | None = None) -> list[list[CPUCoreSnapshot]]:
@@ -158,7 +161,7 @@ class SystemHealthRenderer:
     def _build_core_grid_lines(self, cpu_per_core: list[float], content_width: int) -> list[str]:
         rows = self._build_core_grid_rows(cpu_per_core, content_width)
         if not rows:
-            return ["No CPU data"]
+            return [_NO_CPU_DATA]
         return self._format_core_grid_lines(rows, content_width)
 
     def _format_core_grid_lines(
@@ -237,7 +240,7 @@ class CPUUsageWidget(Widget):
     def compose(self) -> ComposeResult:
         rows = self._renderer.cpu_usage_rows(width=self.size.width)
         if not rows:
-            yield Static("No CPU data", classes="system-health-muted-value")
+            yield Static(_NO_CPU_DATA, classes="system-health-muted-value")
             return
 
         for row in rows:

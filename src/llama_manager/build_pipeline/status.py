@@ -110,7 +110,7 @@ def _probe_binary_version(binary_path: Path, backend: BuildBackend) -> str | Non
             backend.value,
             r.returncode,
         )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+    except (subprocess.TimeoutExpired, OSError) as exc:
         logger.debug("[status] %s binary version probe failed: %s", backend.value, exc)
     return None
 
@@ -138,6 +138,94 @@ def _parse_artifact_json(json_path: Path) -> BuildArtifact | None:
     )
 
 
+def _load_artifact_from_json(
+    backend: BuildBackend, artifact_json: Path
+) -> tuple[BuildArtifact | None, bool]:
+    artifact_exists = artifact_json.is_file()
+    if not artifact_exists:
+        return None, False
+    try:
+        artifact = _parse_artifact_json(artifact_json)
+        logger.debug("[status] {} artifact loaded from {}", backend.value, artifact_json)
+        return artifact, True
+    except (KeyError, TypeError, ValueError, OSError) as exc:
+        logger.warning("[status] %s artifact JSON parse error: {}", backend.value, exc)
+        return None, True
+
+
+def _resolve_binary_version(
+    backend: BuildBackend,
+    config: Config,
+    artifact: BuildArtifact | None,
+    artifact_exists: bool,
+) -> tuple[str | None, Path | None, bool]:
+    binary_version_output: str | None = None
+    if artifact is not None and artifact.binary_path is not None:
+        binary_version_output = _probe_binary_version(artifact.binary_path, backend)
+
+    untracked_binary_path: Path | None = None
+    binary_exists_untracked = False
+    if artifact_exists:
+        return binary_version_output, untracked_binary_path, binary_exists_untracked
+
+    fallback_path = _default_binary_path(backend, config)
+    if not fallback_path.is_file():
+        return binary_version_output, untracked_binary_path, binary_exists_untracked
+
+    binary_exists_untracked = True
+    untracked_binary_path = fallback_path
+    logger.debug(
+        "[status] %s untracked binary at %s (no build-artifact.json)",
+        backend.value,
+        fallback_path,
+    )
+    if binary_version_output is None:
+        binary_version_output = _probe_binary_version(fallback_path, backend)
+    return binary_version_output, untracked_binary_path, binary_exists_untracked
+
+
+def _source_git_info(
+    source_dir: Path,
+) -> tuple[bool, bool, str | None, str | None, str | None]:
+    source_exists = source_dir.is_dir()
+    if not source_exists:
+        return False, False, None, None, None
+
+    logger.debug("[status] checking source at %s", source_dir)
+    is_repo_output = _run_git(["rev-parse", "--is-inside-work-tree"], cwd=source_dir)
+    source_is_repo = is_repo_output == "true"
+    if not source_is_repo:
+        return source_exists, False, None, None, None
+
+    source_branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=source_dir)
+    source_head_sha = _run_git(["rev-parse", "HEAD"], cwd=source_dir)
+    source_remote_url = _run_git(["remote", "get-url", "origin"], cwd=source_dir)
+    return source_exists, source_is_repo, source_branch, source_head_sha, source_remote_url
+
+
+def _fetch_remote_branch_sha(config: Config) -> str | None:
+    remote_url = config.build_git_remote
+    branch = config.build_git_branch
+    logger.debug("[status] querying remote %s for refs/heads/%s", remote_url, branch)
+    ls_remote_output = _run_git(
+        ["ls-remote", remote_url, f"refs/heads/{branch}"],
+        timeout=10,
+    )
+    if not ls_remote_output:
+        return None
+    parts = ls_remote_output.split("\t")
+    if not parts:
+        return None
+    remote_branch_sha = parts[0]
+    logger.debug(
+        "[status] remote HEAD for %s/%s = %s",
+        remote_url,
+        branch,
+        remote_branch_sha,
+    )
+    return remote_branch_sha
+
+
 def get_build_status(backend: BuildBackend, config: Config) -> BuildStatus:
     """Gather read-only build status for a single backend.
 
@@ -152,80 +240,17 @@ def get_build_status(backend: BuildBackend, config: Config) -> BuildStatus:
     Returns:
         BuildStatus snapshot with no side effects.
     """
-    builds_dir = config.builds_dir
-    artifact_json = builds_dir / backend.value / "build-artifact.json"
-
-    # 1. Built artifact info
-    artifact: BuildArtifact | None = None
-    artifact_exists = artifact_json.is_file()
-    if artifact_exists:
-        try:
-            artifact = _parse_artifact_json(artifact_json)
-            logger.debug("[status] {} artifact loaded from {}", backend.value, artifact_json)
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError, OSError) as exc:
-            logger.warning("[status] %s artifact JSON parse error: {}", backend.value, exc)
-            artifact = None
-
-    # 2. Binary version probe (provenance path first)
-    binary_version_output: str | None = None
-    if artifact is not None and artifact.binary_path is not None:
-        binary_version_output = _probe_binary_version(artifact.binary_path, backend)
-
-    # 2b. Untracked binary at Config default path when no provenance JSON
-    untracked_binary_path: Path | None = None
-    binary_exists_untracked = False
-    if not artifact_exists:
-        fallback_path = _default_binary_path(backend, config)
-        if fallback_path.is_file():
-            binary_exists_untracked = True
-            untracked_binary_path = fallback_path
-            logger.debug(
-                "[status] %s untracked binary at %s (no build-artifact.json)",
-                backend.value,
-                fallback_path,
-            )
-            if binary_version_output is None:
-                binary_version_output = _probe_binary_version(fallback_path, backend)
-
-    # 3. Local source clone info
-    source_dir = Path(config.llama_cpp_root)
-    source_exists = source_dir.is_dir()
-    source_is_repo = False
-    source_branch: str | None = None
-    source_head_sha: str | None = None
-    source_remote_url: str | None = None
-
-    if source_exists:
-        logger.debug("[status] checking source at %s", source_dir)
-        # Check if it's a git repo
-        is_repo_output = _run_git(["rev-parse", "--is-inside-work-tree"], cwd=source_dir)
-        source_is_repo = is_repo_output == "true"
-
-        if source_is_repo:
-            source_branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=source_dir)
-            source_head_sha = _run_git(["rev-parse", "HEAD"], cwd=source_dir)
-            source_remote_url = _run_git(["remote", "get-url", "origin"], cwd=source_dir)
-
-    # 4. Remote branch HEAD
-    remote_branch_sha: str | None = None
-    remote_url = config.build_git_remote
-    branch = config.build_git_branch
-    logger.debug("[status] querying remote %s for refs/heads/%s", remote_url, branch)
-    ls_remote_output = _run_git(
-        ["ls-remote", remote_url, f"refs/heads/{branch}"],
-        timeout=10,
+    artifact_json = config.builds_dir / backend.value / "build-artifact.json"
+    artifact, artifact_exists = _load_artifact_from_json(backend, artifact_json)
+    binary_version_output, untracked_binary_path, binary_exists_untracked = _resolve_binary_version(
+        backend, config, artifact, artifact_exists
     )
-    if ls_remote_output:
-        # Format: <sha>\trefs/heads/<branch>
-        parts = ls_remote_output.split("\t")
-        if parts:
-            remote_branch_sha = parts[0]
-            logger.debug(
-                "[status] remote HEAD for %s/%s = %s",
-                remote_url,
-                branch,
-                remote_branch_sha,
-            )
+    source_dir = Path(config.llama_cpp_root)
+    source_exists, source_is_repo, source_branch, source_head_sha, source_remote_url = (
+        _source_git_info(source_dir)
+    )
+    branch = config.build_git_branch
+    remote_branch_sha = _fetch_remote_branch_sha(config)
 
     return BuildStatus(
         backend=backend,

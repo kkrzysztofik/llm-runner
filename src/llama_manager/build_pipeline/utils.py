@@ -127,6 +127,76 @@ def _cancel_requested(cancel_event: threading.Event | None) -> bool:
     return cancel_event is not None and cancel_event.is_set()
 
 
+def _start_cancel_watcher(
+    proc: subprocess.Popen[str],
+    cancel_event: threading.Event | None,
+) -> threading.Thread:
+    def watch_cancel() -> None:
+        while proc.poll() is None:
+            if _cancel_requested(cancel_event):
+                terminate_process_tree(proc, use_process_group=True)
+                return
+            time.sleep(0.1)
+
+    cancel_watcher = threading.Thread(target=watch_cancel, name="build-cancel-watch", daemon=True)
+    cancel_watcher.start()
+    return cancel_watcher
+
+
+def _start_output_drainers(
+    proc: subprocess.Popen[str],
+    line_callback: Callable[[str], None] | None,
+) -> tuple[list[str], list[str], threading.Thread, threading.Thread]:
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+
+    def read_stdout() -> None:
+        if proc.stdout:
+            for line in proc.stdout:
+                stdout_lines.append(line.rstrip("\n"))
+                if line_callback is not None:
+                    line_callback(line)
+
+    def read_stderr() -> None:
+        if proc.stderr:
+            for line in proc.stderr:
+                stderr_lines.append(line.rstrip("\n"))
+                if line_callback is not None:
+                    line_callback(line)
+
+    stdout_t = threading.Thread(target=read_stdout)
+    stderr_t = threading.Thread(target=read_stderr)
+    stdout_t.start()
+    stderr_t.start()
+    return stdout_lines, stderr_lines, stdout_t, stderr_t
+
+
+def _wait_for_process_exit(
+    proc: subprocess.Popen[str],
+    *,
+    deadline: float,
+    cancel_event: threading.Event | None,
+    stdout_t: threading.Thread,
+    stderr_t: threading.Thread,
+) -> int | None:
+    """Wait for process exit. Return -1 on timeout, else None (caller reads returncode)."""
+    while proc.poll() is None:
+        if _cancel_requested(cancel_event):
+            terminate_process_tree(proc, use_process_group=True)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            terminate_process_tree(proc, use_process_group=True)
+            proc.wait(timeout=5)
+            stdout_t.join(timeout=5)
+            stderr_t.join(timeout=5)
+            return -1
+        try:
+            proc.wait(timeout=min(0.25, remaining))
+        except subprocess.TimeoutExpired:
+            continue
+    return None
+
+
 def run_command_with_cancel(
     cmd: list[str],
     *,
@@ -142,9 +212,6 @@ def run_command_with_cancel(
             set_active_proc(None)
         return (1, "", "build cancelled")
 
-    stdout_lines: list[str] = []
-    stderr_lines: list[str] = []
-
     with subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -156,53 +223,19 @@ def run_command_with_cancel(
         if set_active_proc is not None:
             set_active_proc(proc)
 
-        def watch_cancel() -> None:
-            while proc.poll() is None:
-                if _cancel_requested(cancel_event):
-                    terminate_process_tree(proc, use_process_group=True)
-                    return
-                time.sleep(0.1)
-
-        cancel_watcher = threading.Thread(
-            target=watch_cancel, name="build-cancel-watch", daemon=True
-        )
-        cancel_watcher.start()
-
-        def read_stdout() -> None:
-            if proc.stdout:
-                for line in proc.stdout:
-                    stdout_lines.append(line.rstrip("\n"))
-                    if line_callback is not None:
-                        line_callback(line)
-
-        def read_stderr() -> None:
-            if proc.stderr:
-                for line in proc.stderr:
-                    stderr_lines.append(line.rstrip("\n"))
-                    if line_callback is not None:
-                        line_callback(line)
-
-        stdout_t = threading.Thread(target=read_stdout)
-        stderr_t = threading.Thread(target=read_stderr)
-        stdout_t.start()
-        stderr_t.start()
-
+        _start_cancel_watcher(proc, cancel_event)
+        stdout_lines, stderr_lines, stdout_t, stderr_t = _start_output_drainers(proc, line_callback)
         deadline = time.monotonic() + timeout_seconds
         try:
-            while proc.poll() is None:
-                if _cancel_requested(cancel_event):
-                    terminate_process_tree(proc, use_process_group=True)
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    terminate_process_tree(proc, use_process_group=True)
-                    proc.wait(timeout=5)
-                    stdout_t.join(timeout=5)
-                    stderr_t.join(timeout=5)
-                    return -1, "\n".join(stdout_lines), "\n".join(stderr_lines)
-                try:
-                    proc.wait(timeout=min(0.25, remaining))
-                except subprocess.TimeoutExpired:
-                    continue
+            timed_out = _wait_for_process_exit(
+                proc,
+                deadline=deadline,
+                cancel_event=cancel_event,
+                stdout_t=stdout_t,
+                stderr_t=stderr_t,
+            )
+            if timed_out is not None:
+                return timed_out, "\n".join(stdout_lines), "\n".join(stderr_lines)
         finally:
             stdout_t.join(timeout=5)
             stderr_t.join(timeout=5)

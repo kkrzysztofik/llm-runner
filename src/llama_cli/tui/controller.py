@@ -34,6 +34,7 @@ from llama_manager.build_pipeline import (
 from llama_manager.logging_setup import suppress_build_pipeline_stderr_for_tui
 
 from .components.config_modal import ConfigPayload
+from .constants import MSG_BUILD_CANCELLED, MSG_BUILD_FAILED
 from .model import DashboardModel
 from .textual_app import DashboardApp
 from .viewmodel import DashboardViewModel
@@ -328,7 +329,7 @@ class DashboardController:
                     current_binary_version=self.config.server_binary_version or "unknown",
                     staleness_days=self.config.profile_staleness_days,
                 )
-            except OSError, FileNotFoundError, ValueError, KeyError:
+            except OSError, ValueError, KeyError:
                 continue
 
             if staleness is None or not staleness.is_stale:
@@ -555,6 +556,33 @@ class DashboardController:
         if pipeline is not None:
             pipeline.kill_active_subprocess()
 
+    def _build_cancel_event_is_set(self) -> bool:
+        cancel_evt = self.model.build_cancel_event
+        return cancel_evt is not None and cancel_evt.is_set()
+
+    def _abort_build_wizard(self, wizard: Any, message: str) -> None:
+        self.model.build_error = message
+        self._push_status_message(message)
+        if wizard is not None:
+            wizard.set_build_result(False, error_message=message)
+
+    def _run_wizard_backend(self, backend: str, wizard: Any) -> bool:
+        """Run one backend in the wizard thread. Returns False when cancelled or failed."""
+        if self._build_cancel_event_is_set():
+            self._abort_build_wizard(wizard, MSG_BUILD_CANCELLED)
+            return False
+        if wizard is not None:
+            wizard.set_building_backend(backend)
+        if self._build_single_backend(backend):
+            return True
+        self.model.build_result = "failed"
+        if wizard is not None:
+            wizard.set_build_result(
+                False,
+                error_message=self.model.build_error or MSG_BUILD_FAILED,
+            )
+        return False
+
     def _run_build_background(
         self, backends: list[str], wizard: Any = None
     ) -> None:  # BuildModalScreen | None
@@ -574,46 +602,9 @@ class DashboardController:
             with suppress_build_pipeline_stderr_for_tui():
                 try:
                     for backend in backends:
-                        if backend == "both":
-                            for sub in ("sycl", "cuda"):
-                                cancel_evt = self.model.build_cancel_event
-                                if cancel_evt is not None and cancel_evt.is_set():
-                                    self.model.build_error = "Build cancelled"
-                                    self._push_status_message("Build cancelled")
-                                    if wizard is not None:
-                                        wizard.set_build_result(
-                                            False, error_message="Build cancelled"
-                                        )
-                                    return
-                                if wizard is not None:
-                                    wizard.set_building_backend(sub)
-                                ok = self._build_single_backend(sub)
-                                if not ok:
-                                    self.model.build_result = "failed"
-                                    if wizard is not None:
-                                        wizard.set_build_result(
-                                            False,
-                                            error_message=self.model.build_error or "Build failed",
-                                        )
-                                    return
-                        else:
-                            cancel_evt = self.model.build_cancel_event
-                            if cancel_evt is not None and cancel_evt.is_set():
-                                self.model.build_error = "Build cancelled"
-                                self._push_status_message("Build cancelled")
-                                if wizard is not None:
-                                    wizard.set_build_result(False, error_message="Build cancelled")
-                                return
-                            if wizard is not None:
-                                wizard.set_building_backend(backend)
-                            ok = self._build_single_backend(backend)
-                            if not ok:
-                                self.model.build_result = "failed"
-                                if wizard is not None:
-                                    wizard.set_build_result(
-                                        False,
-                                        error_message=self.model.build_error or "Build failed",
-                                    )
+                        targets = ("sycl", "cuda") if backend == "both" else (backend,)
+                        for target in targets:
+                            if not self._run_wizard_backend(target, wizard):
                                 return
                     self.model.build_result = "success"
                     self._push_status_message("Build completed successfully!")
@@ -647,7 +638,7 @@ class DashboardController:
                 cancel_event=self.model.build_cancel_event,
             )
             if not result.success:
-                self.model.build_error = result.error_message or "Build failed"
+                self.model.build_error = result.error_message or MSG_BUILD_FAILED
                 self._push_status_message(f"Build failed: {result.error_message}")
                 return False
             if result.artifact and result.artifact.binary_path:

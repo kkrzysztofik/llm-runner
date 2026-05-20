@@ -107,6 +107,17 @@ def _check_slot_lockfile(slot_id: str, config: Config, _emit: Callable[[str], No
         logger.opt(exception=True).warning("Unable to inspect slot lockfile for {}", slot_id)
 
 
+def _exit_if_profile_cancelled(
+    cancel_event: threading.Event | None,
+    slot_id: str,
+    emit: Callable[..., None],
+) -> int | None:
+    if cancel_event is not None and cancel_event.is_set():
+        emit(f"Profile '{slot_id}' cancelled.", stderr=True)
+        return 1
+    return None
+
+
 def cmd_profile(
     slot_id: str,
     flavor: str,
@@ -136,9 +147,8 @@ def cmd_profile(
         if not quiet:
             emit_plain(message, err=stderr)
 
-    if cancel_event is not None and cancel_event.is_set():
-        _emit(f"Profile '{slot_id}' cancelled.", stderr=True)
-        return 1
+    if (exit_code := _exit_if_profile_cancelled(cancel_event, slot_id, _emit)) is not None:
+        return exit_code
 
     _check_slot_lockfile(slot_id, config, lambda msg: _emit(msg, stderr=True))
 
@@ -197,10 +207,8 @@ def cmd_profile(
 
     benchmark_result = run_benchmark(cmd, effective_runner)
 
-    # Handle benchmark result or cancellation
-    if cancel_event is not None and cancel_event.is_set():
-        _emit(f"Profile '{slot_id}' cancelled.", stderr=True)
-        return 1
+    if (exit_code := _exit_if_profile_cancelled(cancel_event, slot_id, _emit)) is not None:
+        return exit_code
     if benchmark_result is None:
         _emit(f"error: benchmark failed for slot '{slot_id}'", stderr=True)
         return 1
@@ -227,9 +235,8 @@ def cmd_profile(
         parameters={},
     )
 
-    if cancel_event is not None and cancel_event.is_set():
-        _emit(f"Profile '{slot_id}' cancelled.", stderr=True)
-        return 1
+    if (exit_code := _exit_if_profile_cancelled(cancel_event, slot_id, _emit)) is not None:
+        return exit_code
 
     profile_path = write_profile(config.profiles_dir, record)
 

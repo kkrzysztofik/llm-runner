@@ -28,6 +28,11 @@ from .provenance import ProvenanceRecord, resolve_provenance
 # API key resolution (env fallback — pure library)
 # ---------------------------------------------------------------------------
 
+
+def _probe_elapsed_ms(start_time: float) -> int:
+    return int((time.monotonic() - start_time) * 1000)
+
+
 _API_KEY_ENV_VAR: str = "LLM_RUNNER_API_KEY"
 
 
@@ -295,7 +300,7 @@ def probe_slot(
             phase_reached=phase,
             failure_phase=SmokeFailurePhase.LISTEN,
             model_id=None,
-            latency_ms=int((time.monotonic() - start_time) * 1000),
+            latency_ms=_probe_elapsed_ms(start_time),
             provenance=provenance,
         )
     except OSError:
@@ -305,7 +310,7 @@ def probe_slot(
             phase_reached=phase,
             failure_phase=SmokeFailurePhase.LISTEN,
             model_id=None,
-            latency_ms=int((time.monotonic() - start_time) * 1000),
+            latency_ms=_probe_elapsed_ms(start_time),
             provenance=provenance,
         )
 
@@ -343,7 +348,7 @@ def probe_slot(
         return result
 
     # All phases passed
-    elapsed_ms = int((time.monotonic() - start_time) * 1000)
+    elapsed_ms = _probe_elapsed_ms(start_time)
     return SmokeProbeResult(
         slot_id=f"{host}:{port}",
         status=SmokeProbeStatus.PASS,

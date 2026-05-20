@@ -645,7 +645,7 @@ class TestBenchmarkConfig:
         # We use a try/except to avoid pyright static analysis complaints
         try:
             cfg.model = "/other.gguf"  # type: ignore[reportGeneralTypeIssues]
-        except dataclasses.FrozenInstanceError, TypeError, AttributeError:
+        except (dataclasses.FrozenInstanceError, TypeError, AttributeError):
             pass
         else:
             pytest.fail("Expected FrozenInstanceError or similar")
