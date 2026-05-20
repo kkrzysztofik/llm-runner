@@ -408,3 +408,30 @@ class TestRunBuildForBackend:
             run_build_for_backend("sycl", config=config)
 
         assert mock_pipeline.dry_run is False
+
+
+class TestBuildPipelineCancel:
+    """Stop/cancel should terminate the active stage subprocess."""
+
+    def test_kill_active_subprocess_terminates_tracked_proc(self, tmp_path: Path) -> None:
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.pipeline import BuildPipeline
+
+        build_config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+        )
+        pipeline = BuildPipeline(build_config)
+        ctx = _BuildContext(config=build_config, dry_run=False, build_start_time=0.0)
+        active_proc = MagicMock()
+        ctx.active_proc = active_proc
+        pipeline._ctx = ctx
+
+        with patch("llama_manager.build_pipeline.utils.terminate_process_tree") as mock_terminate:
+            pipeline.kill_active_subprocess()
+
+        mock_terminate.assert_called_once_with(active_proc, use_process_group=True)

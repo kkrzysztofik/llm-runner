@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
@@ -44,11 +45,15 @@ class _MockPopen:
         returncode: int = 0,
         stdout_lines: list[str] | None = None,
         stderr_lines: list[str] | None = None,
+        auto_exit: bool = True,
     ) -> None:
         self.cmd = cmd
         self._returncode = returncode
         self._stdout_lines = stdout_lines or []
         self._stderr_lines = stderr_lines or []
+        self._auto_exit = auto_exit
+        self._terminated = False
+        self.pid = 424242
         self.stdout = MagicMock()
         self.stdout.__iter__ = Mock(return_value=iter(self._stdout_lines))
         self.stderr = MagicMock()
@@ -62,6 +67,18 @@ class _MockPopen:
 
     def wait(self, timeout: float | None = None) -> int:
         return self._returncode
+
+    def poll(self) -> int | None:
+        """Return exit code when done; None while still running (cancel tests)."""
+        if self._auto_exit or self._terminated:
+            return self._returncode
+        return None
+
+    def terminate(self) -> None:
+        self._terminated = True
+
+    def kill(self) -> None:
+        self._terminated = True
 
     @property
     def returncode(self) -> int:
@@ -537,13 +554,15 @@ class TestConfigureStageCmakeFlags:
             build_start_time=0.0,
         )
 
-        mock_result = Mock()
-        mock_result.returncode = 1
-        mock_result.stdout = "-- Detecting CXX compiler ABI info"
-        mock_result.stderr = "CMake Error: icpx compiler not found"
-
         with (
-            patch("subprocess.run", return_value=mock_result),
+            patch(
+                "llama_manager.build_pipeline.stages.configure.run_command_with_cancel",
+                return_value=(
+                    1,
+                    "-- Detecting CXX compiler ABI info",
+                    "CMake Error: icpx compiler not found",
+                ),
+            ),
             patch(
                 "llama_manager.build_pipeline.utils._INTEL_SETVARS_SH",
                 config.build_dir / "nonexistent",
@@ -618,6 +637,114 @@ class TestBuildStageExecution:
             assert "Build completed for sycl" in result.message
             assert "COMMAND: cmake --build" in ctx.build_output
             assert "EXIT_CODE: 0" in ctx.build_output
+
+    def test_run_command_with_cancel_treats_wait_timeout_as_still_running(
+        self, tmp_path: Path
+    ) -> None:
+        """Short proc.wait timeouts must not surface as TimeoutExpired exceptions."""
+        from llama_manager.build_pipeline.utils import run_command_with_cancel
+
+        poll_calls = 0
+
+        class _PollingPopen(_MockPopen):
+            def poll(self) -> int | None:
+                nonlocal poll_calls
+                poll_calls += 1
+                if poll_calls < 3:
+                    return None
+                return 0
+
+            def wait(self, timeout: float | None = None) -> int:
+                if timeout is not None and self.poll() is None:
+                    raise subprocess.TimeoutExpired(cmd=self.cmd, timeout=timeout)
+                return self._returncode
+
+        with patch("subprocess.Popen", return_value=_PollingPopen(cmd=[])):
+            returncode, _stdout, _stderr = run_command_with_cancel(
+                ["cmake", "--build", str(tmp_path)],
+                cancel_event=None,
+                timeout_seconds=30.0,
+            )
+
+        assert returncode == 0
+        assert poll_calls >= 3
+
+    def test_build_stage_reports_cancelled_when_event_set(self, tmp_path: Path) -> None:
+        """After a stopped compile, run_build should surface Build cancelled."""
+        cancel_event = threading.Event()
+        cancel_event.set()
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+        )
+
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.build import run_build
+
+        ctx = _BuildContext(
+            config=config,
+            dry_run=False,
+            build_start_time=0.0,
+            cancel_event=cancel_event,
+        )
+
+        with patch(
+            "llama_manager.build_pipeline.stages.build.run_command_with_cancel",
+            return_value=(-15, "", ""),
+        ):
+            result = run_build(ctx)
+
+        assert result.status == "failed"
+        assert result.message == "Build cancelled"
+
+    def test_build_stage_uses_cpu_count_when_jobs_unset(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With jobs left unset, cmake --build should pass -j using os.cpu_count()."""
+        monkeypatch.setattr("os.cpu_count", lambda: 16)
+
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+            jobs=None,
+        )
+
+        from llama_manager.build_pipeline._context import _BuildContext
+        from llama_manager.build_pipeline.stages.build import run_build
+
+        ctx = _BuildContext(
+            config=config,
+            dry_run=False,
+            build_start_time=0.0,
+        )
+
+        mock_popen = _MockPopen(
+            cmd=[],
+            returncode=0,
+            stdout_lines=[],
+            stderr_lines=[],
+        )
+
+        with (
+            patch("subprocess.Popen", return_value=mock_popen) as mock_popen_factory,
+            patch(
+                "llama_manager.build_pipeline.utils._INTEL_SETVARS_SH",
+                config.build_dir / "nonexistent",
+            ),
+        ):
+            run_build(ctx)
+
+        call_args = mock_popen_factory.call_args[0][0]
+        assert "-j" in call_args
+        assert "16" in call_args
 
     def test_build_stage_failure_includes_command_and_output_tail(self, tmp_path: Path) -> None:
         """Build failure messages should explain command, exit code, and output tail."""

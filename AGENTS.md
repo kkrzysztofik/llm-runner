@@ -419,6 +419,7 @@ specs/001-m4-op-hardening/plan.md
 - When removing smoke or profiling, confirm TUI-only vs CLI/libraries scope before deleting shared modules.
 - Do not edit attached Speckit/plan files during “implement the plan” work—change code and tests only.
 - Ask scope-clarifying questions before large removals (smoke/profile, profiling cache) rather than assuming full deletion.
+- Keep llama.cpp build output routed through captured/buffered UI (wizard logs or subprocess capture); avoid flashing raw streams over the Textual layout; show live progress and clear handling for build failures in the build wizard.
 
 ## Learned Workspace Facts
 

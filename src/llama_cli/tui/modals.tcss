@@ -99,6 +99,13 @@ BuildModalScreen {
     max-width: 95%;
 }
 
+/* During the live build step, give the modal a bounded height so the log can use 1fr. */
+.build-modal.build-modal-building {
+    height: 85%;
+    max-height: 95%;
+    min-height: 28;
+}
+
 .build-title {
     text-style: bold;
     margin-bottom: 1;
@@ -144,11 +151,14 @@ BuildModalScreen {
 .build-wizard-step-building {
     width: 90;
     max-width: 95%;
+    height: 1fr;
+    layout: vertical;
 }
 
 /* Build log */
 #build-log {
-    height: 14;
+    height: 1fr;
+    min-height: 8;
     border: solid $panel;
     margin-top: 1;
     margin-bottom: 1;

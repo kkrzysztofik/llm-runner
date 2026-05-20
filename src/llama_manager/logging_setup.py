@@ -12,9 +12,12 @@ Usage
     configure_logging(level="DEBUG", log_file="/var/log/llm-runner/app.log")
 """
 
+import contextlib
+import contextvars
 import json
 import logging
 import sys
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from logging import LogRecord
@@ -30,6 +33,13 @@ from llama_manager.common.security import redact_log_line
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+
+# When True (TUI build worker), drop llama_manager.build_pipeline records from the stderr sink
+# only so Loguru does not corrupt Textual's alternate screen. File sinks still receive them.
+_SUPPRESS_BUILD_PIPELINE_ON_STDERR: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_SUPPRESS_BUILD_PIPELINE_ON_STDERR", default=False
+)
+_BUILD_PIPELINE_LOG_PREFIX = "llama_manager.build_pipeline"
 
 # Loguru → stdlib level mapping (stdlib level name → loguru level name / int)
 _LEVEL_MAP: dict[str, str | int] = {
@@ -143,13 +153,22 @@ def configure_logging(
 
     fmt = text_format if not json_logs else ""
 
-    # Redaction filter factory
-    def _redact_filter(record: LoguruRecord) -> bool:
-        """Return True if the record should be kept (not suppressed)."""
-        # Redact the message in-place
+    def _redact_only_filter(record: LoguruRecord) -> bool:
+        """Redact message in-place; keep all records."""
         original = record["message"]
         record["message"] = _redact_log_message(original)
-        return True  # always keep — we only redact, never drop
+        return True
+
+    def _stderr_sink_filter(record: LoguruRecord) -> bool:
+        """Redact; drop build_pipeline to stderr while TUI suppression is active."""
+        rec_name = record["name"] or ""
+        if _SUPPRESS_BUILD_PIPELINE_ON_STDERR.get() and rec_name.startswith(
+            _BUILD_PIPELINE_LOG_PREFIX
+        ):
+            return False
+        original = record["message"]
+        record["message"] = _redact_log_message(original)
+        return True
 
     # --- Stderr sink (always present) ---
     logger.add(
@@ -157,7 +176,7 @@ def configure_logging(
         level=log_level,
         format=fmt,
         colorize=True,
-        filter=_redact_filter,
+        filter=_stderr_sink_filter,
         serialize=json_logs,
     )
 
@@ -171,7 +190,7 @@ def configure_logging(
             rotation="10 MB",
             retention="30 days",
             compression="gz",
-            filter=_redact_filter,
+            filter=_redact_only_filter,
             serialize=json_logs,
         )
 
@@ -182,6 +201,19 @@ def configure_logging(
         logging.getLogger(target_name).handlers = []
     root_logger = logging.getLogger()
     root_logger.addHandler(intercept)
+
+
+@contextlib.contextmanager
+def suppress_build_pipeline_stderr_for_tui() -> Iterator[None]:
+    """Hide build_pipeline Loguru output on stderr during TUI-driven builds.
+
+    File sinks (if configured) still record full diagnostics.
+    """
+    token = _SUPPRESS_BUILD_PIPELINE_ON_STDERR.set(True)
+    try:
+        yield
+    finally:
+        _SUPPRESS_BUILD_PIPELINE_ON_STDERR.reset(token)
 
 
 # ---------------------------------------------------------------------------

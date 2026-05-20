@@ -5,6 +5,7 @@ application-level Config into a BuildConfig and manages the pipeline
 lifecycle without CLI or TUI concerns.
 """
 
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -63,6 +64,7 @@ def run_build_for_backend(
     progress_callback: Callable[[BuildProgress], None] | None = None,
     pipeline_callback: Callable[[BuildPipeline], None] | None = None,
     config_overrides: BuildConfig | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> BuildResult:
     """Create and run a BuildPipeline for a single backend.
 
@@ -78,6 +80,8 @@ def run_build_for_backend(
             the derived defaults.  Derived fields (backend, source_dir,
             build_dir, output_dir) are **never** overridden — they are
             always computed from *backend* and *config*.
+        cancel_event: When set, the pipeline cooperatively stops between
+            stages and may terminate an in-flight compilation.
 
     Returns:
         BuildResult from the pipeline execution.
@@ -106,7 +110,11 @@ def run_build_for_backend(
     if config_overrides is not None:
         build_config = _merge_config_overrides(build_config, config_overrides)
 
-    pipeline = BuildPipeline(build_config, progress_callback=progress_callback)
+    pipeline = BuildPipeline(
+        build_config,
+        progress_callback=progress_callback,
+        cancel_event=cancel_event,
+    )
     pipeline.dry_run = dry_run
 
     if pipeline_callback is not None:

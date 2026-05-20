@@ -1305,6 +1305,68 @@ class TestBackendReadiness:
         readiness = derive_backend_readiness(status)
         assert readiness.level == "needs_update"
 
+    def test_needs_update_untracked_binary_commit_behind_source(self) -> None:
+        """CUDA default binary without provenance must not show Current when SHA differs."""
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildBackend, BuildStatus
+
+        source_sha = "29f14822" + "0" * 32
+        status = BuildStatus(
+            backend=BuildBackend.CUDA,
+            artifact_exists=False,
+            artifact=None,
+            binary_version_output="version: 1 (f535774)",
+            binary_exists_untracked=True,
+            untracked_binary_path=None,
+            source_exists=True,
+            source_is_repo=True,
+            source_branch="master",
+            source_head_sha=source_sha,
+            source_remote_url="https://github.com/ggerganov/llama.cpp.git",
+            configured_branch="master",
+            remote_branch_sha=source_sha,
+        )
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "needs_update"
+
+    def test_current_when_version_line_has_build_number_before_commit(self) -> None:
+        """version: 312 (29f14822) must use the commit hash, not the build number."""
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildArtifact, BuildBackend, BuildStatus
+
+        sha = "29f14822" + "a" * 32
+        status = BuildStatus(
+            backend=BuildBackend.SYCL,
+            artifact_exists=True,
+            artifact=BuildArtifact(
+                artifact_type="llama-server",
+                backend=BuildBackend.SYCL,
+                created_at=0.0,
+                git_remote_url="",
+                git_commit_sha=sha,
+                git_branch="master",
+                build_command=[],
+                build_duration_seconds=1.0,
+                exit_code=0,
+                binary_path=None,
+                binary_size_bytes=None,
+                build_log_path=None,
+                failure_report_path=None,
+            ),
+            binary_version_output=f"version: 312 ({sha[:8]})",
+            binary_exists_untracked=False,
+            untracked_binary_path=None,
+            source_exists=True,
+            source_is_repo=True,
+            source_branch="master",
+            source_head_sha=sha,
+            source_remote_url="https://github.com/ggerganov/llama.cpp.git",
+            configured_branch="master",
+            remote_branch_sha=sha,
+        )
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "current"
+
     def test_current_when_aligned(self) -> None:
         from llama_cli.tui.components.build import derive_backend_readiness
         from llama_manager.build_pipeline import BuildBackend, BuildStatus
@@ -1662,6 +1724,20 @@ class TestStaleProfileWarnings:
         assert mock_load.call_args.kwargs["gpu_identifier"] == "intel-arc_b580-00"
         assert mock_load.call_args.kwargs["current_driver_version"] == "driver-1"
         assert mock_load.call_args.kwargs["current_binary_version"] == "v1.2.3"
+
+
+class TestBuildWizardResultMarkup:
+    """Build wizard result text must escape user errors that contain Rich markup."""
+
+    def test_result_content_preserves_brackets_in_error(self) -> None:
+        from llama_cli.tui.components.build import BuildModalScreen
+
+        screen = BuildModalScreen()
+        err = "Configure failed: ['cmake', '-DGGML_SYCL=ON'] timed out after 0.25 seconds"
+        screen._wizard_state["build_result_error"] = err
+        content = screen._result_content(False)
+        assert err in str(content)
+        assert "Build failed" in str(content)
 
 
 class TestBuildCommandMenu:

@@ -1,7 +1,15 @@
 """Build pipeline text-formatting and redaction utilities."""
 
+from __future__ import annotations
+
+import os
 import re
 import shlex
+import signal
+import subprocess
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 from ..common.security import REDACTED_VALUE
@@ -80,6 +88,122 @@ def _summarize_command_output(stdout: str, stderr: str) -> str:
     if not excerpts:
         return "No output captured."
     return "\n\n".join(excerpts)
+
+
+def terminate_process_tree(proc: subprocess.Popen[str], *, use_process_group: bool = True) -> None:
+    """Stop a subprocess and its children (cmake/ninja/gcc workers).
+
+    When ``use_process_group`` is true, the caller must have started the process
+    with ``start_new_session=True`` so ``proc.pid`` is the process group id.
+    """
+    if proc.poll() is not None:
+        return
+    try:
+        if use_process_group:
+            os.killpg(proc.pid, signal.SIGTERM)
+        else:
+            proc.terminate()
+    except ProcessLookupError:
+        return
+    except OSError:
+        proc.terminate()
+    deadline = time.monotonic() + 2.0
+    while proc.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if proc.poll() is not None:
+        return
+    try:
+        if use_process_group:
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except ProcessLookupError:
+        pass
+    except OSError:
+        proc.kill()
+
+
+def _cancel_requested(cancel_event: threading.Event | None) -> bool:
+    return cancel_event is not None and cancel_event.is_set()
+
+
+def run_command_with_cancel(
+    cmd: list[str],
+    *,
+    cancel_event: threading.Event | None,
+    set_active_proc: Callable[[subprocess.Popen[str] | None], None] | None = None,
+    timeout_seconds: float,
+    line_callback: Callable[[str], None] | None = None,
+) -> tuple[int, str, str]:
+    """Run a command; terminate the process tree when *cancel_event* is set."""
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+
+    with subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+        start_new_session=True,
+    ) as proc:
+        if set_active_proc is not None:
+            set_active_proc(proc)
+
+        def watch_cancel() -> None:
+            while proc.poll() is None:
+                if _cancel_requested(cancel_event):
+                    terminate_process_tree(proc, use_process_group=True)
+                    return
+                time.sleep(0.1)
+
+        cancel_watcher = threading.Thread(
+            target=watch_cancel, name="build-cancel-watch", daemon=True
+        )
+        cancel_watcher.start()
+
+        def read_stdout() -> None:
+            if proc.stdout:
+                for line in proc.stdout:
+                    stdout_lines.append(line.rstrip("\n"))
+                    if line_callback is not None:
+                        line_callback(line)
+
+        def read_stderr() -> None:
+            if proc.stderr:
+                for line in proc.stderr:
+                    stderr_lines.append(line.rstrip("\n"))
+                    if line_callback is not None:
+                        line_callback(line)
+
+        stdout_t = threading.Thread(target=read_stdout)
+        stderr_t = threading.Thread(target=read_stderr)
+        stdout_t.start()
+        stderr_t.start()
+
+        deadline = time.monotonic() + timeout_seconds
+        try:
+            while proc.poll() is None:
+                if _cancel_requested(cancel_event):
+                    terminate_process_tree(proc, use_process_group=True)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    terminate_process_tree(proc, use_process_group=True)
+                    proc.wait(timeout=5)
+                    stdout_t.join(timeout=5)
+                    stderr_t.join(timeout=5)
+                    return -1, "\n".join(stdout_lines), "\n".join(stderr_lines)
+                try:
+                    proc.wait(timeout=min(0.25, remaining))
+                except subprocess.TimeoutExpired:
+                    continue
+        finally:
+            stdout_t.join(timeout=5)
+            stderr_t.join(timeout=5)
+            if set_active_proc is not None:
+                set_active_proc(None)
+
+    return proc.returncode or 0, "\n".join(stdout_lines), "\n".join(stderr_lines)
 
 
 def _format_command_failure(

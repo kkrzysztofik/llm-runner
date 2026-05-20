@@ -8,9 +8,11 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from rich.text import Text
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -22,10 +24,10 @@ from textual.widgets import (
     Checkbox,
     Input,
     LoadingIndicator,
-    Log,
     ProgressBar,
     RadioButton,
     RadioSet,
+    RichLog,
     Static,
 )
 
@@ -81,6 +83,59 @@ _BACKEND_OPTIONS: list[tuple[str, str]] = [
     ("CUDA", "cuda"),
     ("Both (SYCL + CUDA)", "both"),
 ]
+
+_BUILD_LOG_PCT = re.compile(r"^(\s*)(\[\s*\d+%\])(\s*)(.*)$")
+
+
+def _build_log_line_style(fragment: str) -> str | None:
+    """Return a Rich style name for a build log fragment, or None for default."""
+    low = fragment.lower()
+    if "fatal error" in low or " error:" in low or low.startswith("error:"):
+        return "bold red"
+    if "warning" in low:
+        return "yellow"
+    if "built target" in low:
+        return "bold green"
+    if "linking " in low:
+        return "bold blue"
+    if "building " in low:
+        return "blue"
+    return None
+
+
+def _rich_build_output_line(raw: str) -> Text:
+    """Timestamp + heuristic Rich styling for cmake/ninja-style compiler lines."""
+    line = Text()
+    line.append(datetime.now().strftime("%H:%M:%S "), style="dim")
+    rm = _BUILD_LOG_PCT.match(raw)
+    if rm:
+        indent, pct, gap, rest = rm.groups()
+        line.append(indent)
+        line.append(pct, style="bold cyan")
+        line.append(gap)
+        rest_style = _build_log_line_style(rest)
+        if rest_style:
+            line.append(rest, style=rest_style)
+        else:
+            line.append(rest)
+        return line
+    raw_style = _build_log_line_style(raw)
+    if raw_style:
+        line.append(raw, style=raw_style)
+    else:
+        line.append(raw)
+    return line
+
+
+def _rich_build_stage_line(status_tag: str, stage: str, message: str) -> Text:
+    """Timestamp + coloured tag for pipeline stage messages."""
+    line = Text()
+    line.append(datetime.now().strftime("%H:%M:%S "), style="dim")
+    tag_styles = {"OK": "bold green", "ERR": "bold red", "RTY": "bold yellow"}
+    line.append(f"[{status_tag}] ", style=tag_styles.get(status_tag, "bold"))
+    line.append(f"{stage}: {message}")
+    return line
+
 
 ReadinessLevel = Literal["loading", "current", "needs_update", "missing"]
 BackendKey = Literal["sycl", "cuda"]
@@ -198,7 +253,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         self._btn_stop: Button | None = None
         self._progress_bar: ProgressBar | None = None
         self._build_message: Static | None = None
-        self._build_log: Log | None = None
+        self._build_log: RichLog | None = None
         self._retry_info: Static | None = None
         self._result_panel: Static | None = None
 
@@ -206,8 +261,10 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         self._sycl_inputs: dict[str, Input | Checkbox] = {}
         self._cuda_inputs: dict[str, Input | Checkbox] = {}
 
-        # Lock for thread-safe progress updates
+        # Lock for thread-safe progress updates (wizard_state only; widgets are main-thread)
         self._progress_lock = threading.Lock()
+        self._pending_output_lines: list[str] = []
+        self._output_flush_pending: bool = False
 
     # -- Helpers -------------------------------------------------------------
 
@@ -277,6 +334,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         """Clear and re-compose the current step inside the placeholder."""
         placeholder = self.query_one("#build-wizard-placeholder", Container)
         placeholder.remove_children()
+        placeholder.remove_class("build-modal-building")
         step = self._wizard_state["step"]
         if step == self.STEP_SELECT:
             self._compose_step_select(placeholder)
@@ -288,6 +346,9 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             self._compose_step_options(placeholder, "cuda")
             self.call_after_refresh(self._focus_step_options)
         elif step == self.STEP_BUILDING:
+            placeholder.add_class("build-modal-building")
+            self._pending_output_lines.clear()
+            self._output_flush_pending = False
             self._compose_step_building(placeholder)
         elif step == self.STEP_RESULT:
             self._compose_step_result(placeholder)
@@ -331,6 +392,8 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         parent.mount(
             Container(title, label, sel, status_cards, actions, classes="build-wizard-step-select")
         )
+        # Cards are composed only after mount — apply wizard status once descendants exist.
+        self.call_after_refresh(self._refresh_status_cards)
 
     def _refresh_status_cards(self) -> None:
         """Update step-1 status cards in place after async fetch completes."""
@@ -347,8 +410,6 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         cuda_card = BackendStatusCard("CUDA", card_id="build-status-cuda")
         self._sycl_card = sycl_card
         self._cuda_card = cuda_card
-        sycl_card.set_status(self._wizard_state.get("sycl_status"))
-        cuda_card.set_status(self._wizard_state.get("cuda_status"))
         self._status_cards = Vertical(
             sycl_card,
             cuda_card,
@@ -529,7 +590,13 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         if self._build_log is not None:
             log = self._build_log
         else:
-            log = Log(id="build-log", highlight=False)
+            log = RichLog(
+                id="build-log",
+                highlight=False,
+                markup=False,
+                auto_scroll=True,
+                wrap=True,
+            )
             log.can_focus = False
             self._build_log = log
 
@@ -537,6 +604,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         self._retry_info = retry
 
         self._btn_stop = Button("Stop", id="build-stop", classes="modal-button-warning")
+        self._btn_stop.disabled = False
         actions = Horizontal(self._btn_stop, classes="modal-actions")
 
         parent.mount(
@@ -549,7 +617,8 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         success = self._wizard_state.get("build_result_success")
 
         title = Static("Build Wizard", id="build-title", classes="build-title")
-        panel = Static(self._render_result_text(success), classes="build-result-panel")
+        panel = Static(classes="build-result-panel")
+        panel.update(self._result_content(success))
         self._result_panel = panel
 
         self._btn_done = Button("Done", id="build-done", classes="modal-button-success")
@@ -557,49 +626,86 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
         parent.mount(Container(title, panel, actions, classes="build-wizard-step-result"))
 
-    def _render_result_text(self, success: bool | None) -> str:
+    def _result_content(self, success: bool | None) -> Text:
+        """Build result copy as Rich Text (avoids markup parse errors in error messages)."""
         if success is True:
+            content = Text()
+            content.append("Build completed successfully!\n", style="bold green")
             artifact = self._wizard_state.get("build_result_artifact")
-            lines: list[str] = ["[green]Build completed successfully![/green]"]
             if artifact:
-                lines.append(f"  Binary: {artifact}")
-            return "\n".join(lines)
-        error = self._wizard_state.get("build_result_error", "Unknown error")
-        return f"[red]Build failed:[/red]\n  {error}"
+                content.append(f"  Binary: {artifact}\n")
+            return content
+        content = Text()
+        content.append("Build failed:\n", style="bold red")
+        error = str(self._wizard_state.get("build_result_error", "Unknown error"))
+        content.append(error)
+        return content
 
     # -- Public API for controller progress updates ------------------------
 
     def update_progress(self, progress: BuildProgress) -> None:
-        """Thread-safe progress update from the build pipeline."""
+        """Receive build progress from the worker thread; apply on the Textual app thread."""
+        self.app.call_from_thread(self._apply_build_progress, progress)
+
+    def _flush_build_output_buffer(self) -> None:
+        """Timer callback: write batched compiler lines to the log."""
+        self._output_flush_pending = False
+        if not self._screen_can_apply_status() or self._build_log is None:
+            self._pending_output_lines.clear()
+            return
+        if not self._build_log.is_mounted:
+            self._pending_output_lines.clear()
+            return
+        for line in self._pending_output_lines:
+            self._build_log.write(_rich_build_output_line(line))
+        self._pending_output_lines.clear()
+
+    def _apply_build_progress(self, progress: BuildProgress) -> None:
+        """Apply a progress update on the main thread."""
+        if not self._screen_can_apply_status():
+            return
         with self._progress_lock:
-            backend = self._wizard_state.get("progress_backend", "")
-
-            # Ensure we're on the building step
-            if self._wizard_state["step"] != self.STEP_BUILDING:
+            step_wrong = self._wizard_state["step"] != self.STEP_BUILDING
+            if step_wrong:
                 self._wizard_state["step"] = self.STEP_BUILDING
-                self.call_later(self._render_step)
-                return
+        if step_wrong:
+            self._render_step()
+            return
 
-            # Stream live compiler output lines
-            if progress.output_line is not None and self._build_log:
-                self._build_log.write_line(progress.output_line)
-                return
+        backend = self._wizard_state.get("progress_backend", "")
 
+        if (
+            progress.output_line is not None
+            and self._build_log is not None
+            and self._build_log.is_mounted
+        ):
+            self._pending_output_lines.append(progress.output_line)
+            if not self._output_flush_pending:
+                self._output_flush_pending = True
+                self.set_timer(0.08, self._flush_build_output_buffer)
+
+        if progress.output_line is None or bool(progress.message and progress.message.strip()):
             msg_text = f"Building {backend.upper()}... [{progress.stage}]"
-            if self._build_message:
+            if self._build_message is not None and self._build_message.is_mounted:
                 self._build_message.update(msg_text)
 
-            if self._build_log:
+            if (
+                self._build_log is not None
+                and self._build_log.is_mounted
+                and progress.output_line is None
+            ):
                 status_tag = {"success": "OK", "failed": "ERR", "retrying": "RTY"}.get(
                     progress.status, progress.status.upper()[:3]
                 )
-                self._build_log.write_line(f"[{status_tag}] {progress.stage}: {progress.message}")
+                self._build_log.write(
+                    _rich_build_stage_line(status_tag, progress.stage, progress.message)
+                )
 
-            if self._progress_bar:
+            if self._progress_bar is not None and self._progress_bar.is_mounted:
                 pct = int(progress.progress_percent)
                 self._progress_bar.update(total=100, progress=max(0, min(100, pct)))
 
-            if self._retry_info:
+            if self._retry_info is not None and self._retry_info.is_mounted:
                 if progress.is_retrying and progress.retries_remaining is not None:
                     self._retry_info.update(
                         f"Retrying... ({progress.retries_remaining} retries remaining)"
@@ -610,22 +716,58 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
                     self._retry_info.add_class("hidden")
 
     def set_building_backend(self, backend: str) -> None:
-        """Mark the start of building for a specific backend."""
+        """Mark the start of building for a specific backend (may run on a worker thread)."""
+        self.app.call_from_thread(self._set_building_backend_main, backend)
+
+    def _set_building_backend_main(self, backend: str) -> None:
+        if not self._screen_can_apply_status():
+            return
         with self._progress_lock:
+            already_on_build_step = (
+                self._wizard_state["step"] == self.STEP_BUILDING
+                and self._build_log is not None
+                and self._build_log.is_mounted
+            )
             self._wizard_state["progress_backend"] = backend
             self._wizard_state["step"] = self.STEP_BUILDING
-            self.call_later(self._render_step)
+
+        if already_on_build_step:
+            # Remounting the building step destroys the RichLog and can orphan workers.
+            # Update in place when already on this step.
+            self._pending_output_lines.clear()
+            self._output_flush_pending = False
+            log = self._build_log
+            if log is not None:
+                log.clear()
+            if self._build_message is not None and self._build_message.is_mounted:
+                self._build_message.update(f"Building {backend.upper()}...")
+            if self._btn_stop is not None:
+                self._btn_stop.disabled = False
+            return
+
+        self._render_step()
 
     def set_build_result(
         self, success: bool, artifact_path: str | None = None, error_message: str = ""
     ) -> None:
-        """Set the final build result."""
+        """Set the final build result (may run on a worker thread)."""
+        self.app.call_from_thread(
+            self._set_build_result_main, success, artifact_path, error_message
+        )
+
+    def _set_build_result_main(
+        self, success: bool, artifact_path: str | None, error_message: str
+    ) -> None:
+        if not self._screen_can_apply_status():
+            return
         with self._progress_lock:
             self._wizard_state["build_result_success"] = success
             self._wizard_state["build_result_artifact"] = artifact_path
             self._wizard_state["build_result_error"] = error_message
             self._wizard_state["step"] = self.STEP_RESULT
-            self.call_later(self._render_step)
+        self._render_step()
+        if success:
+            self._fetch_build_status_worker()
 
     # -- Actions ------------------------------------------------------------
 
@@ -642,7 +784,11 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             return
 
         if bid == "build-stop":
-            self.action_cancel()
+            self._dashboard_app.controller.cancel_build()
+            if self._build_message is not None:
+                self._build_message.update("Stopping build…")
+            if self._btn_stop is not None:
+                self._btn_stop.disabled = True
             return
 
         if bid == "build-done":
@@ -745,12 +891,35 @@ def _has_binary(status: BuildStatus) -> bool:
 
 
 def _binary_commit_prefix(status: BuildStatus) -> str | None:
+    """Return a short git commit id for the built binary, if known.
+
+    Prefer provenance JSON (authoritative after a successful build). Otherwise parse
+    ``llama-server --version`` — format is ``version: <build> (<commit>)``; the build
+    number is the first parenthesized group, the git SHA is the last (7–40 hex chars).
+    """
+    if status.artifact is not None:
+        sha = status.artifact.git_commit_sha
+        if sha and sha != "unknown":
+            return sha[:8].lower()
+
     if not status.binary_version_output:
         return None
-    match = re.search(r"\(([0-9a-fA-F]+)\)", status.binary_version_output)
-    if not match:
+    commit_like = re.findall(r"\(([0-9a-fA-F]{7,40})\)", status.binary_version_output)
+    if not commit_like:
         return None
-    return match.group(1)[:8]
+    return commit_like[-1][:8].lower()
+
+
+def _binary_matches_source(status: BuildStatus) -> bool:
+    """Return True when the on-disk binary commit matches the source tree HEAD."""
+    if not status.source_head_sha:
+        return False
+    binary_commit = _binary_commit_prefix(status)
+    if binary_commit is None:
+        return False
+    source = status.source_head_sha.lower()
+    compare_len = min(len(binary_commit), len(source), 8)
+    return source[:compare_len] == binary_commit[:compare_len]
 
 
 def derive_backend_readiness(status: BuildStatus | None) -> BackendReadiness:
@@ -784,10 +953,8 @@ def derive_backend_readiness(status: BuildStatus | None) -> BackendReadiness:
         and status.source_head_sha != status.remote_branch_sha
     ):
         level = "needs_update"
-    if level == "current":
-        binary_commit = _binary_commit_prefix(status)
-        if binary_commit and status.source_head_sha and binary_commit != status.source_head_sha[:8]:
-            level = "needs_update"
+    if level == "current" and status.source_head_sha and not _binary_matches_source(status):
+        level = "needs_update"
 
     badge_by_level = {
         "current": "Current",
