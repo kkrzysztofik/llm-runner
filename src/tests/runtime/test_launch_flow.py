@@ -548,6 +548,7 @@ class TestLaunchOrchestrate:
             )
 
         assert result.risk_result == risk_result
+        assert result.risk_result is not None
         assert result.risk_result.has_risks is True
 
 

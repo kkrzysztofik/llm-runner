@@ -122,51 +122,98 @@ def write_artifact(
 
 def _validate_artifact_fields(data: DryRunArtifactPayload | dict) -> None:
     """FR-007: Validate required top-level artifact fields."""
-    required_fields = [
+    _validate_required_fields(
+        data,
+        [
+            "timestamp",
+            "slot_scope",
+            "resolved_command",
+            "validation_results",
+            "warnings",
+            "environment_redacted",
+        ],
+    )
+    _validate_isinstance_str(
+        data,
         "timestamp",
+        "timestamp must be an ISO 8601 string",
+        "provide timestamp as an ISO 8601 formatted string (e.g. 2026-04-12T00:00:00Z)",
+    )
+    _validate_string_list(
+        data,
         "slot_scope",
-        "resolved_command",
+        "slot_scope must be list[str]",
+        "provide slot_scope as a list of slot IDs",
+    )
+    _validate_resolved_command(data)
+    _validate_isinstance_dict(
+        data,
         "validation_results",
+        "validation_results must be an object mapping",
+        "provide validation_results as a mapping of check names to results",
+    )
+    _validate_string_list(
+        data,
         "warnings",
+        "warnings must be list[str]",
+        "provide warnings as a list of string messages",
+    )
+    _validate_isinstance_dict(
+        data,
         "environment_redacted",
-    ]
+        "environment_redacted must be an object mapping",
+        "provide environment_redacted as a mapping of environment variable names to redacted values",
+    )
 
-    missing_fields = [field for field in required_fields if field not in data]
 
-    if missing_fields:
+def _validate_required_fields(data: DryRunArtifactPayload | dict, fields: list[str]) -> None:
+    """Check that all required fields exist in data."""
+    missing = [f for f in fields if f not in data]
+    if missing:
         raise _artifact_error(
-            f"artifact missing required fields: {', '.join(missing_fields)}",
+            f"artifact missing required fields: {', '.join(missing)}",
             "ensure artifact data contains all required FR-007 fields",
             check="artifact_validation",
         )
 
-    # timestamp must be a string (ISO 8601)
-    timestamp = data.get("timestamp")
-    if not isinstance(timestamp, str):
-        raise _artifact_error(
-            "timestamp must be an ISO 8601 string",
-            "provide timestamp as an ISO 8601 formatted string (e.g. 2026-04-12T00:00:00Z)",
-            check="artifact_validation",
-        )
 
-    # slot_scope must be list[str]
-    slot_scope = data.get("slot_scope")
-    if not isinstance(slot_scope, list) or not all(isinstance(item, str) for item in slot_scope):
-        raise _artifact_error(
-            "slot_scope must be list[str]",
-            "provide slot_scope as a list of slot IDs",
-            check="artifact_validation",
-        )
+def _validate_isinstance_str(
+    data: DryRunArtifactPayload | dict, field: str, why: str, how: str
+) -> None:
+    """Validate that a field value is a string."""
+    value = data.get(field)
+    if not isinstance(value, str):
+        raise _artifact_error(why, how, check="artifact_validation")
 
-    # resolved_command must be dict[str, <slot_data>] with str keys and str slot_id keys
-    resolved_command = data.get("resolved_command")
-    if not isinstance(resolved_command, dict):
+
+def _validate_string_list(
+    data: DryRunArtifactPayload | dict, field: str, why: str, how: str
+) -> None:
+    """Validate that a field is a list of strings."""
+    value = data.get(field)
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise _artifact_error(why, how, check="artifact_validation")
+
+
+def _validate_isinstance_dict(
+    data: DryRunArtifactPayload | dict, field: str, why: str, how: str
+) -> None:
+    """Validate that a field value is a dict."""
+    value = data.get(field)
+    if not isinstance(value, dict):
+        raise _artifact_error(why, how, check="artifact_validation")
+
+
+def _validate_resolved_command(data: DryRunArtifactPayload | dict) -> None:
+    """Validate the resolved_command dict structure."""
+    resolved = data.get("resolved_command")
+    if not isinstance(resolved, dict):
         raise _artifact_error(
             "resolved_command must be an object mapping",
             "provide resolved_command as a mapping keyed by slot ID",
             check="artifact_validation",
         )
-    for cmd_key, cmd_val in resolved_command.items():
+    for cmd_key, cmd_val in resolved.items():
         if not isinstance(cmd_key, str):
             raise _artifact_error(
                 "resolved_command keys must be strings (slot IDs)",
@@ -182,32 +229,20 @@ def _validate_artifact_fields(data: DryRunArtifactPayload | dict) -> None:
                         check="artifact_validation",
                     )
 
-    # validation_results must be a dict/mapping
-    validation_results = data.get("validation_results")
-    if not isinstance(validation_results, dict):
-        raise _artifact_error(
-            "validation_results must be an object mapping",
-            "provide validation_results as a mapping of check names to results",
-            check="artifact_validation",
-        )
 
-    # warnings must be list[str]
-    warnings = data.get("warnings")
-    if not isinstance(warnings, list) or not all(isinstance(item, str) for item in warnings):
-        raise _artifact_error(
-            "warnings must be list[str]",
-            "provide warnings as a list of string messages",
-            check="artifact_validation",
-        )
+def _redact_value(key: str, value: Any, prefix: str) -> Any:
+    """Recursively redact a single value based on its accumulated key path.
 
-    # environment_redacted must be a dict/mapping (redacted env var values)
-    environment_redacted = data.get("environment_redacted")
-    if not isinstance(environment_redacted, dict):
-        raise _artifact_error(
-            "environment_redacted must be an object mapping",
-            "provide environment_redacted as a mapping of environment variable names to redacted values",
-            check="artifact_validation",
-        )
+    Handles dicts (recurse), lists (map over items), and sensitive strings.
+    """
+    full_key = f"{prefix}_{key}" if prefix else key
+    if isinstance(value, dict):
+        return _redact_sensitive_in_dict(value, full_key)
+    if isinstance(value, list):
+        return [_redact_value(key, item, full_key) for item in value]
+    if isinstance(value, str) and is_sensitive_key(full_key):
+        return REDACTED_VALUE
+    return value
 
 
 def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
@@ -219,22 +254,7 @@ def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
     """
     result: dict[str, Any] = {}
     for key, value in data.items():
-        full_key = f"{env_key_prefix}_{key}" if env_key_prefix else key
-        if isinstance(value, dict):
-            result[key] = _redact_sensitive_in_dict(value, full_key)
-        elif isinstance(value, list):
-            result[key] = [
-                _redact_sensitive_in_dict(item, full_key)
-                if isinstance(item, dict)
-                else REDACTED_VALUE
-                if isinstance(item, str) and is_sensitive_key(full_key)
-                else item
-                for item in value
-            ]
-        elif isinstance(value, str) and is_sensitive_key(full_key):
-            result[key] = REDACTED_VALUE
-        else:
-            result[key] = value
+        result[key] = _redact_value(key, value, env_key_prefix)
     return result
 
 

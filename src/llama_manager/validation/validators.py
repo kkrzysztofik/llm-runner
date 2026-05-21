@@ -128,9 +128,7 @@ def _validate_slot(slot: ModelSlot) -> list[ValidationResult]:
         )
 
     if slot.model_path:
-        if os.path.isfile(slot.model_path):
-            pass
-        elif os.path.isdir(slot.model_path):
+        if os.path.isdir(slot.model_path):
             results.append(
                 ValidationResult(
                     slot_id=normalized_id,
@@ -140,7 +138,7 @@ def _validate_slot(slot: ModelSlot) -> list[ValidationResult]:
                     error_message="model_path must be a file, not a directory",
                 )
             )
-        else:
+        elif not os.path.isfile(slot.model_path):
             results.append(
                 ValidationResult(
                     slot_id=normalized_id,

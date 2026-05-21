@@ -379,7 +379,10 @@ class DashboardController:
         """Return a warning string when the cached profile is stale."""
         return self.view_model.stale_warning(cfg)
 
-    def _update_risk_panel_state(self, result: RiskAckResult) -> None:
+    def _update_risk_panel_state(self, result: RiskAckResult | None) -> None:
+        if result is None:
+            self.model.clear_risk_prompt()
+            return
         if result.has_risks:
             if result.risks_acknowledged:
                 self._build_risk_panel_acknowledged()
@@ -742,7 +745,7 @@ class DashboardController:
 
         # Map risk result to Textual prompt state
         self._update_risk_panel_state(result.risk_result)
-        if not acknowledged:
+        if not acknowledged and result.risk_result is not None:
             for detail in result.risk_result.risk_details:
                 self._push_status_message(
                     f"warning: risky operation in {detail['alias']}: {detail['risk']} — "

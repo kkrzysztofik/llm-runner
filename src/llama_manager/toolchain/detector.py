@@ -76,6 +76,14 @@ def _try_tool(cmd: list[str], name: str, timeout: int) -> tuple[bool, str | None
 
 _INTEL_ONEAPI_TOOLS = frozenset({"icpx", "icx", "dpcpp"})
 
+# (field_name, tool_name) for common build tools checked across all backends
+_COMMON_MISSING_TOOLS: tuple[tuple[str, str], ...] = (
+    ("gcc", "gcc"),
+    ("make", "make"),
+    ("git", "git"),
+    ("cmake", "cmake"),
+)
+
 
 def detect_tool(
     tool_name: str,
@@ -285,6 +293,15 @@ class ToolchainStatus:
         """
         return self.is_sycl_ready and self.is_cuda_ready
 
+    def _collect_common_missing(self, missing: list[str]) -> None:
+        """Append missing common build tools to *missing*.
+
+        Checks gcc, make, git, and cmake — the tools shared by all backends.
+        """
+        for field, name in _COMMON_MISSING_TOOLS:
+            if getattr(self, field) is None:
+                missing.append(name)
+
     def missing_tools(self, backend: BuildBackend | None = None) -> list[str]:
         """Get list of missing tool names for the specified backend.
 
@@ -296,18 +313,10 @@ class ToolchainStatus:
             List of tool names that are not available for the specified backend.
             If backend is None, returns all missing tools.
         """
-
         missing: list[str] = []
 
         # Always check common tools
-        if self.gcc is None:
-            missing.append("gcc")
-        if self.make is None:
-            missing.append("make")
-        if self.git is None:
-            missing.append("git")
-        if self.cmake is None:
-            missing.append("cmake")
+        self._collect_common_missing(missing)
 
         # If no backend specified, return all missing tools (backward compatible).
         # nvtop is optional (not required for either backend) — do NOT add it

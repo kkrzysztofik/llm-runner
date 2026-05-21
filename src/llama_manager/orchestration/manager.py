@@ -41,6 +41,7 @@ if TYPE_CHECKING:
 from ..orchestration.lockfile import (
     LOCKFILE_CHECK_NAME,
     ValidationException,
+    check_lockfile_integrity,
 )
 
 # Module-local string constants (process_manager-specific).
@@ -133,7 +134,7 @@ class LaunchOrchestrationResult:
     processes: dict[str, Any]
     slot_states: dict[str, str]
     status_messages: list[str]
-    risk_result: RiskAckResult
+    risk_result: RiskAckResult | None
     empty: bool = False
 
 
@@ -279,47 +280,30 @@ def _append_audit_log(
         fh.write(line)
 
 
-def launch_orchestrate(
-    configs: list[ServerConfig],
-    base_config: Config,
-    server_manager: "ServerManager",  # noqa: UP037
-    log_buffers: Mapping[str, LogBuffer],
-    get_driver_version: Callable[[str], str],
-    acknowledged: bool = False,
-) -> LaunchOrchestrationResult:
-    """Orchestrate the full launch sequence for model slots."""
-    from ..risk_ack import RiskAckResult, evaluate_risks
-    from ..slot_state import compute_slot_transition
+def _evaluate_and_handle_risks(
+    updated_configs: list[ServerConfig],
+    server_manager: ServerManager,
+    launch_attempt_id: str,
+    ack_token: str,
+    acknowledged: bool,
+    profile_messages: list[str],
+    risk_result: RiskAckResult | None = None,
+) -> tuple[list[str], list[ServerConfig] | None, RiskAckResult | None]:
+    """Evaluate risks and return (status_messages, configs_to_launch, risk_result).
 
-    updated_configs, profile_messages = apply_profile_overrides(
-        configs, base_config, get_driver_version
-    )
+    If risks are unacknowledged, returns early with status messages and no configs.
+    Otherwise returns the full configs list and the risk_result.
+    """
+    from ..risk_ack import evaluate_risks
 
-    if not updated_configs:
-        return LaunchOrchestrationResult(
-            updated_configs=[],
-            launch_result=LaunchResult(status="success", launched=[]),
-            processes={},
-            slot_states={},
-            status_messages=["No slots configured. Press 'a' to add a slot."],
-            risk_result=RiskAckResult(),
-            empty=True,
+    if risk_result is None:
+        risk_result = evaluate_risks(
+            updated_configs,
+            server_manager,
+            launch_attempt_id,
+            ack_token,
+            acknowledged,
         )
-
-    slots = [
-        ModelSlot(slot_id=cfg.alias, model_path=cfg.model, port=cfg.port) for cfg in updated_configs
-    ]
-
-    launch_attempt_id = server_manager.begin_launch_attempt()
-    ack_token = server_manager.issue_ack_token(launch_attempt_id)
-
-    risk_result = evaluate_risks(
-        updated_configs,
-        server_manager,
-        launch_attempt_id,
-        ack_token,
-        acknowledged,
-    )
 
     if risk_result.has_risks and not risk_result.risks_acknowledged and risk_result.risk_details:
         status_messages: list[str] = list(profile_messages)
@@ -328,18 +312,19 @@ def launch_orchestrate(
             f"Details: {len(risk_result.risk_details)} risk(s) require"
             " acknowledgement.",
         )
-        return LaunchOrchestrationResult(
-            updated_configs=updated_configs,
-            launch_result=None,
-            processes={},
-            slot_states={},
-            status_messages=status_messages,
-            risk_result=risk_result,
-            empty=False,
-        )
+        return status_messages, None, risk_result
 
-    launch_result = server_manager.launch_all_slots(slots, configs=updated_configs)
+    return profile_messages, updated_configs, risk_result
 
+
+def _build_launch_status_messages(
+    launch_result: LaunchResult,
+    profile_messages: list[str],
+) -> list[str]:
+    """Build status messages based on launch result (blocked/degraded).
+
+    Returns a new list starting with profile_messages plus any launch-specific messages.
+    """
     status_messages: list[str] = list(profile_messages)
 
     if launch_result.is_blocked():
@@ -347,27 +332,25 @@ def launch_orchestrate(
         if launch_result.errors is not None:
             for error_detail in launch_result.errors.errors:
                 status_messages.append(f"  {error_detail.error_code} - {error_detail.why_blocked}")
-        return LaunchOrchestrationResult(
-            updated_configs=updated_configs,
-            launch_result=launch_result,
-            processes={},
-            slot_states={},
-            status_messages=status_messages,
-            risk_result=risk_result,
-            empty=False,
-        )
+        return status_messages
 
     if launch_result.is_degraded():
         status_messages.append("Launch degraded: some slots blocked")
         for warning in launch_result.warnings or []:
             status_messages.append(f"  warning: {warning}")
 
-    launched_slots = launch_result.launched or []
-    launched_set = set(launched_slots)
+    return status_messages
 
-    launched_configs = [cfg for cfg in updated_configs if cfg.alias in launched_set]
+
+def _build_log_handlers(
+    launched_configs: list[ServerConfig],
+    log_buffers: Mapping[str, LogBuffer],
+    launched_set: list[str],
+) -> dict[str, Callable[[str], None]]:
+    """Build log handlers for launched configs."""
+    launched_set_s = set(launched_set)
     launched_log_buffers = {
-        alias: buf for alias, buf in log_buffers.items() if alias in launched_set
+        alias: buf for alias, buf in log_buffers.items() if alias in launched_set_s
     }
 
     log_handlers: dict[str, Callable[[str], None]] = {}
@@ -376,6 +359,15 @@ def launch_orchestrate(
         if buf is not None:
             log_handlers[cfg.alias] = lambda line, b=buf: b.add_line(line)
 
+    return log_handlers
+
+
+def _start_and_map_servers(
+    launched_configs: list[ServerConfig],
+    log_handlers: dict[str, Callable[[str], None]],
+    server_manager: ServerManager,
+) -> dict[str, Any]:
+    """Start servers and map processes by alias."""
     processes: dict[str, Any] = {}
     try:
         processes_list = server_manager.start_servers(launched_configs, log_handlers)
@@ -386,15 +378,111 @@ def launch_orchestrate(
     for cfg, proc in zip(launched_configs, processes_list, strict=True):
         processes[cfg.alias] = proc
 
+    return processes
+
+
+def _empty_result() -> LaunchOrchestrationResult:
+    """Return an empty orchestration result for no-configs."""
+    from ..risk_ack import RiskAckResult
+
+    return LaunchOrchestrationResult(
+        updated_configs=[],
+        launch_result=LaunchResult(status="success", launched=[]),
+        processes={},
+        slot_states={},
+        status_messages=["No slots configured. Press 'a' to add a slot."],
+        risk_result=RiskAckResult(),
+        empty=True,
+    )
+
+
+def _blocked_result(
+    updated_configs: list[ServerConfig],
+    launch_result: LaunchResult | None,
+    status_messages: list[str],
+    risk_result: RiskAckResult | None,
+) -> LaunchOrchestrationResult:
+    """Return a blocked/degraded orchestration result."""
+    return LaunchOrchestrationResult(
+        updated_configs=updated_configs,
+        launch_result=launch_result,
+        processes={},
+        slot_states={},
+        status_messages=status_messages,
+        risk_result=risk_result,
+        empty=False,
+    )
+
+
+def _build_slot_states_and_messages(
+    launched_configs: list[ServerConfig],
+    status_messages: list[str],
+) -> tuple[dict[str, str], list[str]]:
+    """Build slot states and append transition messages."""
+    from ..slot_state import compute_slot_transition
+
     slot_states: dict[str, str] = {}
     for cfg in launched_configs:
-        old_state = None
-        new_state = SlotState.RUNNING
-        transition = compute_slot_transition(cfg.alias, old_state, new_state)
-        slot_states[cfg.alias] = new_state.value
+        transition = compute_slot_transition(cfg.alias, None, SlotState.RUNNING)
+        slot_states[cfg.alias] = SlotState.RUNNING.value
         if transition is not None:
             message, _color = transition
             status_messages.append(message)
+    return slot_states, status_messages
+
+
+def launch_orchestrate(
+    configs: list[ServerConfig],
+    base_config: Config,
+    server_manager: "ServerManager",  # noqa: UP037
+    log_buffers: Mapping[str, LogBuffer],
+    get_driver_version: Callable[[str], str],
+    acknowledged: bool = False,
+) -> LaunchOrchestrationResult:
+    """Orchestrate the full launch sequence for model slots."""
+    updated_configs, profile_messages = apply_profile_overrides(
+        configs, base_config, get_driver_version
+    )
+
+    if not updated_configs:
+        return _empty_result()
+
+    slots = [
+        ModelSlot(slot_id=cfg.alias, model_path=cfg.model, port=cfg.port) for cfg in updated_configs
+    ]
+
+    launch_attempt_id = server_manager.begin_launch_attempt()
+    ack_token = server_manager.issue_ack_token(launch_attempt_id)
+
+    status_messages, configs_to_launch, risk_result = _evaluate_and_handle_risks(
+        updated_configs,
+        server_manager,
+        launch_attempt_id,
+        ack_token,
+        acknowledged,
+        profile_messages,
+    )
+    if not configs_to_launch:
+        return _blocked_result(updated_configs, None, status_messages, risk_result)
+
+    launch_result = server_manager.launch_all_slots(slots, configs=updated_configs)
+
+    status_messages.extend(_build_launch_status_messages(launch_result, profile_messages))
+
+    if launch_result.is_blocked():
+        return _blocked_result(updated_configs, launch_result, status_messages, risk_result)
+
+    launched_slots = launch_result.launched or []
+    launched_set = set(launched_slots)
+
+    launched_configs = [cfg for cfg in updated_configs if cfg.alias in launched_set]
+
+    log_handlers = _build_log_handlers(launched_configs, log_buffers, launched_slots)
+    processes = _start_and_map_servers(launched_configs, log_handlers, server_manager)
+
+    slot_states, status_messages = _build_slot_states_and_messages(
+        launched_configs, status_messages
+    )
 
     return LaunchOrchestrationResult(
         updated_configs=updated_configs,
@@ -709,6 +797,43 @@ class ServerManager:
             processes.append(proc)
         return processes
 
+    def _process_slot(
+        self,
+        slot: ModelSlot,
+        config_map: dict[str, ServerConfig],
+        runtime_dir: Path,
+    ) -> tuple[str | None, ErrorDetail | None]:
+        """Check lockfile integrity and acquire lock for a single slot.
+
+        Returns ``(slot_id, None)`` on success or ``(None, error)`` if blocked.
+        """
+        block = check_lockfile_integrity(runtime_dir, slot.slot_id)
+
+        if block is not None:
+            error_msg = f"slot {slot.slot_id}: {block.error_code.value} - {block.why_blocked}"
+            return None, ErrorDetail(
+                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+                failed_check=LOCKFILE_CHECK_NAME,
+                why_blocked=error_msg,
+                how_to_fix="verify the owning process or clear the lockfile",
+            )
+
+        cfg = config_map.get(slot.slot_id)
+        port = cfg.port if cfg is not None else 0
+
+        try:
+            self.acquire_lock(slot.slot_id, port)
+        except Exception as exc:
+            error_msg = f"slot {slot.slot_id}: lock_acquire_failed - {exc}"
+            return None, ErrorDetail(
+                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+                failed_check=LOCKFILE_CHECK_NAME,
+                why_blocked=error_msg,
+                how_to_fix="verify the owning process or clear the lockfile",
+            )
+
+        return slot.slot_id, None
+
     def launch_all_slots(
         self,
         slots: list[ModelSlot],
@@ -716,7 +841,7 @@ class ServerManager:
         configs: list[ServerConfig] | None = None,
     ) -> LaunchResult:
         """Launch model slots with lock collision detection (T017-T019)."""
-        from .lockfile import check_lockfile_integrity, resolve_runtime_dir
+        from .lockfile import resolve_runtime_dir
 
         runtime_dir = runtime_dir or resolve_runtime_dir()
 
@@ -729,29 +854,15 @@ class ServerManager:
             config_map = {cfg.alias: cfg for cfg in configs}
 
         for slot in slots:
-            block = check_lockfile_integrity(runtime_dir, slot.slot_id)
-
-            if block is not None:
-                error_msg = f"slot {slot.slot_id}: {block.error_code.value} - {block.why_blocked}"
+            slot_id, error = self._process_slot(slot, config_map, runtime_dir)
+            if slot_id is None:
+                # error is guaranteed to be ErrorDetail when slot_id is None
+                # (the method returns (slot_id, None) on success only)
+                error_msg = f"slot {slot.slot_id}: {error.why_blocked}"  # type: ignore[union-attr]
                 warnings.append(error_msg)
-                errors.append(block)
+                errors.append(error)  # type: ignore[arg-type]
             else:
-                cfg = config_map.get(slot.slot_id)
-                port = cfg.port if cfg is not None else 0
-                try:
-                    self.acquire_lock(slot.slot_id, port)
-                    launched.append(slot.slot_id)
-                except Exception as exc:
-                    error_msg = f"slot {slot.slot_id}: lock_acquire_failed - {exc}"
-                    warnings.append(error_msg)
-                    errors.append(
-                        ErrorDetail(
-                            error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-                            failed_check=LOCKFILE_CHECK_NAME,
-                            why_blocked=error_msg,
-                            how_to_fix="verify the owning process or clear the lockfile",
-                        )
-                    )
+                launched.append(slot_id)
 
         if not launched:
             if errors:

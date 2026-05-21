@@ -29,13 +29,22 @@ def run_build(ctx: _BuildContext) -> BuildProgress:
     logger.info("[build] starting compilation for {}", ctx.config.backend.value)
 
     if ctx.dry_run:
-        cmd = _build_cmake_cmd(ctx)
-        progress.message = f"Would run: {_format_command(cmd)}"
-        progress.status = "success"
-        progress.progress_percent = 75
-        logger.info("[build] dry-run: {}", progress.message)
-        return progress
+        return _run_build_dry_run(ctx, progress)
+    return _run_build_real(ctx, progress)
 
+
+def _run_build_dry_run(ctx: _BuildContext, progress: BuildProgress) -> BuildProgress:
+    """Dry-run: print the command without executing."""
+    cmd = _build_cmake_cmd(ctx)
+    progress.message = f"Would run: {_format_command(cmd)}"
+    progress.status = "success"
+    progress.progress_percent = 75
+    logger.info("[build] dry-run: {}", progress.message)
+    return progress
+
+
+def _run_build_real(ctx: _BuildContext, progress: BuildProgress) -> BuildProgress:
+    """Execute cmake --build with real-time output streaming."""
     try:
         cmd = _build_cmake_cmd(ctx)
         logger.info("[build] running cmake --build (this may take several minutes)")

@@ -7,7 +7,8 @@ Models are launched exclusively via the TUI subcommand.
 import argparse
 import os
 import sys
-from typing import NoReturn
+from collections.abc import Callable
+from typing import Final, NoReturn
 
 from llama_cli.cli_parser import parse_args
 from llama_cli.commands.setup import main as setup_main
@@ -263,6 +264,76 @@ def _build_target_configs(parsed_mode: str, ports: list[int], cfg: Config) -> li
     return resolve_run_group_configs(registry, parsed_mode, tuple(ports))
 
 
+def _build_smoke_args(parsed: argparse.Namespace) -> list[str]:
+    """Build the argument list for the smoke subcommand."""
+    args: list[str] = [parsed.smoke_mode]
+    if parsed.slot_id:
+        args.append(parsed.slot_id)
+    if parsed.api_key:
+        args.extend(["--api-key", parsed.api_key])
+    if parsed.model_id:
+        args.extend(["--model-id", parsed.model_id])
+    if parsed.max_tokens:
+        args.extend(["--max-tokens", str(parsed.max_tokens)])
+    if parsed.prompt:
+        args.extend(["--prompt", parsed.prompt])
+    if parsed.delay:
+        args.extend(["--delay", str(parsed.delay)])
+    if parsed.timeout:
+        args.extend(["--timeout", str(parsed.timeout)])
+    if parsed.json:
+        args.append("--json")
+    return args
+
+
+def _handle_mode(parsed: argparse.Namespace) -> int:
+    """Dispatch to the handler for the given mode."""
+    handler = _MODE_HANDLERS.get(parsed.mode)
+    if handler is not None:
+        return handler(parsed)
+    usage()
+    return 1
+
+
+_MODE_HANDLERS: Final[dict[str, Callable[[argparse.Namespace], int]]] = {
+    "build": lambda a: _run_build(a),
+    "setup": lambda a: _run_setup(a),
+    "doctor": lambda a: _run_doctor(a),
+    "profile": lambda a: _run_profile(a),
+    "smoke": lambda a: _run_smoke_cmd(a),
+    "tui": lambda a: _run_tui(a),
+    "dry-run": lambda a: _run_dry_run_mode(a, a.acknowledge_risky),
+}
+
+
+def _run_build(parsed: argparse.Namespace) -> int:
+    from llama_cli.commands.build import main as build_main
+
+    return build_main(parsed.build_args)
+
+
+def _run_setup(parsed: argparse.Namespace) -> int:
+    return setup_main(sys.argv[1:])
+
+
+def _run_doctor(parsed: argparse.Namespace) -> int:
+    from llama_cli.commands.doctor import main as doctor_main
+
+    return doctor_main(sys.argv[1:])
+
+
+def _run_profile(parsed: argparse.Namespace) -> int:
+    from llama_cli.commands.profile import main as profile_main
+
+    return profile_main(sys.argv[1:])
+
+
+def _run_smoke_cmd(parsed: argparse.Namespace) -> int:
+    from llama_cli.commands.smoke import run_smoke
+
+    return run_smoke(_build_smoke_args(parsed))
+
+
 def main(args: list[str] | None = None) -> int:
     """Main CLI entry point."""
     argv = _normalize_main_args(args)
@@ -272,66 +343,10 @@ def main(args: list[str] | None = None) -> int:
         usage()
         return 1
 
-    # Handle build command
-    if parsed.mode == "build":
-        from llama_cli.commands.build import main as build_main
-
-        return build_main(parsed.build_args)
-
-    # Handle setup command
-    if parsed.mode == "setup":
-        return setup_main(argv[1:])
-
-    # Handle doctor command (FR-004.7)
-    if parsed.mode == "doctor":
-        from llama_cli.commands.doctor import main as doctor_main
-
-        return doctor_main(argv[1:])
-
-    # Handle profile subcommand
-    if parsed.mode == "profile":
-        from llama_cli.commands.profile import main as profile_main
-
-        return profile_main(argv[1:])
-
-    # Handle smoke subcommand
-    if parsed.mode == "smoke":
-        from llama_cli.commands.smoke import run_smoke
-
-        smoke_args = [
-            parsed.smoke_mode,
-        ]
-        if parsed.slot_id:
-            smoke_args.append(parsed.slot_id)
-        if parsed.api_key:
-            smoke_args.extend(["--api-key", parsed.api_key])
-        if parsed.model_id:
-            smoke_args.extend(["--model-id", parsed.model_id])
-        if parsed.max_tokens:
-            smoke_args.extend(["--max-tokens", str(parsed.max_tokens)])
-        if parsed.prompt:
-            smoke_args.extend(["--prompt", parsed.prompt])
-        if parsed.delay:
-            smoke_args.extend(["--delay", str(parsed.delay)])
-        if parsed.timeout:
-            smoke_args.extend(["--timeout", str(parsed.timeout)])
-        if parsed.json:
-            smoke_args.append("--json")
-
-        return run_smoke(smoke_args)
-
     # Enable Intel Sysman for telemetry before any backend operations
     os.environ["ZES_ENABLE_SYSMAN"] = "1"
 
-    # Handle tui subcommand
-    if parsed.mode == "tui":
-        return _run_tui(parsed)
-
-    if parsed.mode == "dry-run":
-        return _run_dry_run_mode(parsed, parsed.acknowledge_risky)
-
-    usage()
-    return 1
+    return _handle_mode(parsed)
 
 
 def _get_log_level_from_env() -> str:

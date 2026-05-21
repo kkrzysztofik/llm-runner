@@ -688,9 +688,6 @@ def apply_profile_overrides(
             messages.append(f"No profile found for {cfg.alias}; using defaults")
             updated_configs.append(cfg)
             continue
-        except Exception:
-            logger.opt(exception=True).error("Unexpected error loading profile for %s", cfg.alias)
-            raise
 
         if record is None:
             messages.append(f"No profile found for {cfg.alias}; using defaults")

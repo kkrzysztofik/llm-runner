@@ -7,7 +7,7 @@ import stat
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import psutil
 
@@ -26,6 +26,7 @@ INDETERMINATE_OWNER_MESSAGE: str = (
 INDETERMINATE_OWNER_FIX: str = (
     "verify owning process and clear lock only after confirmed stale ownership"
 )
+LOCKFILE_REPAIR_HINT: Final[str] = "remove or repair the lockfile to proceed"
 
 
 @dataclass
@@ -188,7 +189,7 @@ def read_lock(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked=f"malformed_content: {e}",
-                how_to_fix="remove or repair the lockfile to proceed",
+                how_to_fix=LOCKFILE_REPAIR_HINT,
             )
         return None
 
@@ -203,21 +204,21 @@ def read_lock(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked="malformed_content: lock 'pid' must be an integer",
-                how_to_fix="remove or repair the lockfile to proceed",
+                how_to_fix=LOCKFILE_REPAIR_HINT,
             )
         if not isinstance(raw_port, int) or isinstance(raw_port, bool):
             return ErrorDetail(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked="malformed_content: lock 'port' must be an integer",
-                how_to_fix="remove or repair the lockfile to proceed",
+                how_to_fix=LOCKFILE_REPAIR_HINT,
             )
         if not isinstance(raw_started_at, int | float) or isinstance(raw_started_at, bool):
             return ErrorDetail(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked="malformed_content: lock 'started_at' must be a numeric value",
-                how_to_fix="remove or repair the lockfile to proceed",
+                how_to_fix=LOCKFILE_REPAIR_HINT,
             )
 
     metadata = _coerce_lock_data(lock_data)
@@ -227,7 +228,7 @@ def read_lock(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked="malformed_content: lock data has invalid field types",
-                how_to_fix="remove or repair the lockfile to proceed",
+                how_to_fix=LOCKFILE_REPAIR_HINT,
             )
         return None
     return metadata

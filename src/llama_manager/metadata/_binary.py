@@ -197,6 +197,19 @@ def _read_uint64(data: bytes, offset: int) -> int | None:
     return int.from_bytes(data[offset : offset + 8], "little")
 
 
+def _skip_array_element(data: bytes, offset: int, elem_type: int) -> int:
+    """Skip one array element based on its GGUF type tag, return new offset."""
+    if elem_type in (0, 1):  # UINT8, INT8
+        return offset + 1
+    if elem_type in (2, 3):  # UINT16, INT16
+        return offset + 2
+    if elem_type in (4, 5, 6):  # UINT32, INT32, FLOAT32
+        return offset + 4
+    if elem_type in (10, 11, 12):  # UINT64, INT64, FLOAT64
+        return offset + 8
+    return _skip_non_integer_type(data, offset, elem_type)  # nested array
+
+
 def _skip_non_integer_type(data: bytes, offset: int, type_tag: int) -> int:
     """Skip non-integer GGUF types, return new offset."""
     # GGUF type tags: 7=BOOL (1 byte), 8=STRING (8-byte length + data), 9=ARRAY (complex)
@@ -214,16 +227,7 @@ def _skip_non_integer_type(data: bytes, offset: int, type_tag: int) -> int:
         elem_count = int.from_bytes(data[offset + 4 : offset + 12], "little")
         offset += 12
         for _ in range(elem_count):
-            if elem_type in (0, 1):  # UINT8, INT8
-                offset += 1
-            elif elem_type in (2, 3):  # UINT16, INT16
-                offset += 2
-            elif elem_type in (4, 5, 6):  # UINT32, INT32, FLOAT32
-                offset += 4
-            elif elem_type in (10, 11, 12):  # UINT64, INT64, FLOAT64
-                offset += 8
-            else:
-                offset = _skip_non_integer_type(data, offset, elem_type)
+            offset = _skip_array_element(data, offset, elem_type)
         return offset
     # Unknown type — cannot safely skip
     return offset

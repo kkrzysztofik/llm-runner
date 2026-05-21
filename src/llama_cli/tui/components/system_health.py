@@ -73,7 +73,8 @@ class SystemHealthRenderer:
         rows = self.cpu_usage_rows(width)
         if not rows:
             return _NO_CPU_DATA
-        return "\n".join(self._format_core_grid_lines(rows, self._content_width(width)))
+        cpu_per_core: list[float] = [core.percent for row in rows for core in row]
+        return "\n".join(self._format_core_grid_lines(cpu_per_core, self._content_width(width)))
 
     def cpu_usage_rows(self, width: int | None = None) -> list[list[CPUCoreSnapshot]]:
         return self._provider.cpu_usage_rows(width)
@@ -159,14 +160,12 @@ class SystemHealthRenderer:
         return snapshot_rows
 
     def _build_core_grid_lines(self, cpu_per_core: list[float], content_width: int) -> list[str]:
+        return self._format_core_grid_lines(cpu_per_core, content_width)
+
+    def _format_core_grid_lines(self, cpu_per_core: list[float], content_width: int) -> list[str]:
         rows = self._build_core_grid_rows(cpu_per_core, content_width)
         if not rows:
             return [_NO_CPU_DATA]
-        return self._format_core_grid_lines(rows, content_width)
-
-    def _format_core_grid_lines(
-        self, rows: list[list[CPUCoreSnapshot]], content_width: int
-    ) -> list[str]:
         flat_count = sum(len(row) for row in rows)
         cols = max(1, (flat_count + len(rows) - 1) // len(rows))
         cell_width = max(self.CPU_CORE_CELL_WIDTH, content_width // max(1, cols))

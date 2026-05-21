@@ -49,10 +49,9 @@ class DefaultProcessLauncher:
     """
 
     def launch(self, cmd: list[str]) -> ProcessHandle:
-        # noqa: S603 — safe: argv is a validated list[str] (no shell injection),
-        #   command source is built by build_server_cmd() from ServerConfig fields only
         return _SubprocessHandle(  # type: ignore[return-value]
-            subprocess.Popen(
+            subprocess.Popen(  # noqa: S603 — safe: argv is a validated list[str] (no shell injection),
+                #   command source is built by build_server_cmd() from ServerConfig fields only
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
