@@ -605,29 +605,36 @@ class DashboardController:
 
         def _do_build() -> None:
             with suppress_build_pipeline_stderr_for_tui():
-                try:
-                    for backend in backends:
-                        targets = ("sycl", "cuda") if backend == "both" else (backend,)
-                        for target in targets:
-                            if not self._run_wizard_backend(target, wizard):
-                                return
-                    self.model.build_result = "success"
-                    self._push_status_message("Build completed successfully!")
-                    if wizard is not None:
-                        artifact_path = self.model.build_artifact
-                        wizard.set_build_result(True, artifact_path=artifact_path)
-                except Exception as exc:
-                    self.model.build_result = "failed"
-                    self.model.build_error = str(exc)
-                    self._push_status_message(f"Build failed: {exc}")
-                    if wizard is not None:
-                        wizard.set_build_result(False, error_message=str(exc))
-                finally:
-                    self.model.build_in_progress = False
-                    self.build_in_progress = False
-                    self._build_wizard = None
+                self._execute_build_loop(backends, wizard)
 
         threading.Thread(target=_do_build, name="build-worker", daemon=True).start()
+
+    def _execute_build_loop(self, backends: list[str], wizard: Any) -> None:
+        """Execute the build loop for given backends. Handles success/failure states."""
+        try:
+            for backend in backends:
+                if not self._build_all_targets_for_backend(backend, wizard):
+                    return
+            self.model.build_result = "success"
+            self._push_status_message("Build completed successfully!")
+            if wizard is not None:
+                artifact_path = self.model.build_artifact
+                wizard.set_build_result(True, artifact_path=artifact_path)
+        except Exception as exc:
+            self.model.build_result = "failed"
+            self.model.build_error = str(exc)
+            self._push_status_message(f"Build failed: {exc}")
+            if wizard is not None:
+                wizard.set_build_result(False, error_message=str(exc))
+        finally:
+            self.model.build_in_progress = False
+            self.build_in_progress = False
+            self._build_wizard = None
+
+    def _build_all_targets_for_backend(self, backend: str, wizard: Any) -> bool:
+        """Build all targets for a backend. Returns False to abort build loop."""
+        targets = ("sycl", "cuda") if backend == "both" else (backend,)
+        return all(self._run_wizard_backend(target, wizard) for target in targets)
 
     def _build_single_backend(self, backend: str) -> bool:
         """Build for a single backend; returns True on success."""

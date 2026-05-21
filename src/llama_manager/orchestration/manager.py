@@ -49,6 +49,7 @@ ARTIFACT_CHECK_NAME: Final[str] = "artifact_persistence"
 OWNER_ONLY_PERMISSIONS_FAILURE: Final[str] = (
     "artifact persistence failed to enforce required owner-only permissions"
 )
+LOCKFILE_FIX_SUGGESTION: Final[str] = "verify the owning process or clear the lockfile"
 PERMISSION_SUPPORT_HINT: Final[str] = (
     "verify runtime path and permission support/chmod limitations before retry"
 )
@@ -815,7 +816,7 @@ class ServerManager:
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked=error_msg,
-                how_to_fix="verify the owning process or clear the lockfile",
+                how_to_fix=LOCKFILE_FIX_SUGGESTION,
             )
 
         cfg = config_map.get(slot.slot_id)
@@ -829,7 +830,7 @@ class ServerManager:
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked=error_msg,
-                how_to_fix="verify the owning process or clear the lockfile",
+                how_to_fix=LOCKFILE_FIX_SUGGESTION,
             )
 
         return slot.slot_id, None
@@ -892,7 +893,7 @@ class ServerManager:
             if integrity is not None:
                 raise _lockfile_error(
                     integrity.why_blocked,
-                    "verify the owning process or clear the lockfile",
+                    LOCKFILE_FIX_SUGGESTION,
                 )
 
         pid = server_pid if server_pid is not None else os.getpid()

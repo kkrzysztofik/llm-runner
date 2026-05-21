@@ -255,6 +255,38 @@ def cmd_profile(
     return 0
 
 
+import subprocess
+import time
+
+
+def _handle_cancel(
+    proc: subprocess.Popen[str], cancel_event: threading.Event
+) -> SubprocessResult | None:
+    """Handle cancellation if cancel_event is set. Returns result or None to continue."""
+    if cancel_event.is_set():
+        import os
+        import signal
+
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        proc.wait(timeout=5)
+        return SubprocessResult(exit_code=130, stdout="", stderr="benchmark cancelled")
+    return None
+
+
+def _handle_timeout(
+    proc: subprocess.Popen[str], start: float, timeout_seconds: float
+) -> SubprocessResult | None:
+    """Handle timeout if elapsed >= timeout_seconds. Returns result or None to continue."""
+    elapsed = time.monotonic() - start
+    if elapsed >= timeout_seconds:
+        return SubprocessResult(
+            exit_code=124,
+            stdout="",
+            stderr=f"benchmark timed out after {timeout_seconds}s",
+        )
+    return None
+
+
 def _default_subprocess_runner(
     cmd: list[str],
     timeout_seconds: int = 600,
@@ -299,21 +331,14 @@ def _default_subprocess_runner(
                     stdout=proc.stdout.read() if proc.stdout else "",
                     stderr=proc.stderr.read() if proc.stderr else "",
                 )
-            if cancel_event is not None and cancel_event.is_set():
-                import os
-                import signal
-
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                proc.wait(timeout=5)
-                return SubprocessResult(exit_code=130, stdout="", stderr="benchmark cancelled")
-            elapsed = time.monotonic() - start
-            if elapsed >= timeout_seconds:
-                return SubprocessResult(
-                    exit_code=124,
-                    stdout="",
-                    stderr=f"benchmark timed out after {timeout_seconds}s",
-                )
-            remaining = timeout_seconds - elapsed
+            if cancel_event is not None:
+                cancel_result = _handle_cancel(proc, cancel_event)
+                if cancel_result is not None:
+                    return cancel_result
+            timeout_result = _handle_timeout(proc, start, timeout_seconds)
+            if timeout_result is not None:
+                return timeout_result
+            remaining = timeout_seconds - (time.monotonic() - start)
             with contextlib.suppress(subprocess.TimeoutExpired):
                 proc.wait(timeout=min(remaining, 1.0))
     except subprocess.TimeoutExpired as exc:

@@ -11,6 +11,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import TextIO
 
 from ..common.security import REDACTED_VALUE
 from ..reports import redact_sensitive
@@ -90,39 +91,41 @@ def _summarize_command_output(stdout: str, stderr: str) -> str:
     return "\n\n".join(excerpts)
 
 
-def terminate_process_tree(proc: subprocess.Popen[str], *, use_process_group: bool = True) -> None:
-    """Stop a subprocess and its children (cmake/ninja/gcc workers).
+def _get_process_group_id(proc: subprocess.Popen[str], use_process_group: bool) -> int | None:
+    """Determine the process group ID for a subprocess.
 
-    When ``use_process_group`` is true, the caller must have started the process
-    with ``start_new_session=True`` so ``proc.pid`` is the process group id.
+    Returns the PID if the process was started with start_new_session=True
+    and is the leader of its process group. Returns None if process group
+    cannot be determined. Raises ProcessLookupError if the process no longer
+    exists (caller should return early without terminating).
     """
-    if proc.poll() is not None:
-        return
+    if not (use_process_group and isinstance(proc.pid, int) and proc.pid > 1):
+        return None
+    try:
+        if os.getpgid(proc.pid) == proc.pid:
+            return proc.pid
+    except ProcessLookupError:
+        raise  # Process gone — caller should return early without terminating
+    except OSError:
+        pass  # Fall through to return None
+    return None
 
-    process_group_id: int | None = None
-    if use_process_group and isinstance(proc.pid, int) and proc.pid > 1:
-        try:
-            if os.getpgid(proc.pid) == proc.pid:
-                process_group_id = proc.pid
-        except ProcessLookupError:
-            return
-        except OSError:
-            pass
 
+def _send_termination_signal(proc: subprocess.Popen[str], process_group_id: int | None) -> None:
+    """Send SIGTERM to process or process group."""
     try:
         if process_group_id is not None:
             os.killpg(process_group_id, signal.SIGTERM)
         else:
             proc.terminate()
     except ProcessLookupError:
-        return
+        pass
     except OSError:
         proc.terminate()
-    deadline = time.monotonic() + 2.0
-    while proc.poll() is None and time.monotonic() < deadline:
-        time.sleep(0.05)
-    if proc.poll() is not None:
-        return
+
+
+def _send_kill_signal(proc: subprocess.Popen[str], process_group_id: int | None) -> None:
+    """Send SIGKILL to process or process group."""
     try:
         if process_group_id is not None:
             os.killpg(process_group_id, signal.SIGKILL)
@@ -132,6 +135,29 @@ def terminate_process_tree(proc: subprocess.Popen[str], *, use_process_group: bo
         pass
     except OSError:
         proc.kill()
+
+
+def terminate_process_tree(proc: subprocess.Popen[str], *, use_process_group: bool = True) -> None:
+    """Stop a subprocess and its children (cmake/ninja/gcc workers).
+
+    When ``use_process_group`` is true, the caller must have started the process
+    with ``start_new_session=True`` so ``proc.pid`` is the process group id.
+    """
+    if proc.poll() is not None:
+        return
+
+    try:
+        process_group_id = _get_process_group_id(proc, use_process_group)
+    except ProcessLookupError:
+        return  # Process already gone
+
+    _send_termination_signal(proc, process_group_id)
+    deadline = time.monotonic() + 2.0
+    while proc.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if proc.poll() is not None:
+        return
+    _send_kill_signal(proc, process_group_id)
 
 
 def _cancel_requested(cancel_event: threading.Event | None) -> bool:
@@ -154,6 +180,20 @@ def _start_cancel_watcher(
     return cancel_watcher
 
 
+def _read_stream(
+    stream: TextIO | None,
+    lines_container: list[str],
+    line_callback: Callable[[str], None] | None,
+) -> None:
+    """Read lines from a stream and append to *lines_container*."""
+    if stream is None:
+        return
+    for line in stream:
+        lines_container.append(line.rstrip("\n"))
+        if line_callback is not None:
+            line_callback(line)
+
+
 def _start_output_drainers(
     proc: subprocess.Popen[str],
     line_callback: Callable[[str], None] | None,
@@ -161,22 +201,12 @@ def _start_output_drainers(
     stdout_lines: list[str] = []
     stderr_lines: list[str] = []
 
-    def read_stdout() -> None:
-        if proc.stdout:
-            for line in proc.stdout:
-                stdout_lines.append(line.rstrip("\n"))
-                if line_callback is not None:
-                    line_callback(line)
-
-    def read_stderr() -> None:
-        if proc.stderr:
-            for line in proc.stderr:
-                stderr_lines.append(line.rstrip("\n"))
-                if line_callback is not None:
-                    line_callback(line)
-
-    stdout_t = threading.Thread(target=read_stdout)
-    stderr_t = threading.Thread(target=read_stderr)
+    stdout_t = threading.Thread(
+        target=_read_stream, args=(proc.stdout, stdout_lines, line_callback)
+    )
+    stderr_t = threading.Thread(
+        target=_read_stream, args=(proc.stderr, stderr_lines, line_callback)
+    )
     stdout_t.start()
     stderr_t.start()
     return stdout_lines, stderr_lines, stdout_t, stderr_t
