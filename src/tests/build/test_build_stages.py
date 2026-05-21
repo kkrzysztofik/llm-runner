@@ -9,6 +9,7 @@ Covers:
 
 import threading
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from llama_manager.build_pipeline import BuildBackend, BuildConfig, BuildProgress
@@ -29,7 +30,11 @@ from llama_manager.build_pipeline.utils import (
 
 
 def _make_ctx(
-    tmp_path: Path, *, dry_run: bool = False, cancel_event=None, **overrides
+    tmp_path: Path,
+    *,
+    dry_run: bool = False,
+    cancel_event: threading.Event | None = None,
+    **overrides: Any,
 ) -> _BuildContext:
     """Create a minimal _BuildContext for configure/build tests."""
     kwargs: dict = {

@@ -12,6 +12,7 @@ Flavors: balanced, fast, quality
 """
 
 import argparse
+import contextlib
 import os
 import re
 import sys
@@ -282,29 +283,39 @@ def _default_subprocess_runner(
             text=True,
             start_new_session=True,
         )
-        try:
-            while True:
-                ret = proc.poll()
-                if ret is not None:
-                    return SubprocessResult(
-                        exit_code=ret,
-                        stdout=proc.stdout.read() if proc.stdout else "",
-                        stderr=proc.stderr.read() if proc.stderr else "",
-                    )
-                if cancel_event is not None and cancel_event.is_set():
-                    import os
-                    import signal
+    except subprocess.TimeoutExpired:
+        # Popen should not raise TimeoutExpired, but handle it anyway
+        return SubprocessResult(exit_code=-1, stdout="", stderr="Popen failed")
 
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                    proc.wait(timeout=5)
-                    return SubprocessResult(exit_code=130, stdout="", stderr="benchmark cancelled")
-                proc.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            return SubprocessResult(
-                exit_code=124,
-                stdout="",
-                stderr=f"benchmark timed out after {timeout_seconds}s",
-            )
+    try:
+        import time
+
+        start = time.monotonic()
+        while True:
+            ret = proc.poll()
+            if ret is not None:
+                return SubprocessResult(
+                    exit_code=ret,
+                    stdout=proc.stdout.read() if proc.stdout else "",
+                    stderr=proc.stderr.read() if proc.stderr else "",
+                )
+            if cancel_event is not None and cancel_event.is_set():
+                import os
+                import signal
+
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                proc.wait(timeout=5)
+                return SubprocessResult(exit_code=130, stdout="", stderr="benchmark cancelled")
+            elapsed = time.monotonic() - start
+            if elapsed >= timeout_seconds:
+                return SubprocessResult(
+                    exit_code=124,
+                    stdout="",
+                    stderr=f"benchmark timed out after {timeout_seconds}s",
+                )
+            remaining = timeout_seconds - elapsed
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=min(remaining, 1.0))
     except subprocess.TimeoutExpired as exc:
         timeout_stdout_text = _stream_to_text(exc.stdout)
         timeout_stderr_detail = _stream_to_text(exc.stderr)

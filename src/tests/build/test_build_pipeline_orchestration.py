@@ -546,13 +546,14 @@ class TestRunBothBackends:
         )
         with patch.object(
             BuildPipeline, "run", return_value=BuildResult(success=True, error_message="")
-        ):
+        ) as mock_run:
             pipeline = BuildPipeline(config)
             pipeline.dry_run = True
             results = pipeline.run_both_backends()
         assert len(results) == 2
         assert results[0].success is True  # SYCL
         assert results[1].success is True  # CUDA
+        assert mock_run.call_count == 2  # SYCL then CUDA
 
     def test_both_backends_first_fails(self) -> None:
         """First backend failure does not prevent second from running."""

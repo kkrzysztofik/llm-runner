@@ -537,6 +537,8 @@ class DashboardController:
         """
         if options is not None:
             self.model.build_selected_backends_options = options
+        else:
+            self.model.build_selected_backends_options = {}
         self._run_build_background(backends)
 
     def handle_build_with_wizard(
@@ -622,6 +624,7 @@ class DashboardController:
                         wizard.set_build_result(False, error_message=str(exc))
                 finally:
                     self.model.build_in_progress = False
+                    self.build_in_progress = False
                     self._build_wizard = None
 
         threading.Thread(target=_do_build, name="build-worker", daemon=True).start()

@@ -18,7 +18,7 @@ from llama_manager.build_pipeline.lock import (
 
 
 class TestAcquireLock:
-    def test_dry_run_returns_true(self):
+    def test_dry_run_returns_true(self) -> None:
         assert acquire_lock(Path("/tmp/test.lock"), "sycl", dry_run=True) is True
 
     def test_success(self, tmp_path: Path):
@@ -156,7 +156,7 @@ class TestReleaseLock:
         release_lock(lock_path)
         assert not lock_path.exists()
 
-    def test_no_lock_file(self):
+    def test_no_lock_file(self) -> None:
         release_lock(None)
 
     def test_nonexistent_path(self, tmp_path: Path):

@@ -97,7 +97,7 @@ class BuildPipeline:
             if self._cancel_requested():
                 return self._cancelled_progress(stage_name)
             logger.info(
-                "[retry] stage=%s attempt=%s/%s",
+                "[retry] stage={} attempt={}/{}",
                 stage_name,
                 attempt + 1,
                 self.config.retry_attempts,
@@ -108,29 +108,29 @@ class BuildPipeline:
                 self._progress_callback(result)
             if result.status in {"success", "skipped"}:
                 logger.info(
-                    "[retry] stage=%s completed with status=%s on attempt %s",
+                    "[retry] stage={} completed with status={} on attempt {}",
                     stage_name,
                     result.status,
                     attempt + 1,
                 )
                 return result
             if result.message == BUILD_CANCELLED_MESSAGE:
-                logger.info("[retry] stage=%s stopped (build cancelled)", stage_name)
+                logger.info("[retry] stage={} stopped (build cancelled)", stage_name)
                 return result
             logger.warning(
-                "[retry] stage=%s attempt %s failed: %s",
+                "[retry] stage={} attempt {} failed: {}",
                 stage_name,
                 attempt + 1,
                 result.message,
             )
             if attempt < self.config.retry_attempts - 1:
                 delay = self.config.retry_delay * (2**attempt)
-                logger.info("[retry] stage=%s waiting %ss before retry", stage_name, delay)
+                logger.info("[retry] stage={} waiting {}s before retry", stage_name, delay)
                 cancelled = self._emit_retry_wait(stage_name, attempt, delay)
                 if cancelled is not None:
                     return cancelled
         logger.error(
-            "[retry] stage=%s exhausted all %s attempts", stage_name, self.config.retry_attempts
+            "[retry] stage={} exhausted all {} attempts", stage_name, self.config.retry_attempts
         )
         return last_result
 
@@ -169,11 +169,11 @@ class BuildPipeline:
                 return self._cancelled_build_result(), progress
             progress = self._run_with_retry(stage_fn, stage_name)
             if progress.status != "failed":
-                logger.info("[pipeline] %s completed: %s", stage_name, progress.message)
+                logger.info("[pipeline] {} completed: {}", stage_name, progress.message)
                 continue
             if progress.message == BUILD_CANCELLED_MESSAGE:
                 return self._cancelled_build_result(), progress
-            logger.error("[pipeline] %s failed: %s", stage_name, progress.message)
+            logger.error("[pipeline] {} failed: {}", stage_name, progress.message)
             if write_artifact:
                 artifact = ctx.write_failure_artifact(progress)
                 return (
@@ -211,16 +211,16 @@ class BuildPipeline:
         )
         self._ctx = ctx
 
-        logger.info("[pipeline] starting build for backend=%s", self.config.backend.value)
+        logger.info("[pipeline] starting build for backend={}", self.config.backend.value)
         logger.info(
-            "[pipeline] config: source_dir=%s build_dir=%s output_dir=%s",
+            "[pipeline] config: source_dir={} build_dir={} output_dir={}",
             ctx.config.source_dir,
             ctx.config.build_dir,
             ctx.config.output_dir,
         )
         logger.info(
-            "[pipeline] config: git_remote=%s git_branch=%s shallow_clone=%s "
-            "jobs=%s update_sources=%s",
+            "[pipeline] config: git_remote={} git_branch={} shallow_clone={} "
+            "jobs={} update_sources={}",
             _redact_build_text(ctx.config.git_remote_url),
             ctx.config.git_branch,
             ctx.config.shallow_clone,
@@ -228,7 +228,7 @@ class BuildPipeline:
             ctx.config.update_sources,
         )
         logger.info(
-            "[pipeline] config: retry_attempts=%s retry_delay=%ss dry_run=%s",
+            "[pipeline] config: retry_attempts={} retry_delay={}s dry_run={}",
             ctx.config.retry_attempts,
             ctx.config.retry_delay,
             self._dry_run,
@@ -238,7 +238,7 @@ class BuildPipeline:
 
         if not self._acquire_lock(Config().build_lock_path):
             logger.error(
-                "[pipeline] failed to acquire build lock for %s", self.config.backend.value
+                "[pipeline] failed to acquire build lock for {}", self.config.backend.value
             )
             return BuildResult(
                 success=False,
@@ -286,7 +286,7 @@ class BuildPipeline:
 
             total_duration = _format_duration(time.time() - build_start_time)
             logger.info(
-                "[pipeline] build succeeded for %s in %s (binary=%s size=%s commit=%s)",
+                "[pipeline] build succeeded for {} in {} (binary={} size={} commit={})",
                 self.config.backend.value,
                 total_duration,
                 artifact.binary_path,
@@ -326,7 +326,7 @@ class BuildPipeline:
             (BuildBackend.SYCL, "sycl"),
             (BuildBackend.CUDA, "cuda"),
         ]:
-            logger.info("[both] starting %s build", backend.value.upper())
+            logger.info("[both] starting {} build", backend.value.upper())
             sub_config = BuildConfig(
                 backend=backend,
                 source_dir=self.config.source_dir,
@@ -345,7 +345,7 @@ class BuildPipeline:
             sub_pipeline.dry_run = self._dry_run
             result = sub_pipeline.run()
             logger.info(
-                "[both] %s build finished: success=%s", backend.value.upper(), result.success
+                "[both] {} build finished: success={}", backend.value.upper(), result.success
             )
             results.append(result)
         return results
