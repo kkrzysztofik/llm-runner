@@ -23,19 +23,19 @@ from llama_manager.build_pipeline.utils import (
 
 
 class TestGetBuildEnvCmd:
-    def test_cuda_unchanged(self):
+    def test_cuda_unchanged(self) -> None:
         cmd = ["cmake", "-S", "src"]
         result = get_build_env_cmd(cmd, BuildBackend.CUDA)
         assert result == cmd
 
-    def test_sycl_no_setvars(self):
+    def test_sycl_no_setvars(self) -> None:
         cmd = ["cmake", "-S", "src"]
         with patch("llama_manager.build_pipeline.utils._INTEL_SETVARS_SH") as mock:
             mock.exists.return_value = False
             result = get_build_env_cmd(cmd, BuildBackend.SYCL)
         assert result == cmd
 
-    def test_sycl_with_setvars(self):
+    def test_sycl_with_setvars(self) -> None:
 
         cmd = ["cmake", "-S", "src"]
         # Patch the module-level variable to a mock Path that reports exists=True
@@ -54,16 +54,16 @@ class TestGetBuildEnvCmd:
 
 
 class TestFormatCommand:
-    def test_simple(self):
+    def test_simple(self) -> None:
         result = _format_command(["ls", "-la"])
         assert "ls" in result
         assert "-la" in result
 
-    def test_with_spaces(self):
+    def test_with_spaces(self) -> None:
         result = _format_command(["echo", "hello world"])
         assert "hello world" in result
 
-    def test_empty(self):
+    def test_empty(self) -> None:
         result = _format_command([])
         assert result == ""
 
@@ -72,11 +72,11 @@ class TestFormatCommand:
 
 
 class TestRedactBuildText:
-    def test_no_change(self):
+    def test_no_change(self) -> None:
         result = _redact_build_text("normal text")
         assert result == "normal text"
 
-    def test_empty(self):
+    def test_empty(self) -> None:
         result = _redact_build_text("")
         assert result == ""
 
@@ -85,23 +85,23 @@ class TestRedactBuildText:
 
 
 class TestFormatDuration:
-    def test_sub_second(self):
+    def test_sub_second(self) -> None:
         result = _format_duration(0.5)
         assert "ms" in result
 
-    def test_seconds(self):
+    def test_seconds(self) -> None:
         result = _format_duration(45.2)
         assert "45.2s" in result
 
-    def test_minutes(self):
+    def test_minutes(self) -> None:
         result = _format_duration(120.0)
         assert "2m 0s" in result
 
-    def test_hours(self):
+    def test_hours(self) -> None:
         result = _format_duration(3661.0)
         assert "m" in result and "s" in result
 
-    def test_zero(self):
+    def test_zero(self) -> None:
         result = _format_duration(0.0)
         assert "0ms" in result
 
@@ -110,19 +110,19 @@ class TestFormatDuration:
 
 
 class TestTailLines:
-    def test_fewer_than_limit(self):
+    def test_fewer_than_limit(self) -> None:
         text = "a\nb\nc\n"
         result = _tail_lines(text, max_lines=10)
         assert result == "a\nb\nc"
 
-    def test_more_than_limit(self):
+    def test_more_than_limit(self) -> None:
         lines = [f"line{i}" for i in range(60)]
         text = "\n".join(lines)
         result = _tail_lines(text, max_lines=5)
         expected = "\n".join(lines[-5:])
         assert result == expected
 
-    def test_empty(self):
+    def test_empty(self) -> None:
         result = _tail_lines("")
         assert result == ""
 
@@ -131,20 +131,20 @@ class TestTailLines:
 
 
 class TestSummarizeCommandOutput:
-    def test_stdout_only(self):
+    def test_stdout_only(self) -> None:
         result = _summarize_command_output("out\n", "")
         assert "stdout tail:" in result
 
-    def test_stderr_only(self):
+    def test_stderr_only(self) -> None:
         result = _summarize_command_output("", "err\n")
         assert "stderr tail:" in result
 
-    def test_both(self):
+    def test_both(self) -> None:
         result = _summarize_command_output("out\n", "err\n")
         assert "stderr tail:" in result
         assert "stdout tail:" in result
 
-    def test_empty(self):
+    def test_empty(self) -> None:
         result = _summarize_command_output("", "")
         assert "No output captured." in result
 
@@ -153,13 +153,13 @@ class TestSummarizeCommandOutput:
 
 
 class TestTerminateProcessTree:
-    def test_already_dead(self):
+    def test_already_dead(self) -> None:
         proc = MagicMock()
         proc.poll.return_value = 0
         terminate_process_tree(proc)
         proc.poll.assert_called_once()
 
-    def test_killpg_success(self):
+    def test_killpg_success(self) -> None:
         proc = MagicMock()
         proc.pid = 12345
         proc.poll.side_effect = [None, 0, 0]
@@ -173,7 +173,7 @@ class TestTerminateProcessTree:
         killpg.assert_called_once_with(12345, signal.SIGTERM)
         proc.terminate.assert_not_called()
 
-    def test_magicmock_pid_falls_back_without_real_killpg(self):
+    def test_magicmock_pid_falls_back_without_real_killpg(self) -> None:
         proc = MagicMock()
         proc.poll.side_effect = [None, 0, 0]
 
@@ -183,7 +183,7 @@ class TestTerminateProcessTree:
         killpg.assert_not_called()
         proc.terminate.assert_called_once()
 
-    def test_process_lookup_error(self):
+    def test_process_lookup_error(self) -> None:
         proc = MagicMock()
         proc.pid = 12345
         proc.poll.return_value = None
@@ -194,7 +194,7 @@ class TestTerminateProcessTree:
         assert proc.poll.called
         proc.terminate.assert_not_called()
 
-    def test_os_error_fallback(self):
+    def test_os_error_fallback(self) -> None:
         proc = MagicMock()
         proc.pid = 12345
         proc.poll.return_value = None
@@ -204,7 +204,7 @@ class TestTerminateProcessTree:
 
         assert proc.terminate.called
 
-    def test_sigkill_needed(self):
+    def test_sigkill_needed(self) -> None:
         proc = MagicMock()
         proc.pid = 12345
         proc.poll.side_effect = [None, None, None, None]
@@ -227,14 +227,14 @@ class TestTerminateProcessTree:
 
 
 class TestCancelRequested:
-    def test_none(self):
+    def test_none(self) -> None:
         assert _cancel_requested(None) is False
 
-    def test_unset(self):
+    def test_unset(self) -> None:
         evt = threading.Event()
         assert _cancel_requested(evt) is False
 
-    def test_set(self):
+    def test_set(self) -> None:
         evt = threading.Event()
         evt.set()
         assert _cancel_requested(evt) is True
@@ -244,7 +244,7 @@ class TestCancelRequested:
 
 
 class TestFormatCommandFailure:
-    def test_basic(self):
+    def test_basic(self) -> None:
         result = _format_command_failure(
             stage="configure",
             command=["cmake", "-S", "src"],
@@ -255,7 +255,7 @@ class TestFormatCommandFailure:
         assert "configure" in result
         assert "exit code 1" in result
 
-    def test_with_output(self):
+    def test_with_output(self) -> None:
         result = _format_command_failure(
             stage="build",
             command=["cmake", "--build", "."],

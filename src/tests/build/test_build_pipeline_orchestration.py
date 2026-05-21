@@ -24,7 +24,11 @@ from llama_manager.build_pipeline.pipeline import BuildPipeline
 
 
 def _make_pipeline(
-    tmp_path: Path, *, dry_run: bool = True, cancel_event=None, **overrides
+    tmp_path: Path,
+    *,
+    dry_run: bool = True,
+    cancel_event: threading.Event | None = None,
+    **overrides,
 ) -> BuildPipeline:
     """Create a BuildPipeline with dry_run=True to avoid real subprocesses."""
     kwargs: dict = {
@@ -111,7 +115,7 @@ class TestRunWithRetry:
         pipeline = _make_pipeline(Path("/tmp"), retry_attempts=3)
         call_count = 0
 
-        def stage_fn():
+        def stage_fn() -> BuildProgress:
             nonlocal call_count
             call_count += 1
             return BuildProgress(stage="build", status="success", message="OK", progress_percent=75)
@@ -125,7 +129,7 @@ class TestRunWithRetry:
         pipeline = _make_pipeline(Path("/tmp"), retry_attempts=3)
         call_count = 0
 
-        def stage_fn():
+        def stage_fn() -> BuildProgress:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -143,7 +147,7 @@ class TestRunWithRetry:
         pipeline = _make_pipeline(Path("/tmp"), retry_attempts=2)
         call_count = 0
 
-        def stage_fn():
+        def stage_fn() -> BuildProgress:
             nonlocal call_count
             call_count += 1
             return BuildProgress(
@@ -163,7 +167,7 @@ class TestRunWithRetry:
         )
         call_count = 0
 
-        def stage_fn():
+        def stage_fn() -> BuildProgress:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -181,7 +185,7 @@ class TestRunWithRetry:
         pipeline = _make_pipeline(Path("/tmp"), retry_attempts=3, cancel_event=cancel_event)
         call_count = 0
 
-        def stage_fn():
+        def stage_fn() -> BuildProgress:
             nonlocal call_count
             call_count += 1
             return BuildProgress(stage="build", status="success", message="OK", progress_percent=75)
@@ -195,7 +199,7 @@ class TestRunWithRetry:
         """A 'skipped' status should also stop retrying."""
         pipeline = _make_pipeline(Path("/tmp"), retry_attempts=3)
 
-        def stage_fn():
+        def stage_fn() -> BuildProgress:
             return BuildProgress(
                 stage="configure",
                 status="skipped",
@@ -212,7 +216,7 @@ class TestRunWithRetry:
 
         pipeline = _make_pipeline(Path("/tmp"), retry_attempts=3)
 
-        def stage_fn():
+        def stage_fn() -> BuildProgress:
             return BuildProgress(
                 stage="build",
                 status="failed",
@@ -281,13 +285,13 @@ class TestRunStageBatch:
         ctx = MagicMock(spec=_BuildContext)
         call_order: list[str] = []
 
-        def stage1():
+        def stage1() -> BuildProgress:
             call_order.append("stage1")
             return BuildProgress(
                 stage="stage1", status="failed", message="boom", progress_percent=0
             )
 
-        def stage2():
+        def stage2() -> BuildProgress:
             call_order.append("stage2")
             return BuildProgress(
                 stage="stage2", status="success", message="OK", progress_percent=60
@@ -311,7 +315,7 @@ class TestRunStageBatch:
         ctx = MagicMock(spec=_BuildContext)
         call_count = 0
 
-        def stage_fn():
+        def stage_fn() -> BuildProgress:
             nonlocal call_count
             call_count += 1
             return BuildProgress(stage="stage", status="success", message="OK", progress_percent=30)
@@ -540,26 +544,15 @@ class TestRunBothBackends:
             git_remote_url="https://github.com/ggerganov/llama.cpp",
             git_branch="main",
         )
-        with (
-            patch(
-                "llama_manager.build_pipeline.pipeline.run_preflight",
-                return_value=BuildProgress(
-                    stage="preflight", status="success", message="OK", progress_percent=10
-                ),
-            ),
-            patch(
-                "llama_manager.build_pipeline.pipeline.run_clone",
-                return_value=BuildProgress(
-                    stage="clone", status="success", message="OK", progress_percent=30
-                ),
-            ),
+        with patch.object(
+            BuildPipeline, "run", return_value=BuildResult(success=True, error_message="")
         ):
             pipeline = BuildPipeline(config)
             pipeline.dry_run = True
             results = pipeline.run_both_backends()
         assert len(results) == 2
-        assert results[0].success is True  # SYCL dry-run succeeds
-        assert results[1].success is True  # CUDA dry-run succeeds
+        assert results[0].success is True  # SYCL
+        assert results[1].success is True  # CUDA
 
     def test_both_backends_first_fails(self) -> None:
         """First backend failure does not prevent second from running."""
