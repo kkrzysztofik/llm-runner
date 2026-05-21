@@ -1,5 +1,6 @@
 """Slot status presentation constants."""
 
+# pragma: no cover — pure constant data, imported by slot_state.py
 from llama_manager import SlotState
 
 BACKEND_LABELS: dict[str, str] = {

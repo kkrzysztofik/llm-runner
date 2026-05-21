@@ -137,8 +137,9 @@ def safe_log(template: Template) -> str:  # pyright: ignore[reportInvalidTypeFor
     for part in template:
         if isinstance(part, Interpolation):
             raw = str(part.value)
-            redacted = is_sensitive_key(part.expr) or bool(  # pyright: ignore[reportAttributeAccessIssue]
-                _LOG_SENSITIVE_PATTERN.search(f"{part.expr}={raw}")  # pyright: ignore[reportAttributeAccessIssue]
+            expr_name: str = part.expression  # type: ignore[reportAttributeAccessIssue]
+            redacted = is_sensitive_key(expr_name) or bool(
+                _LOG_SENSITIVE_PATTERN.search(f"{expr_name}={raw}")
             )
             parts.append(REDACTED_VALUE if redacted else raw)
         else:

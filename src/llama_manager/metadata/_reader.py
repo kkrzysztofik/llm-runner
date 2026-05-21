@@ -1,6 +1,7 @@
 """GGUFReader-based metadata extraction — primary parsing path."""
 
 import os
+from collections.abc import Mapping
 from contextlib import suppress
 from pathlib import Path
 from threading import Event
@@ -12,7 +13,7 @@ from ._types import GGUFMetadataRecord, normalize_filename
 
 
 def _extract_architecture_from_reader(
-    reader_fields: dict[str, ReaderField],
+    reader_fields: Mapping[str, ReaderField],
 ) -> str | None:
     """Extract architecture from GGUFReader fields dict.
 
@@ -35,7 +36,7 @@ def _extract_architecture_from_reader(
 
 
 def _extract_field_from_reader(
-    reader_fields: dict[str, ReaderField],
+    reader_fields: Mapping[str, ReaderField],
     key: str,
 ) -> str | None:
     """Extract a string field from GGUFReader fields dict.
@@ -58,7 +59,7 @@ def _extract_field_from_reader(
 
 
 def _extract_int_field_from_reader(
-    reader_fields: dict[str, ReaderField],
+    reader_fields: Mapping[str, ReaderField],
     key: str,
 ) -> int | None:
     """Extract an integer field from GGUFReader fields dict.
@@ -82,7 +83,7 @@ def _extract_int_field_from_reader(
 
 
 def _detect_tokenizer_type_from_reader(
-    fields: dict[str, ReaderField],
+    fields: Mapping[str, ReaderField],
 ) -> str | None:
     """Detect tokenizer type from GGUFReader fields.
 
@@ -184,7 +185,7 @@ def _try_gguf_reader(
 
 def _extract_from_gguf_reader(
     model_path: str,
-    fields: dict[str, ReaderField],
+    fields: Mapping[str, ReaderField],
     parse_timeout_s: float,
     prefix_cap_bytes: int,
     cancel_event: Event | None = None,

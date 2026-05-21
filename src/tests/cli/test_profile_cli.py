@@ -988,3 +988,124 @@ class TestCmdProfile:
                 mock_write.assert_called_once()
                 call_args = mock_write.call_args
                 assert call_args[0][0] == tmp_path / "profiles"
+
+
+# ---------------------------------------------------------------------------
+# TestStreamToText
+# ---------------------------------------------------------------------------
+
+
+class TestStreamToText:
+    """Tests for _stream_to_text()."""
+
+    def test_none_returns_empty(self) -> None:
+        """_stream_to_text(None) should return empty string."""
+        from llama_cli.commands.profile import _stream_to_text
+
+        assert _stream_to_text(None) == ""
+
+    def test_string_unchanged(self) -> None:
+        """_stream_to_text(str) should return unchanged."""
+        from llama_cli.commands.profile import _stream_to_text
+
+        assert _stream_to_text("already a string") == "already a string"
+
+    def test_bytes_decodes_utf8(self) -> None:
+        """_stream_to_text(bytes) should decode as utf-8."""
+        from llama_cli.commands.profile import _stream_to_text
+
+        result = _stream_to_text(b"hello world")
+        assert result == "hello world"
+
+    def test_bytes_invalid_utf8_replacement(self) -> None:
+        """_stream_to_text(invalid bytes) should use replacement char."""
+        from llama_cli.commands.profile import _stream_to_text
+
+        # 0xFF is invalid UTF-8
+        result = _stream_to_text(b"\xff\xfe")
+        assert result == "��"
+
+
+# ---------------------------------------------------------------------------
+# TestProfileArgumentParser
+# ---------------------------------------------------------------------------
+
+
+class TestProfileArgumentParser:
+    """Tests for _ProfileArgumentParser error handling."""
+
+    def test_error_exits_with_code_1(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """_ProfileArgumentParser should exit with code 1 on error."""
+        from llama_cli.commands.profile import _build_profile_parser
+
+        parser = _build_profile_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["only_one_arg"])
+
+        assert exc_info.value.code == 1
+
+    def test_error_prints_usage(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """_ProfileArgumentParser should print usage on error."""
+        from llama_cli.commands.profile import _build_profile_parser
+
+        parser = _build_profile_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["only_one_arg"])
+
+        captured = capsys.readouterr()
+        assert "usage:" in captured.err.lower()
+
+
+# ---------------------------------------------------------------------------
+# TestValidateSlotId
+# ---------------------------------------------------------------------------
+
+
+class TestValidateSlotId:
+    """Tests for _validate_slot_id()."""
+
+    def test_valid_slot_id(self) -> None:
+        """Valid slot_id should return None."""
+        from llama_cli.commands.profile import _validate_slot_id
+
+        assert _validate_slot_id("slot0") is None
+        assert _validate_slot_id("summary-balanced") is None
+        assert _validate_slot_id("qwen35-coding") is None
+        assert _validate_slot_id("my_slot-123") is None
+
+    def test_empty_string(self) -> None:
+        """Empty string should return error."""
+        from llama_cli.commands.profile import _validate_slot_id
+
+        result = _validate_slot_id("")
+        assert result == "slot_id must not be empty"
+
+    def test_path_traversal(self) -> None:
+        """Path traversal '..' should return error."""
+        from llama_cli.commands.profile import _validate_slot_id
+
+        result = _validate_slot_id("../etc/passwd")
+        assert result == "slot_id must not contain path traversal sequences"
+
+    def test_path_separators(self) -> None:
+        """Path separators should return error."""
+        from llama_cli.commands.profile import _validate_slot_id
+
+        assert _validate_slot_id("foo/bar") == "slot_id must not contain path separators"
+        assert _validate_slot_id("foo\\bar") == "slot_id must not contain path separators"
+
+    def test_special_chars_rejected(self) -> None:
+        """Special characters should be rejected."""
+        from llama_cli.commands.profile import _validate_slot_id
+
+        assert _validate_slot_id("slot@0") is not None
+        assert _validate_slot_id("slot#1") is not None
+        assert _validate_slot_id("slot $name") is not None
+        assert _validate_slot_id("slot;cmd") is not None
+
+    def test_whitespace_only(self) -> None:
+        """Whitespace-only slot_id should return error."""
+        from llama_cli.commands.profile import _validate_slot_id
+
+        result = _validate_slot_id("   ")
+        assert result == "slot_id must not be empty"

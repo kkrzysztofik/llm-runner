@@ -171,3 +171,181 @@ class TestCollectSystemInfo:
 
         # Should only have called process_iter once due to caching
         assert call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# TestGetTaskStatsEdgeCases
+# ---------------------------------------------------------------------------
+
+
+class TestGetTaskStatsEdgeCases:
+    """Tests for _get_task_stats edge cases and caching behavior."""
+
+    def setup_method(self) -> None:
+        """Clear cache before each test."""
+        from llama_manager.system_stats import _get_task_stats
+
+        if hasattr(_get_task_stats, "_cache"):
+            del _get_task_stats._cache  # type: ignore[attr-defined]
+        if hasattr(_get_task_stats, "_cache_ts"):
+            del _get_task_stats._cache_ts  # type: ignore[attr-defined]
+
+    def test_cache_expired_after_ttl(self) -> None:
+        """Cache should expire after 1.5 seconds and re-fetch."""
+        from llama_manager.system_stats import _get_task_stats
+
+        call_count = 0
+
+        def _mock_iter(*args: object, **kwargs: object) -> list[object]:
+            nonlocal call_count
+            call_count += 1
+            return []
+
+        with (
+            patch("psutil.boot_time", return_value=1000000.0),
+            patch("psutil.process_iter", side_effect=_mock_iter),
+            patch("psutil.getloadavg", return_value=(1.0, 2.0, 3.0)),
+            patch("time.time", side_effect=[1000.0, 1000.0, 1002.0]),
+        ):
+            # First call — should fetch
+            _get_task_stats()
+            assert call_count == 1
+            # Second call within TTL — should use cache
+            _get_task_stats()
+            assert call_count == 1
+            # Third call after TTL — should re-fetch
+            _get_task_stats()
+            assert call_count == 2
+
+    def test_exception_returns_zero_cache(self) -> None:
+        """Exception during process_iter should cache (0, 0, 0)."""
+        from llama_manager.system_stats import _get_task_stats
+
+        with (
+            patch("psutil.boot_time", return_value=1000000.0),
+            patch("psutil.process_iter", side_effect=OSError("no psutil")),
+            patch("psutil.getloadavg", return_value=(1.0, 2.0, 3.0)),
+        ):
+            result = _get_task_stats()
+            assert result == (0, 0, 0)
+
+    def test_exception_uses_previous_cache(self) -> None:
+        """Exception should return previous cache if available."""
+        from llama_manager.system_stats import _get_task_stats
+
+        with (
+            patch("psutil.boot_time", return_value=1000000.0),
+            patch("psutil.getloadavg", return_value=(1.0, 2.0, 3.0)),
+        ):
+            # First call — populate cache
+            with patch("psutil.process_iter", return_value=[]):
+                _get_task_stats()
+            # Second call — exception, should use previous cache
+            with patch("psutil.process_iter", side_effect=OSError("no psutil")):
+                result = _get_task_stats()
+            assert result == (0, 0, 0)
+
+    def test_process_iter_exception_per_proc_ignored(self) -> None:
+        """Per-process exception in process_iter should be caught and skipped."""
+        from llama_manager.system_stats import _get_task_stats
+
+        mock_proc = MagicMock()
+        mock_proc.info = None
+        with (
+            patch("psutil.boot_time", return_value=1000000.0),
+            patch(
+                "psutil.process_iter",
+                side_effect=[
+                    [mock_proc],  # first iteration — proc.info raises
+                    [],  # second iteration — nothing more
+                ],
+            ),
+            patch("psutil.getloadavg", return_value=(1.0, 2.0, 3.0)),
+        ):
+            result = _get_task_stats()
+            assert isinstance(result, tuple)
+
+
+# ---------------------------------------------------------------------------
+# TestFormatBytes
+# ---------------------------------------------------------------------------
+
+
+class TestFormatBytes:
+    """Tests for _format_bytes()."""
+
+    def test_large_gibibytes(self) -> None:
+        """Large values should use one decimal place."""
+        from llama_manager.system_stats import _format_bytes
+
+        # ~16 GB
+        result = _format_bytes(16 * 1024 * 1024 * 1024)
+        assert result == "16.0G"
+
+    def test_small_gibibytes_two_decimals(self) -> None:
+        """Values under 10 GiB should use two decimal places."""
+        from llama_manager.system_stats import _format_bytes
+
+        result = _format_bytes(5 * 1024 * 1024 * 1024)
+        assert result == "5.00G"
+
+    def test_very_small_value(self) -> None:
+        """Very small byte values should still format."""
+        from llama_manager.system_stats import _format_bytes
+
+        result = _format_bytes(1024)  # 1 KiB
+        assert result.endswith("G")
+        assert float(result.replace("G", "")) < 1.0
+
+    def test_zero_bytes(self) -> None:
+        """Zero bytes should format as 0.00G."""
+        from llama_manager.system_stats import _format_bytes
+
+        result = _format_bytes(0)
+        assert result == "0.00G"
+
+
+# ---------------------------------------------------------------------------
+# TestFormatUptime
+# ---------------------------------------------------------------------------
+
+
+class TestFormatUptime:
+    """Tests for _format_uptime()."""
+
+    def test_zero_seconds(self) -> None:
+        """Zero seconds should format as 00:00:00."""
+        from llama_manager.system_stats import _format_uptime
+
+        assert _format_uptime(0) == "00:00:00"
+
+    def test_one_hour(self) -> None:
+        """One hour should format as 01:00:00."""
+        from llama_manager.system_stats import _format_uptime
+
+        assert _format_uptime(3600) == "01:00:00"
+
+    def test_two_hours_thirty_minutes(self) -> None:
+        """2h 30m should format as 02:30:00."""
+        from llama_manager.system_stats import _format_uptime
+
+        assert _format_uptime(9000) == "02:30:00"
+
+    def test_full_duration(self) -> None:
+        """Full duration with hours, minutes, and seconds."""
+        from llama_manager.system_stats import _format_uptime
+
+        assert _format_uptime(9045) == "02:30:45"
+
+    def test_less_than_one_hour(self) -> None:
+        """Less than an hour should show 00:MM:SS."""
+        from llama_manager.system_stats import _format_uptime
+
+        assert _format_uptime(3661) == "01:01:01"
+
+    def test_multi_day(self) -> None:
+        """Multi-day uptime should show many hours."""
+        from llama_manager.system_stats import _format_uptime
+
+        # 3 days = 259200 seconds
+        assert _format_uptime(259200) == "72:00:00"

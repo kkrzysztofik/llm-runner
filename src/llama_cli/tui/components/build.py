@@ -216,6 +216,144 @@ class BackendStatusCard(Widget):
             cast(Static, lines[2]).update(readiness.remote_line)
 
 
+# ---------------------------------------------------------------------------
+# Extracted pure helpers — module-level for testability
+# ---------------------------------------------------------------------------
+
+
+def read_build_form_fields(
+    inputs: dict[str, Input | Checkbox],
+) -> dict[str, str | int | bool | None]:
+    """Read form input widgets into a flat dict of values.
+
+    Mirrors ``BuildModalScreen._read_build_form_fields`` but operates on
+    standalone widget dicts rather than instance state.
+    """
+
+    def str_val(key: str) -> str | None:
+        widget = inputs.get(key)
+        if isinstance(widget, Input):
+            value = widget.value.strip()
+            return value or None
+        return None
+
+    def int_val(key: str) -> int | None:
+        raw = str_val(key)
+        if raw is None:
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            return None
+
+    def bool_val(key: str) -> bool | None:
+        widget = inputs.get(key)
+        if isinstance(widget, Checkbox):
+            return widget.value
+        return None
+
+    return {
+        "git_branch": str_val("git_branch"),
+        "git_commit": str_val("git_commit"),
+        "jobs": int_val("jobs"),
+        "retry_attempts": int_val("retry_attempts"),
+        "retry_delay": int_val("retry_delay"),
+        "shallow_clone": bool_val("shallow_clone"),
+        "update_sources": bool_val("update_sources"),
+        "build_timeout_seconds": int_val("build_timeout_seconds"),
+    }
+
+
+def collect_build_options(
+    inputs: dict[str, Input | Checkbox],
+    backend: str,
+    source_dir: Path = _PLACEHOLDER_PATH,
+    build_dir: Path = _PLACEHOLDER_PATH,
+    output_dir: Path = _PLACEHOLDER_PATH,
+) -> BuildConfig | None:
+    """Collect form values into a ``BuildConfig`` override.
+
+    Mirrors ``BuildModalScreen._collect_options`` but takes widget dict and
+    paths as explicit parameters.
+    """
+    if not inputs:
+        return None
+
+    fields = read_build_form_fields(inputs)
+    if all(value is None for value in fields.values()):
+        return None
+
+    git_branch = cast(str | None, fields["git_branch"])
+    git_commit = cast(str | None, fields["git_commit"])
+    jobs = cast(int | None, fields["jobs"])
+    retry_attempts = cast(int | None, fields["retry_attempts"])
+    retry_delay = cast(int | None, fields["retry_delay"])
+    shallow_clone = cast(bool | None, fields["shallow_clone"])
+    update_sources = cast(bool | None, fields["update_sources"])
+    build_timeout = cast(int | None, fields["build_timeout_seconds"])
+
+    return BuildConfig(
+        backend=BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA,
+        source_dir=source_dir,
+        build_dir=build_dir,
+        output_dir=output_dir,
+        git_remote_url="",
+        git_branch=git_branch or "master",
+        git_commit=git_commit,
+        jobs=jobs,
+        retry_attempts=retry_attempts or 3,
+        retry_delay=float(retry_delay) if retry_delay is not None else 5.0,
+        shallow_clone=shallow_clone if shallow_clone is not None else True,
+        update_sources=update_sources if update_sources is not None else True,
+        build_timeout_seconds=build_timeout or 3600,
+    )
+
+
+def navigate_wizard_step(
+    current_step: int,
+    selected_backend: str,
+) -> int:
+    """Determine the next wizard step given the current step and selected backend.
+
+    Mirrors the navigation logic in ``BuildModalScreen._handle_next``.
+    """
+    select_map: dict[str, int] = {
+        "sycl": BuildModalScreen.STEP_SYCL_OPTS,
+        "cuda": BuildModalScreen.STEP_CUDA_OPTS,
+        "both": BuildModalScreen.STEP_SYCL_OPTS,
+    }
+    if current_step == BuildModalScreen.STEP_SELECT:
+        return select_map.get(selected_backend, BuildModalScreen.STEP_SELECT)
+    if current_step == BuildModalScreen.STEP_SYCL_OPTS:
+        if selected_backend == "both":
+            return BuildModalScreen.STEP_CUDA_OPTS
+        return BuildModalScreen.STEP_BUILDING
+    if current_step == BuildModalScreen.STEP_CUDA_OPTS:
+        return BuildModalScreen.STEP_BUILDING
+    return current_step
+
+
+def build_result_content(
+    success: bool | None,
+    artifact_path: str | None = None,
+    error_message: str = "",
+) -> Text:
+    """Build result copy as Rich Text.
+
+    Mirrors ``BuildModalScreen._result_content`` with explicit parameters
+    instead of wizard state lookups.
+    """
+    content = Text()
+    if success is True:
+        content.append("Build completed successfully!\n", style=STYLE_BOLD_GREEN)
+        if artifact_path:
+            content.append(f"  Binary: {artifact_path}\n")
+        return content
+    content.append("Build failed:\n", style=STYLE_BOLD_RED)
+    content.append(error_message or "Unknown error")
+    return content
+
+
 class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
     """Multi-step build wizard modal screen.
 
@@ -674,18 +812,9 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
     def _result_content(self, success: bool | None) -> Text:
         """Build result copy as Rich Text (avoids markup parse errors in error messages)."""
-        if success is True:
-            content = Text()
-            content.append("Build completed successfully!\n", style=STYLE_BOLD_GREEN)
-            artifact = self._wizard_state.get("build_result_artifact")
-            if artifact:
-                content.append(f"  Binary: {artifact}\n")
-            return content
-        content = Text()
-        content.append("Build failed:\n", style=STYLE_BOLD_RED)
+        artifact = self._wizard_state.get("build_result_artifact")
         error = str(self._wizard_state.get("build_result_error", "Unknown error"))
-        content.append(error)
-        return content
+        return build_result_content(success, artifact_path=artifact, error_message=error)
 
     # -- Public API for controller progress updates ------------------------
 

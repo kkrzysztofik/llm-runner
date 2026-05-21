@@ -1,5 +1,7 @@
 """Textual App shell for the llm-runner TUI dashboard."""
 
+from __future__ import annotations
+
 import contextlib
 from typing import TYPE_CHECKING
 
@@ -8,6 +10,9 @@ from textual.binding import Binding
 from textual.containers import Container
 from textual.css.query import NoMatches
 from textual.widgets import Footer
+
+if TYPE_CHECKING:
+    from .controller import DashboardController
 
 from .components.build import BuildModalScreen
 from .components.config_modal import ConfigModal, ConfigPayload
@@ -21,8 +26,27 @@ from .components.system_health import (
 from .components.system_status import SystemStatusWidget
 from .types import BuildWizardResult
 
-if TYPE_CHECKING:
-    from .controller import DashboardController
+# ---------------------------------------------------------------------------
+# Extracted pure helper: profile options caching
+# ---------------------------------------------------------------------------
+
+
+def _profile_options_cached(
+    view_model: object,
+    config: object,
+    cache: list[tuple[str, str]] | None,
+    cache_config_id: int | None,
+) -> tuple[list[tuple[str, str]], int | None]:
+    """Return (options, config_id) with caching logic.
+
+    Extracted from ``DashboardApp._build_profile_options`` for testability.
+    """
+    config_id = id(config)
+    if cache is not None and cache_config_id == config_id:
+        return cache, config_id
+    options = view_model.profile_options(config)  # type: ignore[union-attr]
+    return options, config_id
+
 
 _RISK_HIDDEN_ACTIONS = frozenset(
     {"refresh_dashboard", "add_slot", "build", "open_config"},
@@ -152,13 +176,15 @@ class DashboardApp(App[None]):
             container.mount(ServerLogPanel(i, self.view_model))
 
     def _build_profile_options(self) -> list[tuple[str, str]]:
-        config_id = id(self.controller.config)
-        if self._profile_options_cache is not None and self._profile_cache_config_id == config_id:
-            return self._profile_options_cache
-
-        self._profile_options_cache = self.view_model.profile_options(self.controller.config)
+        options, config_id = _profile_options_cached(
+            self.view_model,
+            self.controller.config,
+            self._profile_options_cache,
+            self._profile_cache_config_id,
+        )
+        self._profile_options_cache = options
         self._profile_cache_config_id = config_id
-        return self._profile_options_cache
+        return options
 
     def action_build(self) -> None:
         screen = BuildModalScreen(last_backend=self.last_build_backend)
