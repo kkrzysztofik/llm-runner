@@ -98,9 +98,20 @@ def terminate_process_tree(proc: subprocess.Popen[str], *, use_process_group: bo
     """
     if proc.poll() is not None:
         return
+
+    process_group_id: int | None = None
+    if use_process_group and isinstance(proc.pid, int) and proc.pid > 1:
+        try:
+            if os.getpgid(proc.pid) == proc.pid:
+                process_group_id = proc.pid
+        except ProcessLookupError:
+            return
+        except OSError:
+            pass
+
     try:
-        if use_process_group:
-            os.killpg(proc.pid, signal.SIGTERM)
+        if process_group_id is not None:
+            os.killpg(process_group_id, signal.SIGTERM)
         else:
             proc.terminate()
     except ProcessLookupError:
@@ -113,8 +124,8 @@ def terminate_process_tree(proc: subprocess.Popen[str], *, use_process_group: bo
     if proc.poll() is not None:
         return
     try:
-        if use_process_group:
-            os.killpg(proc.pid, signal.SIGKILL)
+        if process_group_id is not None:
+            os.killpg(process_group_id, signal.SIGKILL)
         else:
             proc.kill()
     except ProcessLookupError:
