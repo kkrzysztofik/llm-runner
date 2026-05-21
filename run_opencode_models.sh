@@ -29,10 +29,10 @@ MODEL_SUMMARY_BALANCED="/home/kmk/models/unsloth/Qwen3.5-2B-MTP-GGUF/Qwen3.5-2B-
 MODEL_SUMMARY_FAST="/home/kmk/models/unsloth/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q4_K_M.gguf"
 # Qwen3.6-35B-A3B-UD-Q6_K MTP: used for both qwen35 single-run and both-qwen35 dual-run modes.
 # Spread across dual RTX 3090 via --tensor-split 1,1 (see DEFAULT_TENSOR_SPLIT_QWEN35).
-MODEL_QWEN35="/home/kmk/models/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q6_K.gguf"
+MODEL_QWEN35="/home/kmk/models/byteshape/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf"
 # MODEL_QWEN35_BOTH kept for reference (IQ4_XS, single-GPU); superseded by MODEL_QWEN35_BOTH_MTP.
 MODEL_QWEN35_BOTH="/home/kmk/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf"
-MODEL_QWEN35_BOTH_MTP="/home/kmk/models/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q6_K.gguf"
+MODEL_QWEN35_BOTH_MTP="/home/kmk/models/byteshape/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf"
 MODEL_QWEN27B_MTP="/home/kmk/models/unsloth/Qwen3.6-27B-MTP-GGUF/Qwen3.6-27B-UD-Q6_K_XL.gguf"
 MODEL_GEMMA4_E4B="/home/kmk/models/unsloth/gemma-4-E4B-it-GGUF/gemma-4-E4B-it-UD-Q6_K_XL.gguf"
 MODEL_GEMMA4_E4B_MMPROJ="/home/kmk/models/unsloth/gemma-4-E4B-it-GGUF/mmproj-BF16.gguf"
