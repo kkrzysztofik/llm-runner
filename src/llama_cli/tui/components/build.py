@@ -16,13 +16,14 @@ from rich.text import Text
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import (
     Button,
     Checkbox,
+    Collapsible,
     Input,
     LoadingIndicator,
     ProgressBar,
@@ -39,6 +40,7 @@ from llama_manager.build_pipeline import (
     get_build_status,
 )
 from llama_manager.build_pipeline.models import BuildBackend
+from llama_manager.build_pipeline.stages.configure import get_cmake_flags
 
 from ..constants import (
     BUILD_WIZARD_TITLE,
@@ -261,6 +263,7 @@ def read_build_form_fields(
         "shallow_clone": bool_val("shallow_clone"),
         "update_sources": bool_val("update_sources"),
         "build_timeout_seconds": int_val("build_timeout_seconds"),
+        "build_args": str_val("build_args"),
     }
 
 
@@ -291,6 +294,11 @@ def collect_build_options(
     shallow_clone = cast(bool | None, fields["shallow_clone"])
     update_sources = cast(bool | None, fields["update_sources"])
     build_timeout = cast(int | None, fields["build_timeout_seconds"])
+    build_args_raw = cast(str | None, fields["build_args"])
+
+    build_args: list[str] | None = None
+    if build_args_raw is not None and build_args_raw.strip():
+        build_args = build_args_raw.strip().split()
 
     return BuildConfig(
         backend=BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA,
@@ -306,6 +314,7 @@ def collect_build_options(
         shallow_clone=shallow_clone if shallow_clone is not None else True,
         update_sources=update_sources if update_sources is not None else True,
         build_timeout_seconds=build_timeout or 3600,
+        build_args=build_args,
     )
 
 
@@ -516,13 +525,16 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             self._release_select_step_widgets()
         placeholder.remove_children()
         placeholder.remove_class("build-modal-building")
+        placeholder.remove_class("build-modal-options")
         if step == self.STEP_SELECT:
             self._compose_step_select(placeholder)
             self.call_after_refresh(self._focus_step_select)
         elif step == self.STEP_SYCL_OPTS:
+            placeholder.add_class("build-modal-options")
             self._compose_step_options(placeholder, "sycl")
             self.call_after_refresh(self._focus_step_options)
         elif step == self.STEP_CUDA_OPTS:
+            placeholder.add_class("build-modal-options")
             self._compose_step_options(placeholder, "cuda")
             self.call_after_refresh(self._focus_step_options)
         elif step == self.STEP_BUILDING:
@@ -636,6 +648,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         )
         update_cb = Checkbox("Update sources", classes="build-option-checkbox", value=True)
         timeout_input = Input(value="3600", classes="build-option-input")
+        build_args_input = Input(value=config.build_args_default, classes="build-option-input")
 
         inputs["git_branch"] = git_branch_input
         inputs["git_commit"] = git_commit_input
@@ -645,22 +658,69 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         inputs["shallow_clone"] = shallow_cb
         inputs["update_sources"] = update_cb
         inputs["build_timeout_seconds"] = timeout_input
+        inputs["build_args"] = build_args_input
+
+        advanced_options = Collapsible(
+            Horizontal(
+                Static("", classes="build-option-label"),
+                shallow_cb,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("", classes="build-option-label"),
+                update_cb,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("  Build timeout (seconds):", classes="build-option-label"),
+                timeout_input,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("  Default flags:", classes="build-option-label"),
+                Static(
+                    f" {' '.join(get_cmake_flags(BuildBackend(backend)))}",
+                    classes="build-option-value",
+                ),
+                classes="build-option-row build-option-row-flags",
+            ),
+            Horizontal(
+                Static("  Extra build args (space-separated):", classes="build-option-label"),
+                build_args_input,
+                classes="build-option-row",
+            ),
+            title="Advanced build options",
+            collapsed=True,
+            classes="build-advanced-options",
+        )
 
         form = Vertical(
-            Static("  Git branch:", classes="build-option-label"),
-            git_branch_input,
-            Static("  Git commit (optional):", classes="build-option-label"),
-            git_commit_input,
-            Static("  Jobs (empty = auto):", classes="build-option-label"),
-            jobs_input,
-            Static("  Retry attempts:", classes="build-option-label"),
-            retry_attempts_input,
-            Static("  Retry delay (seconds):", classes="build-option-label"),
-            retry_delay_input,
-            shallow_cb,
-            update_cb,
-            Static("  Build timeout (seconds):", classes="build-option-label"),
-            timeout_input,
+            Horizontal(
+                Static("  Git branch:", classes="build-option-label"),
+                git_branch_input,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("  Git commit (optional):", classes="build-option-label"),
+                git_commit_input,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("  Jobs (empty = auto):", classes="build-option-label"),
+                jobs_input,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("  Retry attempts:", classes="build-option-label"),
+                retry_attempts_input,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("  Retry delay (seconds):", classes="build-option-label"),
+                retry_delay_input,
+                classes="build-option-row",
+            ),
+            advanced_options,
             classes="build-options-form",
         )
 
@@ -678,11 +738,14 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         parent.mount(
             Container(
                 title,
-                form,
-                Static("", classes="build-step-label"),
-                Static(f"  Source: {source_dir}", classes="build-derived-path"),
-                Static(f"  Build:  {build_dir}", classes="build-derived-path"),
-                Static(f"  Output: {output_dir}", classes="build-derived-path"),
+                VerticalScroll(
+                    form,
+                    Static("", classes="build-step-label"),
+                    Static(f"  Source: {source_dir}", classes="build-derived-path"),
+                    Static(f"  Build:  {build_dir}", classes="build-derived-path"),
+                    Static(f"  Output: {output_dir}", classes="build-derived-path"),
+                    classes="build-options-scroll",
+                ),
                 actions,
                 classes="build-wizard-step-options",
             )
@@ -726,6 +789,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             "shallow_clone": bool_val("shallow_clone"),
             "update_sources": bool_val("update_sources"),
             "build_timeout_seconds": int_val("build_timeout_seconds"),
+            "build_args": str_val("build_args"),
         }
 
     def _collect_options(self, backend: str) -> BuildConfig | None:  # pragma: no cover
@@ -746,6 +810,11 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         shallow_clone = cast(bool | None, fields["shallow_clone"])
         update_sources = cast(bool | None, fields["update_sources"])
         build_timeout = cast(int | None, fields["build_timeout_seconds"])
+        build_args_raw = cast(str | None, fields["build_args"])
+
+        build_args: list[str] | None = None
+        if build_args_raw is not None and build_args_raw.strip():
+            build_args = build_args_raw.strip().split()
 
         return BuildConfig(
             backend=BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA,
@@ -761,6 +830,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             shallow_clone=shallow_clone if shallow_clone is not None else True,
             update_sources=update_sources if update_sources is not None else True,
             build_timeout_seconds=build_timeout or 3600,
+            build_args=build_args,
         )
 
     # -- Step 4: Building --------------------------------------------------

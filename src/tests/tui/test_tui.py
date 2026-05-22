@@ -2215,6 +2215,10 @@ async def test_dashboard_app_layout_geometry_regression() -> None:
         assert not list(app.query(GPUTelemetryWidget))
 
         assert list(app.query(ServerColumnPanel))
+        for _ in range(5):
+            if list(app.query(GPUStatsPanel)):
+                break
+            await pilot.pause(0.05)
         assert list(app.query(GPUStatsPanel))
 
         from textual.widgets import Footer

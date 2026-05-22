@@ -38,6 +38,8 @@ def run_configure(ctx: _BuildContext) -> BuildProgress:
         return progress
 
     cmake_args = get_cmake_flags(ctx.config.backend)
+    if ctx.config.build_args:
+        cmake_args.extend(ctx.config.build_args)
     logger.debug("[configure] cmake_flags=%s", cmake_args)
 
     if ctx.dry_run:

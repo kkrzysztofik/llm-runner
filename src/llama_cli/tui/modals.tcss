@@ -3,11 +3,25 @@ ConfigModal {
     align: center middle;
 }
 
+Input,
+Select {
+    border: solid ansi_bright_black;
+    background: $surface-lighten-1;
+}
+
+Input:focus,
+Select:focus {
+    border: solid $accent;
+    background: $surface-lighten-2;
+}
+
 .modal-dialog {
     height: auto;
     padding: 1 2;
     border: round $accent;
     background: $surface;
+    width: 70%;
+    max-width: 95%;
 }
 
 .modal-title {
@@ -55,7 +69,7 @@ ConfigModal {
 }
 
 .add-slot-dialog {
-    width: 80;
+    width: 70%;
     max-width: 95%;
 }
 
@@ -64,8 +78,8 @@ ConfigModal {
 }
 
 .config-dialog {
-    width: 90;
-    max-width: 98%;
+    width: 70%;
+    max-width: 95%;
     max-height: 90%;
 }
 
@@ -95,13 +109,20 @@ BuildModalScreen {
     padding: 1 2;
     border: round $accent;
     background: $surface;
-    width: 80;
+    width: 70%;
     max-width: 95%;
 }
 
 /* During the live build step, give the modal a bounded height so the log can use 1fr. */
 .build-modal.build-modal-building {
     height: 85%;
+    max-height: 95%;
+    min-height: 28;
+}
+
+.build-modal.build-modal-options {
+    max-width: 95%;
+    height: 90%;
     max-height: 95%;
     min-height: 28;
 }
@@ -138,19 +159,26 @@ BuildModalScreen {
 /* ---- Build wizard steps ---- */
 
 .build-wizard-step-select {
-    width: 90;
-    max-width: 95%;
+    width: 100%;
 }
 
 .build-wizard-step-options {
-    width: 90;
-    max-width: 95%;
-    max-height: 90%;
+    width: 100%;
+    height: 1fr;
+    layout: vertical;
+}
+
+#build-cancel,
+#build-back {
+    width: 14;
+}
+
+#build-next {
+    width: 18;
 }
 
 .build-wizard-step-building {
-    width: 90;
-    max-width: 95%;
+    width: 100%;
     height: 1fr;
     layout: vertical;
 }
@@ -166,8 +194,7 @@ BuildModalScreen {
 }
 
 .build-wizard-step-result {
-    width: 70;
-    max-width: 90%;
+    width: 100%;
 }
 
 .build-step-label {
@@ -241,26 +268,65 @@ BuildModalScreen {
 }
 
 /* Options form */
+.build-options-scroll {
+    height: 1fr;
+    min-height: 10;
+    overflow-y: auto;
+}
+
 .build-options-form {
     height: auto;
-    max-height: 50;
-    overflow-y: auto;
+}
+
+.build-advanced-options {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+.build-option-row {
+    height: auto;
+    min-height: 3;
+    margin-bottom: 1;
+}
+
+.build-option-row-flags {
+    min-height: 4;
 }
 
 .build-option-label {
     width: 30;
+    height: 3;
     color: $text;
-    margin-top: 0;
+    margin-top: 1;
     margin-bottom: 0;
+    padding-right: 1;
+    content-align: right top;
 }
 
 .build-option-input {
     width: 1fr;
+    height: 3;
 }
 
 .build-option-checkbox {
+    width: 1fr;
+    height: 3;
     margin-top: 0;
     margin-bottom: 0;
+    content-align: left middle;
+}
+
+.build-option-value {
+    width: 1fr;
+    height: auto;
+    color: $text-muted;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-left: 1;
+    content-align: left middle;
 }
 
 .build-derived-path {

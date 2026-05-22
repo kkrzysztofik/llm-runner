@@ -126,6 +126,7 @@ class Config:
     build_retry_delay: int = 5
     build_max_reports: int = 50
     build_output_truncate_bytes: int = 8192
+    build_args_default: str = ""
     toolchain_timeout_seconds: int = 30
 
     # Profile management

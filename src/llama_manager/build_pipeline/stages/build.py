@@ -70,6 +70,8 @@ def _build_cmake_cmd(ctx: _BuildContext) -> list[str]:
     """Construct the cmake --build command."""
     cmd = ["cmake", "--build", str(ctx.config.build_dir)]
     cmd.extend(["-j", str(_effective_parallel_jobs(ctx))])
+    if ctx.config.build_args:
+        cmd.extend(ctx.config.build_args)
     return get_build_env_cmd(cmd, ctx.config.backend)
 
 
