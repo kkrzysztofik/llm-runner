@@ -412,3 +412,29 @@ For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
 specs/001-m4-op-hardening/plan.md
 <!-- SPECKIT END -->
+
+## Learned User Preferences
+
+- Remove smoke testing and llama.cpp GPU profiling from the **TUI only**; keep `llm-runner smoke` and `llm-runner profile` CLI commands and backend libraries unless the user explicitly requests full removal.
+- When removing smoke or profiling, confirm TUI-only vs CLI/libraries scope before deleting shared modules.
+- Do not edit attached Speckit/plan files during “implement the plan” work—change code and tests only.
+- Ask scope-clarifying questions before large removals (smoke/profile, profiling cache) rather than assuming full deletion.
+- Keep llama.cpp build output routed through captured/buffered UI (build wizard `RichLog` with timestamps/colour, `markup=False`; result/errors as Rich `Text` with escaped brackets, not markup strings); avoid flashing raw Loguru stderr over Textual; show live progress and clear build-failure handling.
+- System-health datetime row: use Textual `Digits` for block digital time—not analog wall clock or `textual-hires-canvas`.
+- Datetime header layout: `LLM_RUNNER_LOGO` (wordmark + robot) on the left; date and digital time on the far right with a flex spacer—do not put date on the left beside the logo.
+- Logo wordmark block letters must read **LLM**, not LIM—verify spacing in `_LLM_BLOCK` / `LLM_RUNNER_LOGO` when refining the mascot.
+
+## Learned Workspace Facts
+
+- For build wizard binary display and readiness badges, run `llama-server --version` and parse the `version:` line; do not substitute git `source_head_sha` as the binary version. Prefer `git_commit_sha` from `build-artifact.json`; else take the last parenthesized hex (7–40 chars), not the first (build number). Compare up to 8 chars to source HEAD; missing or mismatched binary commit ⇒ needs_update.
+- Build wizard step-1 async status (`@work` + `call_from_thread`) must not call `BackendStatusCard.set_status` after leaving step 1—release card refs on re-render and apply UI only on `STEP_SELECT` (avoids `NoMatches` on detached `.build-backend-header`).
+- TUI builds: wrap pipeline work in `suppress_build_pipeline_stderr_for_tui()`; Stop sets `build_cancel_event` and kills the active stage via `run_command_with_cancel` (process-group termination, not dismiss-only).
+- When `BuildConfig.jobs` is unset, `cmake --build` uses `-j` from `os.cpu_count()`.
+- SYCL `llama-server --version` probes need oneAPI via `get_build_env_cmd()` in `build_pipeline/utils.py` (sources `/opt/intel/oneapi/setvars.sh` when present).
+- Build wizard step 1 must mount immediately: fetch `get_build_status` on a Textual `@work(thread=True)` worker with parallel SYCL/CUDA probes; show Loading… until results apply via `app.call_from_thread`.
+- Build wizard “Artifact” means provenance JSON at `builds_dir/{sycl|cuda}/build-artifact.json`; untracked binaries fall back to `llama_server_bin_intel` / `llama_server_bin_nvidia` on Config.
+- Default runtime binaries live under `llama_cpp_root`: SYCL at `build/bin/llama-server`, CUDA at `build_cuda/bin/llama-server`; provenance JSON lives under XDG state `builds_dir`.
+- llama.cpp build documentation lives under `docs/build/` (linked from `docs/ARCHITECTURE.md`).
+- `LLM_RUNNER_LOGO` and `DigitalClockWidget` live in `src/llama_cli/tui/components/digital_clock.py`; `DateTimeWidget` in `system_health.py` lays out logo | spacer | date + `Digits`.
+- `DateTimeSnapshot.date_text` uses `%a %Y-%m-%d` (display like `Wed 2026-05-20`).
+- `DigitalClockWidget` updates time on a 1s `set_interval` tick, not the dashboard’s 250ms recompose loop.

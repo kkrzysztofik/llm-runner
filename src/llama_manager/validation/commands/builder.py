@@ -96,6 +96,7 @@ class DryRunSlotPayload:
     vllm_eligibility: VllmEligibility
     warnings: list[str]
     validation_results: ValidationResults
+    server_config: ServerConfig | None = None
 
 
 def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[str]:
@@ -218,6 +219,7 @@ def build_dry_run_slot_payload(
         vllm_eligibility=vllm_eligibility,
         warnings=warnings,
         validation_results=validation_results,
+        server_config=cfg,
     )
 
 
@@ -309,7 +311,7 @@ def _get_lspci_output() -> str | None:
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         pass
     return None
 
@@ -329,7 +331,7 @@ def _get_cpu_model() -> str | None:
             for line in result.stdout.splitlines():
                 if line.startswith("model name"):
                     return "cpu:" + line.split(":", 1)[1].strip()
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         pass
     return None
 
@@ -349,7 +351,7 @@ def _get_os_name() -> str | None:
             for line in result.stdout.splitlines():
                 if line.startswith("NAME="):
                     return "os:" + line.split("=", 1)[1].strip().strip('"')
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         pass
     return None
 

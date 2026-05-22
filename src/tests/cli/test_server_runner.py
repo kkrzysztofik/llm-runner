@@ -935,7 +935,6 @@ def test_tui_run_keeps_acknowledged_risk_prompt_active() -> None:
 
     with (
         patch("llama_cli.tui.controller.DashboardApp", _FakeTextualDashboardApp),
-        patch("llama_cli.tui.components.slot_status.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,
             "launch_all_slots",
@@ -955,10 +954,19 @@ def test_tui_run_keeps_acknowledged_risk_prompt_active() -> None:
 
 
 def test_dry_run_prompts_for_risky_operation_with_exact_prompt() -> None:
+    from llama_manager import DryRunResult
+
+    mock_result = DryRunResult(
+        mode="summary-balanced",
+        slot_payloads=[],
+        has_error=False,
+        errors=[],
+        warnings=["privileged_port"],
+        artifact_payload=None,
+    )
+
     with (
-        patch(
-            "llama_cli.commands.dry_run.detect_risky_operations", return_value=["privileged_port"]
-        ),
+        patch("llama_cli.commands.dry_run.run_dry_run", return_value=mock_result),
         patch("builtins.input", return_value="n") as mock_input,
         pytest.raises(SystemExit) as exc,
     ):
@@ -979,15 +987,19 @@ def test_dry_run_invalid_mode_exits_with_usage_error(capsys: pytest.CaptureFixtu
 
 
 def test_dry_run_exits_when_backend_validation_fails() -> None:
-    backend_error = ErrorDetail(
-        error_code=ErrorCode.BACKEND_NOT_ELIGIBLE,
-        failed_check="vllm_launch_eligibility",
-        why_blocked="backend blocked",
-        how_to_fix="switch backend",
+    from llama_manager import DryRunResult
+
+    mock_result = DryRunResult(
+        mode="summary-fast",
+        slot_payloads=[],
+        has_error=True,
+        errors=["backend blocked"],
+        warnings=[],
+        artifact_payload=None,
     )
 
     with (
-        patch("llama_cli.commands.dry_run.validate_server_config", return_value=backend_error),
+        patch("llama_cli.commands.dry_run.run_dry_run", return_value=mock_result),
         pytest.raises(SystemExit) as exc,
     ):
         dry_run("summary-fast")
@@ -995,7 +1007,7 @@ def test_dry_run_exits_when_backend_validation_fails() -> None:
     assert exc.value.code == 1
 
 
-def test_tui_run_exits_when_launch_is_blocked(capsys: pytest.CaptureFixture[str]) -> None:
+def test_tui_run_exits_when_launch_is_blocked() -> None:
     safe_cfg = ServerConfig(
         model="/home/kmk/models/test-model.gguf",
         alias="summary-balanced",
@@ -1027,23 +1039,22 @@ def test_tui_run_exits_when_launch_is_blocked(capsys: pytest.CaptureFixture[str]
             ),
         ),
         patch.object(app.server_manager, "start_servers"),
-        patch("builtins.input", return_value="y"),
+        patch("builtins.input", side_effect=RuntimeError("unexpected prompt")),
         pytest.raises(SystemExit) as exc,
     ):
         app.run(acknowledged=False)
 
     assert exc.value.code == 1
-    captured = capsys.readouterr()
-    assert "error: launch blocked - no slots could be launched" in captured.err
+    messages = [message for _ts, message in app._status_messages]
+    assert "launch blocked - no slots could be launched" in messages
 
 
-def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) -> None:
+def test_tui_run_buffers_degraded_warnings() -> None:
     app = DashboardController([_risky_cfg()], [0])
     app.running = False
 
     with (
         patch("llama_cli.tui.controller.DashboardApp", _FakeTextualDashboardApp),
-        patch("llama_cli.tui.components.slot_status.psutil.pid_exists", return_value=True),
         patch.object(
             app.server_manager,
             "launch_all_slots",
@@ -1062,9 +1073,9 @@ def test_tui_run_prints_degraded_warnings(capsys: pytest.CaptureFixture[str]) ->
     ):
         app.run(acknowledged=True)
 
-    captured = capsys.readouterr()
-    assert "warn: launch degraded - some slots blocked" in captured.err
-    assert "warn: slot blocked" in captured.err
+    messages = [message for _ts, message in app._status_messages]
+    assert "launch degraded - some slots blocked" in messages
+    assert "slot blocked" in messages
 
 
 def test_server_runner_main_dispatches_dry_run_mode() -> None:

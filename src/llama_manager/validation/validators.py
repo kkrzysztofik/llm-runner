@@ -77,7 +77,7 @@ def validate_server_config(cfg: ServerConfig) -> ErrorDetail | None:
     return validate_backend_eligibility(cfg.backend)
 
 
-def _validate_duplicate_slots(slots: list["ModelSlot"]) -> list[ValidationResult]:
+def _validate_duplicate_slots(slots: list[ModelSlot]) -> list[ValidationResult]:
     """Validate for duplicate slot IDs."""
     from ..config import detect_duplicate_slots
 
@@ -96,7 +96,7 @@ def _validate_duplicate_slots(slots: list["ModelSlot"]) -> list[ValidationResult
     return results
 
 
-def _validate_slot(slot: "ModelSlot") -> list[ValidationResult]:
+def _validate_slot(slot: ModelSlot) -> list[ValidationResult]:
     """Validate a single slot configuration."""
     from ..config import normalize_slot_id
 
@@ -128,9 +128,7 @@ def _validate_slot(slot: "ModelSlot") -> list[ValidationResult]:
         )
 
     if slot.model_path:
-        if os.path.isfile(slot.model_path):
-            pass
-        elif os.path.isdir(slot.model_path):
+        if os.path.isdir(slot.model_path):
             results.append(
                 ValidationResult(
                     slot_id=normalized_id,
@@ -140,7 +138,7 @@ def _validate_slot(slot: "ModelSlot") -> list[ValidationResult]:
                     error_message="model_path must be a file, not a directory",
                 )
             )
-        else:
+        elif not os.path.isfile(slot.model_path):
             results.append(
                 ValidationResult(
                     slot_id=normalized_id,
@@ -177,7 +175,7 @@ def _convert_results_to_errors(validation_results: list[ValidationResult]) -> Mu
     return MultiValidationError(errors=error_details)
 
 
-def validate_slots(slots: list["ModelSlot"]) -> MultiValidationError | None:
+def validate_slots(slots: list[ModelSlot]) -> MultiValidationError | None:
     """Validate ModelSlot configurations and return MultiValidationError if any fail."""
     duplicate_results = _validate_duplicate_slots(slots)
 

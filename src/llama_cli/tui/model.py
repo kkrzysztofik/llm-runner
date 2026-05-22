@@ -4,14 +4,14 @@ The model owns mutable runtime state. It intentionally avoids Textual objects
 and Rich renderables so it can be inspected independently from the UI layer.
 """
 
-from __future__ import annotations
-
 import threading
 import time
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, Literal
 
-from llama_cli.gpu_collectors import collect_nvtop_stats
+import psutil
+
 from llama_manager import (
     Config,
     GPUStats,
@@ -20,9 +20,11 @@ from llama_manager import (
     ModelSlot,
     ServerConfig,
     ServerManager,
+    collect_nvtop_stats,
 )
+from llama_manager.build_pipeline import BuildConfig
 
-from .types import RiskPromptState
+from .types import DateTimeSnapshot, MemoryUsageSnapshot, RiskPromptState, SystemInfoSnapshot
 
 
 class DashboardModel:
@@ -50,17 +52,23 @@ class DashboardModel:
         self.launch_result: LaunchResult | None = None
         self.risk_prompt: RiskPromptState | None = None
 
-        self.profile_status: dict[str, str] = {}
-        self.profile_flavor: dict[str, str] = {}
-        self.profile_cancel_events: dict[str, threading.Event] = {}
-        self.profile_lock = threading.Lock()
-
         self.status_messages: list[tuple[float, str]] = []
         self.status_lock = threading.Lock()
+        self.stale_warnings: dict[str, str] = {}
+        _ = psutil.cpu_percent(interval=0.1, percpu=True)
 
-        self.profile_request: str | None = None
         self.build_request = False
-        self.smoke_request = False
+        self.build_selected_backends: list[str] | None = None
+        self.build_in_progress = False
+        self.build_result: Literal["success", "failed"] | None = None
+        self.build_error: str | None = None
+        self.build_artifact: str | None = None
+        self.build_stage: str | None = None
+        self.build_progress_percent: float = 0.0
+        self.build_is_retrying = False
+        self.build_retries_remaining: int = 0
+        self.build_cancel_event: threading.Event | None = None
+        self.build_selected_backends_options: dict[str, BuildConfig | None] = {}
         self.unsaved_slots: set[str] = set()
 
         self.server_manager = ServerManager()
@@ -69,11 +77,7 @@ class DashboardModel:
 
     def make_collector(self, device_index: int) -> Callable[[], dict[str, Any]]:
         """Create a GPU collector bound to a device index."""
-
-        def collector() -> dict[str, Any]:
-            return collect_nvtop_stats(device_index)
-
-        return collector
+        return lambda: collect_nvtop_stats(device_index)
 
     def stop(self) -> None:
         """Stop the dashboard."""
@@ -101,3 +105,47 @@ class DashboardModel:
         cutoff = time.monotonic() - self.STATUS_MESSAGE_LIFETIME_S
         with self.status_lock:
             return [(ts, msg) for ts, msg in self.status_messages if ts > since_ts and ts >= cutoff]
+
+    def cpu_percentages(self) -> list[float]:
+        """Return current per-core CPU usage percentages."""
+        from llama_manager import collect_cpu_percentages
+
+        return collect_cpu_percentages(percpu=True)
+
+    def memory_usage_rows(self) -> list[MemoryUsageSnapshot]:
+        """Return memory and swap usage snapshots for the dashboard."""
+        from llama_manager import collect_memory_usage
+
+        data = collect_memory_usage()
+        mem = data["mem"]
+        swp = data["swp"]
+        return [
+            MemoryUsageSnapshot(
+                label=str(mem["label"]),
+                percent=float(mem["percent"] if isinstance(mem["percent"], float) else 0.0),
+                value_text=str(mem["value_text"]),
+            ),
+            MemoryUsageSnapshot(
+                label=str(swp["label"]),
+                percent=float(swp["percent"] if isinstance(swp["percent"], float) else 0.0),
+                value_text=str(swp["value_text"]),
+            ),
+        ]
+
+    def system_info_snapshot(self) -> SystemInfoSnapshot:
+        """Return process, load, and uptime state for the dashboard."""
+        from llama_manager import collect_system_info
+
+        data = collect_system_info()
+        return SystemInfoSnapshot(
+            tasks=data["tasks"],  # type: ignore[arg-type]
+            threads=data["threads"],  # type: ignore[arg-type]
+            running=data["running"],  # type: ignore[arg-type]
+            load_values=data["load_values"],  # type: ignore[arg-type]
+            uptime=data["uptime"],  # type: ignore[arg-type]
+        )
+
+    def current_datetime_snapshot(self) -> DateTimeSnapshot:
+        """Return the current local date for display (Wed 2026-05-20)."""
+        now = datetime.now()
+        return DateTimeSnapshot(date_text=f"{now.strftime('%a')} {now.strftime('%Y-%m-%d')}")

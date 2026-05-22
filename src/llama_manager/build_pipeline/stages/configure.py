@@ -1,18 +1,18 @@
 """Configure stage — CMake configuration, flags, and build environment."""
 
-import shlex
-import subprocess
 import time
 
 from loguru import logger
 
 from .._context import _BuildContext
-from ..models import BuildBackend, BuildConfig, BuildProgress
+from ..models import BUILD_CANCELLED_MESSAGE, BuildBackend, BuildConfig, BuildProgress
 from ..utils import (
-    _INTEL_SETVARS_SH,
+    _cancel_requested,
     _format_command,
     _format_command_failure,
     _format_duration,
+    get_build_env_cmd,
+    run_command_with_cancel,
 )
 
 
@@ -58,62 +58,56 @@ def run_configure(ctx: _BuildContext) -> BuildProgress:
         cmd.extend(cmake_args)
         cmd = get_build_env_cmd(cmd, ctx.config.backend)
 
+        # Fail fast if cancellation was requested before spawning cmake
+        if _cancel_requested(ctx.cancel_event):
+            logger.info("[configure] cancelled before spawn")
+            progress.status = "failed"
+            progress.message = BUILD_CANCELLED_MESSAGE
+            return progress
+
         logger.info("[configure] running cmake (this may take a while)")
         logger.debug("[configure] command: %s", _format_command(cmd))
 
         started_at = time.monotonic()
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=ctx.config.build_timeout_seconds,
-            )
-        except subprocess.TimeoutExpired as e:
-            duration = _format_duration(time.monotonic() - started_at)
-            logger.error("[configure] cmake timed out after %s", duration)
-            progress.status = "failed"
-            progress.message = f"Configure timed out after {ctx.config.build_timeout_seconds}s"
-            stdout_str = (
-                e.stdout.decode(errors="replace")
-                if isinstance(e.stdout, bytes)
-                else (e.stdout or "")
-            )
-            stderr_str = (
-                e.stderr.decode(errors="replace")
-                if isinstance(e.stderr, bytes)
-                else (e.stderr or f"Timed out after {ctx.config.build_timeout_seconds}s")
-            )
-            ctx.append_command_output(
-                stage="configure",
-                command=cmd,
-                returncode=-1,
-                stdout=stdout_str,
-                stderr=stderr_str,
-            )
-            return progress
+        returncode, stdout_str, stderr_str = run_command_with_cancel(
+            cmd,
+            cancel_event=ctx.cancel_event,
+            set_active_proc=lambda proc: setattr(ctx, "active_proc", proc),
+            timeout_seconds=float(ctx.config.build_timeout_seconds),
+        )
         duration = _format_duration(time.monotonic() - started_at)
 
-        logger.debug("[configure] cmake exited with rc=%s in %s", result.returncode, duration)
+        logger.debug("[configure] cmake exited with rc=%s in %s", returncode, duration)
 
         ctx.append_command_output(
             stage="configure",
             command=cmd,
-            returncode=result.returncode,
-            stdout=result.stdout,
-            stderr=result.stderr,
+            returncode=returncode,
+            stdout=stdout_str,
+            stderr=stderr_str,
         )
 
-        if result.returncode != 0:
-            logger.error("[configure] cmake failed (rc=%s)", result.returncode)
+        if _cancel_requested(ctx.cancel_event):
+            logger.info("[configure] cancelled by user")
+            progress.status = "failed"
+            progress.message = BUILD_CANCELLED_MESSAGE
+            return progress
+
+        if returncode == -1:
+            logger.error("[configure] cmake timed out after %s", duration)
+            progress.status = "failed"
+            progress.message = f"Configure timed out after {ctx.config.build_timeout_seconds}s"
+            return progress
+
+        if returncode != 0:
+            logger.error("[configure] cmake failed (rc=%s)", returncode)
             progress.status = "failed"
             progress.message = _format_command_failure(
                 stage="CMake configure",
                 command=cmd,
-                returncode=result.returncode,
-                stdout=result.stdout,
-                stderr=result.stderr,
+                returncode=returncode,
+                stdout=stdout_str,
+                stderr=stderr_str,
             )
             return progress
 
@@ -151,22 +145,3 @@ def get_cmake_flags(backend: BuildBackend) -> list[str]:
     elif backend == BuildBackend.CUDA:
         flags.append(f"-D{BuildConfig.GGML_CUDA}=ON")
     return flags
-
-
-def get_build_env_cmd(cmd: list[str], backend: BuildBackend) -> list[str]:
-    """Wrap a command with the Intel oneAPI environment when building for SYCL.
-
-    Sources ``/opt/intel/oneapi/setvars.sh`` via ``bash -c`` so that Intel
-    compilers and libraries are on PATH. Returns the command unchanged for
-    non-SYCL backends or when the script is missing.
-    """
-    if backend != BuildBackend.SYCL:
-        return cmd
-    if not _INTEL_SETVARS_SH.exists():
-        return cmd
-    cmd_str = shlex.join(cmd)
-    return [
-        "bash",
-        "-c",
-        f'source "{_INTEL_SETVARS_SH}" && {cmd_str}',
-    ]

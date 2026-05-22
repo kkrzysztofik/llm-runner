@@ -1,5 +1,4 @@
-# Thread-safe log buffer with autoscroll support
-
+"""Thread-safe log buffer with autoscroll support."""
 
 import threading
 from collections import deque
@@ -27,19 +26,39 @@ class LogBuffer:
         self.redact_sensitive = redact_sensitive
 
     def add_line(self, line: str) -> None:
-        """Add a log line with optional sensitive value redaction"""
+        """Append a single log line to the buffer.
+
+        If ``redact_sensitive`` is enabled, the line is passed through
+        :func:`~.common.security.redact_log_line` before storage.
+
+        Thread-safe: acquires ``self.lock`` before mutating ``self.lines``.
+
+        After ``stop()`` is called, new lines are silently ignored.
+
+        Args:
+            line: The log line string to append.
+        """
         with self.lock:
+            if not self.running:
+                return
             if self.redact_sensitive:
                 line = redact_log_line(line)
             self.lines.append(line)
 
     def clear(self) -> None:
-        """Clear all lines"""
+        """Remove all buffered lines.
+
+        Thread-safe: acquires ``self.lock`` before clearing ``self.lines``.
+        """
         with self.lock:
             self.lines.clear()
 
     def stop(self) -> None:
-        """Stop the buffer"""
+        """Signal the buffer to stop accepting new lines.
+
+        Sets ``self.running`` to ``False`` so consumers (e.g. log-reading
+        threads) can detect shutdown. Does not clear existing lines.
+        """
         self.running = False
 
     def get_lines(self) -> list[str]:

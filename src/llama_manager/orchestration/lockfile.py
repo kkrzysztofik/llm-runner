@@ -7,7 +7,7 @@ import stat
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import psutil
 
@@ -26,6 +26,7 @@ INDETERMINATE_OWNER_MESSAGE: str = (
 INDETERMINATE_OWNER_FIX: str = (
     "verify owning process and clear lock only after confirmed stale ownership"
 )
+LOCKFILE_REPAIR_HINT: Final[str] = "remove or repair the lockfile to proceed"
 
 
 @dataclass
@@ -40,7 +41,7 @@ class LockMetadata:
 class ValidationException(Exception):
     """Exception wrapper for MultiValidationError to enable raising as exception."""
 
-    def __init__(self, multi_error: "MultiValidationError") -> None:
+    def __init__(self, multi_error: MultiValidationError) -> None:
         self.multi_error = multi_error
         if multi_error.errors:
             details = "; ".join(e.why_blocked for e in multi_error.errors)
@@ -94,7 +95,7 @@ def resolve_runtime_dir() -> Path:
             candidate.mkdir(parents=True, exist_ok=True, mode=DIR_MODE_OWNER_ONLY)
             if candidate.is_dir() and os.access(candidate, os.W_OK):
                 return candidate
-        except (OSError, RuntimeError):
+        except OSError, RuntimeError:
             pass
 
     xdg_dir = os.environ.get("XDG_RUNTIME_DIR")
@@ -104,7 +105,7 @@ def resolve_runtime_dir() -> Path:
             candidate.mkdir(parents=True, exist_ok=True, mode=DIR_MODE_OWNER_ONLY)
             if candidate.is_dir() and os.access(candidate, os.W_OK):
                 return candidate
-        except (OSError, RuntimeError):
+        except OSError, RuntimeError:
             pass
 
     raise _make_validation_error(
@@ -167,7 +168,7 @@ def _coerce_lock_data(lock_data: dict) -> LockMetadata | None:
             port=int(lock_data["port"]),
             started_at=float(lock_data["started_at"]),
         )
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 
@@ -188,7 +189,7 @@ def read_lock(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked=f"malformed_content: {e}",
-                how_to_fix="remove or repair the lockfile to proceed",
+                how_to_fix=LOCKFILE_REPAIR_HINT,
             )
         return None
 
@@ -203,21 +204,21 @@ def read_lock(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked="malformed_content: lock 'pid' must be an integer",
-                how_to_fix="remove or repair the lockfile to proceed",
+                how_to_fix=LOCKFILE_REPAIR_HINT,
             )
         if not isinstance(raw_port, int) or isinstance(raw_port, bool):
             return ErrorDetail(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked="malformed_content: lock 'port' must be an integer",
-                how_to_fix="remove or repair the lockfile to proceed",
+                how_to_fix=LOCKFILE_REPAIR_HINT,
             )
         if not isinstance(raw_started_at, int | float) or isinstance(raw_started_at, bool):
             return ErrorDetail(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked="malformed_content: lock 'started_at' must be a numeric value",
-                how_to_fix="remove or repair the lockfile to proceed",
+                how_to_fix=LOCKFILE_REPAIR_HINT,
             )
 
     metadata = _coerce_lock_data(lock_data)
@@ -227,7 +228,7 @@ def read_lock(
                 error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
                 failed_check=LOCKFILE_CHECK_NAME,
                 why_blocked="malformed_content: lock data has invalid field types",
-                how_to_fix="remove or repair the lockfile to proceed",
+                how_to_fix=LOCKFILE_REPAIR_HINT,
             )
         return None
     return metadata
@@ -330,7 +331,7 @@ def _verify_lock_owner(
 
             if not port_matches:
                 return _build_indeterminate_owner_error()
-        except (psutil.AccessDenied, OSError):
+        except psutil.AccessDenied, OSError:
             return _build_indeterminate_owner_error()
     except (OSError, psutil.AccessDenied) as e:
         return _build_indeterminate_owner_error(why_blocked=f"indeterminate_owner: {e}")

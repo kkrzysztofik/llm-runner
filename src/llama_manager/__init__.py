@@ -33,6 +33,7 @@ from .build_pipeline import (
 from .common.security import is_sensitive_key, redact_env_value
 from .config import (
     Config,
+    ConfigUpdateResult,
     DoctorCheckStatus,
     ErrorCode,
     ErrorDetail,
@@ -50,6 +51,7 @@ from .config import (
     SmokeProbeConfiguration,
     SmokeProbeStatus,
     VRamRecommendation,
+    apply_config_updates,
     build_config,
     create_default_profile_registry,
     create_default_run_groups,
@@ -87,7 +89,8 @@ from .config.profile_cache import (
     read_profile,
     write_profile,
 )
-from .gpu_stats import GPUStats, get_gpu_identifier
+from .dry_run import DryRunResult, run_dry_run, write_dry_run_artifact
+from .gpu_stats import GPUStats, collect_nvtop_stats, get_gpu_identifier
 from .log_buffer import LogBuffer
 from .metadata import (
     GGUFMetadataRecord,
@@ -123,6 +126,19 @@ from .probe import (
     probe_slot,
     resolve_provenance,
 )
+from .profile_orchestrator import (
+    BENCHMARK_PROMPT_TOKENS,
+    BENCHMARK_RUN_TIMEOUT_SECONDS,
+    BenchmarkConfig,
+    DriverVersionProvider,
+    create_profile_record,
+    detect_backend,
+    get_driver_version,
+    resolve_benchmark_binary,
+    resolve_benchmark_config,
+    resolve_profile_slot,
+    run_profile,
+)
 from .reports import (
     FailureReport,
     MutatingActionLogEntry,
@@ -151,7 +167,17 @@ from .slot_manager import (
     remove_slot_runtime_state,
     upsert_profile_slot,
 )
-from .slot_state import compute_slot_transition
+from .slot_state import compute_slot_transition, resolve_slot_runtime_status
+from .smoke import (
+    SmokeTarget,
+    resolve_smoke_targets,
+    run_smoke_probes,
+)
+from .system_stats import (
+    collect_cpu_percentages,
+    collect_memory_usage,
+    collect_system_info,
+)
 from .toolchain import (
     CMAKE_HINT,
     CMAKE_MINIMUM_VERSION,
@@ -199,6 +225,8 @@ __all__ = [
     "BuildBackend",
     # Config
     "Config",
+    "ConfigUpdateResult",
+    "apply_config_updates",
     "build_config",
     "ServerConfig",
     "ModelSlot",
@@ -237,6 +265,7 @@ __all__ = [
     "redact_sensitive",
     # Slot state
     "compute_slot_transition",
+    "resolve_slot_runtime_status",
     # Slot manager
     "normalize_slot_port",
     "device_class_for_config",
@@ -297,7 +326,12 @@ __all__ = [
     # Components
     "LogBuffer",
     "GPUStats",
+    "collect_nvtop_stats",
     "get_gpu_identifier",
+    # System stats
+    "collect_cpu_percentages",
+    "collect_memory_usage",
+    "collect_system_info",
     "ServerManager",
     # Process launcher
     "ProcessHandle",
@@ -321,11 +355,14 @@ __all__ = [
     # Smoke probe
     "SmokeProbeResult",
     "SmokeCompositeReport",
+    "SmokeTarget",
     "ProvenanceRecord",
     "ConsecutiveFailureCounter",
     "probe_slot",
     "resolve_provenance",
     "compute_overall_exit_code",
+    "resolve_smoke_targets",
+    "run_smoke_probes",
     # GGUF metadata
     "GGUFMetadataRecord",
     "extract_gguf_metadata",
@@ -361,4 +398,21 @@ __all__ = [
     "RiskAckResult",
     "evaluate_risks",
     "resolve_risk_action",
+    # Dry-run service
+    "DryRunResult",
+    "DryRunArtifactPayload",
+    "run_dry_run",
+    "write_dry_run_artifact",
+    # Profile orchestration
+    "BenchmarkConfig",
+    "DriverVersionProvider",
+    "BENCHMARK_PROMPT_TOKENS",
+    "BENCHMARK_RUN_TIMEOUT_SECONDS",
+    "resolve_profile_slot",
+    "detect_backend",
+    "resolve_benchmark_config",
+    "resolve_benchmark_binary",
+    "get_driver_version",
+    "create_profile_record",
+    "run_profile",
 ]

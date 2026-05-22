@@ -174,7 +174,7 @@ def _check_build_lock(result: DoctorCheckResult, config: Config) -> None:
         else:
             result.build_lock_free = False
             result.warnings.append(f"Build lock held by PID {lock.pid} (backend: {lock.backend})")
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         result.is_healthy = False
         result.errors.append("Build lock file corrupted")
 
@@ -421,8 +421,8 @@ def _check_profiles(
 
 
 def _build_profile_guidance(
-    staleness: "StalenessResult",
-    record: "ProfileRecord",
+    staleness: StalenessResult,
+    record: ProfileRecord,
     max_age_days: int = 90,
 ) -> str:
     """Build actionable guidance for a stale profile.
@@ -830,18 +830,18 @@ def _print_repair_results(result: DoctorRepairResult) -> None:
             emit_error(f"{failure}")
 
 
-def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
-    """Execute doctor --repair command.
+def _collect_all_repair_actions(
+    result: DoctorRepairResult,
+    config: Config,
+    max_age_days: int,
+) -> None:
+    """Collect all repair actions from the six collection functions.
 
-    Attempts to fix detected issues automatically. Returns list of fix commands.
+    Args:
+        result: DoctorRepairResult to append actions to.
+        config: Application config.
+        max_age_days: Maximum acceptable profile age in days.
     """
-    dry_run = parsed.dry_run if hasattr(parsed, "dry_run") else False
-    json_output = getattr(parsed, "json", False)
-    max_age_days = getattr(parsed, "max_age_days", 90)
-
-    config = Config()
-    result = DoctorRepairResult(actions=[], performed_actions=[], failures=[])
-
     _collect_toolchain_repair_actions(result)
     _collect_venv_repair_actions(result)
     _collect_staging_repair_actions(result, config)
@@ -857,55 +857,118 @@ def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
         current_binary_version=None,
     )
 
+
+def _execute_with_confirmation(
+    action: RepairAction,
+    idx: int,
+    result: DoctorRepairResult,
+    json_output: bool,
+    declined: set[int],
+    failed: set[int],
+) -> bool:
+    """Execute a single action with interactive confirmation.
+
+    Handles prerequisite checks, JSON-skip logic, interactive prompts,
+    and decline/failure tracking.
+
+    Args:
+        action: The repair action to execute.
+        idx: Index of the action in the actions list.
+        result: DoctorRepairResult to update.
+        json_output: Whether JSON output mode is active.
+        declined: Mutable set tracking declined action indices.
+        failed: Mutable set tracking failed action indices.
+
+    Returns:
+        True if the action was declined (or a prerequisite was declined),
+        False if the action proceeded (success or failure).
+    """
+    # Skip actions whose prerequisite was declined or failed
+    if action.prerequisite_index is not None and (
+        action.prerequisite_index in declined or action.prerequisite_index in failed
+    ):
+        result.warnings.append(
+            f"Skipped '{action.description}' because prerequisite action was declined"
+        )
+        return True
+
+    if action.requires_confirmation:
+        # When emitting JSON, interactive prompts break the output stream;
+        # skip destructive actions rather than prompting.
+        if json_output:
+            result.warnings.append(
+                f"Skipped '{action.description}' (requires confirmation; use --yes to auto-accept)"
+            )
+            declined.add(idx)
+            return True
+        emit_plain(f"\nAction: {action.description}")
+        if action.dry_run_command:
+            emit_info(f"Command: {action.dry_run_command}")
+        try:
+            response = input("Confirm? [y/N]: ").strip().lower()
+        except EOFError:
+            emit_plain(f"Skipping action (no terminal input): {action.description}")
+            declined.add(idx)
+            return True
+        if response != "y":
+            emit_plain(f"Skipping action: {action.description}")
+            declined.add(idx)
+            return True
+
+    failures_before = len(result.failures)
+    _execute_repair_action(action, result)
+    if len(result.failures) > failures_before:
+        failed.add(idx)
+    return False
+
+
+def _execute_all_actions(result: DoctorRepairResult) -> None:
+    """Execute all repair actions without confirmation.
+
+    Args:
+        result: DoctorRepairResult with actions to execute.
+    """
+    _execute_repair_actions(result)
+
+
+def _emit_repair_output(result: DoctorRepairResult, json_output: bool) -> None:
+    """Emit repair results as JSON or plain text.
+
+    Args:
+        result: DoctorRepairResult with results to emit.
+        json_output: Whether to emit JSON instead of plain text.
+    """
+    if json_output:
+        emit_json(result.to_dict())
+    else:
+        _print_repair_results(result)
+
+
+def cmd_doctor_repair(parsed: argparse.Namespace) -> DoctorRepairResult:
+    """Execute doctor --repair command.
+
+    Attempts to fix detected issues automatically. Returns list of fix commands.
+    """
+    dry_run = parsed.dry_run if hasattr(parsed, "dry_run") else False
+    json_output = getattr(parsed, "json", False)
+    max_age_days = getattr(parsed, "max_age_days", 90)
+
+    config = Config()
+    result = DoctorRepairResult(actions=[], performed_actions=[], failures=[])
+
+    _collect_all_repair_actions(result, config, max_age_days)
+
     if not dry_run:
         skip_confirmation = getattr(parsed, "yes", False)
         if skip_confirmation:
-            _execute_repair_actions(result)
+            _execute_all_actions(result)
         else:
-            # Prompt interactively for confirmation-required actions
             declined: set[int] = set()
             failed: set[int] = set()
             for idx, action in enumerate(result.actions):
-                # Skip actions whose prerequisite was declined or failed
-                if action.prerequisite_index is not None and (
-                    action.prerequisite_index in declined or action.prerequisite_index in failed
-                ):
-                    result.warnings.append(
-                        f"Skipped '{action.description}' because prerequisite action was declined"
-                    )
-                    continue
-                if action.requires_confirmation:
-                    # When emitting JSON, interactive prompts break the output stream;
-                    # skip destructive actions rather than prompting.
-                    if json_output:
-                        result.warnings.append(
-                            f"Skipped '{action.description}' (requires confirmation; use --yes to auto-accept)"
-                        )
-                        declined.add(idx)
-                        continue
-                    emit_plain(f"\nAction: {action.description}")
-                    if action.dry_run_command:
-                        emit_info(f"Command: {action.dry_run_command}")
-                    try:
-                        response = input("Confirm? [y/N]: ").strip().lower()
-                    except EOFError:
-                        emit_plain(f"Skipping action (no terminal input): {action.description}")
-                        declined.add(idx)
-                        continue
-                    if response != "y":
-                        emit_plain(f"Skipping action: {action.description}")
-                        declined.add(idx)
-                        continue
-                failures_before = len(result.failures)
-                _execute_repair_action(action, result)
-                if len(result.failures) > failures_before:
-                    failed.add(idx)
+                _execute_with_confirmation(action, idx, result, json_output, declined, failed)
 
-    if json_output:
-        emit_json(result.to_dict())
-        return result
-
-    _print_repair_results(result)
+    _emit_repair_output(result, json_output)
     return result
 
 

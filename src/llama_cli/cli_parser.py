@@ -58,7 +58,7 @@ def parse_jobs_arg(arg: str) -> int:
         else:
             emit_error(f"invalid jobs value '{arg}'")
             sys.exit(1)
-    except (ValueError, IndexError):
+    except ValueError, IndexError:
         emit_error(f"invalid jobs value '{arg}'")
         sys.exit(1)
 
@@ -144,7 +144,7 @@ def _parse_setup_check_args(args: list[str]) -> argparse.Namespace:
             backend = arg
         elif arg == "--json":
             json_output = True
-        elif arg.startswith("-j") or arg.startswith("--jobs"):
+        elif arg.startswith(("-j", "--jobs")):
             jobs = parse_jobs_arg(arg)
     return argparse.Namespace(
         mode="setup",
@@ -165,7 +165,7 @@ def _parse_setup_venv_args(args: list[str]) -> argparse.Namespace:
             check_integrity = True
         elif arg == "--json":
             json_output = True
-        elif arg.startswith("-j") or arg.startswith("--jobs"):
+        elif arg.startswith(("-j", "--jobs")):
             jobs = parse_jobs_arg(arg)
     return argparse.Namespace(
         mode="setup",
@@ -183,7 +183,7 @@ def _parse_setup_clean_venv_args(args: list[str]) -> argparse.Namespace:
     for arg in args:
         if arg == "--yes":
             yes = True
-        elif arg.startswith("-j") or arg.startswith("--jobs"):
+        elif arg.startswith(("-j", "--jobs")):
             jobs = parse_jobs_arg(arg)
     return argparse.Namespace(
         mode="setup",
@@ -240,7 +240,7 @@ def _parse_doctor_check_args(args: list[str]) -> argparse.Namespace:
             backend = arg
         elif arg == "--json":
             json_output = True
-        elif arg.startswith("-j") or arg.startswith("--jobs"):
+        elif arg.startswith(("-j", "--jobs")):
             jobs = parse_jobs_arg(arg)
     return argparse.Namespace(
         mode="doctor",
@@ -264,7 +264,7 @@ def _parse_doctor_repair_args(args: list[str]) -> argparse.Namespace:
             json_output = True
         elif arg == "--yes":
             yes = True
-        elif arg.startswith("-j") or arg.startswith("--jobs"):
+        elif arg.startswith(("-j", "--jobs")):
             jobs = parse_jobs_arg(arg)
     return argparse.Namespace(
         mode="doctor",

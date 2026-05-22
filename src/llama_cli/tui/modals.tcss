@@ -85,3 +85,202 @@ ConfigModal {
 .config-actions Button {
     margin-left: 1;
 }
+
+BuildModalScreen {
+    align: center middle;
+}
+
+.build-modal {
+    height: auto;
+    padding: 1 2;
+    border: round $accent;
+    background: $surface;
+    width: 80;
+    max-width: 95%;
+}
+
+/* During the live build step, give the modal a bounded height so the log can use 1fr. */
+.build-modal.build-modal-building {
+    height: 85%;
+    max-height: 95%;
+    min-height: 28;
+}
+
+.build-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.build-message {
+    margin-bottom: 1;
+}
+
+.build-result {
+    text-style: bold;
+    color: $success;
+}
+
+.build-error {
+    color: $error;
+    margin-top: 1;
+}
+
+.build-retry-info {
+    color: $warning;
+    margin-top: 1;
+}
+
+.build-target-prompt {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+/* ---- Build wizard steps ---- */
+
+.build-wizard-step-select {
+    width: 90;
+    max-width: 95%;
+}
+
+.build-wizard-step-options {
+    width: 90;
+    max-width: 95%;
+    max-height: 90%;
+}
+
+.build-wizard-step-building {
+    width: 90;
+    max-width: 95%;
+    height: 1fr;
+    layout: vertical;
+}
+
+/* Build log */
+#build-log {
+    height: 1fr;
+    min-height: 8;
+    border: solid $panel;
+    margin-top: 1;
+    margin-bottom: 1;
+    background: $surface-darken-1;
+}
+
+.build-wizard-step-result {
+    width: 70;
+    max-width: 90%;
+}
+
+.build-step-label {
+    text-style: bold;
+    color: $text-muted;
+    margin-top: 1;
+    margin-bottom: 0;
+}
+
+/* Per-backend status cards */
+.build-status-cards {
+    margin-top: 1;
+    margin-bottom: 1;
+    height: auto;
+    width: 100%;
+}
+
+.build-backend-card {
+    border: solid $primary;
+    padding: 1;
+    margin-bottom: 1;
+    height: auto;
+    min-height: 5;
+}
+
+.build-backend-header {
+    height: 1;
+    layout: horizontal;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+.build-backend-name {
+    width: auto;
+    margin-right: 1;
+}
+
+.build-backend-spinner {
+    width: auto;
+    height: 1;
+}
+
+.build-backend-badge {
+    width: auto;
+    text-style: bold;
+}
+
+.build-badge-current {
+    color: $success;
+}
+
+.build-badge-needs_update {
+    color: $warning;
+}
+
+.build-badge-missing {
+    color: $error;
+}
+
+.build-backend-line {
+    color: $text-muted;
+    height: auto;
+}
+
+/* Backend selection */
+#backend-select {
+    margin-top: 1;
+    margin-bottom: 1;
+    height: auto;
+    border: none;
+}
+
+/* Options form */
+.build-options-form {
+    height: auto;
+    max-height: 50;
+    overflow-y: auto;
+}
+
+.build-option-label {
+    width: 30;
+    color: $text;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+.build-option-input {
+    width: 1fr;
+}
+
+.build-option-checkbox {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+.build-derived-path {
+    color: $text-muted;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+/* Building step */
+.build-message {
+    margin-bottom: 1;
+}
+
+.build-retry-info {
+    color: $warning;
+    margin-top: 1;
+}
+
+/* Result step */
+.build-result-panel {
+    margin-top: 1;
+    margin-bottom: 1;
+}

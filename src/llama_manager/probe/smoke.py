@@ -28,6 +28,11 @@ from .provenance import ProvenanceRecord, resolve_provenance
 # API key resolution (env fallback — pure library)
 # ---------------------------------------------------------------------------
 
+
+def _probe_elapsed_ms(start_time: float) -> int:
+    return int((time.monotonic() - start_time) * 1000)
+
+
 _API_KEY_ENV_VAR: str = "LLM_RUNNER_API_KEY"
 
 
@@ -75,7 +80,7 @@ def resolve_model_id_from_gguf(model_path: str) -> str | None:
     """
     try:
         record = extract_gguf_metadata(model_path)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
 
     # Prefer general.name from GGUF metadata
@@ -295,7 +300,7 @@ def probe_slot(
             phase_reached=phase,
             failure_phase=SmokeFailurePhase.LISTEN,
             model_id=None,
-            latency_ms=int((time.monotonic() - start_time) * 1000),
+            latency_ms=_probe_elapsed_ms(start_time),
             provenance=provenance,
         )
     except OSError:
@@ -305,7 +310,7 @@ def probe_slot(
             phase_reached=phase,
             failure_phase=SmokeFailurePhase.LISTEN,
             model_id=None,
-            latency_ms=int((time.monotonic() - start_time) * 1000),
+            latency_ms=_probe_elapsed_ms(start_time),
             provenance=provenance,
         )
 
@@ -343,7 +348,7 @@ def probe_slot(
         return result
 
     # All phases passed
-    elapsed_ms = int((time.monotonic() - start_time) * 1000)
+    elapsed_ms = _probe_elapsed_ms(start_time)
     return SmokeProbeResult(
         slot_id=f"{host}:{port}",
         status=SmokeProbeStatus.PASS,
@@ -437,7 +442,7 @@ def _probe_models(
             response = client.get(url, headers=headers)
     except httpx.TimeoutException:
         return (_models_failure_result(host, port, SmokeProbeStatus.TIMEOUT), None)
-    except (httpx.ConnectError, httpx.NetworkError, httpx.UnsupportedProtocol):
+    except httpx.ConnectError, httpx.NetworkError, httpx.UnsupportedProtocol:
         return (_models_failure_result(host, port, SmokeProbeStatus.FAIL), None)
 
     # Handle HTTP status codes
@@ -571,7 +576,7 @@ def _probe_chat(
             model_id=model_id,
             provenance=resolve_provenance(),
         )
-    except (httpx.ConnectError, httpx.NetworkError, httpx.UnsupportedProtocol):
+    except httpx.ConnectError, httpx.NetworkError, httpx.UnsupportedProtocol:
         return SmokeProbeResult(
             slot_id=f"{host}:{port}",
             status=SmokeProbeStatus.FAIL,

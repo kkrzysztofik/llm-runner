@@ -4,7 +4,9 @@ import time
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Final, Literal
+
+BUILD_CANCELLED_MESSAGE: Final[str] = "Build cancelled"
 
 
 class BuildBackend(StrEnum):
@@ -123,6 +125,7 @@ class BuildProgress:
     message: str
     progress_percent: float
     retries_remaining: int | None = None
+    output_line: str | None = None
 
     @property
     def is_complete(self) -> bool:

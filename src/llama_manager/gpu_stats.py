@@ -1,5 +1,7 @@
-# GPU statistics collection via nvtop/psutil
+"""GPU statistics collection via nvtop/psutil."""
 
+import json
+import subprocess
 import time
 from collections.abc import Callable
 from typing import Any
@@ -88,13 +90,19 @@ class GPUStats:
 
     @property
     def gpu_util(self) -> str:
-        """Get GPU utilization string"""
+        """Current GPU utilization percentage (e.g. ``"72%"``) or ``"N/A"``.
+
+        Triggers a stats update if the last sample is stale.
+        """
         self.update()
         return self.stats.get("gpu_util", "N/A")
 
     @property
     def memory_util(self) -> str:
-        """Get memory utilization string"""
+        """Current GPU memory utilization percentage (e.g. ``"4.2 GB / 8.0 GB"``) or ``"N/A"``.
+
+        Triggers a stats update if the last sample is stale.
+        """
         self.update()
         return self.stats.get("mem_util", "N/A")
 
@@ -159,3 +167,66 @@ def get_gpu_identifier(
     device_index: int = first_device["index"]
 
     return compute_gpu_identifier(backend, gpu_name, device_index)
+
+
+def _format_metric(value: Any) -> str:
+    """Normalize collector metrics to string values."""
+    return "N/A" if value is None else str(value)
+
+
+def collect_nvtop_stats(device_index: int = 0) -> dict[str, Any]:
+    """Collect GPU stats using nvtop subprocess.
+
+    Args:
+        device_index: Index of the GPU device to query.
+
+    Returns:
+        Dictionary with GPU statistics including device name, utilization,
+        memory, temperature, power, CPU, and memory usage.
+    """
+    try:
+        result = subprocess.run(
+            ["nvtop", "-s"],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"nvtop exited with code {result.returncode}: {result.stderr}")
+        all_gpus = json.loads(result.stdout)
+        if not isinstance(all_gpus, list):
+            raise ValueError(f"nvtop JSON output is not a list, got {type(all_gpus).__name__}")
+        if 0 <= device_index < len(all_gpus):
+            gpu = all_gpus[device_index]
+            if not isinstance(gpu, dict):
+                raise ValueError(
+                    f"gpu entry at index {device_index} is not a dict, got {type(gpu).__name__}"
+                )
+            return {
+                "device": _format_metric(gpu.get("device_name", "Unknown")),
+                "gpu_util": _format_metric(gpu.get("gpu_util", "N/A")),
+                "mem_util": _format_metric(gpu.get("mem_util", "N/A")),
+                "temp": _format_metric(gpu.get("temp", "N/A")),
+                "power": _format_metric(gpu.get("power_draw", "N/A")),
+                "cpu": _format_metric(f"{psutil.cpu_percent():.0f}%"),
+                "mem": _format_metric(f"{psutil.virtual_memory().percent:.0f}%"),
+            }
+    except subprocess.TimeoutExpired:
+        pass
+    except json.JSONDecodeError:
+        pass
+    except RuntimeError:
+        pass
+    except ValueError, OSError:
+        pass
+
+    # Fallback to psutil
+    return {
+        "device": _format_metric(f"GPU {device_index}"),
+        "gpu_util": _format_metric("N/A"),
+        "mem_util": _format_metric("N/A"),
+        "temp": _format_metric("N/A"),
+        "power": _format_metric("N/A"),
+        "cpu": _format_metric(f"{psutil.cpu_percent():.0f}%"),
+        "mem": _format_metric(f"{psutil.virtual_memory().percent:.0f}%"),
+    }

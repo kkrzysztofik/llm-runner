@@ -1,7 +1,12 @@
 """Shared mutable build context passed across pipeline stages within a single run."""
 
+from __future__ import annotations
+
 import json
+import subprocess
+import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,6 +26,9 @@ class _BuildContext:
     build_output: str = ""
     last_build_command: list[str] = field(default_factory=list)
     last_exit_code: int = 1
+    progress_callback: Callable[[BuildProgress], None] | None = None
+    cancel_event: threading.Event | None = None
+    active_proc: subprocess.Popen[str] | None = None
 
     def append_command_output(
         self,

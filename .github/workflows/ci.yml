@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  UV_VERSION: "0.5.18"
+  UV_VERSION: "0.11.6"
 
 permissions:
   contents: read
@@ -33,7 +33,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Install dev dependencies
         run: uv sync --extra dev
@@ -63,7 +63,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Install dev dependencies
         run: uv sync --extra dev
@@ -84,7 +84,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Install dev dependencies
         run: uv sync --extra dev
@@ -111,7 +111,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Install dev dependencies
         run: uv sync --extra dev
@@ -142,7 +142,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Export requirements for Snyk Open Source scan
         run: |
@@ -195,7 +195,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Install dev dependencies
         run: uv sync --extra dev
@@ -215,7 +215,7 @@ jobs:
         uses: SonarSource/sonarcloud-github-action@v5
         with:
           args: >
-            -Dsonar.python.version=3.12
+            -Dsonar.python.version=3.14
             -Dsonar.python.coverage.reportPaths=coverage.xml
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}

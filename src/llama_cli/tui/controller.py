@@ -2,42 +2,76 @@
 
 import dataclasses
 import signal
-import sys
 import threading
 from collections.abc import Callable
 from types import FrameType
 from typing import Any, Literal
 
-from llama_cli.ui_output import emit_error, emit_info, emit_plain, emit_success, emit_warn
 from llama_manager import (
     Config,
     GPUStats,
     LaunchResult,
     LogBuffer,
     ModelSlot,
+    ProfileFlavor,
     RiskAckResult,
     ServerConfig,
     ServerManager,
     SlotState,
     add_slot_from_form,
     compute_slot_transition,
+    get_gpu_identifier,
     launch_orchestrate,
+    load_profile_with_staleness,
     resolve_risk_action,
 )
 from llama_manager.build_pipeline import (
+    BuildConfig,
     BuildPipeline,
     BuildProgress,
     run_build_for_backend,
 )
+from llama_manager.logging_setup import suppress_build_pipeline_stderr_for_tui
 
 from .components.config_modal import ConfigPayload
+from .constants import MSG_BUILD_CANCELLED, MSG_BUILD_FAILED
 from .model import DashboardModel
 from .textual_app import DashboardApp
 from .viewmodel import DashboardViewModel
 
 
 class DashboardController:
-    """Controller for TUI commands, lifecycle, and background work."""
+    """Controller for the Textual TUI dashboard — commands, lifecycle, and background work.
+
+    The controller is the central hub that coordinates between the model
+    (:class:`~.model.DashboardModel`), the view model
+    (:class:`~.viewmodel.DashboardViewModel`), and the Textual app
+    (:class:`~.textual_app.DashboardApp`). It owns all user-facing command
+    handlers (launch, build, slot management, config editing, risk prompts)
+    and manages background threads for builds.
+
+    Responsibilities:
+
+    * **Lifecycle** — register signal handlers (SIGINT/SIGTERM), start/stop the
+      TUI loop, and perform graceful shutdown of server processes.
+    * **Launch orchestration** — delegate to :func:`~llama_manager.launch_orchestrate`
+      and map results to UI state (risk prompts, slot states, status messages).
+    * **Build pipeline** — run :func:`~llama_manager.build_pipeline.run_build_for_backend`
+      in a daemon thread, expose progress via :attr:`build_progress`, and
+      coordinate with the build wizard modal.
+    * **Slot management** — create/replace slots from the add-slot modal, track
+      slot state transitions, and detect duplicate slot IDs.
+    * **Config editing** — persist edited values from the config modal and
+      optionally trigger a server restart.
+    * **Risk prompts** — surface VRAM and hardware mismatch warnings, resolve
+      user acknowledgment (proceed / abort / quit).
+
+    Args:
+        configs: List of :class:`~llama_manager.ServerConfig` instances to manage.
+        gpu_indices: GPU device indices to monitor (one per backend).
+        slots: Optional list of :class:`~llama_manager.ModelSlot` instances.
+        register_signals: If ``True``, register SIGINT/SIGTERM handlers on init.
+    """
 
     def __init__(
         self,
@@ -54,6 +88,7 @@ class DashboardController:
         self.build_in_progress = False
         self.build_progress: BuildProgress | None = None
         self._original_sigint_handler: Callable[[int, FrameType | None], Any] | int | None = None
+        self._build_wizard: Any = None  # BuildModalScreen | None
 
         if register_signals:
             signal.signal(signal.SIGINT, self._signal_handler)
@@ -119,28 +154,12 @@ class DashboardController:
             self.model.set_risk_prompt(value, acknowledged=self.risks_acknowledged)
 
     @property
-    def profile_request(self) -> str | None:
-        return self.model.profile_request
-
-    @profile_request.setter
-    def profile_request(self, value: str | None) -> None:
-        self.model.profile_request = value
-
-    @property
     def _build_request(self) -> bool:
         return self.model.build_request
 
     @_build_request.setter
     def _build_request(self, value: bool) -> None:
         self.model.build_request = value
-
-    @property
-    def _smoke_request(self) -> bool:
-        return self.model.smoke_request
-
-    @_smoke_request.setter
-    def _smoke_request(self, value: bool) -> None:
-        self.model.smoke_request = value
 
     @property
     def unsaved_slots(self) -> set[str]:
@@ -165,22 +184,6 @@ class DashboardController:
     @server_processes.setter
     def server_processes(self, value: dict[str, Any]) -> None:
         self.model.server_processes = value
-
-    @property
-    def _profile_status(self) -> dict[str, str]:
-        return self.model.profile_status
-
-    @property
-    def _profile_flavor(self) -> dict[str, str]:
-        return self.model.profile_flavor
-
-    @property
-    def _profile_cancel_events(self) -> dict[str, threading.Event]:
-        return self.model.profile_cancel_events
-
-    @property
-    def _profile_lock(self) -> threading.Lock:
-        return self.model.profile_lock
 
     @property
     def _status_messages(self) -> list[tuple[float, str]]:
@@ -208,14 +211,20 @@ class DashboardController:
         Releases build lock and stops the build gracefully.
         """
         if self.build_in_progress and self._build_pipeline is not None:
-            emit_warn("Build interrupted by user, releasing lock...")
+            self._push_status_message("Build interrupted by user, releasing lock...")
             self._build_pipeline.release_lock()
             self.build_in_progress = False
-            sys.exit(130)  # Standard exit code for Ctrl+C
+            # Set cancel event for the build thread
+            cancel_event = getattr(self.model, "build_cancel_event", None)
+            if cancel_event is not None:
+                cancel_event.set()
 
     def _make_collector(self, device_index: int) -> Callable[[], dict[str, Any]]:
         """Create a GPU collector bound to a specific device index."""
         return self.model.make_collector(device_index)
+
+    def can_select_build_target(self) -> bool:
+        return self.view_model.can_select_build_target()
 
     def stop(self) -> None:
         """Stop the TUI loop gracefully."""
@@ -252,23 +261,9 @@ class DashboardController:
         self._graceful_shutdown()
 
     def interrupt(self) -> None:
-        """Request an interrupt from the UI.
-
-        Matches the legacy Ctrl+C path: abort a running profile if one exists,
-        otherwise shut the app down.
-        """
+        """Request an interrupt from the UI (graceful shutdown when no risk prompt)."""
         if self.model.risk_prompt is not None:
             return
-
-        with self._profile_lock:
-            for cfg in self.configs:
-                if self._profile_status.get(cfg.alias) == "running":
-                    cancel_event = self._profile_cancel_events.get(cfg.alias)
-                    if cancel_event is not None:
-                        cancel_event.set()
-                    self._profile_status[cfg.alias] = "failed"
-                    self._push_status_message(f"Profile '{cfg.alias}' aborted.")
-                    return
 
         self._graceful_shutdown()
 
@@ -278,15 +273,6 @@ class DashboardController:
             return
         self._push_status_message("Display refreshed.")
 
-    def request_profile(self) -> None:
-        """Start the profile selection flow from the UI."""
-        if self.model.risk_prompt is not None or not self.configs:
-            return
-        alias = self.configs[0].alias
-        with self._profile_lock:
-            self._profile_status[alias] = "idle"
-        self.profile_request = alias
-
     def request_build(self) -> None:
         """Start the build selection flow from the UI."""
         if self.model.risk_prompt is not None:
@@ -294,28 +280,11 @@ class DashboardController:
         self._build_request = True
         self._push_status_message("Select build target: [1] SYCL  [2] CUDA  [3] Both")
 
-    def request_smoke(self) -> None:
-        """Start the smoke selection flow from the UI."""
-        if self.model.risk_prompt is not None:
-            return
-        self._smoke_request = True
-        self._push_status_message("Select smoke scope: [1] Both  [2] Active Slot")
-
     def cancel_pending_prompt(self) -> bool:
-        """Cancel any pending profile, build, or smoke prompt."""
-        if self.profile_request is not None:
-            self.profile_request = None
-            self._push_status_message("Profile selection cancelled.")
-            return True
-
+        """Cancel any pending build prompt."""
         if self._build_request:
             self._build_request = False
             self._push_status_message("Build selection cancelled.")
-            return True
-
-        if self._smoke_request:
-            self._smoke_request = False
-            self._push_status_message("Smoke selection cancelled.")
             return True
 
         return False
@@ -346,6 +315,33 @@ class DashboardController:
         """
         self.model.push_status_message(message)
 
+    def refresh_stale_warnings(self, get_driver_version: Callable[[str], str]) -> None:
+        """Refresh cached stale-profile warnings for all configured slots."""
+        warnings: dict[str, str] = {}
+        for cfg in self.configs:
+            try:
+                _record, staleness = load_profile_with_staleness(
+                    profiles_dir=self.config.profiles_dir,
+                    gpu_identifier=get_gpu_identifier(cfg.backend),
+                    backend=cfg.backend,
+                    flavor=ProfileFlavor.BALANCED,
+                    current_driver_version=get_driver_version(cfg.backend),
+                    current_binary_version=self.config.server_binary_version or "unknown",
+                    staleness_days=self.config.profile_staleness_days,
+                )
+            except OSError, ValueError, KeyError:
+                continue
+
+            if staleness is None or not staleness.is_stale:
+                continue
+
+            reasons = "; ".join(
+                reason.value.replace("_", " ").title() for reason in staleness.reasons
+            )
+            warnings[cfg.alias] = f"profile stale - {reasons}"
+
+        self.model.stale_warnings = warnings
+
     def add_slot_from_form(self, values: dict[str, str]) -> bool:
         """Create or replace a slot from modal profile selection."""
         state = {
@@ -367,83 +363,26 @@ class DashboardController:
         )
         for msg in messages:
             self._push_status_message(msg)
+        active_aliases = {cfg.alias for cfg in self.configs}
+        self.model.stale_warnings = {
+            alias: warning
+            for alias, warning in self.model.stale_warnings.items()
+            if alias in active_aliases
+        }
         return success
 
     def cancel_add_slot_form(self) -> None:
         """Emit a status message when the add-slot modal is cancelled."""
         self._push_status_message("Slot configuration cancelled")
 
-    def _run_profile_background(self, alias: str, flavor: str) -> None:
-        """Run profiling in a background thread so the TUI stays responsive."""
-        with self._profile_lock:
-            self._profile_status[alias] = "running"
-            self._profile_flavor[alias] = flavor
-            self._profile_cancel_events[alias] = threading.Event()
-
-        def _do_profile() -> None:
-            try:
-                exit_code = self._execute_profile(alias, flavor)
-                if exit_code == 0:
-                    with self._profile_lock:
-                        self._profile_status[alias] = "done"
-                else:
-                    with self._profile_lock:
-                        self._profile_status[alias] = "failed"
-            except Exception:
-                with self._profile_lock:
-                    self._profile_status[alias] = "failed"
-            finally:
-                with self._profile_lock:
-                    self._profile_cancel_events.pop(alias, None)
-
-        threading.Thread(
-            target=_do_profile,
-            name=f"profile-{alias}",
-            daemon=True,
-        ).start()
-
-    def _execute_profile(self, alias: str, flavor: str) -> int:
-        """Execute the profile benchmark for a given slot.
-
-        Uses ``profile_cli.cmd_profile`` directly (no subprocess).
-        Returns 0 on success, 1 on failure.
-        """
-        from llama_cli.commands.profile import cmd_profile
-
-        with self._profile_lock:
-            cancel_event = self._profile_cancel_events.get(alias)
-
-        if cancel_event is None:
-            return 1
-
-        return cmd_profile(
-            slot_id=alias,
-            flavor=flavor,
-            quiet=True,
-            progress_callback=self._push_status_message,
-            cancel_event=cancel_event,
-        )
-
-    def _abort_profile(self) -> None:
-        """Abort the currently running profile for any slot."""
-        for cfg in self.configs:
-            with self._profile_lock:
-                if self._profile_status.get(cfg.alias) == "running":
-                    cancel_event = self._profile_cancel_events.get(cfg.alias)
-                    if cancel_event is not None:
-                        cancel_event.set()
-                    self._profile_status[cfg.alias] = "failed"
-                    self._push_status_message(f"Profile '{cfg.alias}' aborted.")
-
-    # ------------------------------------------------------------------
-    # Profile staleness helpers
-    # ------------------------------------------------------------------
-
     def get_stale_warning(self, cfg: ServerConfig) -> str | None:
         """Return a warning string when the cached profile is stale."""
         return self.view_model.stale_warning(cfg)
 
-    def _update_risk_panel_state(self, result: RiskAckResult) -> None:
+    def _update_risk_panel_state(self, result: RiskAckResult | None) -> None:
+        if result is None:
+            self.model.clear_risk_prompt()
+            return
         if result.has_risks:
             if result.risks_acknowledged:
                 self._build_risk_panel_acknowledged()
@@ -524,40 +463,24 @@ class DashboardController:
         Args:
             payload: Typed config values and restart flag from the modal.
         """
-        from llama_manager.config import config_file_path, save_config_to_file
+        from llama_manager import apply_config_updates
 
-        cfg = self.model.config
-        int_fields = {
-            "smoke_listen_timeout_s",
-            "smoke_http_request_timeout_s",
-            "smoke_first_token_timeout_s",
-            "smoke_total_chat_timeout_s",
-        }
-
+        # Convert ConfigPayload to update dict (exclude restart flag)
+        updates: dict[str, object] = {}
         for field in dataclasses.fields(payload):
             if field.name == "restart":
                 continue
-            field_name = field.name
-            raw_value = getattr(payload, field_name)
-            if not hasattr(cfg, field_name):
-                continue
-            if field_name in int_fields:
-                try:
-                    setattr(cfg, field_name, int(raw_value))
-                except ValueError:
-                    self._push_status_message(
-                        f"Invalid value '{raw_value}' for {field_name} — config not saved."
-                    )
-                    return
-            else:
-                setattr(cfg, field_name, raw_value)
+            updates[field.name] = getattr(payload, field.name)
 
-        try:
-            save_config_to_file(cfg, config_file_path())
-            self._push_status_message("Config saved to disk.")
-        except OSError as exc:
-            self._push_status_message(f"Config save failed: {exc}")
+        result = apply_config_updates(self.model.config, updates)
+
+        if result.errors:
+            for error in result.errors:
+                self._push_status_message(error)
             return
+
+        if result.updated_fields:
+            self._push_status_message("Config saved to disk.")
 
         if payload.restart:
             self._push_status_message("Restarting servers with new config…")
@@ -574,6 +497,11 @@ class DashboardController:
             progress: BuildProgress from the pipeline
         """
         self.build_progress = progress
+        self.model.build_stage = progress.stage
+        self.model.build_progress_percent = progress.progress_percent
+        self.model.build_is_retrying = progress.is_retrying
+        if progress.retries_remaining is not None:
+            self.model.build_retries_remaining = progress.retries_remaining
 
         if self.build_in_progress:
             if progress.is_retrying:
@@ -585,24 +513,172 @@ class DashboardController:
                 self._push_status_message(f"Build failed: {progress.message}")
             elif progress.status == "success":
                 self._push_status_message("Build completed successfully.")
+            else:
+                self._push_status_message(f"Build {progress.status}: {progress.message}")
+
+        # Push to wizard modal if active
+        wizard = self._build_wizard
+        if wizard is not None:
+            wizard.update_progress(progress)
+
+    # -- Build lifecycle --------------------------------------------------
+
+    def handle_build_selection(
+        self, backends: list[str], options: dict[str, BuildConfig | None] | None = None
+    ) -> None:
+        """Initiate build for the given backends.
+
+        Called from BuildModalScreen when the user presses 1/2/3.
+        Starts a background thread so the TUI stays responsive.
+
+        Args:
+            backends: List of backend names to build.
+            options: Optional build configuration options from the wizard.
+        """
+        if options is not None:
+            self.model.build_selected_backends_options = options
+        else:
+            self.model.build_selected_backends_options = {}
+        self._run_build_background(backends)
+
+    def handle_build_with_wizard(
+        self, backends: list[str], wizard: Any
+    ) -> None:  # BuildModalScreen
+        """Initiate build for the given backends, keeping the wizard modal open.
+
+        The wizard modal stays open showing live progress. When the build
+        completes (success or failure), the controller calls back to the
+        wizard to display the result and dismiss.
+        """
+        self._run_build_background(backends, wizard=wizard)
+
+    def cancel_build(self) -> None:
+        """Signal cancellation and terminate any in-flight compile/configure subprocess."""
+        cancel_event = getattr(self.model, "build_cancel_event", None)
+        if cancel_event is not None:
+            cancel_event.set()
+        pipeline = getattr(self, "_build_pipeline", None)
+        if pipeline is not None:
+            pipeline.kill_active_subprocess()
+
+    def _build_cancel_event_is_set(self) -> bool:
+        cancel_evt = self.model.build_cancel_event
+        return cancel_evt is not None and cancel_evt.is_set()
+
+    def _abort_build_wizard(self, wizard: Any, message: str) -> None:
+        self.model.build_error = message
+        self._push_status_message(message)
+        if wizard is not None:
+            wizard.set_build_result(False, error_message=message)
+
+    def _run_wizard_backend(self, backend: str, wizard: Any) -> bool:
+        """Run one backend in the wizard thread. Returns False when cancelled or failed."""
+        if self._build_cancel_event_is_set():
+            self._abort_build_wizard(wizard, MSG_BUILD_CANCELLED)
+            return False
+        if wizard is not None:
+            wizard.set_building_backend(backend)
+        if self._build_single_backend(backend):
+            return True
+        self.model.build_result = "failed"
+        if wizard is not None:
+            wizard.set_build_result(
+                False,
+                error_message=self.model.build_error or MSG_BUILD_FAILED,
+            )
+        return False
+
+    def _run_build_background(
+        self, backends: list[str], wizard: Any = None
+    ) -> None:  # BuildModalScreen | None
+        """Run the build pipeline in a daemon thread.
+
+        Args:
+            backends: List of backends to build (e.g. ["sycl"] or ["sycl", "cuda"]).
+            wizard: Optional wizard modal that stays open during the build.
+        """
+        self.model.build_in_progress = True
+        self.build_in_progress = True
+        self.model.build_selected_backends = backends
+        self.model.build_cancel_event = threading.Event()
+        self._build_wizard = wizard
+
+        def _do_build() -> None:
+            with suppress_build_pipeline_stderr_for_tui():
+                self._execute_build_loop(backends, wizard)
+
+        threading.Thread(target=_do_build, name="build-worker", daemon=True).start()
+
+    def _execute_build_loop(self, backends: list[str], wizard: Any) -> None:
+        """Execute the build loop for given backends. Handles success/failure states."""
+        try:
+            for backend in backends:
+                if not self._build_all_targets_for_backend(backend, wizard):
+                    return
+            self.model.build_result = "success"
+            self._push_status_message("Build completed successfully!")
+            if wizard is not None:
+                artifact_path = self.model.build_artifact
+                wizard.set_build_result(True, artifact_path=artifact_path)
+        except Exception as exc:
+            self.model.build_result = "failed"
+            self.model.build_error = str(exc)
+            self._push_status_message(f"Build failed: {exc}")
+            if wizard is not None:
+                wizard.set_build_result(False, error_message=str(exc))
+        finally:
+            self.model.build_in_progress = False
+            self.build_in_progress = False
+            self._build_wizard = None
+
+    def _build_all_targets_for_backend(self, backend: str, wizard: Any) -> bool:
+        """Build all targets for a backend. Returns False to abort build loop."""
+        targets = ("sycl", "cuda") if backend == "both" else (backend,)
+        return all(self._run_wizard_backend(target, wizard) for target in targets)
+
+    def _build_single_backend(self, backend: str) -> bool:
+        """Build for a single backend; returns True on success."""
+        try:
+            self._push_status_message(f"Building for {backend} backend...")
+            config_overrides = self.model.build_selected_backends_options.get(backend)
+            result = run_build_for_backend(
+                backend=backend,
+                dry_run=False,
+                config=self.config,
+                progress_callback=self._handle_build_progress,
+                pipeline_callback=lambda p: setattr(self, "_build_pipeline", p),
+                config_overrides=config_overrides,
+                cancel_event=self.model.build_cancel_event,
+            )
+            if not result.success:
+                self.model.build_error = result.error_message or MSG_BUILD_FAILED
+                self._push_status_message(f"Build failed: {result.error_message}")
+                return False
+            if result.artifact and result.artifact.binary_path:
+                self.model.build_artifact = str(result.artifact.binary_path)
+                self._push_status_message(f"Artifact: {result.artifact.binary_path}")
+            return True
+        except Exception as exc:
+            self.model.build_error = str(exc)
+            self._push_status_message(f"Build failed: {exc}")
+            return False
 
     def _handle_launch_result(self, launch_result: LaunchResult | None) -> None:
         if launch_result is None:
             return
         if launch_result.is_blocked():
-            emit_error("launch blocked - no slots could be launched")
+            self._push_status_message("launch blocked - no slots could be launched")
             if launch_result.errors is not None:
                 for error_detail in launch_result.errors.errors:
-                    emit_plain(f"  {error_detail.error_code}", err=True)
-                    emit_plain(f"    failed_check: {error_detail.failed_check}", err=True)
-                    emit_plain(f"    why_blocked: {error_detail.why_blocked}", err=True)
-                    emit_plain(f"    how_to_fix: {error_detail.how_to_fix}", err=True)
+                    self._push_status_message(
+                        f"{error_detail.error_code}: {error_detail.why_blocked}"
+                    )
             raise SystemExit(1)
 
         if launch_result.is_degraded():
-            emit_warn("launch degraded - some slots blocked")
+            self._push_status_message("launch degraded - some slots blocked")
             for warning in launch_result.warnings or []:
-                emit_warn(warning)
+                self._push_status_message(warning)
 
     def build_llama_cpp(self, backend: str = "sycl", dry_run: bool = False) -> bool:
         """Build llama.cpp using BuildPipeline.
@@ -622,26 +698,31 @@ class DashboardController:
         # Capture original SIGINT handler before replacing it
         self._original_sigint_handler = signal.signal(signal.SIGINT, self._signal_handler_build)
 
-        try:
-            emit_info(f"Building for {backend} backend...")
-            if dry_run:
-                emit_warn("DRY RUN MODE - commands will not be executed")
+        # Create a fresh cancel event for this build
+        self.model.build_cancel_event = threading.Event()
 
-            result = run_build_for_backend(
-                backend=backend,
-                dry_run=dry_run,
-                config=self.config,
-                progress_callback=self._handle_build_progress,
-                pipeline_callback=_set_pipeline,
-            )
+        try:
+            self._push_status_message(f"Building for {backend} backend...")
+            if dry_run:
+                self._push_status_message("DRY RUN MODE - commands will not be executed")
+
+            with suppress_build_pipeline_stderr_for_tui():
+                result = run_build_for_backend(
+                    backend=backend,
+                    dry_run=dry_run,
+                    config=self.config,
+                    progress_callback=self._handle_build_progress,
+                    pipeline_callback=_set_pipeline,
+                    cancel_event=self.model.build_cancel_event,
+                )
 
             if result.success:
-                emit_success("Build completed successfully!")
+                self._push_status_message("Build completed successfully!")
                 if result.artifact:
-                    emit_info(f"Artifact: {result.artifact.binary_path}")
+                    self._push_status_message(f"Artifact: {result.artifact.binary_path}")
                 return True
             else:
-                emit_error(f"Build failed: {result.error_message}")
+                self._push_status_message(f"Build failed: {result.error_message}")
                 return False
         finally:
             self.build_in_progress = False
@@ -663,6 +744,7 @@ class DashboardController:
         )
 
         self.configs = result.updated_configs
+        self.refresh_stale_warnings(get_driver_version)
 
         for msg in result.status_messages:
             self._push_status_message(msg)
@@ -673,7 +755,7 @@ class DashboardController:
 
         # Map risk result to Textual prompt state
         self._update_risk_panel_state(result.risk_result)
-        if not acknowledged:
+        if not acknowledged and result.risk_result is not None:
             for detail in result.risk_result.risk_details:
                 self._push_status_message(
                     f"warning: risky operation in {detail['alias']}: {detail['risk']} — "

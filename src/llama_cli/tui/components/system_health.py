@@ -1,36 +1,61 @@
-from __future__ import annotations
-
 """System health widgets."""
 
-import time
-from dataclasses import dataclass
+from typing import Protocol
 
-import psutil
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
 from textual.widget import Widget
 from textual.widgets import Static
+
+from llama_cli.tui.types import (
+    CPUCoreSnapshot,
+    DateTimeSnapshot,
+    MemoryUsageSnapshot,
+    SystemInfoSnapshot,
+)
+
+from .digital_clock import LLM_RUNNER_LOGO, DigitalClockWidget
 
 _SYSTEM_INFO_LABEL = "system-health-label system-info-label"
 _SYSTEM_INFO_PRIMARY_VALUE = "system-info-value system-info-primary-value"
 _SYSTEM_INFO_ROW = "system-health-inline-row system-info-row"
 
 
-@dataclass(frozen=True)
-class CPUCoreSnapshot:
-    """Structured CPU core usage cell."""
+class SystemHealthProvider(Protocol):
+    """View-model protocol for system-health display state."""
 
-    index: int
-    percent: float
+    def cpu_usage_rows(self, width: int | None = None) -> list[list[CPUCoreSnapshot]]: ...
+
+    def memory_usage_rows(self) -> list[MemoryUsageSnapshot]: ...
+
+    def system_info_snapshot(self) -> SystemInfoSnapshot: ...
+
+    def current_datetime_snapshot(self) -> DateTimeSnapshot: ...
 
 
-@dataclass(frozen=True)
-class MemoryUsageSnapshot:
-    """Structured memory or swap usage row."""
+_NO_CPU_DATA = "No CPU data"
 
-    label: str
-    percent: float
-    value_text: str
+
+class _EmptySystemHealthProvider:
+    """Fallback provider for isolated widget tests."""
+
+    def cpu_usage_rows(self, _width: int | None = None) -> list[list[CPUCoreSnapshot]]:
+        return []
+
+    def memory_usage_rows(self) -> list[MemoryUsageSnapshot]:
+        return []
+
+    def system_info_snapshot(self) -> SystemInfoSnapshot:
+        return SystemInfoSnapshot(
+            tasks=0,
+            threads=0,
+            running=0,
+            load_values=None,
+            uptime="00:00:00",
+        )
+
+    def current_datetime_snapshot(self) -> DateTimeSnapshot:
+        return DateTimeSnapshot(date_text="")
 
 
 class SystemHealthRenderer:
@@ -41,24 +66,18 @@ class SystemHealthRenderer:
     CPU_CORE_BAR_WIDTH = 5
     CPU_CORE_CELL_WIDTH = 16
 
-    def __init__(self) -> None:
-        self._task_cache: tuple[int, int, int] | None = None
-        self._task_cache_ts: float = 0.0
-        self._task_cache_ttl: float = 1.5  # 1.5s TTL
-        self._cpu_primed = False
-        # Prime CPU percent once so the first render call already has data
-        _ = psutil.cpu_percent(interval=0.1, percpu=True)
-        self._cpu_primed = True
+    def __init__(self, provider: SystemHealthProvider | None = None) -> None:
+        self._provider = provider or _EmptySystemHealthProvider()
 
     def render_cpu_usage(self, width: int | None = None) -> str:
-        content_width = self._content_width(width)
-        cpu_per_core: list[float] = psutil.cpu_percent(interval=None, percpu=True)  # type: ignore[assignment]
-        return "\n".join(self._build_core_grid_lines(cpu_per_core, content_width=content_width))
+        rows = self.cpu_usage_rows(width)
+        if not rows:
+            return _NO_CPU_DATA
+        cpu_per_core: list[float] = [core.percent for row in rows for core in row]
+        return "\n".join(self._format_core_grid_lines(cpu_per_core, self._content_width(width)))
 
     def cpu_usage_rows(self, width: int | None = None) -> list[list[CPUCoreSnapshot]]:
-        content_width = self._content_width(width)
-        cpu_per_core: list[float] = psutil.cpu_percent(interval=None, percpu=True)  # type: ignore[assignment]
-        return self._build_core_grid_rows(cpu_per_core, content_width=content_width)
+        return self._provider.cpu_usage_rows(width)
 
     def render_memory_swap_usage(self, width: int | None = None) -> str:
         content_width = self._content_width(width)
@@ -66,20 +85,7 @@ class SystemHealthRenderer:
         return "\n".join(self._format_memory_row(row, content_width) for row in rows)
 
     def memory_usage_rows(self) -> list[MemoryUsageSnapshot]:
-        mem = psutil.virtual_memory()
-        swap = psutil.swap_memory()
-        return [
-            MemoryUsageSnapshot(
-                label="Mem",
-                percent=mem.percent,
-                value_text=f"{self._format_bytes(mem.used)}/{self._format_bytes(mem.total)}",
-            ),
-            MemoryUsageSnapshot(
-                label="Swp",
-                percent=swap.percent,
-                value_text=f"{self._format_bytes(swap.used)}/{self._format_bytes(swap.total)}",
-            ),
-        ]
+        return self._provider.memory_usage_rows()
 
     def render_system_info(self) -> str:
         snapshot = self.system_info_snapshot()
@@ -93,21 +99,10 @@ class SystemHealthRenderer:
         return "\n".join(lines)
 
     def system_info_snapshot(self) -> SystemInfoSnapshot:
-        uptime_s = int(time.time() - psutil.boot_time())
-        tasks, threads, running = self._get_task_stats()
+        return self._provider.system_info_snapshot()
 
-        try:
-            load_values: tuple[float, float, float] | None = psutil.getloadavg()
-        except (AttributeError, OSError):
-            load_values = None
-
-        return SystemInfoSnapshot(
-            tasks=tasks,
-            threads=threads,
-            running=running,
-            load_values=load_values,
-            uptime=self._format_uptime(uptime_s),
-        )
+    def current_datetime_snapshot(self) -> DateTimeSnapshot:
+        return self._provider.current_datetime_snapshot()
 
     def _content_width(self, width: int | None) -> int:
         if width is None or width <= 0:
@@ -165,10 +160,12 @@ class SystemHealthRenderer:
         return snapshot_rows
 
     def _build_core_grid_lines(self, cpu_per_core: list[float], content_width: int) -> list[str]:
+        return self._format_core_grid_lines(cpu_per_core, content_width)
+
+    def _format_core_grid_lines(self, cpu_per_core: list[float], content_width: int) -> list[str]:
         rows = self._build_core_grid_rows(cpu_per_core, content_width)
         if not rows:
-            return ["No CPU data"]
-
+            return [_NO_CPU_DATA]
         flat_count = sum(len(row) for row in rows)
         cols = max(1, (flat_count + len(rows) - 1) // len(rows))
         cell_width = max(self.CPU_CORE_CELL_WIDTH, content_width // max(1, cols))
@@ -193,48 +190,13 @@ class SystemHealthRenderer:
         pad = max(1, content_width - len(left) - len(value))
         return f"{left}{' ' * pad}{value}"
 
-    def _format_bytes(self, num_bytes: int) -> str:
-        gib = num_bytes / (1024**3)
-        if gib >= 10:
-            return f"{gib:,.1f}G"
-        return f"{gib:,.2f}G"
-
-    def _get_task_stats(self) -> tuple[int, int, int]:
-        now = time.time()
-        if self._task_cache is not None and now - self._task_cache_ts < self._task_cache_ttl:
-            return self._task_cache
-
-        task_count = 0
-        thread_count = 0
-        running_count = 0
-        try:
-            for proc in psutil.process_iter(attrs=["status", "num_threads"]):
-                try:
-                    info = proc.info
-                except Exception:  # noqa: S112
-                    continue
-                task_count += 1
-                thread_count += int(info.get("num_threads") or 0)
-                if info.get("status") == psutil.STATUS_RUNNING:
-                    running_count += 1
-        except Exception:
-            if self._task_cache is not None:
-                return self._task_cache
-            self._task_cache = (0, 0, 0)
-            self._task_cache_ts = now
-            return self._task_cache
-
-        self._task_cache = (task_count, thread_count, running_count)
-        self._task_cache_ts = now
-        return self._task_cache
-
 
 class SystemHealthWidget(Widget):
     """Container for focused system health sections."""
 
-    def __init__(self) -> None:
+    def __init__(self, provider: SystemHealthProvider | None = None) -> None:
         super().__init__(classes="system-health")
-        self._renderer = SystemHealthRenderer()
+        self._renderer = SystemHealthRenderer(provider)
 
     def compose(self) -> ComposeResult:
         yield DateTimeWidget(self._renderer)
@@ -246,17 +208,6 @@ class SystemHealthWidget(Widget):
         )
 
 
-@dataclass(frozen=True)
-class SystemInfoSnapshot:
-    """Structured values for the textual system info widget."""
-
-    tasks: int
-    threads: int
-    running: int
-    load_values: tuple[float, float, float] | None
-    uptime: str
-
-
 class DateTimeWidget(Widget):
     """Date/time section for the system health area."""
 
@@ -265,13 +216,16 @@ class DateTimeWidget(Widget):
         self._renderer = renderer
 
     def compose(self) -> ComposeResult:
+        snapshot = self._renderer.current_datetime_snapshot()
         yield Horizontal(
-            Static("Date/Time:", classes="system-health-label system-health-datetime-label"),
-            Static(
-                time.strftime("%Y-%m-%d %H:%M:%S"),
-                classes="system-health-value system-health-datetime-value",
+            Static(LLM_RUNNER_LOGO, markup=True, classes="llm-runner-logo"),
+            Static("", classes="datetime-header-spacer"),
+            Horizontal(
+                Static(snapshot.date_text, classes="datetime-date"),
+                DigitalClockWidget(),
+                classes="datetime-far-right",
             ),
-            classes="system-health-inline-row system-health-datetime-row",
+            classes="system-health-datetime-row",
         )
 
 
@@ -285,7 +239,7 @@ class CPUUsageWidget(Widget):
     def compose(self) -> ComposeResult:
         rows = self._renderer.cpu_usage_rows(width=self.size.width)
         if not rows:
-            yield Static("No CPU data", classes="system-health-muted-value")
+            yield Static(_NO_CPU_DATA, classes="system-health-muted-value")
             return
 
         for row in rows:

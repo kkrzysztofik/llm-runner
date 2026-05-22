@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -818,6 +816,501 @@ def _generate_v4_unsupported(path: Path) -> None:
     kv = _build_kv_section(_REQUIRED_KEYS)
     kv = _pack_kv("general.name", _GGUF_TYPE_STRING, _GENERAL_NAME_VALUE) + kv
     _write_gguf_v3(path, kv, magic=b"GGUF", version=4)
+
+
+# ---------------------------------------------------------------------------
+# TestBinaryHelpers — low-level _binary.py functions
+# ---------------------------------------------------------------------------
+
+
+class TestReadIntHelpers:
+    """Tests for _read_int8/16/32/64 and _read_uint8/16/32/64."""
+
+    def test_read_int8_positive(self) -> None:
+        from llama_manager.metadata._binary import _read_int8
+
+        assert _read_int8(b"\x7f", 0) == 127
+
+    def test_read_int8_negative(self) -> None:
+        from llama_manager.metadata._binary import _read_int8
+
+        assert _read_int8(b"\x80", 0) == -128
+
+    def test_read_int8_out_of_bounds(self) -> None:
+        from llama_manager.metadata._binary import _read_int8
+
+        assert _read_int8(b"", 0) is None
+
+    def test_read_int16_positive(self) -> None:
+        from llama_manager.metadata._binary import _read_int16
+
+        data = (1000).to_bytes(2, "little")
+        assert _read_int16(data, 0) == 1000
+
+    def test_read_int16_negative(self) -> None:
+        from llama_manager.metadata._binary import _read_int16
+
+        data = (0x8000).to_bytes(2, "little")
+        assert _read_int16(data, 0) == -32768
+
+    def test_read_int16_out_of_bounds(self) -> None:
+        from llama_manager.metadata._binary import _read_int16
+
+        assert _read_int16(b"\x01", 0) is None
+
+    def test_read_int32_positive(self) -> None:
+        from llama_manager.metadata._binary import _read_int32
+
+        data = (100000).to_bytes(4, "little")
+        assert _read_int32(data, 0) == 100000
+
+    def test_read_int32_negative(self) -> None:
+        from llama_manager.metadata._binary import _read_int32
+
+        data = (0x80000000).to_bytes(4, "little")
+        assert _read_int32(data, 0) == -2147483648
+
+    def test_read_int32_out_of_bounds(self) -> None:
+        from llama_manager.metadata._binary import _read_int32
+
+        assert _read_int32(b"\x01\x02", 0) is None
+
+    def test_read_int64_positive(self) -> None:
+        from llama_manager.metadata._binary import _read_int64
+
+        data = (2**40).to_bytes(8, "little")
+        assert _read_int64(data, 0) == 2**40
+
+    def test_read_int64_negative(self) -> None:
+        from llama_manager.metadata._binary import _read_int64
+
+        data = (2**63).to_bytes(8, "little")
+        assert _read_int64(data, 0) == -(2**63)
+
+    def test_read_int64_out_of_bounds(self) -> None:
+        from llama_manager.metadata._binary import _read_int64
+
+        assert _read_int64(b"\x01\x02\x03\x04", 0) is None
+
+    def test_read_uint8(self) -> None:
+        from llama_manager.metadata._binary import _read_uint8
+
+        assert _read_uint8(b"\xff", 0) == 255
+        assert _read_uint8(b"", 0) is None
+
+    def test_read_uint16(self) -> None:
+        from llama_manager.metadata._binary import _read_uint16
+
+        data = (65535).to_bytes(2, "little")
+        assert _read_uint16(data, 0) == 65535
+        assert _read_uint16(b"\x01", 0) is None
+
+    def test_read_uint32(self) -> None:
+        from llama_manager.metadata._binary import _read_uint32
+
+        data = (0xDEADBEEF).to_bytes(4, "little")
+        assert _read_uint32(data, 0) == 0xDEADBEEF
+        assert _read_uint32(b"\x01\x02", 0) is None
+
+    def test_read_uint64(self) -> None:
+        from llama_manager.metadata._binary import _read_uint64
+
+        data = (2**60).to_bytes(8, "little")
+        assert _read_uint64(data, 0) == 2**60
+        assert _read_uint64(b"\x01\x02\x03\x04", 0) is None
+
+
+class TestSkipHelpers:
+    """Tests for _skip_array_element, _skip_non_integer_type, _skip_record."""
+
+    def test_skip_array_element_uint8(self) -> None:
+        from llama_manager.metadata._binary import _skip_array_element
+
+        assert _skip_array_element(b"\x00" * 10, 0, 0) == 1  # UINT8
+
+    def test_skip_array_element_uint16(self) -> None:
+        from llama_manager.metadata._binary import _skip_array_element
+
+        assert _skip_array_element(b"\x00" * 10, 0, 2) == 2  # UINT16
+
+    def test_skip_array_element_uint32(self) -> None:
+        from llama_manager.metadata._binary import _skip_array_element
+
+        assert _skip_array_element(b"\x00" * 10, 0, 4) == 4  # UINT32
+
+    def test_skip_array_element_uint64(self) -> None:
+        from llama_manager.metadata._binary import _skip_array_element
+
+        assert _skip_array_element(b"\x00" * 10, 0, 10) == 8  # UINT64
+
+    def test_skip_non_integer_bool(self) -> None:
+        from llama_manager.metadata._binary import _skip_non_integer_type
+
+        assert _skip_non_integer_type(b"\x00" * 10, 0, 7) == 1  # BOOL
+
+    def test_skip_non_integer_string(self) -> None:
+        from llama_manager.metadata._binary import _skip_non_integer_type
+
+        # 8-byte length prefix = 3, then 3 bytes of data
+        data = (3).to_bytes(8, "little") + b"abc"
+        assert _skip_non_integer_type(data, 0, 8) == 11  # 8 + 3
+
+    def test_skip_non_integer_string_truncated(self) -> None:
+        from llama_manager.metadata._binary import _skip_non_integer_type
+
+        # Only 4 bytes — can't read 8-byte length
+        assert _skip_non_integer_type(b"\x01\x02\x03\x04", 0, 8) == 0
+
+    def test_skip_non_integer_array(self) -> None:
+        from llama_manager.metadata._binary import _skip_non_integer_type
+
+        # ARRAY: 4-byte elem_type=0 (UINT8) + 8-byte count=2 + 2 bytes
+        data = (0).to_bytes(4, "little") + (2).to_bytes(8, "little") + b"\x01\x02"
+        assert _skip_non_integer_type(data, 0, 9) == 14  # 12 header + 2 elements
+
+    def test_skip_non_integer_array_truncated(self) -> None:
+        from llama_manager.metadata._binary import _skip_non_integer_type
+
+        # Only 8 bytes — can't read full 12-byte array header
+        assert _skip_non_integer_type(b"\x00" * 8, 0, 9) == 0
+
+    def test_skip_non_integer_unknown_type(self) -> None:
+        from llama_manager.metadata._binary import _skip_non_integer_type
+
+        # Unknown type tag — returns offset unchanged
+        assert _skip_non_integer_type(b"\x00" * 10, 5, 99) == 5
+
+    def test_skip_record_uint8(self) -> None:
+        from llama_manager.metadata._binary import _skip_record
+
+        # type_tag=0 (UINT8): 4 bytes type + 1 byte value
+        data = (0).to_bytes(4, "little") + b"\x42"
+        assert _skip_record(data, 0) == 5
+
+    def test_skip_record_uint16(self) -> None:
+        from llama_manager.metadata._binary import _skip_record
+
+        data = (2).to_bytes(4, "little") + b"\x01\x00"
+        assert _skip_record(data, 0) == 6
+
+    def test_skip_record_uint32(self) -> None:
+        from llama_manager.metadata._binary import _skip_record
+
+        data = (4).to_bytes(4, "little") + b"\x01\x00\x00\x00"
+        assert _skip_record(data, 0) == 8
+
+    def test_skip_record_uint64(self) -> None:
+        from llama_manager.metadata._binary import _skip_record
+
+        data = (10).to_bytes(4, "little") + b"\x01" + b"\x00" * 7
+        assert _skip_record(data, 0) == 12
+
+    def test_skip_record_string(self) -> None:
+        from llama_manager.metadata._binary import _skip_record
+
+        # type_tag=8 (STRING): 4 bytes type + 8-byte length=3 + 3 bytes
+        data = (8).to_bytes(4, "little") + (3).to_bytes(8, "little") + b"abc"
+        assert _skip_record(data, 0) == 15  # 4 + 8 + 3
+
+    def test_skip_record_string_truncated(self) -> None:
+        from llama_manager.metadata._binary import _skip_record
+
+        # type_tag=8 but only 4 bytes after type tag (need 8 for length)
+        data = (8).to_bytes(4, "little") + b"\x01\x02\x03\x04"
+        assert _skip_record(data, 0) == 4  # returns offset after type tag
+
+    def test_skip_record_none_type_tag(self) -> None:
+        from llama_manager.metadata._binary import _skip_record
+
+        # Only 2 bytes — can't read 4-byte type tag
+        assert _skip_record(b"\x01\x02", 0) == 0
+
+    def test_skip_record_unknown_type(self) -> None:
+        from llama_manager.metadata._binary import _skip_record
+
+        # type_tag=99 (unknown) — returns offset after type tag
+        data = (99).to_bytes(4, "little") + b"\x00" * 4
+        assert _skip_record(data, 0) == 4
+
+
+class TestReadIntegerValue:
+    """Tests for _read_integer_value and _read_legacy_integer_value."""
+
+    def test_read_integer_value_uint8(self) -> None:
+        from llama_manager.metadata._binary import _read_integer_value
+
+        assert _read_integer_value(b"\x42", 0, 0) == 0x42
+
+    def test_read_integer_value_int8(self) -> None:
+        from llama_manager.metadata._binary import _read_integer_value
+
+        assert _read_integer_value(b"\x80", 0, 1) == -128
+
+    def test_read_integer_value_uint64(self) -> None:
+        from llama_manager.metadata._binary import _read_integer_value
+
+        data = (2**60).to_bytes(8, "little")
+        assert _read_integer_value(data, 0, 10) == 2**60
+
+    def test_read_integer_value_int64(self) -> None:
+        from llama_manager.metadata._binary import _read_integer_value
+
+        data = (2**63).to_bytes(8, "little")
+        assert _read_integer_value(data, 0, 11) == -(2**63)
+
+    def test_read_integer_value_non_integer_type(self) -> None:
+        from llama_manager.metadata._binary import _read_integer_value
+
+        # type_tag=8 (STRING) — not an integer type
+        assert _read_integer_value(b"\x00" * 8, 0, 8) is None
+
+    def test_read_legacy_integer_value_uint8(self) -> None:
+        from llama_manager.metadata._binary import _read_legacy_integer_value
+
+        assert _read_legacy_integer_value(b"\x42", 0, 1) == 0x42
+
+    def test_read_legacy_integer_value_int8(self) -> None:
+        from llama_manager.metadata._binary import _read_legacy_integer_value
+
+        assert _read_legacy_integer_value(b"\x80", 0, 2) == -128
+
+    def test_read_legacy_integer_value_uint32(self) -> None:
+        from llama_manager.metadata._binary import _read_legacy_integer_value
+
+        data = (12345).to_bytes(4, "little")
+        assert _read_legacy_integer_value(data, 0, 5) == 12345
+
+    def test_read_legacy_integer_value_invalid_type(self) -> None:
+        from llama_manager.metadata._binary import _read_legacy_integer_value
+
+        assert _read_legacy_integer_value(b"\x00" * 4, 0, 0) is None
+        assert _read_legacy_integer_value(b"\x00" * 4, 0, 7) is None
+
+
+class TestReadKeyWithLengthSize:
+    """Tests for _read_key_with_length_size (4-byte legacy path)."""
+
+    def test_4byte_key_length(self) -> None:
+        from llama_manager.metadata._binary import _read_key_with_length_size
+
+        key = b"general.name"
+        data = len(key).to_bytes(4, "little") + key
+        new_offset, result = _read_key_with_length_size(data, 0, 4)
+        assert result == "general.name"
+        assert new_offset == 4 + len(key)
+
+    def test_4byte_key_truncated(self) -> None:
+        from llama_manager.metadata._binary import _read_key_with_length_size
+
+        # Only 2 bytes — can't read 4-byte length
+        new_offset, result = _read_key_with_length_size(b"\x01\x02", 0, 4)
+        assert result is None
+
+    def test_4byte_key_data_truncated(self) -> None:
+        from llama_manager.metadata._binary import _read_key_with_length_size
+
+        # Length says 10 but only 3 bytes of key data
+        data = (10).to_bytes(4, "little") + b"abc"
+        new_offset, result = _read_key_with_length_size(data, 0, 4)
+        assert result is None
+
+    def test_invalid_length_size(self) -> None:
+        from llama_manager.metadata._binary import _read_key_with_length_size
+
+        # length_size != 4 and != 8 → returns (offset, None)
+        new_offset, result = _read_key_with_length_size(b"\x00" * 10, 0, 2)
+        assert result is None
+
+
+class TestSkipRecordWithKeyFormat:
+    """Tests for _skip_record_with_key_format (legacy 4-byte path)."""
+
+    def test_legacy_u8_type(self) -> None:
+        from llama_manager.metadata._binary import _skip_record_with_key_format
+
+        # type_tag=1 (u8 in legacy), 4 bytes type + 1 byte value
+        data = (1).to_bytes(4, "little") + b"\x42"
+        result = _skip_record_with_key_format(data, 0, 4)
+        assert result == 5
+
+    def test_legacy_u16_type(self) -> None:
+        from llama_manager.metadata._binary import _skip_record_with_key_format
+
+        data = (3).to_bytes(4, "little") + b"\x01\x00"
+        result = _skip_record_with_key_format(data, 0, 4)
+        assert result == 6
+
+    def test_legacy_u32_type(self) -> None:
+        from llama_manager.metadata._binary import _skip_record_with_key_format
+
+        data = (5).to_bytes(4, "little") + b"\x01\x00\x00\x00"
+        result = _skip_record_with_key_format(data, 0, 4)
+        assert result == 8
+
+    def test_legacy_u64_type(self) -> None:
+        from llama_manager.metadata._binary import _skip_record_with_key_format
+
+        data = (9).to_bytes(4, "little") + b"\x01" + b"\x00" * 7
+        result = _skip_record_with_key_format(data, 0, 4)
+        assert result == 12
+
+    def test_legacy_none_type_tag(self) -> None:
+        from llama_manager.metadata._binary import _skip_record_with_key_format
+
+        # Only 2 bytes — can't read 4-byte type tag
+        result = _skip_record_with_key_format(b"\x01\x02", 0, 4)
+        assert result == 0
+
+    def test_8byte_delegates_to_skip_record(self) -> None:
+        from llama_manager.metadata._binary import _skip_record_with_key_format
+
+        # type_tag=0 (UINT8): 4 bytes type + 1 byte value
+        data = (0).to_bytes(4, "little") + b"\x42"
+        result = _skip_record_with_key_format(data, 0, 8)
+        assert result == 5
+
+
+# ---------------------------------------------------------------------------
+# TestReaderHelpers — _reader.py GGUFReader-based helpers
+# ---------------------------------------------------------------------------
+
+
+class TestExtractArchitectureFromReader:
+    """Tests for _extract_architecture_from_reader."""
+
+    def test_returns_none_when_field_missing(self) -> None:
+        from llama_manager.metadata._reader import _extract_architecture_from_reader
+
+        result = _extract_architecture_from_reader({})
+        assert result is None
+
+    def test_returns_none_on_value_error(self) -> None:
+        from unittest.mock import MagicMock
+
+        from llama_manager.metadata._reader import _extract_architecture_from_reader
+
+        field = MagicMock()
+        field.contents.side_effect = ValueError("bad")
+        from gguf.constants import Keys
+
+        result = _extract_architecture_from_reader({Keys.General.ARCHITECTURE: field})
+        assert result is None
+
+    def test_returns_string_value(self) -> None:
+        from unittest.mock import MagicMock
+
+        from llama_manager.metadata._reader import _extract_architecture_from_reader
+
+        field = MagicMock()
+        field.contents.return_value = "llama"
+        from gguf.constants import Keys
+
+        result = _extract_architecture_from_reader({Keys.General.ARCHITECTURE: field})
+        assert result == "llama"
+
+
+class TestExtractFieldFromReader:
+    """Tests for _extract_field_from_reader."""
+
+    def test_returns_none_when_key_missing(self) -> None:
+        from llama_manager.metadata._reader import _extract_field_from_reader
+
+        assert _extract_field_from_reader({}, "general.name") is None
+
+    def test_returns_none_on_value_error(self) -> None:
+        from unittest.mock import MagicMock
+
+        from llama_manager.metadata._reader import _extract_field_from_reader
+
+        field = MagicMock()
+        field.contents.side_effect = ValueError("bad")
+        assert _extract_field_from_reader({"general.name": field}, "general.name") is None
+
+    def test_returns_string_value(self) -> None:
+        from unittest.mock import MagicMock
+
+        from llama_manager.metadata._reader import _extract_field_from_reader
+
+        field = MagicMock()
+        field.contents.return_value = "MyModel"
+        assert _extract_field_from_reader({"general.name": field}, "general.name") == "MyModel"
+
+
+class TestExtractIntFieldFromReader:
+    """Tests for _extract_int_field_from_reader."""
+
+    def test_returns_none_when_key_missing(self) -> None:
+        from llama_manager.metadata._reader import _extract_int_field_from_reader
+
+        assert _extract_int_field_from_reader({}, "llama.context_length") is None
+
+    def test_returns_none_on_value_error(self) -> None:
+        from unittest.mock import MagicMock
+
+        from llama_manager.metadata._reader import _extract_int_field_from_reader
+
+        field = MagicMock()
+        field.contents.side_effect = ValueError("bad")
+        assert _extract_int_field_from_reader({"k": field}, "k") is None
+
+    def test_returns_none_on_type_error(self) -> None:
+        from unittest.mock import MagicMock
+
+        from llama_manager.metadata._reader import _extract_int_field_from_reader
+
+        field = MagicMock()
+        field.contents.return_value = None  # int(None) raises TypeError
+        assert _extract_int_field_from_reader({"k": field}, "k") is None
+
+    def test_returns_int_value(self) -> None:
+        from unittest.mock import MagicMock
+
+        from llama_manager.metadata._reader import _extract_int_field_from_reader
+
+        field = MagicMock()
+        field.contents.return_value = 4096
+        assert _extract_int_field_from_reader({"k": field}, "k") == 4096
+
+
+class TestExtractFromGGUFReader:
+    """Tests for _extract_from_gguf_reader — no-architecture and cancel paths."""
+
+    def test_no_architecture_returns_none_fields(self) -> None:
+        from llama_manager.metadata._reader import _extract_from_gguf_reader
+
+        record = _extract_from_gguf_reader(
+            model_path="/fake/model.gguf",
+            fields={},
+            parse_timeout_s=30.0,
+            prefix_cap_bytes=65536,
+        )
+        assert record.architecture is None
+        assert record.context_length is None
+        assert record.embedding_length is None
+        assert record.block_count is None
+
+    def test_cancel_event_raises_interrupted(self) -> None:
+        import threading
+        from unittest.mock import MagicMock
+
+        from gguf.constants import Keys
+
+        from llama_manager.metadata._reader import _extract_from_gguf_reader
+
+        cancel = threading.Event()
+        cancel.set()
+
+        arch_field = MagicMock()
+        arch_field.contents.return_value = "llama"
+
+        with pytest.raises(InterruptedError, match="parse cancelled"):
+            _extract_from_gguf_reader(
+                model_path="/fake/model.gguf",
+                fields={Keys.General.ARCHITECTURE: arch_field},
+                parse_timeout_s=30.0,
+                prefix_cap_bytes=65536,
+                cancel_event=cancel,
+            )
 
 
 def test_generate_gguf_fixtures(tmp_path: Path) -> None:

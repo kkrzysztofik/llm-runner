@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """T013 foundation contract tests for Phase 2 behavior.
 
 Covers:
@@ -10,7 +8,6 @@ Covers:
 - Lockfile/artifact permission and error paths
 - redact_sensitive helper behavior
 """
-
 
 import json
 import os

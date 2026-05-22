@@ -15,8 +15,6 @@ Constraints
 - Python 3.12, type hints, 100-char line limit
 """
 
-from __future__ import annotations
-
 import json
 import logging
 from datetime import UTC

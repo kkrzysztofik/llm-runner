@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """US2 FR-007 artifact persistence, redaction, and permission tests.
 
 Test Tasks:
@@ -14,7 +12,6 @@ Contract:
 - Directory permissions: 0o700, file permissions: 0o600
 - Redaction pattern: keys containing KEY|TOKEN|SECRET|PASSWORD|AUTH (case-insensitive)
 """
-
 
 import os
 import stat

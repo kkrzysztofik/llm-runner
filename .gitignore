@@ -9,6 +9,8 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+!docs/build/
+!docs/build/**
 !src/tests/build/
 !src/tests/build/**
 src/tests/build/**/__pycache__/
@@ -209,6 +211,9 @@ Thumbs.db
 # CodeRabbit review files (local state with sensitive paths)
 coderabbit_review*.txt
 coderabbit_review*.json
+
+# Cursor hooks runtime state (mutable, not source-controlled)
+.cursor/hooks/state/
 
 # Review/analysis output files (temporary)
 /out.json

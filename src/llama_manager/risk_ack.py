@@ -31,6 +31,54 @@ class RiskAckResult:
     risk_details: list[dict[str, Any]] = field(default_factory=list)
 
 
+def _collect_risky_details(
+    cfg: ServerConfig,
+    server_manager: ServerManager,
+    launch_attempt_id: str,
+    acknowledged: bool,
+    ack_token: str,
+) -> tuple[bool, list[dict[str, Any]]]:
+    """Collect unacknowledged risk details for a single config.
+
+    Args:
+        cfg: Server configuration to evaluate.
+        server_manager: ServerManager for risk acknowledgement tracking.
+        launch_attempt_id: Current launch attempt identifier.
+        acknowledged: Whether risks have been pre-acknowledged.
+        ack_token: Acknowledgement token for this attempt.
+
+    Returns:
+        Tuple of ``(has_unacknowledged_risks, risk_detail_entries)``.
+    """
+    from .validation import detect_risky_operations
+
+    has_unacknowledged = False
+    entries: list[dict[str, Any]] = []
+
+    for risk in detect_risky_operations(cfg):
+        if server_manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
+            continue
+
+        has_unacknowledged = True
+        risk_kind = "vram" if "vram" in risk.lower() else "hardware"
+        entries.append(
+            {
+                "alias": cfg.alias,
+                "risk": risk,
+                "risk_kind": risk_kind,
+            }
+        )
+        if acknowledged:
+            server_manager.acknowledge_risk(
+                cfg.alias,
+                risk,
+                launch_attempt_id=launch_attempt_id,
+                ack_token=ack_token,
+            )
+
+    return has_unacknowledged, entries
+
+
 def evaluate_risks(
     configs: list[ServerConfig],
     server_manager: ServerManager,
@@ -57,8 +105,6 @@ def evaluate_risks(
         returned with ``risky_acknowledged`` updated; the original
         ``ServerConfig`` objects are not mutated.
     """
-    from .validation import detect_risky_operations
-
     has_risks = False
     risk_details: list[dict[str, Any]] = []
 
@@ -70,26 +116,11 @@ def evaluate_risks(
             configs[idx] = copy(cfg)
             configs[idx].risky_acknowledged = new_ack_list
 
-        for risk in detect_risky_operations(cfg):
-            has_risks = True
-            if server_manager.is_risk_acknowledged(cfg.alias, risk, launch_attempt_id):
-                continue
-
-            risk_kind = "vram" if "vram" in risk.lower() else "hardware"
-            risk_details.append(
-                {
-                    "alias": cfg.alias,
-                    "risk": risk,
-                    "risk_kind": risk_kind,
-                }
-            )
-            if acknowledged:
-                server_manager.acknowledge_risk(
-                    cfg.alias,
-                    risk,
-                    launch_attempt_id=launch_attempt_id,
-                    ack_token=ack_token,
-                )
+        has_risk, details = _collect_risky_details(
+            cfg, server_manager, launch_attempt_id, acknowledged, ack_token
+        )
+        has_risks = has_risks or has_risk
+        risk_details.extend(details)
 
     risks_acknowledged = has_risks and acknowledged
 

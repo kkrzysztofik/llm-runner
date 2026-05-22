@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 """Tests for llama_manager.profile_cache utility functions."""
-
 
 import hashlib
 import json

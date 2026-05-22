@@ -1,4 +1,4 @@
-# ServerConfig, ModelSlot, and slot utility functions
+"""ServerConfig, ModelSlot, and slot utility functions."""
 
 import re
 from dataclasses import dataclass, field
@@ -11,7 +11,34 @@ _SLOT_ID_PATTERN = re.compile(r"[^a-z0-9_-]")
 
 @dataclass
 class ServerConfig:
-    """Individual server configuration"""
+    """Configuration for a single llama.cpp server instance.
+
+    Each instance targets a specific GPU device and loads a specific model.
+    Fields marked with defaults are optional; missing values fall back to
+    ``Config``-level defaults at launch time.
+
+    Attributes:
+        model: HuggingFace model ID or local path to the GGUF model file.
+        alias: Human-readable identifier for this server instance.
+        device: Backend device selector (e.g. ``"cuda:0"``, ``"sycl:0"``).
+        port: HTTP API port for the server.
+        ctx_size: Context window size in tokens.
+        ubatch_size: Uniform batch size for prompt processing.
+        threads: Number of CPU threads for inference.
+        bind_address: Address to bind the HTTP server to. Defaults to ``"127.0.0.1"``.
+        tensor_split: Comma-separated GPU split ratio for multi-GPU tensor parallelism.
+        reasoning_mode: Reasoning mode — ``"auto"``, ``"on"``, or ``"off"``.
+        reasoning_format: Output format for reasoning tokens — ``"none"``, ``"xml"``, etc.
+        chat_template_kwargs: JSON string of extra chat-template keyword arguments.
+        reasoning_budget: Max tokens for reasoning step (empty = auto).
+        use_jinja: Enable Jinja-based chat template instead of the default.
+        cache_type_k: KV-cache key type (e.g. ``"q8_0"``, ``"f16"``).
+        cache_type_v: KV-cache value type (e.g. ``"q8_0"``, ``"f16"``).
+        n_gpu_layers: Number of layers to offload to GPU; ``"all"`` offloads everything.
+        server_bin: Path to the llama.cpp server binary (empty = use Config default).
+        backend: Inference backend name (e.g. ``"llama_cpp"``).
+        risky_acknowledged: List of risk identifiers the user has acknowledged.
+    """
 
     model: str
     alias: str
@@ -37,7 +64,17 @@ class ServerConfig:
 
 @dataclass
 class ModelSlot:
-    """Model slot configuration for multi-slot serving"""
+    """Minimal configuration for a single model serving slot.
+
+    A slot represents one model instance bound to a specific port.
+    Used for multi-GPU / multi-model deployments where each slot
+    serves its own model on a dedicated HTTP port.
+
+    Attributes:
+        slot_id: Unique identifier for the slot (normalized to ``[a-z0-9_-]+``).
+        model_path: Filesystem path to the GGUF model file for this slot.
+        port: HTTP port this slot's server listens on.
+    """
 
     slot_id: str
     model_path: str

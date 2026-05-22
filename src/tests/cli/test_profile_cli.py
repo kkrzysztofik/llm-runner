@@ -500,7 +500,7 @@ def _populate_profile_mock_defaults(mock_cfg: Any, tmp_path: Path) -> None:
 @contextmanager
 def _build_mock_config(
     tmp_path: Path, cuda_exists: bool = False
-) -> Generator[tuple[MagicMock, str, Path, Any], None, None]:
+) -> Generator[tuple[MagicMock, str, Path, Any]]:
     """Build a mocked Config and registry that makes cmd_profile succeed.
 
     Args:
@@ -591,7 +591,7 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
-                    "llama_cli.commands.profile.create_default_profile_registry",
+                    "llama_manager.profile_orchestrator.create_default_profile_registry",
                     return_value=registry,
                 ),
             ):
@@ -647,7 +647,7 @@ class TestCmdProfile:
             patch("llama_cli.commands.profile.run_benchmark", return_value=None),
             patch("llama_cli.commands.profile.ProfileFlavor"),
             patch("llama_cli.commands.profile.ProfileRecord"),
-            patch("llama_cli.commands.profile.create_default_profile_registry"),
+            patch("llama_manager.profile_orchestrator.create_default_profile_registry"),
         ):
             exit_code = cmd_profile(
                 slot_id="test-slot",
@@ -682,7 +682,7 @@ class TestCmdProfile:
             ),
             patch("llama_cli.commands.profile.ProfileFlavor"),
             patch("llama_cli.commands.profile.ProfileRecord"),
-            patch("llama_cli.commands.profile.create_default_profile_registry"),
+            patch("llama_manager.profile_orchestrator.create_default_profile_registry"),
         ):
             exit_code = cmd_profile(
                 slot_id="test-slot",
@@ -732,7 +732,7 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
-                    "llama_cli.commands.profile.create_default_profile_registry",
+                    "llama_manager.profile_orchestrator.create_default_profile_registry",
                     return_value=registry,
                 ),
             ):
@@ -767,7 +767,7 @@ class TestCmdProfile:
                 side_effect=FileNotFoundError("file not found: /no/such/binary"),
             ),
             patch(
-                "llama_cli.commands.profile.create_default_profile_registry",
+                "llama_manager.profile_orchestrator.create_default_profile_registry",
                 return_value=registry,
             ),
         ):
@@ -797,7 +797,7 @@ class TestCmdProfile:
             with (
                 patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
                 patch(
-                    "llama_cli.commands.profile._resolve_bench_bin",
+                    "llama_manager.profile_orchestrator.resolve_benchmark_binary",
                     return_value="/fake/llama-bench",
                 ),
                 patch("llama_cli.commands.profile.require_executable"),
@@ -813,7 +813,7 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
-                    "llama_cli.commands.profile.create_default_profile_registry",
+                    "llama_manager.profile_orchestrator.create_default_profile_registry",
                     return_value=registry,
                 ),
             ):
@@ -835,27 +835,20 @@ class TestCmdProfile:
                 assert "lockfile" in captured.err.lower() or "appears to be running" in captured.err
 
     def test_default_subprocess_runner(self) -> None:
-        """_default_subprocess_runner should execute via subprocess.run."""
-        with patch("subprocess.run") as mock_run:
-            mock_result = MagicMock()
-            mock_result.returncode = 0
-            mock_result.stdout = "tokens/s: 100.0"
-            mock_result.stderr = ""
-            mock_run.return_value = mock_result
+        """_default_subprocess_runner should execute via subprocess.Popen with cancel support."""
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = 0
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.read.return_value = "tokens/s: 100.0"
+        mock_proc.stderr = MagicMock()
+        mock_proc.stderr.read.return_value = ""
 
+        with patch("subprocess.Popen", return_value=mock_proc):
             result = _default_subprocess_runner(["echo", "hello"])
 
             assert result.exit_code == 0
             assert result.stdout == "tokens/s: 100.0"
             assert result.stderr == ""
-            mock_run.assert_called_once_with(
-                ["echo", "hello"],
-                capture_output=True,
-                text=True,
-                shell=False,
-                timeout=600,
-                check=False,
-            )
 
     def test_cuda_backend_detection_in_profile(
         self,
@@ -885,7 +878,7 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
-                    "llama_cli.commands.profile.create_default_profile_registry",
+                    "llama_manager.profile_orchestrator.create_default_profile_registry",
                     return_value=registry,
                 ),
             ):
@@ -917,7 +910,7 @@ class TestCmdProfile:
                 with (
                     patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
                     patch(
-                        "llama_cli.commands.profile._resolve_bench_bin",
+                        "llama_manager.profile_orchestrator.resolve_benchmark_binary",
                         return_value="/fake/llama-bench",
                     ),
                     patch("llama_cli.commands.profile.require_executable"),
@@ -935,7 +928,7 @@ class TestCmdProfile:
                     patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                     patch("llama_cli.commands.profile.write_profile") as mock_write,
                     patch(
-                        "llama_cli.commands.profile.create_default_profile_registry",
+                        "llama_manager.profile_orchestrator.create_default_profile_registry",
                         return_value=registry,
                     ),
                 ):
@@ -963,7 +956,7 @@ class TestCmdProfile:
             with (
                 patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
                 patch(
-                    "llama_cli.commands.profile._resolve_bench_bin",
+                    "llama_manager.profile_orchestrator.resolve_benchmark_binary",
                     return_value="/fake/llama-bench",
                 ),
                 patch("llama_cli.commands.profile.require_executable"),
@@ -979,7 +972,7 @@ class TestCmdProfile:
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
-                    "llama_cli.commands.profile.create_default_profile_registry",
+                    "llama_manager.profile_orchestrator.create_default_profile_registry",
                     return_value=registry,
                 ),
             ):
@@ -995,3 +988,356 @@ class TestCmdProfile:
                 mock_write.assert_called_once()
                 call_args = mock_write.call_args
                 assert call_args[0][0] == tmp_path / "profiles"
+
+
+# ---------------------------------------------------------------------------
+# TestStreamToText
+# ---------------------------------------------------------------------------
+
+
+class TestStreamToText:
+    """Tests for _stream_to_text()."""
+
+    def test_none_returns_empty(self) -> None:
+        """_stream_to_text(None) should return empty string."""
+        from llama_cli.commands.profile import _stream_to_text
+
+        assert _stream_to_text(None) == ""
+
+    def test_string_unchanged(self) -> None:
+        """_stream_to_text(str) should return unchanged."""
+        from llama_cli.commands.profile import _stream_to_text
+
+        assert _stream_to_text("already a string") == "already a string"
+
+    def test_bytes_decodes_utf8(self) -> None:
+        """_stream_to_text(bytes) should decode as utf-8."""
+        from llama_cli.commands.profile import _stream_to_text
+
+        result = _stream_to_text(b"hello world")
+        assert result == "hello world"
+
+    def test_bytes_invalid_utf8_replacement(self) -> None:
+        """_stream_to_text(invalid bytes) should use replacement char."""
+        from llama_cli.commands.profile import _stream_to_text
+
+        # 0xFF is invalid UTF-8
+        result = _stream_to_text(b"\xff\xfe")
+        assert result == "��"
+
+
+# ---------------------------------------------------------------------------
+# TestProfileArgumentParser
+# ---------------------------------------------------------------------------
+
+
+class TestProfileArgumentParser:
+    """Tests for _ProfileArgumentParser error handling."""
+
+    def test_error_exits_with_code_1(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """_ProfileArgumentParser should exit with code 1 on error."""
+        from llama_cli.commands.profile import _build_profile_parser
+
+        parser = _build_profile_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(["only_one_arg"])
+
+        assert exc_info.value.code == 1
+
+    def test_error_prints_usage(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """_ProfileArgumentParser should print usage on error."""
+        from llama_cli.commands.profile import _build_profile_parser
+
+        parser = _build_profile_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["only_one_arg"])
+
+        captured = capsys.readouterr()
+        assert "usage:" in captured.err.lower()
+
+
+# ---------------------------------------------------------------------------
+# TestValidateSlotId
+# ---------------------------------------------------------------------------
+
+
+class TestValidateSlotId:
+    """Tests for _validate_slot_id()."""
+
+    def test_valid_slot_id(self) -> None:
+        """Valid slot_id should return None."""
+        from llama_cli.commands.profile import _validate_slot_id
+
+        assert _validate_slot_id("slot0") is None
+        assert _validate_slot_id("summary-balanced") is None
+        assert _validate_slot_id("qwen35-coding") is None
+        assert _validate_slot_id("my_slot-123") is None
+
+    def test_empty_string(self) -> None:
+        """Empty string should return error."""
+        from llama_cli.commands.profile import _validate_slot_id
+
+        result = _validate_slot_id("")
+        assert result == "slot_id must not be empty"
+
+    def test_path_traversal(self) -> None:
+        """Path traversal '..' should return error."""
+        from llama_cli.commands.profile import _validate_slot_id
+
+        result = _validate_slot_id("../etc/passwd")
+        assert result == "slot_id must not contain path traversal sequences"
+
+    def test_path_separators(self) -> None:
+        """Path separators should return error."""
+        from llama_cli.commands.profile import _validate_slot_id
+
+        assert _validate_slot_id("foo/bar") == "slot_id must not contain path separators"
+        assert _validate_slot_id("foo\\bar") == "slot_id must not contain path separators"
+
+    def test_special_chars_rejected(self) -> None:
+        """Special characters should be rejected."""
+        from llama_cli.commands.profile import _validate_slot_id
+
+        assert _validate_slot_id("slot@0") is not None
+        assert _validate_slot_id("slot#1") is not None
+        assert _validate_slot_id("slot $name") is not None
+        assert _validate_slot_id("slot;cmd") is not None
+
+    def test_whitespace_only(self) -> None:
+        """Whitespace-only slot_id should return error."""
+        from llama_cli.commands.profile import _validate_slot_id
+
+        result = _validate_slot_id("   ")
+        assert result == "slot_id must not be empty"
+
+
+# ---------------------------------------------------------------------------
+# TestExitIfProfileCancelled
+# ---------------------------------------------------------------------------
+
+
+class TestExitIfProfileCancelled:
+    """Tests for _exit_if_profile_cancelled."""
+
+    def test_returns_none_when_no_cancel_event(self) -> None:
+        from llama_cli.commands.profile import _exit_if_profile_cancelled
+
+        result = _exit_if_profile_cancelled(None, "slot0", lambda *a, **kw: None)
+        assert result is None
+
+    def test_returns_none_when_event_not_set(self) -> None:
+        import threading
+
+        from llama_cli.commands.profile import _exit_if_profile_cancelled
+
+        event = threading.Event()
+        result = _exit_if_profile_cancelled(event, "slot0", lambda *a, **kw: None)
+        assert result is None
+
+    def test_returns_1_when_event_set(self) -> None:
+        import threading
+
+        from llama_cli.commands.profile import _exit_if_profile_cancelled
+
+        event = threading.Event()
+        event.set()
+        messages: list[str] = []
+        result = _exit_if_profile_cancelled(event, "slot0", lambda msg, **kw: messages.append(msg))
+        assert result == 1
+        assert any("cancelled" in m for m in messages)
+
+
+# ---------------------------------------------------------------------------
+# TestCheckSlotLockfile
+# ---------------------------------------------------------------------------
+
+
+class TestCheckSlotLockfile:
+    """Tests for _check_slot_lockfile."""
+
+    def test_no_lockfile_no_emit(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _check_slot_lockfile
+        from llama_manager import Config
+
+        config = MagicMock(spec=Config)
+        config.profiles_dir = tmp_path / "profiles"
+        emitted: list[str] = []
+        _check_slot_lockfile("slot0", config, emitted.append)
+        assert emitted == []
+
+    def test_lockfile_exists_emits_warning(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _check_slot_lockfile
+        from llama_manager import Config
+
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+        lock = runtime_dir / "slot0.lock"
+        lock.write_text("")
+
+        config = MagicMock(spec=Config)
+        config.profiles_dir = runtime_dir / "profiles"
+        emitted: list[str] = []
+        _check_slot_lockfile("slot0", config, emitted.append)
+        assert any("lockfile" in m for m in emitted)
+
+    def test_oserror_is_swallowed(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _check_slot_lockfile
+        from llama_manager import Config
+
+        config = MagicMock(spec=Config)
+        # Make profiles_dir.parent raise OSError
+        profiles_dir_mock = MagicMock()
+        profiles_dir_mock.parent.__truediv__ = MagicMock(side_effect=OSError("disk error"))
+        config.profiles_dir = profiles_dir_mock
+        # Should not raise
+        _check_slot_lockfile("slot0", config, lambda msg: None)
+
+
+# ---------------------------------------------------------------------------
+# TestHandleCancel
+# ---------------------------------------------------------------------------
+
+
+class TestHandleCancel:
+    """Tests for _handle_cancel."""
+
+    def test_returns_none_when_not_set(self) -> None:
+        import subprocess
+        import threading
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _handle_cancel
+
+        proc = MagicMock(spec=subprocess.Popen)
+        event = threading.Event()
+        result = _handle_cancel(proc, event)
+        assert result is None
+
+    def test_returns_130_when_set(self) -> None:
+        import subprocess
+        import threading
+        from unittest.mock import MagicMock, patch
+
+        from llama_cli.commands.profile import _handle_cancel
+
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.pid = 12345
+        event = threading.Event()
+        event.set()
+
+        with (
+            patch("os.getpgid", return_value=12345),
+            patch("os.killpg"),
+        ):
+            result = _handle_cancel(proc, event)
+
+        assert result is not None
+        assert result.exit_code == 130
+        assert "cancelled" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# TestHandleTimeout
+# ---------------------------------------------------------------------------
+
+
+class TestHandleTimeout:
+    """Tests for _handle_timeout."""
+
+    def test_returns_none_when_not_elapsed(self) -> None:
+        import subprocess
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _handle_timeout
+
+        proc = MagicMock(spec=subprocess.Popen)
+        import time
+
+        start = time.monotonic()
+        result = _handle_timeout(proc, start, 600.0)
+        assert result is None
+
+    def test_returns_124_when_elapsed(self) -> None:
+        import subprocess
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _handle_timeout
+
+        proc = MagicMock(spec=subprocess.Popen)
+        # start far in the past
+        start = 0.0
+        result = _handle_timeout(proc, start, 1.0)
+        assert result is not None
+        assert result.exit_code == 124
+        assert "timed out" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# TestPollUntilDone
+# ---------------------------------------------------------------------------
+
+
+class TestPollUntilDone:
+    """Tests for _poll_until_done."""
+
+    def test_process_exits_normally(self) -> None:
+        import subprocess
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _poll_until_done
+
+        stdout_mock = MagicMock()
+        stdout_mock.read.return_value = "output"
+        stderr_mock = MagicMock()
+        stderr_mock.read.return_value = ""
+
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.poll.return_value = 0
+        proc.stdout = stdout_mock
+        proc.stderr = stderr_mock
+
+        result = _poll_until_done(proc, 600, None)
+        assert result.exit_code == 0
+        assert result.stdout == "output"
+
+    def test_cancel_event_terminates(self) -> None:
+        import subprocess
+        import threading
+        from unittest.mock import MagicMock, patch
+
+        from llama_cli.commands.profile import _poll_until_done
+
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.poll.return_value = None  # never exits on its own
+        proc.pid = 12345
+
+        cancel = threading.Event()
+        cancel.set()
+
+        with (
+            patch("os.getpgid", return_value=12345),
+            patch("os.killpg"),
+        ):
+            result = _poll_until_done(proc, 600, cancel)
+
+        assert result.exit_code == 130
+
+    def test_timeout_returns_124(self) -> None:
+        import subprocess
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _poll_until_done
+
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.poll.return_value = None  # never exits
+        proc.wait.return_value = None
+
+        # Use a very short timeout so it expires immediately
+        result = _poll_until_done(proc, 0, None)
+        assert result.exit_code == 124

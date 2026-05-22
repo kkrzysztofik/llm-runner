@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """US2 FR-003 canonical dry-run schema and deterministic ordering tests.
 
 Test Tasks:
@@ -18,7 +16,6 @@ Contract:
 - FR-003: Canonical dry-run payload with deterministic field ordering
 - SC-003: Deterministic resolution evidence - repeated runs produce identical output
 """
-
 
 from typing import Any
 
@@ -254,6 +251,7 @@ class TestFR003DeterministicFieldOrdering:
             "vllm_eligibility",
             "warnings",
             "validation_results",
+            "server_config",
         ]
         assert field_names == expected_order, (
             f"Field order mismatch. Expected: {expected_order}, Got: {field_names}"

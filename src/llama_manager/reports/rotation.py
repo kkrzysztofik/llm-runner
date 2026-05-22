@@ -1,5 +1,7 @@
 """Report rotation — clean old report directories by timestamp."""
 
+from __future__ import annotations
+
 import contextlib
 import shutil
 from datetime import datetime
@@ -10,7 +12,7 @@ if TYPE_CHECKING:
     from ..config import Config
 
 
-def rotate_reports(config: "Config | None" = None) -> None:
+def rotate_reports(config: Config | None = None) -> None:
     """Rotate old report directories.
 
     Scans the reports directory and deletes oldest report directories

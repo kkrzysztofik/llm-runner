@@ -1,6 +1,4 @@
-# Profile cache schema types, metrics, staleness, flavor enums, and I/O helpers.
-
-from __future__ import annotations
+"""Profile cache schema types, metrics, staleness, flavor enums, and I/O helpers."""
 
 import hashlib
 import json
@@ -10,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 from ..common.constants import DIR_MODE_OWNER_ONLY
 from ..common.file_ops import atomic_write_json
@@ -68,7 +66,7 @@ class ProfileMetrics:
     peak_vram_mb: float | None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ProfileMetrics:
+    def from_dict(cls, data: dict[str, Any]) -> Self:
         """Deserialize ProfileMetrics from a dict.
 
         Args:
@@ -130,7 +128,7 @@ class ProfileRecord:
     parameters: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ProfileRecord:
+    def from_dict(cls, data: dict[str, Any]) -> Self:
         """Deserialize a ProfileRecord from a dict.
 
         Handles conversion of ``ProfileFlavor`` from its string value and
@@ -451,7 +449,7 @@ def read_profile(
     try:
         raw = profile_path.read_text(encoding="utf-8")
         data = json.loads(raw)
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return None
 
     if not isinstance(data, dict):
@@ -469,7 +467,7 @@ def read_profile(
 
     try:
         return ProfileRecord.from_dict(data)
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 
@@ -517,7 +515,7 @@ def check_staleness(
             profiled_dt = profiled_dt.replace(tzinfo=UTC)
         now = datetime.now(UTC)
         age_days = (now - profiled_dt).total_seconds() / 86400.0
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         # If we can't parse the timestamp, treat as stale
         age_days = float("inf")
         reasons.append(StalenessReason.AGE_EXCEEDED)

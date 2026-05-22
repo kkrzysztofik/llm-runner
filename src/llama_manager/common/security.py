@@ -7,6 +7,7 @@ at once.
 """
 
 import re
+from string.templatelib import Interpolation, Template
 from typing import Final
 
 # ---------------------------------------------------------------------------
@@ -107,3 +108,40 @@ def redact_log_line(line: str) -> str:
         Log line with sensitive values replaced by ``[REDACTED]``.
     """
     return _LOG_SENSITIVE_PATTERN.sub(rf"\1={REDACTED_VALUE}", line)
+
+
+def safe_log(template: Template) -> str:  # pyright: ignore[reportInvalidTypeForm]
+    """Render a t-string log message, redacting interpolated sensitive values.
+
+    Unlike ``redact_log_line`` (which applies regex to an already-formed string),
+    this function inspects each interpolated value *before* the string is
+    assembled.  The variable name exposed by ``Interpolation.expr`` is checked
+    against ``SENSITIVE_KEY_PATTERN``, giving structural guarantees that a
+    value bound to a sensitive-looking name cannot slip through as part of a
+    larger token.
+
+    Args:
+        template: A t-string template literal, e.g. ``t"key={api_key}"``.
+
+    Returns:
+        Assembled string with any interpolated value whose expression name
+        matches a sensitive pattern replaced by ``[REDACTED]``.
+
+    Example::
+
+        api_key = "sk-abc123"
+        safe_log(t"Connecting with api_key={api_key}")
+        # → 'Connecting with api_key=[REDACTED]'
+    """
+    parts: list[str] = []
+    for part in template:
+        if isinstance(part, Interpolation):
+            raw = str(part.value)
+            expr_name: str = part.expression  # type: ignore[reportAttributeAccessIssue]
+            redacted = is_sensitive_key(expr_name) or bool(
+                _LOG_SENSITIVE_PATTERN.search(f"{expr_name}={raw}")
+            )
+            parts.append(REDACTED_VALUE if redacted else raw)
+        else:
+            parts.append(part)
+    return "".join(parts)

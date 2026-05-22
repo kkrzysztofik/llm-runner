@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Phase 7 — T079: State-machine integration test.
 
 Verifies the full SlotRuntime lifecycle:
@@ -12,7 +10,6 @@ Tests:
   - dataclass field integrity after each transition
   - Serialization (to_dict) correctness throughout
 """
-
 
 import time
 from unittest.mock import MagicMock
@@ -860,10 +857,12 @@ class TestDryRunSmokeFlagBundleOutput:
         from llama_cli.commands.dry_run import dry_run
 
         with (
-            patch("llama_cli.commands.dry_run._run_registry_mode") as mock_run,
-            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
+            patch("llama_cli.commands.dry_run.run_dry_run") as mock_run,
+            patch("llama_cli.commands.dry_run.write_dry_run_artifact"),
         ):
-            mock_run.return_value = False
+            mock_run.return_value = MagicMock(
+                slot_payloads=[], warnings=[], errors=[], has_error=False, artifact_payload=None
+            )
 
             with contextlib.suppress(SystemExit):
                 dry_run(mode=mode, **kwargs)
@@ -902,10 +901,12 @@ class TestDryRunSmokeFlagBundleOutput:
         from llama_cli.commands.dry_run import dry_run
 
         with (
-            patch("llama_cli.commands.dry_run._run_registry_mode") as mock_run,
-            patch("llama_cli.commands.dry_run._write_dry_run_artifact"),
+            patch("llama_cli.commands.dry_run.run_dry_run") as mock_run,
+            patch("llama_cli.commands.dry_run.write_dry_run_artifact"),
         ):
-            mock_run.return_value = False
+            mock_run.return_value = MagicMock(
+                slot_payloads=[], warnings=[], errors=[], has_error=False, artifact_payload=None
+            )
 
             with contextlib.suppress(SystemExit):
                 dry_run(mode=mode, **kwargs)

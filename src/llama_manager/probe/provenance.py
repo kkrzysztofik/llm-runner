@@ -77,7 +77,7 @@ def _resolve_sha() -> str:
         if result.returncode == 0:
             sha = result.stdout.strip()
             return sha
-    except (FileNotFoundError, CalledProcessError, TimeoutExpired):
+    except FileNotFoundError, CalledProcessError, TimeoutExpired:
         pass
 
     return "unknown"

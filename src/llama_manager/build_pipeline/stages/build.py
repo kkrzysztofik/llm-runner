@@ -1,15 +1,20 @@
 """Build stage — cmake --build compilation with real-time output streaming."""
 
-import subprocess
-import threading
+import os
 import time
 
 from loguru import logger
 
 from .._context import _BuildContext
-from ..models import BuildProgress
-from ..utils import _format_command, _format_command_failure, _format_duration
-from .configure import get_build_env_cmd
+from ..models import BUILD_CANCELLED_MESSAGE, BuildProgress
+from ..utils import (
+    _cancel_requested,
+    _format_command,
+    _format_command_failure,
+    _format_duration,
+    get_build_env_cmd,
+    run_command_with_cancel,
+)
 
 
 def run_build(ctx: _BuildContext) -> BuildProgress:
@@ -24,18 +29,27 @@ def run_build(ctx: _BuildContext) -> BuildProgress:
     logger.info("[build] starting compilation for {}", ctx.config.backend.value)
 
     if ctx.dry_run:
-        cmd = _build_cmake_cmd(ctx)
-        progress.message = f"Would run: {_format_command(cmd)}"
-        progress.status = "success"
-        progress.progress_percent = 75
-        logger.info("[build] dry-run: {}", progress.message)
-        return progress
+        return _run_build_dry_run(ctx, progress)
+    return _run_build_real(ctx, progress)
 
+
+def _run_build_dry_run(ctx: _BuildContext, progress: BuildProgress) -> BuildProgress:
+    """Dry-run: print the command without executing."""
+    cmd = _build_cmake_cmd(ctx)
+    progress.message = f"Would run: {_format_command(cmd)}"
+    progress.status = "success"
+    progress.progress_percent = 75
+    logger.info("[build] dry-run: {}", progress.message)
+    return progress
+
+
+def _run_build_real(ctx: _BuildContext, progress: BuildProgress) -> BuildProgress:
+    """Execute cmake --build with real-time output streaming."""
     try:
         cmd = _build_cmake_cmd(ctx)
         logger.info("[build] running cmake --build (this may take several minutes)")
         logger.info("[build] command: {}", _format_command(cmd))
-        logger.debug("[build] jobs={}", ctx.config.jobs)
+        logger.debug("[build] jobs={} (effective)", _effective_parallel_jobs(ctx))
         return _run_build_subprocess(cmd, ctx, progress)
     except Exception as e:
         logger.error("[build] exception: {}", str(e))
@@ -45,11 +59,17 @@ def run_build(ctx: _BuildContext) -> BuildProgress:
     return progress
 
 
+def _effective_parallel_jobs(ctx: _BuildContext) -> int:
+    """Parallel compile jobs: explicit config or all logical CPUs."""
+    if ctx.config.jobs is not None:
+        return ctx.config.jobs
+    return os.cpu_count() or 1
+
+
 def _build_cmake_cmd(ctx: _BuildContext) -> list[str]:
     """Construct the cmake --build command."""
     cmd = ["cmake", "--build", str(ctx.config.build_dir)]
-    if ctx.config.jobs:
-        cmd.extend(["-j", str(ctx.config.jobs)])
+    cmd.extend(["-j", str(_effective_parallel_jobs(ctx))])
     return get_build_env_cmd(cmd, ctx.config.backend)
 
 
@@ -59,64 +79,24 @@ def _run_build_subprocess(
     """Execute cmake --build with real-time output streaming."""
     started_at = time.monotonic()
 
-    with subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-    ) as proc:
-        stdout_lines: list[str] = []
-        stderr_lines: list[str] = []
-
-        def read_stdout() -> None:
-            if proc.stdout:
-                for line in proc.stdout:
-                    stdout_lines.append(line.rstrip("\n"))
-                    logger.debug("[build] stdout: {}", line.rstrip("\n"))
-
-        def read_stderr() -> None:
-            if proc.stderr:
-                for line in proc.stderr:
-                    stderr_lines.append(line.rstrip("\n"))
-                    logger.debug("[build] stderr: {}", line.rstrip("\n"))
-
-        stdout_t = threading.Thread(target=read_stdout)
-        stderr_t = threading.Thread(target=read_stderr)
-        stdout_t.start()
-        stderr_t.start()
-        try:
-            proc.wait(timeout=ctx.config.build_timeout_seconds)
-        except subprocess.TimeoutExpired:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-            proc.wait()
-            stdout_t.join(timeout=5)
-            stderr_t.join(timeout=5)
-            if proc.stdout:
-                proc.stdout.close()
-            if proc.stderr:
-                proc.stderr.close()
-            progress.status = "failed"
-            progress.message = f"Build timed out after {ctx.config.build_timeout_seconds}s"
-            logger.error("[build] {}", progress.message)
-            ctx.append_command_output(
+    def emit_line(line: str) -> None:
+        if ctx.progress_callback:
+            line_progress = BuildProgress(
                 stage="build",
-                command=cmd,
-                returncode=-1,
-                stdout="\n".join(stdout_lines),
-                stderr="\n".join(stderr_lines),
+                status="running",
+                message="",
+                progress_percent=progress.progress_percent,
+                output_line=line.rstrip("\n"),
             )
-            return progress
-        stdout_t.join()
-        stderr_t.join()
+            ctx.progress_callback(line_progress)
 
-    result_stdout = "\n".join(stdout_lines)
-    result_stderr = "\n".join(stderr_lines)
-    returncode = proc.returncode
+    returncode, result_stdout, result_stderr = run_command_with_cancel(
+        cmd,
+        cancel_event=ctx.cancel_event,
+        set_active_proc=lambda proc: setattr(ctx, "active_proc", proc),
+        timeout_seconds=float(ctx.config.build_timeout_seconds),
+        line_callback=emit_line,
+    )
     duration = _format_duration(time.monotonic() - started_at)
 
     logger.debug("[build] cmake exited with rc={} in {}", returncode, duration)
@@ -128,6 +108,18 @@ def _run_build_subprocess(
         stdout=result_stdout,
         stderr=result_stderr,
     )
+
+    if _cancel_requested(ctx.cancel_event):
+        logger.info("[build] cancelled by user")
+        progress.status = "failed"
+        progress.message = BUILD_CANCELLED_MESSAGE
+        return progress
+
+    if returncode == -1:
+        progress.status = "failed"
+        progress.message = f"Build timed out after {ctx.config.build_timeout_seconds}s"
+        logger.error("[build] {}", progress.message)
+        return progress
 
     if returncode == 0:
         progress.message = f"Build completed for {ctx.config.backend.value} in {duration}"

@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 """Smoke probe configuration and dataclass contract tests."""
-
 
 import json
 import socket

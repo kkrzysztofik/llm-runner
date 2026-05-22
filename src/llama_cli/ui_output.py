@@ -1,7 +1,5 @@
 """User-facing output helpers for llama_cli — separate from diagnostic logging."""
 
-from __future__ import annotations
-
 import sys
 from typing import TextIO
 

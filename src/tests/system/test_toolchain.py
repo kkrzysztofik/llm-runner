@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """T013, T016-T018: Tests for ToolchainErrorDetail, parse_version, version_at_least, detect_tool, get_toolchain_hints.
 
 Test Tasks:
@@ -8,7 +6,6 @@ Test Tasks:
 - T017: detect_tool() tests
 - T018: get_toolchain_hints() tests
 """
-
 
 import subprocess
 from pathlib import Path

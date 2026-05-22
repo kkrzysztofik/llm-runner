@@ -1,23 +1,17 @@
 """GPU statistics collectors for llm-runner TUI.
 
-This module provides GPU statistics collection via nvtop subprocess.
-It is owned by the CLI layer to keep llama_manager free of subprocess usage.
+DEPRECATED: This module re-exports from llama_manager.gpu_stats.
+The nvtop collector logic has been moved to the pure library.
 """
 
-import json
-import subprocess
-from typing import Any
-
 import psutil
-
-from llama_cli.ui_output import emit_warn
 
 
 def _get_cpu_percent() -> float:
     """Get CPU percentage with safe fallback on exception."""
     try:
         return float(psutil.cpu_percent(interval=0.1))
-    except Exception:
+    except Exception:  # noqa: S110
         return 0.0
 
 
@@ -25,68 +19,10 @@ def _get_memory_percent() -> float:
     """Get memory percentage with safe fallback on exception."""
     try:
         return float(psutil.virtual_memory().percent)
-    except Exception:
+    except Exception:  # noqa: S110
         return 0.0
 
 
-def _format_metric(value: Any) -> str:
-    """Normalize collector metrics to string values."""
-    return "N/A" if value is None else str(value)
+from llama_manager.gpu_stats import collect_nvtop_stats
 
-
-def collect_nvtop_stats(device_index: int = 0) -> dict[str, Any]:
-    """Collect GPU stats using nvtop subprocess.
-
-    Args:
-        device_index: Index of the GPU device to query.
-
-    Returns:
-        Dictionary with GPU statistics.
-    """
-    try:
-        result = subprocess.run(
-            ["nvtop", "-s"],
-            capture_output=True,
-            text=True,
-            timeout=1,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"nvtop exited with code {result.returncode}: {result.stderr}")
-        all_gpus = json.loads(result.stdout)
-        if not isinstance(all_gpus, list):
-            raise ValueError(f"nvtop JSON output is not a list, got {type(all_gpus).__name__}")
-        if 0 <= device_index < len(all_gpus):
-            gpu = all_gpus[device_index]
-            if not isinstance(gpu, dict):
-                raise ValueError(
-                    f"gpu entry at index {device_index} is not a dict, got {type(gpu).__name__}"
-                )
-            return {
-                "device": _format_metric(gpu.get("device_name", "Unknown")),
-                "gpu_util": _format_metric(gpu.get("gpu_util", "N/A")),
-                "mem_util": _format_metric(gpu.get("mem_util", "N/A")),
-                "temp": _format_metric(gpu.get("temp", "N/A")),
-                "power": _format_metric(gpu.get("power_draw", "N/A")),
-                "cpu": _format_metric(f"{_get_cpu_percent():.0f}%"),
-                "mem": _format_metric(f"{_get_memory_percent():.0f}%"),
-            }
-        emit_warn(f"device_index {device_index} out of range for {len(all_gpus)} GPU(s)")
-    except subprocess.TimeoutExpired as e:
-        emit_warn(f"nvtop timeout: {e}")
-    except json.JSONDecodeError as e:
-        emit_warn(f"nvtop JSON parse error: {e}")
-    except RuntimeError as e:
-        emit_warn(f"nvtop error: {e}")
-    except (ValueError, OSError) as e:
-        emit_warn(f"nvtop error: {e}")
-
-    # Fallback to psutil
-    return {
-        "device": _format_metric(f"GPU {device_index}"),
-        "gpu_util": _format_metric("N/A"),
-        "mem_util": _format_metric("N/A"),
-        "temp": _format_metric("N/A"),
-        "power": _format_metric("N/A"),
-        "cpu": _format_metric(f"{_get_cpu_percent():.0f}%"),
-        "mem": _format_metric(f"{_get_memory_percent():.0f}%"),
-    }
+__all__ = ["collect_nvtop_stats", "_get_cpu_percent", "_get_memory_percent"]

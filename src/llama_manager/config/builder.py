@@ -1,4 +1,4 @@
-# ServerConfig creation helpers
+"""ServerConfig creation helpers."""
 
 import dataclasses
 import os
@@ -82,7 +82,10 @@ def _without_none(values: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
 
 
-def _validate_port_override_count(group: RunGroupSpec, port_overrides: tuple[int, ...]) -> None:
+def _validate_port_override_count(
+    group: RunGroupSpec, port_overrides: tuple[int | None, ...]
+) -> None:
+    """Ensure port overrides do not exceed the number of profiles in the group."""
     if len(port_overrides) > len(group.profile_ids):
         raise RunProfileError(
             f"run group {group.group_id} accepts at most {len(group.profile_ids)} port override(s), "
@@ -91,6 +94,7 @@ def _validate_port_override_count(group: RunGroupSpec, port_overrides: tuple[int
 
 
 def _validate_resolved_profile_data(data: dict[str, Any]) -> None:
+    """Validate required fields and value ranges in resolved profile data."""
     port = data.get("port")
     if not isinstance(port, int) or not (1024 <= port <= 65535):
         raise ValueError(f"port must be between 1024 and 65535, got: {port}")
@@ -204,7 +208,7 @@ def resolve_profile_config(
 def resolve_run_group_configs(
     registry: RunProfileRegistry,
     group_id: str,
-    port_overrides: tuple[int, ...] = (),
+    port_overrides: tuple[int | None, ...] = (),
 ) -> list[ServerConfig]:
     """Resolve a registered run group into ordered ServerConfig objects.
 
@@ -212,6 +216,7 @@ def resolve_run_group_configs(
         registry: Profile registry containing group and profile definitions.
         group_id: Run group identifier to resolve.
         port_overrides: Optional positional port overrides for group members.
+            ``None`` entries are skipped (profile default port is used).
 
     Returns:
         ServerConfig objects in run-group profile order.
@@ -224,7 +229,10 @@ def resolve_run_group_configs(
 
     configs: list[ServerConfig] = []
     for index, profile_id in enumerate(group.profile_ids):
-        override_config = {"port": port_overrides[index]} if index < len(port_overrides) else None
+        if index < len(port_overrides) and port_overrides[index] is not None:
+            override_config = {"port": port_overrides[index]}
+        else:
+            override_config = None
         configs.append(resolve_profile_config(registry, profile_id, override_config))
     return configs
 
@@ -675,14 +683,11 @@ def apply_profile_overrides(
                 current_binary_version=binary_version,
                 staleness_days=base_config.profile_staleness_days,
             )
-        except (OSError, FileNotFoundError, ValueError, KeyError):
+        except OSError, ValueError, KeyError:
             logger.info("No profile found for %s; falling back to defaults", cfg.alias)
             messages.append(f"No profile found for {cfg.alias}; using defaults")
             updated_configs.append(cfg)
             continue
-        except Exception:
-            logger.opt(exception=True).error("Unexpected error loading profile for %s", cfg.alias)
-            raise
 
         if record is None:
             messages.append(f"No profile found for {cfg.alias}; using defaults")

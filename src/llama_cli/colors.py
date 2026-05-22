@@ -1,4 +1,4 @@
-# Terminal color utilities (moved from llama_manager)
+"""Terminal color utilities (moved from llama_manager)."""
 
 
 class _AnsiCodes:

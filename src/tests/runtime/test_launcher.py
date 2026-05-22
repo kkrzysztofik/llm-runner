@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 """Tests for the process launcher abstraction."""
-
 
 import time
 from typing import Any
@@ -411,28 +408,26 @@ class TestServerManagerForeground:
 class TestServerManagerSignalHandlers:
     """Tests for signal handler methods (on_interrupt, on_terminate)."""
 
-    def test_on_interrupt_calls_cleanup_and_exits(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """on_interrupt should call cleanup_servers then exit with 130."""
+    def test_on_interrupt_calls_cleanup_and_returns_code(self) -> None:
+        """on_interrupt should call cleanup_servers then return 130."""
         from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         manager.pids = [12345]
 
-        with pytest.raises(SystemExit) as exc_info:
-            manager.on_interrupt(2, None)  # SIGINT
+        exit_code = manager.on_interrupt(2, None)  # SIGINT
 
-        assert exc_info.value.code == 130
+        assert exit_code == 130
         assert manager.shutting_down is True
 
-    def test_on_terminate_calls_cleanup_and_exits(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """on_terminate should call cleanup_servers then exit with 143."""
+    def test_on_terminate_calls_cleanup_and_returns_code(self) -> None:
+        """on_terminate should call cleanup_servers then return 143."""
         from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         manager.pids = [12345]
 
-        with pytest.raises(SystemExit) as exc_info:
-            manager.on_terminate(15, None)  # SIGTERM
+        exit_code = manager.on_terminate(15, None)  # SIGTERM
 
-        assert exc_info.value.code == 143
+        assert exit_code == 143
         assert manager.shutting_down is True

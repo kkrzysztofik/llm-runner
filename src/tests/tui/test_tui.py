@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Tests for TUI application (llama_cli.tui_app).
 
 Tests for T016c-T016f:
@@ -9,9 +7,7 @@ Tests for T016c-T016f:
 - T016f: Graceful shutdown key handler (Ctrl+C)
 """
 
-
 import signal
-import threading
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
@@ -82,22 +78,56 @@ class TestSystemHealthAlignment:
 
     def test_datetime_widget_composes_stylable_row(self) -> None:
         from textual.containers import Horizontal
-        from textual.widgets import Static
+        from textual.widgets import Digits, Static
 
+        from llama_cli.tui.components.digital_clock import DigitalClockWidget
         from llama_cli.tui.components.system_health import DateTimeWidget, SystemHealthRenderer
+        from llama_cli.tui.types import DateTimeSnapshot
 
-        sections = list(DateTimeWidget(SystemHealthRenderer()).compose())
+        renderer = SystemHealthRenderer()
+        renderer.current_datetime_snapshot = lambda: DateTimeSnapshot(  # type: ignore[method-assign]
+            date_text="Wed 2026-05-20"
+        )
+        sections = list(DateTimeWidget(renderer).compose())
 
         assert len(sections) == 1
-        assert isinstance(sections[0], Horizontal)
-        assert sections[0].has_class("system-health-inline-row")
-        children = sections[0]._pending_children
+        row = sections[0]
+        assert isinstance(row, Horizontal)
+        assert row.has_class("system-health-datetime-row")
+        children = row._pending_children
         assert isinstance(children[0], Static)
-        assert children[0].has_class("system-health-label")
-        assert children[0].has_class("system-health-datetime-label")
+        assert children[0].has_class("llm-runner-logo")
         assert isinstance(children[1], Static)
-        assert children[1].has_class("system-health-value")
-        assert children[1].has_class("system-health-datetime-value")
+        assert children[1].has_class("datetime-header-spacer")
+        assert isinstance(children[2], Horizontal)
+        assert children[2].has_class("datetime-far-right")
+        far_right = children[2]._pending_children
+        assert isinstance(far_right[0], Static)
+        assert far_right[0].has_class("datetime-date")
+        assert isinstance(far_right[1], DigitalClockWidget)
+        clock_parts = list(far_right[1].compose())
+        assert len(clock_parts) == 1
+        assert isinstance(clock_parts[0], Digits)
+        assert clock_parts[0].has_class("datetime-digits")
+
+    def test_digital_clock_widget_composes_digits_only(self) -> None:
+        from textual.widgets import Digits
+
+        from llama_cli.tui.components.digital_clock import DigitalClockWidget
+
+        sections = list(DigitalClockWidget().compose())
+        assert len(sections) == 1
+        assert isinstance(sections[0], Digits)
+        assert sections[0].has_class("datetime-digits")
+
+    def test_llm_runner_logo_reads_llm_block_letters(self) -> None:
+        from llama_cli.tui.components.digital_clock import LLM_RUNNER_LOGO, _clean_markup
+
+        clean_logo = _clean_markup(LLM_RUNNER_LOGO)
+        assert "██╗       ██╗" in clean_logo
+        assert "███╗   ███╗" in clean_logo
+        assert "╚█████╝" in clean_logo
+        assert LLM_RUNNER_LOGO.count("\n") == 6
 
     def test_system_info_widget_composes_stylable_rows(self) -> None:
         from textual.containers import Horizontal
@@ -216,33 +246,32 @@ class TestSystemHealthAlignment:
         assert len(standard_rows) == 4
         assert len(wide_rows) == 2
 
-    def test_system_health_sections_use_available_width(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
+    def test_system_health_sections_use_available_width(self) -> None:
         import llama_cli.tui.components.system_health as system_health
+        from llama_cli.tui.types import DateTimeSnapshot
 
-        def cpu_percent(interval: float | None = None, percpu: bool = False) -> list[float] | float:
-            if percpu:
-                return [0.0] * 24
-            return 0.0
-
-        monkeypatch.setattr(system_health.psutil, "cpu_percent", cpu_percent)
-        monkeypatch.setattr(
-            system_health.psutil,
-            "virtual_memory",
-            lambda: SimpleNamespace(percent=50.0, used=8 * 1024**3, total=16 * 1024**3),
+        base_renderer = system_health.SystemHealthRenderer()
+        provider = cast(
+            system_health.SystemHealthProvider,
+            SimpleNamespace(
+                cpu_usage_rows=lambda width=None: base_renderer._build_core_grid_rows(
+                    [0.0] * 24, base_renderer._content_width(width)
+                ),
+                memory_usage_rows=lambda: [
+                    system_health.MemoryUsageSnapshot("Mem", 50.0, "8.00G/16.0G"),
+                    system_health.MemoryUsageSnapshot("Swp", 0.0, "0.00G/2.00G"),
+                ],
+                system_info_snapshot=lambda: system_health.SystemInfoSnapshot(
+                    tasks=0,
+                    threads=0,
+                    running=0,
+                    load_values=(0.1, 0.2, 0.3),
+                    uptime="00:00:00",
+                ),
+                current_datetime_snapshot=lambda: DateTimeSnapshot(date_text="Wed 2026-05-13"),
+            ),
         )
-        monkeypatch.setattr(
-            system_health.psutil,
-            "swap_memory",
-            lambda: SimpleNamespace(percent=0.0, used=0, total=2 * 1024**3),
-        )
-        monkeypatch.setattr(system_health.psutil, "boot_time", lambda: 0.0)
-        monkeypatch.setattr(system_health.psutil, "getloadavg", lambda: (0.1, 0.2, 0.3))
-        monkeypatch.setattr(system_health.psutil, "process_iter", lambda attrs: [])
-
-        renderer = system_health.SystemHealthRenderer()
+        renderer = system_health.SystemHealthRenderer(provider)
 
         narrow_lines = (
             renderer.render_cpu_usage(width=80).splitlines()
@@ -261,7 +290,6 @@ class TestSystemHealthAlignment:
 
     def test_core_widgets_expose_semantic_css_classes(self) -> None:
         from llama_cli.tui.components.gpu_telemetry import GPUTelemetryWidget
-        from llama_cli.tui.components.menu import CommandMenu
         from llama_cli.tui.components.server_log import ServerLogPanel
         from llama_cli.tui.components.system_status import SystemStatusWidget
 
@@ -270,15 +298,12 @@ class TestSystemHealthAlignment:
         status = SystemStatusWidget()
         gpu = GPUTelemetryWidget(view_model)
         panel = ServerLogPanel(0, view_model)
-        menu = CommandMenu(view_model)
 
         assert status.id == "alerts"
         assert status.has_class("system-status")
         assert gpu.has_class("gpu-telemetry")
         assert panel.has_class("column")
         assert panel.has_class("server-log-panel")
-        assert menu.id == "menu"
-        assert menu.has_class("command-menu")
 
     def test_gpu_telemetry_widget_composes_stylable_row(self) -> None:
         from textual.containers import Horizontal
@@ -316,10 +341,8 @@ class TestSystemHealthAlignment:
         from textual.widgets import Static
 
         from llama_cli.tui.components.gpu_stats import GPUStatsPanel
-        from llama_manager import GPUStats
 
-        gpu = GPUStats()
-        gpu._collector = lambda: {
+        stats = {
             "device": "Mock GPU",
             "gpu_util": "45%",
             "mem_util": "61%",
@@ -327,7 +350,7 @@ class TestSystemHealthAlignment:
             "power": "120W",
         }
 
-        sections = list(GPUStatsPanel(gpu).compose())
+        sections = list(GPUStatsPanel(stats).compose())
 
         assert isinstance(sections[0], Static)
         assert sections[0].has_class("gpu-stats-title")
@@ -357,18 +380,18 @@ class TestSystemHealthAlignment:
         from llama_cli.tui.components.server_column import ServerColumnPanel
         from llama_cli.tui.components.server_log import ServerLogPanel
         from llama_cli.tui.types import ServerColumnState
-        from llama_manager.log_buffer import LogBuffer
 
-        buffer = LogBuffer()
         view_model = MagicMock()
         view_model.column.return_value = ServerColumnState(
-            config=_make_minimal_config(alias="slot-a"),
-            buffer=buffer,
-            gpu=None,
-            host="127.0.0.1",
+            alias="slot-a",
+            status="offline",
+            status_class="server-column-status-offline",
+            backend_label="SYCL",
+            url="http://127.0.0.1:8080",
+            config_summary="Device: SYCL0 | Ctx: 2048 | Threads: 4",
+            logs_text="Waiting for output...",
+            gpu_stats=None,
             stale_warning=None,
-            slot_states={},
-            server_processes={},
             is_unsaved=False,
         )
 
@@ -661,7 +684,7 @@ class TestGracefulShutdownKeyHandler:
         app.stop()
         assert app.running is False
 
-    def test_signal_handler_calls_stop(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_signal_handler_calls_stop(self) -> None:
         """_signal_handler should call stop() to stop the TUI loop."""
         from llama_cli.tui import DashboardController
 
@@ -700,7 +723,7 @@ class TestGracefulShutdownKeyHandler:
         assert app.running is True
 
     def test_on_interrupt_calls_cleanup_and_exits(self) -> None:
-        """ServerManager.on_interrupt should call cleanup_servers and exit with code 130."""
+        """ServerManager.on_interrupt should call cleanup_servers and return code 130."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
@@ -713,14 +736,13 @@ class TestGracefulShutdownKeyHandler:
 
         app.server_manager.cleanup_servers = track_cleanup  # type: ignore[assignment]
 
-        with pytest.raises(SystemExit) as exc_info:
-            app.server_manager.on_interrupt(signal.SIGINT, None)
+        exit_code = app.server_manager.on_interrupt(signal.SIGINT, None)
 
-        assert exc_info.value.code == 130
+        assert exit_code == 130
         assert cleanup_called is True
 
     def test_on_terminate_calls_cleanup_and_exits(self) -> None:
-        """ServerManager.on_terminate should call cleanup_servers and exit with code 143."""
+        """ServerManager.on_terminate should call cleanup_servers and return code 143."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
@@ -733,10 +755,9 @@ class TestGracefulShutdownKeyHandler:
 
         app.server_manager.cleanup_servers = track_cleanup  # type: ignore[assignment]
 
-        with pytest.raises(SystemExit) as exc_info:
-            app.server_manager.on_terminate(signal.SIGTERM, None)
+        exit_code = app.server_manager.on_terminate(signal.SIGTERM, None)
 
-        assert exc_info.value.code == 143
+        assert exit_code == 143
         assert cleanup_called is True
 
     def test_signal_handler_releases_build_lock(self) -> None:
@@ -766,20 +787,16 @@ class TestGracefulShutdownKeyHandler:
 
         mock_shutdown.assert_called_once()
 
-    def test_interrupt_aborts_running_profile(self) -> None:
-        """interrupt should abort a running profile before shutdown."""
+    def test_interrupt_triggers_graceful_shutdown(self) -> None:
+        """interrupt should shut down when no risk prompt is active."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config(alias="slot0")], gpu_indices=[0])
-        cancel_event = threading.Event()
-        with app._profile_lock:
-            app._profile_status["slot0"] = "running"
-            app._profile_cancel_events["slot0"] = cancel_event
 
-        app.interrupt()
+        with patch.object(app, "_graceful_shutdown") as mock_shutdown:
+            app.interrupt()
 
-        assert cancel_event.is_set()
-        assert app._profile_status["slot0"] == "failed"
+        mock_shutdown.assert_called_once()
 
     def test_refresh_display_appends_message(self) -> None:
         """refresh_display should add a visible status message."""
@@ -790,17 +807,6 @@ class TestGracefulShutdownKeyHandler:
         app.refresh_display()
 
         assert any("refreshed" in msg.lower() for _, msg in app._status_messages)
-
-    def test_request_profile_sets_pending_request(self) -> None:
-        """request_profile should queue the first profile for selection."""
-        from llama_cli.tui import DashboardController
-
-        app = DashboardController(configs=[_make_minimal_config(alias="slot0")], gpu_indices=[0])
-
-        app.request_profile()
-
-        assert app.profile_request == "slot0"
-        assert app._profile_status["slot0"] == "idle"
 
     def test_request_build_and_cancel_pending_prompt(self) -> None:
         """request_build should set build state and cancel_pending_prompt should clear it."""
@@ -814,19 +820,6 @@ class TestGracefulShutdownKeyHandler:
         cancelled = app.cancel_pending_prompt()
         assert cancelled is True
         assert app._build_request is False
-
-    def test_request_smoke_and_cancel_pending_prompt(self) -> None:
-        """request_smoke should set smoke state and cancel_pending_prompt should clear it."""
-        from llama_cli.tui import DashboardController
-
-        app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-
-        app.request_smoke()
-        assert app._smoke_request is True
-
-        cancelled = app.cancel_pending_prompt()
-        assert cancelled is True
-        assert app._smoke_request is False
 
     def test_push_status_message(self) -> None:
         """_push_status_message should add messages to the status buffer."""
@@ -852,23 +845,6 @@ class TestGracefulShutdownKeyHandler:
             app._push_status_message(f"message {i}")
 
         assert len(app._status_messages) <= 5
-
-    def test_abort_profile(self) -> None:
-        """_abort_profile should cancel any running profile."""
-        from llama_cli.tui import DashboardController
-
-        app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-
-        # Set up a fake running profile
-        with app._profile_lock:
-            app._profile_status["test-slot"] = "running"
-            app._profile_cancel_events["test-slot"] = threading.Event()
-
-        # Abort should not raise
-        app._abort_profile()
-
-        # Profile should be marked as failed
-        assert app._profile_status["test-slot"] == "failed"
 
 
 class TestHandleHardwareWarning:
@@ -997,11 +973,11 @@ class TestMVVMArchitecture:
         controller = DashboardController(
             configs=[_make_minimal_config(alias="slot0")], gpu_indices=[]
         )
-        controller.request_profile()
+        controller.request_build()
 
         state = controller.view_model.command_menu()
 
-        assert state.profile_request == "slot0"
+        assert state.build_request is True
         assert state.risk_prompt is None
 
     def test_risk_prompt_lives_in_model_state(self) -> None:
@@ -1107,25 +1083,24 @@ class TestTextualDashboardAppActions:
         controller.configs = [_make_config()]
         app = TextualDashboardApp(controller)
 
-        with patch.object(app, "refresh_dashboard") as mock_refresh:
-            app.action_profile()
+        with (
+            patch.object(app, "refresh_dashboard") as mock_refresh,
+            patch.object(app, "push_screen") as mock_push,
+        ):
             app.action_build()
-            app.action_smoke()
             app.action_confirm()
             app.action_reject()
             app.action_cancel_pending_prompt()
             app.action_refresh_dashboard()
             app.action_interrupt_dashboard()
 
-        controller.request_profile.assert_called_once()
-        controller.request_build.assert_called_once()
-        controller.request_smoke.assert_called_once()
+        mock_push.assert_called_once()
         controller.acknowledge_risk.assert_called_once()
         controller.reject_risk.assert_called_once()
         controller.cancel_pending_prompt.assert_called_once()
         controller.refresh_display.assert_called_once()
         controller.interrupt.assert_called_once()
-        assert mock_refresh.call_count == 7
+        assert mock_refresh.call_count == 4
 
     def test_emit_status_toasts_uses_popups_for_notices_and_status(self) -> None:
         controller = MagicMock()
@@ -1248,6 +1223,284 @@ class TestRiskPanels:
 
 
 # =============================================================================
+# Build wizard async status
+# =============================================================================
+
+
+def _minimal_build_status(backend: Any) -> Any:
+    """Minimal BuildStatus for build wizard unit tests."""
+    from llama_manager.build_pipeline import BuildStatus
+
+    return BuildStatus(
+        backend=backend,
+        artifact_exists=False,
+        artifact=None,
+        binary_version_output=None,
+        binary_exists_untracked=False,
+        untracked_binary_path=None,
+        source_exists=True,
+        source_is_repo=True,
+        source_branch="master",
+        source_head_sha="a" * 40,
+        source_remote_url="https://github.com/ggerganov/llama.cpp.git",
+        configured_branch="master",
+        remote_branch_sha="b" * 40,
+    )
+
+
+class TestBackendReadiness:
+    """Tests for derive_backend_readiness badge and detail lines."""
+
+    def test_loading_when_status_none(self) -> None:
+        from llama_cli.tui.components.build import derive_backend_readiness
+
+        readiness = derive_backend_readiness(None)
+        assert readiness.level == "loading"
+        assert readiness.badge == ""
+
+    def test_missing_when_source_absent(self) -> None:
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildBackend, BuildStatus
+
+        status = BuildStatus(
+            backend=BuildBackend.SYCL,
+            artifact_exists=False,
+            artifact=None,
+            binary_version_output=None,
+            binary_exists_untracked=False,
+            untracked_binary_path=None,
+            source_exists=False,
+            source_is_repo=False,
+            source_branch=None,
+            source_head_sha=None,
+            source_remote_url=None,
+            configured_branch="master",
+            remote_branch_sha=None,
+        )
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "missing"
+        assert readiness.badge == "Missing"
+
+    def test_needs_update_when_no_binary(self) -> None:
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildBackend
+
+        status = _minimal_build_status(BuildBackend.SYCL)
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "needs_update"
+        assert readiness.badge == "Needs update"
+
+    def test_needs_update_when_source_behind_remote(self) -> None:
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildBackend, BuildStatus
+
+        sha = "a" * 40
+        status = BuildStatus(
+            backend=BuildBackend.CUDA,
+            artifact_exists=True,
+            artifact=None,
+            binary_version_output="version: 1 (bbbbbbbb)",
+            binary_exists_untracked=False,
+            untracked_binary_path=None,
+            source_exists=True,
+            source_is_repo=True,
+            source_branch="master",
+            source_head_sha=sha,
+            source_remote_url="https://github.com/ggerganov/llama.cpp.git",
+            configured_branch="master",
+            remote_branch_sha="c" * 40,
+        )
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "needs_update"
+
+    def test_needs_update_when_binary_commit_mismatch(self) -> None:
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildBackend, BuildStatus
+
+        sha = "a" * 40
+        status = BuildStatus(
+            backend=BuildBackend.SYCL,
+            artifact_exists=True,
+            artifact=None,
+            binary_version_output="version: 1 (bbbbbbbb)",
+            binary_exists_untracked=False,
+            untracked_binary_path=None,
+            source_exists=True,
+            source_is_repo=True,
+            source_branch="master",
+            source_head_sha=sha,
+            source_remote_url="https://github.com/ggerganov/llama.cpp.git",
+            configured_branch="master",
+            remote_branch_sha=sha,
+        )
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "needs_update"
+
+    def test_needs_update_untracked_binary_commit_behind_source(self) -> None:
+        """CUDA default binary without provenance must not show Current when SHA differs."""
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildBackend, BuildStatus
+
+        source_sha = "29f14822" + "0" * 32
+        status = BuildStatus(
+            backend=BuildBackend.CUDA,
+            artifact_exists=False,
+            artifact=None,
+            binary_version_output="version: 1 (f535774)",
+            binary_exists_untracked=True,
+            untracked_binary_path=None,
+            source_exists=True,
+            source_is_repo=True,
+            source_branch="master",
+            source_head_sha=source_sha,
+            source_remote_url="https://github.com/ggerganov/llama.cpp.git",
+            configured_branch="master",
+            remote_branch_sha=source_sha,
+        )
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "needs_update"
+
+    def test_current_when_version_line_has_build_number_before_commit(self) -> None:
+        """version: 312 (29f14822) must use the commit hash, not the build number."""
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildArtifact, BuildBackend, BuildStatus
+
+        sha = "29f14822" + "a" * 32
+        status = BuildStatus(
+            backend=BuildBackend.SYCL,
+            artifact_exists=True,
+            artifact=BuildArtifact(
+                artifact_type="llama-server",
+                backend=BuildBackend.SYCL,
+                created_at=0.0,
+                git_remote_url="",
+                git_commit_sha=sha,
+                git_branch="master",
+                build_command=[],
+                build_duration_seconds=1.0,
+                exit_code=0,
+                binary_path=None,
+                binary_size_bytes=None,
+                build_log_path=None,
+                failure_report_path=None,
+            ),
+            binary_version_output=f"version: 312 ({sha[:8]})",
+            binary_exists_untracked=False,
+            untracked_binary_path=None,
+            source_exists=True,
+            source_is_repo=True,
+            source_branch="master",
+            source_head_sha=sha,
+            source_remote_url="https://github.com/ggerganov/llama.cpp.git",
+            configured_branch="master",
+            remote_branch_sha=sha,
+        )
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "current"
+
+    def test_current_when_aligned(self) -> None:
+        from llama_cli.tui.components.build import derive_backend_readiness
+        from llama_manager.build_pipeline import BuildBackend, BuildStatus
+
+        sha = "a" * 40
+        short = sha[:8]
+        status = BuildStatus(
+            backend=BuildBackend.CUDA,
+            artifact_exists=True,
+            artifact=None,
+            binary_version_output=f"version: 1 ({short})",
+            binary_exists_untracked=False,
+            untracked_binary_path=None,
+            source_exists=True,
+            source_is_repo=True,
+            source_branch="master",
+            source_head_sha=sha,
+            source_remote_url="https://github.com/ggerganov/llama.cpp.git",
+            configured_branch="master",
+            remote_branch_sha=sha,
+        )
+        readiness = derive_backend_readiness(status)
+        assert readiness.level == "current"
+        assert readiness.badge == "Current"
+        assert "[bold]Binary:[/]" in readiness.binary_line
+
+
+class TestBuildModalAsyncStatus:
+    """Tests for async build status fetch in BuildModalScreen."""
+
+    def test_apply_single_backend_status_updates_sycl_only(self) -> None:
+        """_apply_single_backend_status should update one backend without touching the other."""
+        from llama_cli.tui.components.build import BuildModalScreen
+        from llama_manager.build_pipeline import BuildBackend
+
+        screen = BuildModalScreen()
+        sycl = _minimal_build_status(BuildBackend.SYCL)
+        mock_sycl_card = MagicMock()
+
+        with (
+            patch.object(screen, "_screen_can_apply_status", return_value=True),
+            patch.object(screen, "_sycl_card", mock_sycl_card),
+            patch.object(screen, "_cuda_card", None),
+        ):
+            screen._apply_single_backend_status("sycl", sycl)
+
+        assert screen._wizard_state["sycl_status"] is sycl
+        assert screen._wizard_state["cuda_status"] is None
+        mock_sycl_card.set_status.assert_called_once_with(sycl)
+
+    def test_apply_single_backend_status_skipped_when_detached(self) -> None:
+        """_apply_single_backend_status should no-op when the screen is not attached."""
+        from llama_cli.tui.components.build import BuildModalScreen
+        from llama_manager.build_pipeline import BuildBackend
+
+        screen = BuildModalScreen()
+        sycl = _minimal_build_status(BuildBackend.SYCL)
+
+        with patch.object(screen, "_screen_can_apply_status", return_value=False):
+            screen._apply_single_backend_status("sycl", sycl)
+
+        assert screen._wizard_state["sycl_status"] is None
+
+    def test_apply_single_backend_status_stores_state_without_stale_card(self) -> None:
+        """Status fetch after leaving step 1 must not touch removed cards."""
+        from llama_cli.tui.components.build import BuildModalScreen
+        from llama_manager.build_pipeline import BuildBackend
+
+        screen = BuildModalScreen()
+        cuda = _minimal_build_status(BuildBackend.CUDA)
+        mock_cuda_card = MagicMock()
+        mock_cuda_card.is_mounted = False
+
+        screen._wizard_state["step"] = screen.STEP_BUILDING
+        with (
+            patch.object(screen, "_screen_can_apply_status", return_value=True),
+            patch.object(screen, "_cuda_card", mock_cuda_card),
+            patch.object(screen, "_status_card_for_backend", return_value=None),
+        ):
+            screen._apply_single_backend_status("cuda", cuda)
+
+        assert screen._wizard_state["cuda_status"] is cuda
+        mock_cuda_card.set_status.assert_not_called()
+
+    def test_on_mount_starts_worker_without_sync_get_build_status(self) -> None:
+        """on_mount should render immediately and defer get_build_status to a worker."""
+        from llama_cli.tui.components.build import BuildModalScreen
+
+        screen = BuildModalScreen()
+
+        with (
+            patch("llama_cli.tui.components.build.get_build_status") as mock_get_status,
+            patch.object(screen, "call_later") as mock_call_later,
+            patch.object(screen, "_fetch_build_status_worker") as mock_worker,
+        ):
+            screen.on_mount()
+
+        mock_get_status.assert_not_called()
+        mock_call_later.assert_called_once()
+        mock_worker.assert_called_once()
+
+
+# =============================================================================
 # _handle_build_progress
 # =============================================================================
 
@@ -1326,18 +1579,17 @@ class TestHandleLaunchResult:
         with pytest.raises(SystemExit):
             app._handle_launch_result(launch_result)
 
-    def test_handle_degraded_result(self, capsys) -> None:
-        """_handle_launch_result should print warning for degraded result."""
+    def test_handle_degraded_result(self) -> None:
+        """_handle_launch_result should buffer warning for degraded result."""
         from llama_manager import LaunchResult
 
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
         launch_result = LaunchResult(status="degraded", warnings=["slot1 blocked"])
 
-        # Should not raise, just print warning
         app._handle_launch_result(launch_result)
 
-        captured = capsys.readouterr()
-        assert "degraded" in captured.err.lower()
+        messages = [message for _ts, message in app._status_messages]
+        assert any("degraded" in message.lower() for message in messages)
 
 
 # =============================================================================
@@ -1475,56 +1727,22 @@ class TestSignalHandler:
 
         with patch.object(app, "_build_pipeline") as mock_pipeline:
             mock_pipeline.release_lock.return_value = None
+            app.model.build_cancel_event = MagicMock()
 
-            with pytest.raises(SystemExit) as exc_info:
-                app._signal_handler_build(2, None)
+            app._signal_handler_build(2, None)
 
-            assert exc_info.value.code == 130
             mock_pipeline.release_lock.assert_called_once()
+            assert app.build_in_progress is False
+            app.model.build_cancel_event.set.assert_called_once()
 
 
 # =============================================================================
-# Profiling input/cancellation and staleness wiring
+# Stale profile cache warnings (read-only in TUI)
 # =============================================================================
 
 
-class TestProfilingFlow:
-    """Tests for non-blocking profiling input and cancellation behavior."""
-
-    def test_execute_profile_returns_1_when_cancel_event_missing(self) -> None:
-        app = TUIApp(configs=[_make_config(alias="slot0")], gpu_indices=[0])
-
-        exit_code = app._execute_profile("slot0", "balanced")
-
-        assert exit_code == 1
-
-    def test_execute_profile_uses_silent_callback_mode(self) -> None:
-        app = TUIApp(configs=[_make_config(alias="slot0")], gpu_indices=[0])
-        cancel_event = threading.Event()
-        app._profile_cancel_events["slot0"] = cancel_event
-
-        with patch("llama_cli.commands.profile.cmd_profile", return_value=0) as mock_cmd_profile:
-            exit_code = app._execute_profile("slot0", "balanced")
-
-        assert exit_code == 0
-        mock_cmd_profile.assert_called_once_with(
-            slot_id="slot0",
-            flavor="balanced",
-            quiet=True,
-            progress_callback=app._push_status_message,
-            cancel_event=cancel_event,
-        )
-
-    def test_abort_profile_sets_cancel_event_and_failed_status(self) -> None:
-        app = TUIApp(configs=[_make_config(alias="slot0")], gpu_indices=[0])
-        event = threading.Event()
-        app._profile_status["slot0"] = "running"
-        app._profile_cancel_events["slot0"] = event
-
-        app._abort_profile()
-
-        assert event.is_set()
-        assert app._profile_status["slot0"] == "failed"
+class TestStaleProfileWarnings:
+    """Tests for cached benchmark profile staleness display in the TUI."""
 
     def test_get_stale_warning_uses_gpu_identifier_and_driver_binary_versions(self) -> None:
         app = TUIApp(configs=[_make_config(alias="slot0", device="SYCL0")], gpu_indices=[0])
@@ -1540,16 +1758,15 @@ class TestProfilingFlow:
 
         with (
             patch(
-                "llama_cli.tui.viewmodel.get_gpu_identifier", return_value="intel-arc_b580-00"
+                "llama_cli.tui.controller.get_gpu_identifier", return_value="intel-arc_b580-00"
             ) as mock_gpu,
             patch(
-                "llama_cli.commands.profile.get_driver_version", return_value="driver-1"
-            ) as mock_driver,
-            patch(
-                "llama_cli.tui.viewmodel.load_profile_with_staleness",
+                "llama_cli.tui.controller.load_profile_with_staleness",
                 return_value=(MagicMock(), stale_result),
             ) as mock_load,
         ):
+            mock_driver = MagicMock(return_value="driver-1")
+            app.refresh_stale_warnings(mock_driver)
             warning = app.get_stale_warning(cfg)
 
         assert warning is not None
@@ -1561,21 +1778,27 @@ class TestProfilingFlow:
         assert mock_load.call_args.kwargs["current_binary_version"] == "v1.2.3"
 
 
+class TestBuildWizardResultMarkup:
+    """Build wizard result text must escape user errors that contain Rich markup."""
+
+    def test_result_content_preserves_brackets_in_error(self) -> None:
+        from llama_cli.tui.components.build import BuildModalScreen
+
+        screen = BuildModalScreen()
+        err = "Configure failed: ['cmake', '-DGGML_SYCL=ON'] timed out after 0.25 seconds"
+        screen._wizard_state["build_result_error"] = err
+        content = screen._result_content(False)
+        assert err in str(content)
+        assert "Build failed" in str(content)
+
+
 class TestBuildCommandMenu:
     """Command menu state lives in the view model for the Textual widget."""
 
     def test_normal_mode_shows_expected_commands(self) -> None:
         state = TUIApp(configs=[_make_config()], gpu_indices=[0]).view_model.command_menu()
-        assert state.profile_request is None
         assert state.risk_prompt is None
         assert state.build_request is False
-        assert state.smoke_request is False
-
-    def test_profile_pending_shows_flavor_commands(self) -> None:
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app.profile_request = "slot0"
-        state = app.view_model.command_menu()
-        assert state.profile_request == "slot0"
 
     def test_risk_prompt_shows_confirm_commands(self) -> None:
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
@@ -1707,30 +1930,56 @@ def test_add_slot_modal_composes_shared_modal_classes() -> None:
     assert action_buttons[1].has_class("modal-button-success")
 
 
-def test_command_menu_composes_stylable_items() -> None:
-    from textual.containers import Horizontal
-    from textual.widgets import Static
+class TestDashboardAppCheckAction:
+    """Footer visibility is driven by DashboardApp.check_action()."""
 
-    from llama_cli.tui.components.menu import CommandMenu
+    @staticmethod
+    def _app_for_state(
+        *,
+        risk_prompt: Any = None,
+        build_request: bool = False,
+    ) -> Any:
+        from llama_cli.tui.textual_app import DashboardApp
+        from llama_cli.tui.types import CommandMenuState
 
-    view_model = MagicMock()
-    view_model.command_menu.return_value = SimpleNamespace(
-        build_request=False,
-        smoke_request=False,
-        profile_request=None,
-        risk_prompt=None,
-    )
+        controller = MagicMock()
+        controller.view_model.command_menu.return_value = CommandMenuState(
+            risk_prompt=risk_prompt,
+            build_request=build_request,
+        )
+        return DashboardApp(controller)
 
-    items = list(CommandMenu(view_model).compose())
+    def test_normal_mode_shows_dashboard_actions(self) -> None:
+        app = self._app_for_state()
+        assert app.check_action("quit_dashboard", ()) is True
+        assert app.check_action("refresh_dashboard", ()) is True
+        assert app.check_action("confirm", ()) is False
+        assert app.check_action("reject", ()) is False
 
-    assert len(items) == 8
-    assert isinstance(items[0], Horizontal)
-    assert items[0].has_class("command-menu-item")
-    first_item_children = items[0]._pending_children
-    assert isinstance(first_item_children[0], Static)
-    assert first_item_children[0].has_class("command-menu-key")
-    assert isinstance(first_item_children[1], Static)
-    assert first_item_children[1].has_class("command-menu-description")
+    def test_risk_prompt_hides_dashboard_actions(self) -> None:
+        from llama_cli.tui.types import RiskPromptState
+
+        app = self._app_for_state(
+            risk_prompt=RiskPromptState(kind="hardware", acknowledged=False),
+        )
+        assert app.check_action("confirm", ()) is True
+        assert app.check_action("build", ()) is False
+        assert app.check_action("quit_dashboard", ()) is True
+
+    def test_vram_risk_hides_quit(self) -> None:
+        from llama_cli.tui.types import RiskPromptState
+
+        app = self._app_for_state(
+            risk_prompt=RiskPromptState(kind="vram", acknowledged=False),
+        )
+        assert app.check_action("quit_dashboard", ()) is False
+        assert app.check_action("confirm", ()) is True
+
+    def test_build_request_only_shows_cancel(self) -> None:
+        app = self._app_for_state(build_request=True)
+        assert app.check_action("cancel_pending_prompt", ()) is True
+        assert app.check_action("quit_dashboard", ()) is False
+        assert app.check_action("build", ()) is False
 
 
 @pytest.mark.anyio
@@ -1876,61 +2125,69 @@ def test_add_slot_modal_on_input_submitted_only_for_slot_port() -> None:
 
 
 @pytest.mark.anyio
-async def test_dashboard_app_layout_geometry_regression(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_dashboard_app_layout_geometry_regression() -> None:
     """CPUUsageWidget stays compact; system widgets above #content; non-zero sizes."""
-    import llama_cli.tui.components.system_health as system_health_module
-
-    monkeypatch.setattr(
-        system_health_module.psutil,
-        "cpu_percent",
-        lambda interval=None, percpu=False: [0.0] * 24 if percpu else 0.0,
-    )
-    monkeypatch.setattr(
-        system_health_module.psutil,
-        "virtual_memory",
-        lambda: SimpleNamespace(percent=50.0, used=8 * 1024**3, total=16 * 1024**3),
-    )
-    monkeypatch.setattr(
-        system_health_module.psutil,
-        "swap_memory",
-        lambda: SimpleNamespace(percent=0.0, used=0, total=2 * 1024**3),
-    )
-    monkeypatch.setattr(system_health_module.psutil, "boot_time", lambda: 0.0)
-    monkeypatch.setattr(system_health_module.psutil, "getloadavg", lambda: (0.1, 0.2, 0.3))
-    monkeypatch.setattr(system_health_module.psutil, "process_iter", lambda attrs=[]: [])  # type: ignore[arg-type]
-
     from llama_cli.tui.components.gpu_stats import GPUStatsPanel
     from llama_cli.tui.components.gpu_telemetry import GPUTelemetryWidget
-    from llama_cli.tui.components.menu import CommandMenu
     from llama_cli.tui.components.server_column import ServerColumnPanel
     from llama_cli.tui.components.system_health import (
         CPUUsageWidget,
+        DateTimeWidget,
         MemorySwapWidget,
         SystemInfoWidget,
     )
     from llama_cli.tui.textual_app import DashboardApp
-    from llama_cli.tui.types import ServerColumnState
-    from llama_manager.log_buffer import LogBuffer
+    from llama_cli.tui.types import (
+        CPUCoreSnapshot,
+        DateTimeSnapshot,
+        MemoryUsageSnapshot,
+        ServerColumnState,
+        SystemInfoSnapshot,
+    )
 
     controller = DashboardController(
         configs=[_make_config()],
         gpu_indices=[],
         register_signals=False,
     )
+    controller.view_model.cpu_usage_rows = MagicMock(  # type: ignore[method-assign]
+        return_value=[
+            [CPUCoreSnapshot(index=col * 3 + row, percent=0.0) for col in range(8)]
+            for row in range(3)
+        ]
+    )
+    controller.view_model.memory_usage_rows = MagicMock(  # type: ignore[method-assign]
+        return_value=[
+            MemoryUsageSnapshot("Mem", 50.0, "8.00G/16.0G"),
+            MemoryUsageSnapshot("Swp", 0.0, "0.00G/2.00G"),
+        ]
+    )
+    controller.view_model.system_info_snapshot = MagicMock(  # type: ignore[method-assign]
+        return_value=SystemInfoSnapshot(
+            tasks=0,
+            threads=0,
+            running=0,
+            load_values=(0.1, 0.2, 0.3),
+            uptime="00:00:00",
+        )
+    )
+    controller.view_model.current_datetime_snapshot = MagicMock(  # type: ignore[method-assign]
+        return_value=DateTimeSnapshot(date_text="Wed 2026-05-13")
+    )
 
     controller.view_model.gpu_telemetry_lines = MagicMock(return_value=[])  # type: ignore[method-assign]
     controller.view_model.system_notices = MagicMock(return_value=[])  # type: ignore[method-assign]
     controller.view_model.column = MagicMock(  # type: ignore[method-assign]
         return_value=ServerColumnState(
-            config=_make_config(),
-            buffer=LogBuffer(),
-            gpu=None,
-            host="127.0.0.1",
+            alias="slot0",
+            status="offline",
+            status_class="server-column-status-offline",
+            backend_label="SYCL",
+            url="http://127.0.0.1:8080",
+            config_summary="Device: SYCL0 | Ctx: 2048 | Threads: 4",
+            logs_text="Waiting for output...",
+            gpu_stats=None,
             stale_warning=None,
-            slot_states={},
-            server_processes={},
             is_unsaved=False,
         ),
     )
@@ -1939,13 +2196,19 @@ async def test_dashboard_app_layout_geometry_regression(
     async with app.run_test(size=(120, 30)) as pilot:
         await pilot.pause()
 
+        datetime_row = app.query_one(DateTimeWidget)
         cpu = app.query_one(CPUUsageWidget)
         mem = app.query_one(MemorySwapWidget)
         info = app.query_one(SystemInfoWidget)
         content = app.query_one("#content")
-        cmd_menu = app.query_one(CommandMenu)
 
+        assert datetime_row.region.height >= 7, (
+            f"DateTimeWidget height {datetime_row.region.height} < 7 (logo row)"
+        )
         assert cpu.region.height < 10, f"CPUUsageWidget height {cpu.region.height} >= 10"
+
+        datetime_bottom = datetime_row.region.y + datetime_row.region.height
+        assert content.region.y >= datetime_bottom
 
         assert mem.region.y + mem.region.height <= content.region.y
         assert info.region.y + info.region.height <= content.region.y
@@ -1954,4 +2217,89 @@ async def test_dashboard_app_layout_geometry_regression(
         assert list(app.query(ServerColumnPanel))
         assert list(app.query(GPUStatsPanel))
 
-        assert cmd_menu.region.height == 1, f"CommandMenu height {cmd_menu.region.height} != 1"
+        from textual.widgets import Footer
+
+        footer = app.query_one(Footer)
+        assert footer.region.height == 1, f"Footer height {footer.region.height} != 1"
+        assert footer.show_command_palette is False
+        descriptions = {
+            binding.description
+            for (_, binding, _enabled, _tooltip) in app.screen.active_bindings.values()
+            if binding.show and app.check_action(binding.action, ()) is not False
+        }
+        assert "Quit" in descriptions
+        assert "Refresh" in descriptions
+
+
+# =============================================================================
+# ViewModel profile_options (Task 7: MVVM registry leakage cleanup)
+# =============================================================================
+
+
+class TestViewModelProfileOptions:
+    """Tests for DashboardViewModel.profile_options()."""
+
+    def test_profile_options_returns_label_value_tuples(self) -> None:
+        """profile_options should return (label, value) pairs for each profile."""
+        controller = DashboardController(configs=[_make_config()], gpu_indices=[])
+        options = controller.view_model.profile_options()
+
+        assert isinstance(options, list)
+        assert all(isinstance(item, tuple) and len(item) == 2 for item in options)
+
+    def test_profile_options_contains_expected_profiles(self) -> None:
+        """profile_options should include the built-in profiles."""
+        controller = DashboardController(configs=[_make_config()], gpu_indices=[])
+        options = controller.view_model.profile_options()
+
+        profile_ids = [value for _, value in options]
+        assert "summary-balanced" in profile_ids
+        assert "summary-fast" in profile_ids
+        assert "qwen35" in profile_ids
+
+    def test_profile_options_labels_include_profile_id_and_description(self) -> None:
+        """Profile labels should combine profile_id and description."""
+        controller = DashboardController(configs=[_make_config()], gpu_indices=[])
+        options = controller.view_model.profile_options()
+
+        labels = [label for label, _ in options]
+        assert any("summary-balanced" in label for label in labels)
+        assert any("summary-fast" in label for label in labels)
+        assert any("qwen35" in label for label in labels)
+
+    def test_profile_options_with_config_passes_config_to_registry(self) -> None:
+        """profile_options should accept and pass a Config to create_default_profile_registry."""
+        from llama_manager.config import Config
+
+        controller = DashboardController(configs=[_make_config()], gpu_indices=[])
+        custom_config = Config()
+        options = controller.view_model.profile_options(custom_config)
+
+        assert isinstance(options, list)
+        assert len(options) > 0
+
+    def test_app_delegates_profile_options_to_viewmodel(self) -> None:
+        """DashboardApp._build_profile_options should call viewmodel.profile_options()."""
+        controller = DashboardController(configs=[_make_config()], gpu_indices=[0])
+        app = DashboardApp(controller)
+
+        # The app caches results, so first call populates the cache
+        options = app._build_profile_options()
+
+        profile_ids = [value for _, value in options]
+        assert "summary-balanced" in profile_ids
+        assert "summary-fast" in profile_ids
+        assert "qwen35" in profile_ids
+
+    def test_app_profile_options_uses_controller_config(self) -> None:
+        """_build_profile_options should pass controller.config to viewmodel."""
+        controller = DashboardController(configs=[_make_config()], gpu_indices=[0])
+        app = DashboardApp(controller)
+
+        # Clear cache to force a fresh call
+        app._profile_options_cache = None
+        app._profile_cache_config_id = None
+
+        # Should not raise and should use controller.config
+        options = app._build_profile_options()
+        assert len(options) > 0

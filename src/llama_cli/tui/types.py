@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from llama_manager import GPUStats, LogBuffer, ServerConfig
+from llama_manager.build_pipeline import BuildConfig
 
 
 @dataclass(frozen=True)
@@ -18,21 +18,82 @@ class RiskPromptState:
 class CommandMenuState:
     """State needed to render the bottom command menu."""
 
-    profile_request: str | None
     risk_prompt: RiskPromptState | None
     build_request: bool
-    smoke_request: bool
 
 
 @dataclass(frozen=True)
 class ServerColumnState:
     """State needed to render one server column."""
 
-    config: ServerConfig
-    buffer: LogBuffer
-    gpu: GPUStats | None
-    host: str
+    alias: str
+    status: str
+    status_class: str
+    backend_label: str
+    url: str
+    config_summary: str
+    logs_text: str
+    gpu_stats: dict[str, Any] | None
     stale_warning: str | None
-    slot_states: dict[str, str]
-    server_processes: dict[str, Any]
     is_unsaved: bool
+
+
+@dataclass(frozen=True)
+class CPUCoreSnapshot:
+    """Structured CPU core usage cell."""
+
+    index: int
+    percent: float
+
+
+@dataclass(frozen=True)
+class MemoryUsageSnapshot:
+    """Structured memory or swap usage row."""
+
+    label: str
+    percent: float
+    value_text: str
+
+
+@dataclass(frozen=True)
+class SystemInfoSnapshot:
+    """Structured values for the textual system info widget."""
+
+    tasks: int
+    threads: int
+    running: int
+    load_values: tuple[float, float, float] | None
+    uptime: str
+
+
+@dataclass(frozen=True)
+class DateTimeSnapshot:
+    """Formatted date for the system health datetime row (e.g. Wed 2026-05-20)."""
+
+    date_text: str
+
+
+@dataclass(frozen=True)
+class BuildViewState:
+    """State needed to render the build progress panel."""
+
+    visible: bool = False
+    build_request: bool = False
+    selected_backend: str | None = None
+    in_progress: bool = False
+    stage: str | None = None
+    message: str | None = None
+    is_retrying: bool = False
+    retries_remaining: int = 0
+    last_result_success: bool | None = None
+    artifact_path: str | None = None
+    error_message: str | None = None
+    progress_percent: int = 0
+
+
+@dataclass
+class BuildWizardResult:
+    """Result returned from the build wizard modal."""
+
+    backends: list[str]
+    options: dict[str, BuildConfig | None]
