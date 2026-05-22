@@ -161,6 +161,12 @@ Examples:
     )
 
     parser.add_argument(
+        "--clean-cache",
+        action="store_true",
+        help="Remove stale CMakeCache.txt before configuring",
+    )
+
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print commands without executing",
@@ -231,6 +237,7 @@ def _create_build_config(
         retry_delay=args.retry_delay,
         update_sources=not args.no_update_sources,
         git_commit=args.git_commit,
+        clean_cache=args.clean_cache,
     )
 
 
