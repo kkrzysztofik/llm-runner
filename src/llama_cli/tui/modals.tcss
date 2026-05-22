@@ -127,6 +127,12 @@ BuildModalScreen {
     min-height: 28;
 }
 
+.build-modal.build-modal-result {
+    height: 90%;
+    max-height: 95%;
+    min-height: 28;
+}
+
 .build-title {
     text-style: bold;
     margin-bottom: 1;
@@ -177,6 +183,10 @@ BuildModalScreen {
     width: 18;
 }
 
+#build-done {
+    width: 14;
+}
+
 .build-wizard-step-building {
     width: 100%;
     height: 1fr;
@@ -195,6 +205,8 @@ BuildModalScreen {
 
 .build-wizard-step-result {
     width: 100%;
+    height: 1fr;
+    layout: vertical;
 }
 
 .build-step-label {
@@ -346,7 +358,39 @@ BuildModalScreen {
 }
 
 /* Result step */
+.build-result-scroll {
+    height: 1fr;
+    min-height: 10;
+    overflow-y: auto;
+}
+
 .build-result-panel {
     margin-top: 1;
     margin-bottom: 1;
+}
+
+.build-result-summary {
+    margin-bottom: 1;
+}
+
+.build-result-log-section {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.build-result-log-title {
+    text-style: bold;
+    color: $text-muted;
+    margin-bottom: 0;
+}
+
+.build-result-text-area {
+    height: 14;
+    min-height: 6;
+    border: solid ansi_bright_black;
+    background: black;
+}
+
+.build-result-text-area:focus {
+    border: solid $accent;
 }

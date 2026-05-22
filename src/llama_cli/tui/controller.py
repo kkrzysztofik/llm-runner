@@ -513,8 +513,6 @@ class DashboardController:
                 self._push_status_message(f"Build failed: {progress.message}")
             elif progress.status == "success":
                 self._push_status_message("Build completed successfully.")
-            else:
-                self._push_status_message(f"Build {progress.status}: {progress.message}")
 
         # Push to wizard modal if active
         wizard = self._build_wizard

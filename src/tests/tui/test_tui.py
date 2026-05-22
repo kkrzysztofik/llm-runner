@@ -1508,6 +1508,22 @@ class TestBuildModalAsyncStatus:
 class TestHandleBuildProgress:
     """Tests for TUIApp._handle_build_progress."""
 
+    def test_handle_progress_running_does_not_push_status_message(self) -> None:
+        """Routine running progress should update state without creating toast spam."""
+        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
+        app.build_in_progress = True
+
+        progress = BuildProgress(
+            stage="build",
+            status="running",
+            message="Building object...",
+            progress_percent=7,
+        )
+        app._handle_build_progress(progress)
+
+        assert app.build_progress is progress
+        assert app.get_status_messages_since(0.0) == []
+
     def test_handle_progress_retry(self) -> None:
         """_handle_build_progress should push a retry status message."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])

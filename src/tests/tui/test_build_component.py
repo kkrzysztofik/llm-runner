@@ -1013,3 +1013,30 @@ class TestBuildResultContent:
         result = build_result_content(success=None, error_message="something went wrong")
         assert "Build failed:" in result.plain
         assert "something went wrong" in result.plain
+
+    def test_split_result_error_separates_stdout_and_stderr_tails(self) -> None:
+        """Result helper should split build failure output into selectable sections."""
+        error = (
+            "Build failed: Build command failed with exit code 2: cmake --build build\n"
+            "stderr tail:\n"
+            "fatal error: math.h: No such file or directory\n"
+            "\n"
+            "stdout tail:\n"
+            "[  9%] Building CUDA object fattn.cu.o\n"
+        )
+
+        details, stderr_tail, stdout_tail = BuildModalScreen._split_result_error(error)
+
+        assert details == ""
+        assert stderr_tail == "fatal error: math.h: No such file or directory"
+        assert stdout_tail == "[  9%] Building CUDA object fattn.cu.o"
+
+    def test_split_result_error_keeps_additional_details_without_tails(self) -> None:
+        """Result helper should keep non-tail details after the summary line."""
+        details, stderr_tail, stdout_tail = BuildModalScreen._split_result_error(
+            "Build failed: Configure failed before cmake started\ncmake timed out"
+        )
+
+        assert details == "cmake timed out"
+        assert stderr_tail == ""
+        assert stdout_tail == ""
