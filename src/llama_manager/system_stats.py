@@ -6,6 +6,7 @@ except psutil calls.
 """
 
 import time
+from typing import cast
 
 import psutil
 
@@ -20,7 +21,7 @@ def collect_cpu_percentages(percpu: bool = True) -> list[float]:
         List of CPU usage percentages (0.0–100.0).
     """
     if percpu:
-        return psutil.cpu_percent(interval=None, percpu=True)
+        return cast(list[float], psutil.cpu_percent(interval=None, percpu=True))
     return [psutil.cpu_percent(interval=None, percpu=False)]
 
 

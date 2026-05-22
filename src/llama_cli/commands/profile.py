@@ -274,7 +274,7 @@ def _handle_cancel(
 
 
 def _handle_timeout(
-    proc: subprocess.Popen[str], start: float, timeout_seconds: float
+    _proc: subprocess.Popen[str], start: float, timeout_seconds: float
 ) -> SubprocessResult | None:
     """Handle timeout if elapsed >= timeout_seconds. Returns result or None to continue."""
     elapsed = time.monotonic() - start
@@ -285,6 +285,35 @@ def _handle_timeout(
             stderr=f"benchmark timed out after {timeout_seconds}s",
         )
     return None
+
+
+def _poll_until_done(
+    proc: subprocess.Popen[str],
+    timeout_seconds: int,
+    cancel_event: threading.Event | None,
+) -> SubprocessResult:
+    """Poll *proc* until it exits, is cancelled, or times out."""
+    import time
+
+    start = time.monotonic()
+    while True:
+        ret = proc.poll()
+        if ret is not None:
+            return SubprocessResult(
+                exit_code=ret,
+                stdout=proc.stdout.read() if proc.stdout else "",
+                stderr=proc.stderr.read() if proc.stderr else "",
+            )
+        if cancel_event is not None:
+            cancel_result = _handle_cancel(proc, cancel_event)
+            if cancel_result is not None:
+                return cancel_result
+        timeout_result = _handle_timeout(proc, start, timeout_seconds)
+        if timeout_result is not None:
+            return timeout_result
+        remaining = timeout_seconds - (time.monotonic() - start)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=min(remaining, 1.0))
 
 
 def _default_subprocess_runner(
@@ -320,27 +349,7 @@ def _default_subprocess_runner(
         return SubprocessResult(exit_code=-1, stdout="", stderr="Popen failed")
 
     try:
-        import time
-
-        start = time.monotonic()
-        while True:
-            ret = proc.poll()
-            if ret is not None:
-                return SubprocessResult(
-                    exit_code=ret,
-                    stdout=proc.stdout.read() if proc.stdout else "",
-                    stderr=proc.stderr.read() if proc.stderr else "",
-                )
-            if cancel_event is not None:
-                cancel_result = _handle_cancel(proc, cancel_event)
-                if cancel_result is not None:
-                    return cancel_result
-            timeout_result = _handle_timeout(proc, start, timeout_seconds)
-            if timeout_result is not None:
-                return timeout_result
-            remaining = timeout_seconds - (time.monotonic() - start)
-            with contextlib.suppress(subprocess.TimeoutExpired):
-                proc.wait(timeout=min(remaining, 1.0))
+        return _poll_until_done(proc, timeout_seconds, cancel_event)
     except subprocess.TimeoutExpired as exc:
         timeout_stdout_text = _stream_to_text(exc.stdout)
         timeout_stderr_detail = _stream_to_text(exc.stderr)

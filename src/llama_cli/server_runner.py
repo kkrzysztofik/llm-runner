@@ -312,17 +312,17 @@ def _run_build(parsed: argparse.Namespace) -> int:
     return build_main(parsed.build_args)
 
 
-def _run_setup(parsed: argparse.Namespace) -> int:
+def _run_setup(_parsed: argparse.Namespace) -> int:
     return setup_main(sys.argv[1:])
 
 
-def _run_doctor(parsed: argparse.Namespace) -> int:
+def _run_doctor(_parsed: argparse.Namespace) -> int:
     from llama_cli.commands.doctor import main as doctor_main
 
     return doctor_main(sys.argv[1:])
 
 
-def _run_profile(parsed: argparse.Namespace) -> int:
+def _run_profile(_parsed: argparse.Namespace) -> int:
     from llama_cli.commands.profile import main as profile_main
 
     return profile_main(sys.argv[1:])
