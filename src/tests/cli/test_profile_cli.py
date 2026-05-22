@@ -1109,3 +1109,230 @@ class TestValidateSlotId:
 
         result = _validate_slot_id("   ")
         assert result == "slot_id must not be empty"
+
+
+# ---------------------------------------------------------------------------
+# TestExitIfProfileCancelled
+# ---------------------------------------------------------------------------
+
+
+class TestExitIfProfileCancelled:
+    """Tests for _exit_if_profile_cancelled."""
+
+    def test_returns_none_when_no_cancel_event(self) -> None:
+        from llama_cli.commands.profile import _exit_if_profile_cancelled
+
+        result = _exit_if_profile_cancelled(None, "slot0", lambda *a, **kw: None)
+        assert result is None
+
+    def test_returns_none_when_event_not_set(self) -> None:
+        import threading
+
+        from llama_cli.commands.profile import _exit_if_profile_cancelled
+
+        event = threading.Event()
+        result = _exit_if_profile_cancelled(event, "slot0", lambda *a, **kw: None)
+        assert result is None
+
+    def test_returns_1_when_event_set(self) -> None:
+        import threading
+
+        from llama_cli.commands.profile import _exit_if_profile_cancelled
+
+        event = threading.Event()
+        event.set()
+        messages: list[str] = []
+        result = _exit_if_profile_cancelled(event, "slot0", lambda msg, **kw: messages.append(msg))
+        assert result == 1
+        assert any("cancelled" in m for m in messages)
+
+
+# ---------------------------------------------------------------------------
+# TestCheckSlotLockfile
+# ---------------------------------------------------------------------------
+
+
+class TestCheckSlotLockfile:
+    """Tests for _check_slot_lockfile."""
+
+    def test_no_lockfile_no_emit(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _check_slot_lockfile
+        from llama_manager import Config
+
+        config = MagicMock(spec=Config)
+        config.profiles_dir = tmp_path / "profiles"
+        emitted: list[str] = []
+        _check_slot_lockfile("slot0", config, emitted.append)
+        assert emitted == []
+
+    def test_lockfile_exists_emits_warning(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _check_slot_lockfile
+        from llama_manager import Config
+
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+        lock = runtime_dir / "slot0.lock"
+        lock.write_text("")
+
+        config = MagicMock(spec=Config)
+        config.profiles_dir = runtime_dir / "profiles"
+        emitted: list[str] = []
+        _check_slot_lockfile("slot0", config, emitted.append)
+        assert any("lockfile" in m for m in emitted)
+
+    def test_oserror_is_swallowed(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _check_slot_lockfile
+        from llama_manager import Config
+
+        config = MagicMock(spec=Config)
+        # Make profiles_dir.parent raise OSError
+        profiles_dir_mock = MagicMock()
+        profiles_dir_mock.parent.__truediv__ = MagicMock(side_effect=OSError("disk error"))
+        config.profiles_dir = profiles_dir_mock
+        # Should not raise
+        _check_slot_lockfile("slot0", config, lambda msg: None)
+
+
+# ---------------------------------------------------------------------------
+# TestHandleCancel
+# ---------------------------------------------------------------------------
+
+
+class TestHandleCancel:
+    """Tests for _handle_cancel."""
+
+    def test_returns_none_when_not_set(self) -> None:
+        import subprocess
+        import threading
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _handle_cancel
+
+        proc = MagicMock(spec=subprocess.Popen)
+        event = threading.Event()
+        result = _handle_cancel(proc, event)
+        assert result is None
+
+    def test_returns_130_when_set(self) -> None:
+        import subprocess
+        import threading
+        from unittest.mock import MagicMock, patch
+
+        from llama_cli.commands.profile import _handle_cancel
+
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.pid = 12345
+        event = threading.Event()
+        event.set()
+
+        with (
+            patch("os.getpgid", return_value=12345),
+            patch("os.killpg"),
+        ):
+            result = _handle_cancel(proc, event)
+
+        assert result is not None
+        assert result.exit_code == 130
+        assert "cancelled" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# TestHandleTimeout
+# ---------------------------------------------------------------------------
+
+
+class TestHandleTimeout:
+    """Tests for _handle_timeout."""
+
+    def test_returns_none_when_not_elapsed(self) -> None:
+        import subprocess
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _handle_timeout
+
+        proc = MagicMock(spec=subprocess.Popen)
+        import time
+
+        start = time.monotonic()
+        result = _handle_timeout(proc, start, 600.0)
+        assert result is None
+
+    def test_returns_124_when_elapsed(self) -> None:
+        import subprocess
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _handle_timeout
+
+        proc = MagicMock(spec=subprocess.Popen)
+        # start far in the past
+        start = 0.0
+        result = _handle_timeout(proc, start, 1.0)
+        assert result is not None
+        assert result.exit_code == 124
+        assert "timed out" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# TestPollUntilDone
+# ---------------------------------------------------------------------------
+
+
+class TestPollUntilDone:
+    """Tests for _poll_until_done."""
+
+    def test_process_exits_normally(self) -> None:
+        import subprocess
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _poll_until_done
+
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.poll.return_value = 0
+        proc.stdout.read.return_value = "output"
+        proc.stderr.read.return_value = ""
+
+        result = _poll_until_done(proc, 600, None)
+        assert result.exit_code == 0
+        assert result.stdout == "output"
+
+    def test_cancel_event_terminates(self) -> None:
+        import subprocess
+        import threading
+        from unittest.mock import MagicMock, patch
+
+        from llama_cli.commands.profile import _poll_until_done
+
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.poll.return_value = None  # never exits on its own
+        proc.pid = 12345
+
+        cancel = threading.Event()
+        cancel.set()
+
+        with (
+            patch("os.getpgid", return_value=12345),
+            patch("os.killpg"),
+        ):
+            result = _poll_until_done(proc, 600, cancel)
+
+        assert result.exit_code == 130
+
+    def test_timeout_returns_124(self) -> None:
+        import subprocess
+        from unittest.mock import MagicMock
+
+        from llama_cli.commands.profile import _poll_until_done
+
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.poll.return_value = None  # never exits
+        proc.wait.return_value = None
+
+        # Use a very short timeout so it expires immediately
+        result = _poll_until_done(proc, 0, None)
+        assert result.exit_code == 124

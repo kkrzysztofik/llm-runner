@@ -1,15 +1,14 @@
 """Slot status presentation constants."""
 
-# pragma: no cover — pure constant data, imported by slot_state.py
-from llama_manager import SlotState
+from llama_manager import SlotState  # pragma: no cover
 
-BACKEND_LABELS: dict[str, str] = {
+BACKEND_LABELS: dict[str, str] = {  # pragma: no cover
     "sycl": "SYCL",
     "cuda": "CUDA",
     "llama_cpp": "CPU",
 }
 
-STATUS_COLORS: dict[str, str] = {
+STATUS_COLORS: dict[str, str] = {  # pragma: no cover
     SlotState.RUNNING.value: "green",
     SlotState.LAUNCHING.value: "yellow",
     SlotState.DEGRADED.value: "yellow",
