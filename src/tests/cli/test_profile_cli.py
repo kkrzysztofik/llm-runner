@@ -1292,10 +1292,15 @@ class TestPollUntilDone:
 
         from llama_cli.commands.profile import _poll_until_done
 
+        stdout_mock = MagicMock()
+        stdout_mock.read.return_value = "output"
+        stderr_mock = MagicMock()
+        stderr_mock.read.return_value = ""
+
         proc = MagicMock(spec=subprocess.Popen)
         proc.poll.return_value = 0
-        proc.stdout.read.return_value = "output"
-        proc.stderr.read.return_value = ""
+        proc.stdout = stdout_mock
+        proc.stderr = stderr_mock
 
         result = _poll_until_done(proc, 600, None)
         assert result.exit_code == 0
