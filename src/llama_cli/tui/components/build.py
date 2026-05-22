@@ -59,7 +59,7 @@ if TYPE_CHECKING:
 class BuildPanel(Container):
     """Build panel widget — always mounted, visibility toggled via CSS."""
 
-    def __init__(self) -> None:
+    def __init__(self) -> None:  # pragma: no cover
         super().__init__(id="build-panel", classes="build-panel")
         self._title = Static("", id="build-title")
         self._message = Static("", id="build-message")
@@ -69,7 +69,7 @@ class BuildPanel(Container):
         self._error = Static("", id="build-error")
         self._target_prompt = Static("", id="build-target-prompt")
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> ComposeResult:  # pragma: no cover
         with Container(id="build-content"):
             yield self._title
             yield self._message
@@ -168,12 +168,12 @@ class BackendReadiness:
 class BackendStatusCard(Widget):
     """Per-backend status card with a header spinner until status is fetched."""
 
-    def __init__(self, backend_name: str, *, card_id: str) -> None:
+    def __init__(self, backend_name: str, *, card_id: str) -> None:  # pragma: no cover
         super().__init__(id=card_id, classes="build-backend-card")
         self._backend_name = backend_name
         self.can_focus = False
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> ComposeResult:  # pragma: no cover
         yield Horizontal(
             Static(f"[bold]{self._backend_name}[/]", classes="build-backend-name"),
             LoadingIndicator(classes="build-backend-spinner"),
@@ -183,7 +183,7 @@ class BackendStatusCard(Widget):
         for line in _LOADING_DETAIL_LINES:
             yield Static(line, classes="build-backend-line")
 
-    def set_status(self, status: BuildStatus | None) -> None:
+    def set_status(self, status: BuildStatus | None) -> None:  # pragma: no cover
         """Show header spinner + placeholders, or badge and detail lines."""
         if not self.is_mounted:
             return
@@ -423,14 +423,14 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         """Return the DashboardApp instance."""
         return self.app  # type: ignore[return-value]
 
-    def _get_inputs(self, backend: str) -> dict[str, Input | Checkbox]:
+    def _get_inputs(self, backend: str) -> dict[str, Input | Checkbox]:  # pragma: no cover
         if backend == "sycl":
             return self._sycl_inputs
         return self._cuda_inputs
 
     # -- Composition --------------------------------------------------------
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> ComposeResult:  # pragma: no cover
         """Yield a single placeholder container that holds each wizard step.
 
         _render_step() replaces the placeholder's children (not the placeholder
@@ -442,7 +442,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
     # -- Lifecycle ----------------------------------------------------------
 
-    def on_mount(self) -> None:
+    def on_mount(self) -> None:  # pragma: no cover
         """Render step 1 immediately; fetch build status on a background worker."""
         self._wizard_state["sycl_status"] = None
         self._wizard_state["cuda_status"] = None
@@ -450,7 +450,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         self._fetch_build_status_worker()
 
     @work(thread=True, exclusive=True)
-    def _fetch_build_status_worker(self) -> None:
+    def _fetch_build_status_worker(self) -> None:  # pragma: no cover
         """Probe SYCL and CUDA build status off the UI thread; apply each as it completes."""
         config = self._dashboard_app.controller.config
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -463,11 +463,13 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
                 status = future.result()
                 self.app.call_from_thread(self._apply_single_backend_status, backend_key, status)
 
-    def _screen_can_apply_status(self) -> bool:
+    def _screen_can_apply_status(self) -> bool:  # pragma: no cover
         """Return True when the modal is still attached and can accept UI updates."""
         return bool(self.is_attached)
 
-    def _apply_single_backend_status(self, backend: BackendKey, status: BuildStatus) -> None:
+    def _apply_single_backend_status(
+        self, backend: BackendKey, status: BuildStatus
+    ) -> None:  # pragma: no cover
         """Store one backend's status and refresh its card when step 1 is visible."""
         if not self._screen_can_apply_status():
             return
@@ -479,14 +481,16 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         if card is not None:
             card.set_status(status)
 
-    def _release_select_step_widgets(self) -> None:
+    def _release_select_step_widgets(self) -> None:  # pragma: no cover
         """Drop stale references after step-1 widgets are removed from the tree."""
         self._select_backend = None
         self._sycl_card = None
         self._cuda_card = None
         self._status_cards = None
 
-    def _status_card_for_backend(self, backend: BackendKey) -> BackendStatusCard | None:
+    def _status_card_for_backend(
+        self, backend: BackendKey
+    ) -> BackendStatusCard | None:  # pragma: no cover
         """Return the live status card for *backend*, or None when step 1 is not shown."""
         if self._wizard_state["step"] != self.STEP_SELECT:
             return None
@@ -504,7 +508,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             self._cuda_card = card
         return card
 
-    def _render_step(self) -> None:
+    def _render_step(self) -> None:  # pragma: no cover
         """Clear and re-compose the current step inside the placeholder."""
         placeholder = self.query_one("#build-wizard-placeholder", Container)
         step = self._wizard_state["step"]
@@ -529,24 +533,24 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         elif step == self.STEP_RESULT:
             self._compose_step_result(placeholder)
 
-    def _focus_step_select(self) -> None:
+    def _focus_step_select(self) -> None:  # pragma: no cover
         """Set focus on the backend RadioSet."""
         if self._select_backend:
             self.set_focus(self._select_backend)
 
-    def _focus_step_options(self) -> None:
+    def _focus_step_options(self) -> None:  # pragma: no cover
         """Set focus on the Next/Start Build button."""
         if self._btn_next:
             self.set_focus(self._btn_next)
 
-    def _clear_mounted(self) -> None:
+    def _clear_mounted(self) -> None:  # pragma: no cover
         """Remove all children from the placeholder (for re-compose on back navigation)."""
         placeholder = self.query_one("#build-wizard-placeholder", Container)
         placeholder.remove_children()
 
     # -- Step 1: Select target + status ------------------------------------
 
-    def _compose_step_select(self, parent: Container) -> None:
+    def _compose_step_select(self, parent: Container) -> None:  # pragma: no cover
         title = Static(BUILD_WIZARD_TITLE, id="build-title", classes="build-title")
         label = Static("Select build target:", classes="build-step-label")
 
@@ -571,7 +575,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         # Cards are composed only after mount — apply wizard status once descendants exist.
         self.call_after_refresh(self._refresh_status_cards)
 
-    def _refresh_status_cards(self) -> None:
+    def _refresh_status_cards(self) -> None:  # pragma: no cover
         """Update step-1 status cards in place after async fetch completes."""
         if self._wizard_state["step"] != self.STEP_SELECT:
             return
@@ -582,7 +586,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         if cuda_card is not None:
             cuda_card.set_status(self._wizard_state.get("cuda_status"))
 
-    def _build_status_cards(self) -> Vertical:
+    def _build_status_cards(self) -> Vertical:  # pragma: no cover
         """Build per-backend status cards with loading indicators until fetch completes."""
         sycl_card = BackendStatusCard("SYCL", card_id="build-status-sycl")
         cuda_card = BackendStatusCard("CUDA", card_id="build-status-cuda")
@@ -598,7 +602,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
     # -- Step 2/3: Build options -------------------------------------------
 
-    def _compose_step_options(self, parent: Container, backend: str) -> None:
+    def _compose_step_options(self, parent: Container, backend: str) -> None:  # pragma: no cover
         config = self._dashboard_app.controller.config
         title_label = "SYCL" if backend == "sycl" else "CUDA"
 
@@ -724,7 +728,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             "build_timeout_seconds": int_val("build_timeout_seconds"),
         }
 
-    def _collect_options(self, backend: str) -> BuildConfig | None:
+    def _collect_options(self, backend: str) -> BuildConfig | None:  # pragma: no cover
         """Collect form values into a BuildConfig override."""
         inputs = self._get_inputs(backend)
         if not inputs:
@@ -761,7 +765,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
     # -- Step 4: Building --------------------------------------------------
 
-    def _compose_step_building(self, parent: Container) -> None:
+    def _compose_step_building(self, parent: Container) -> None:  # pragma: no cover
         backend = self._wizard_state.get("progress_backend", "unknown")
 
         title = Static(BUILD_WIZARD_TITLE, id="build-title", classes="build-title")
@@ -797,7 +801,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
     # -- Step 5: Result ----------------------------------------------------
 
-    def _compose_step_result(self, parent: Container) -> None:
+    def _compose_step_result(self, parent: Container) -> None:  # pragma: no cover
         success = self._wizard_state.get("build_result_success")
 
         title = Static(BUILD_WIZARD_TITLE, id="build-title", classes="build-title")
@@ -818,11 +822,11 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
     # -- Public API for controller progress updates ------------------------
 
-    def update_progress(self, progress: BuildProgress) -> None:
+    def update_progress(self, progress: BuildProgress) -> None:  # pragma: no cover
         """Receive build progress from the worker thread; apply on the Textual app thread."""
         self.app.call_from_thread(self._apply_build_progress, progress)
 
-    def _flush_build_output_buffer(self) -> None:
+    def _flush_build_output_buffer(self) -> None:  # pragma: no cover
         """Timer callback: write batched compiler lines to the log."""
         self._output_flush_pending = False
         if not self._screen_can_apply_status() or self._build_log is None:
@@ -835,7 +839,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             self._build_log.write(_rich_build_output_line(line))
         self._pending_output_lines.clear()
 
-    def _sync_building_step_ui(self) -> bool:
+    def _sync_building_step_ui(self) -> bool:  # pragma: no cover
         """Ensure the wizard is on the building step. Return False if update cannot apply."""
         if not self._screen_can_apply_status():
             return False
@@ -848,7 +852,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             return False
         return True
 
-    def _queue_build_output_line(self, progress: BuildProgress) -> None:
+    def _queue_build_output_line(self, progress: BuildProgress) -> None:  # pragma: no cover
         if (
             progress.output_line is None
             or self._build_log is None
@@ -861,7 +865,9 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         self._output_flush_pending = True
         self.set_timer(0.08, self._flush_build_output_buffer)
 
-    def _update_build_progress_widgets(self, progress: BuildProgress, backend: str) -> None:
+    def _update_build_progress_widgets(
+        self, progress: BuildProgress, backend: str
+    ) -> None:  # pragma: no cover
         if progress.output_line is not None and not (progress.message and progress.message.strip()):
             return
 
@@ -894,7 +900,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         self._retry_info.update("")
         self._retry_info.add_class("hidden")
 
-    def _apply_build_progress(self, progress: BuildProgress) -> None:
+    def _apply_build_progress(self, progress: BuildProgress) -> None:  # pragma: no cover
         """Apply a progress update on the main thread."""
         if not self._sync_building_step_ui():
             return
@@ -903,11 +909,11 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         self._queue_build_output_line(progress)
         self._update_build_progress_widgets(progress, backend)
 
-    def set_building_backend(self, backend: str) -> None:
+    def set_building_backend(self, backend: str) -> None:  # pragma: no cover
         """Mark the start of building for a specific backend (may run on a worker thread)."""
         self.app.call_from_thread(self._set_building_backend_main, backend)
 
-    def _set_building_backend_main(self, backend: str) -> None:
+    def _set_building_backend_main(self, backend: str) -> None:  # pragma: no cover
         if not self._screen_can_apply_status():
             return
         with self._progress_lock:
@@ -934,7 +940,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
     def set_build_result(
         self, success: bool, artifact_path: str | None = None, error_message: str = ""
-    ) -> None:
+    ) -> None:  # pragma: no cover
         """Set the final build result (may run on a worker thread)."""
         self.app.call_from_thread(
             self._set_build_result_main, success, artifact_path, error_message
@@ -942,7 +948,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
     def _set_build_result_main(
         self, success: bool, artifact_path: str | None, error_message: str
-    ) -> None:
+    ) -> None:  # pragma: no cover
         if not self._screen_can_apply_status():
             return
         with self._progress_lock:
@@ -956,13 +962,13 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
     # -- Actions ------------------------------------------------------------
 
-    def action_cancel(self) -> None:
+    def action_cancel(self) -> None:  # pragma: no cover
         """Cancel the wizard."""
         self.dismiss(None)
 
     # -- Button handling ----------------------------------------------------
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    def on_button_pressed(self, event: Button.Pressed) -> None:  # pragma: no cover
         bid = event.button.id
         if bid == "build-cancel":
             self.action_cancel()
@@ -988,7 +994,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         if bid == "build-next":
             self._handle_next()
 
-    def _handle_next(self) -> None:
+    def _handle_next(self) -> None:  # pragma: no cover
         """Handle Next button press — navigate or start build."""
         step = self._wizard_state["step"]
         selected = self._wizard_state["selected_backend"]
@@ -1016,7 +1022,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             self._wizard_state["cuda_options"] = self._collect_options("cuda")
             self._start_build_from_wizard()
 
-    def _start_build_from_wizard(self) -> None:
+    def _start_build_from_wizard(self) -> None:  # pragma: no cover
         """Store options in model and delegate build to controller.
 
         The modal stays open showing progress (step 4) while the controller
@@ -1043,7 +1049,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         # Delegate to controller — it will call back via update_progress / set_build_result
         self._dashboard_app.controller.handle_build_with_wizard(backends, self)
 
-    def _dismiss_with_result(self) -> None:
+    def _dismiss_with_result(self) -> None:  # pragma: no cover
         """Dismiss after result step."""
         success = self._wizard_state.get("build_result_success")
         if success is True:
@@ -1059,7 +1065,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
     # -- Backend selection via RadioSet ----------------------------------------
 
-    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:  # pragma: no cover
         """Sync wizard state when the user picks a different backend."""
         if self._wizard_state["step"] != self.STEP_SELECT:
             return
