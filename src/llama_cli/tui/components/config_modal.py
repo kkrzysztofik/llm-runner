@@ -102,7 +102,7 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                     "smoke_total_chat_timeout_s",
                     str(c.smoke_total_chat_timeout_s),
                 ),
-                classes="modal-scroll-body",
+                classes="modal-scroll-body config-scroll-body",
             ),
             Horizontal(
                 Button("Cancel", id="cancel-config", classes="modal-button-cancel"),
