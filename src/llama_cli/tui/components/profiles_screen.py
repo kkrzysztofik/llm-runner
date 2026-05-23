@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from textual.app import ComposeResult
@@ -12,6 +14,7 @@ from textual.widgets import Button, Label
 
 if TYPE_CHECKING:
     from llama_manager.config.profiles import RunProfileSpec
+    from llama_manager.model_index import ModelIndexEntry
 
 
 class ProfilesScreen(ModalScreen[dict[str, Any] | None]):
@@ -25,6 +28,7 @@ class ProfilesScreen(ModalScreen[dict[str, Any] | None]):
         self,
         profiles: list[tuple[RunProfileSpec, str]],
         in_use_ids: set[str] | None = None,
+        model_index: list[ModelIndexEntry] | None = None,
     ) -> None:
         """Initialize the profiles screen.
 
@@ -33,10 +37,12 @@ class ProfilesScreen(ModalScreen[dict[str, Any] | None]):
                 ``"builtin"`` or ``"custom"``.
             in_use_ids: Set of profile IDs currently in use by running slots.
                 Deletion is blocked for these.
+            model_index: Cached model index entries for GGUF metadata enrichment.
         """
         super().__init__()
         self._profiles = profiles
         self._in_use_ids = in_use_ids or set()
+        self._model_index = model_index or []
 
     BINDINGS = [
         Binding("escape", "cancel", "Close"),
@@ -158,14 +164,15 @@ class ProfilesScreen(ModalScreen[dict[str, Any] | None]):
                     classes="profile-id-text",
                 ),
                 Label(
-                    f"Model: {spec.model or '(not set)'}",
+                    _format_model_line(spec, self._model_index or []),
                     classes="profile-model-text",
                 ),
                 Label(
                     f"Device: {spec.device or '(default)'}  |  "
                     f"Port: {spec.port}  |  "
                     f"Source: [{source_badge_class}]{source_label}[/]  |  "
-                    f"Ctx: {spec.ctx_size}  |  Threads: {spec.threads}",
+                    f"Ctx: {spec.ctx_size if spec.ctx_size else '?'}  |  "
+                    f"Threads: {spec.threads}",
                     classes="profile-meta-text",
                 ),
                 classes="profile-card-info",
@@ -200,3 +207,25 @@ class ProfilesScreen(ModalScreen[dict[str, Any] | None]):
         elif btn_id.startswith("delete-"):
             pid = btn_id[len("delete-") :]
             self.dismiss({"action": "delete", "profile_id": pid})
+
+
+def _format_model_line(
+    spec: RunProfileSpec,
+    model_index: list[ModelIndexEntry] | None = None,
+) -> str:
+    """Format model display line with filename and detected quantization."""
+    path = spec.model or ""
+    if not path:
+        return "Model: (not set)"
+    filename = Path(path).name
+    quantization = None
+    for entry in model_index or []:
+        if entry.path == path or Path(entry.path).name == filename:
+            quantization = entry.quantization_type
+            break
+    if quantization:
+        return f"Model: {filename}  [{quantization}]"
+    quant_match = re.search(r"(IQ\d_[A-Z]+|Q\d_[A-Z_]+|F16|F32)", filename)
+    if quant_match:
+        return f"Model: {filename}  [{quant_match.group(1)}]"
+    return f"Model: {filename}"

@@ -37,6 +37,8 @@ class GGUFMetadataRecord:
     general_name: str | None = None
     architecture: str | None = None
     tokenizer_type: str | None = None
+    file_type: int | None = None
+    quantization_type: str | None = None
     embedding_length: int | None = None
     block_count: int | None = None
     context_length: int | None = None

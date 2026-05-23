@@ -38,6 +38,8 @@ def _make_controller() -> MagicMock:
     controller.server_manager = MagicMock()
     controller.model = model
     controller.model.build_cancel_event = None
+    # Provide valid return for model-index worker called on mount
+    controller.refresh_model_index.return_value = ([], 0, 0)
     return controller
 
 

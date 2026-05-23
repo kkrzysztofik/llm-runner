@@ -12,6 +12,7 @@ from llama_manager import (
     GPUStats,
     LaunchResult,
     LogBuffer,
+    ModelIndexEntry,
     ModelSlot,
     ProfileFlavor,
     RiskAckResult,
@@ -22,7 +23,10 @@ from llama_manager import (
     compute_slot_transition,
     get_gpu_identifier,
     launch_orchestrate,
+    load_model_index,
     load_profile_with_staleness,
+    model_index_path,
+    refresh_model_index,
     resolve_risk_action,
 )
 from llama_manager.build_pipeline import (
@@ -1025,3 +1029,15 @@ class DashboardController:
             DashboardApp(self).run()
         finally:
             self._cleanup()
+
+    def load_model_index(self) -> list[ModelIndexEntry]:
+        """Load cached model index from disk."""
+        return load_model_index(self.config)
+
+    def refresh_model_index(self) -> tuple[list[ModelIndexEntry], int, int]:
+        """Refresh the model index by scanning config.models_dir."""
+        return refresh_model_index(self.config)
+
+    def model_index_path(self) -> str:
+        """Return the path string where the model index cache is stored."""
+        return str(model_index_path(self.config))

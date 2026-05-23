@@ -5,11 +5,13 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING
 
+from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
 from textual.css.query import NoMatches
 from textual.widgets import Footer
+from textual.worker import get_current_worker
 
 if TYPE_CHECKING:
     from .controller import DashboardController
@@ -118,6 +120,29 @@ class DashboardApp(App[None]):
     def on_mount(self) -> None:
         self.refresh_dashboard()
         self.set_interval(0.25, self.refresh_dashboard)
+        self._index_models()
+
+    @work(thread=True, name="model-index")
+    def _index_models(self) -> None:
+        """Refresh model index in background thread."""
+        worker = get_current_worker()
+        self.call_from_thread(self.notify, "Indexing models...", title="Models")
+
+        entries, total, errors = self.controller.refresh_model_index()
+
+        if worker.is_cancelled:
+            return
+
+        message = f"Indexing complete: {total} models found"
+        if errors:
+            message += f" ({errors} errors)"
+
+        self.call_from_thread(
+            self.notify,
+            message,
+            title="Models",
+            severity="warning" if errors else "information",
+        )
 
     def action_quit_dashboard(self) -> None:
         self.controller.request_quit()
@@ -151,9 +176,10 @@ class DashboardApp(App[None]):
 
         profiles = self.controller.list_run_profiles()
         in_use_ids = {pid for pid, _ in profiles if self.controller.is_profile_in_use(pid)}
+        model_index = self.controller.load_model_index()
 
         self.push_screen(
-            ProfilesScreen(profiles=profiles, in_use_ids=in_use_ids),
+            ProfilesScreen(profiles=profiles, in_use_ids=in_use_ids, model_index=model_index),
             self._handle_profiles_screen_result,
         )
 
@@ -165,8 +191,9 @@ class DashboardApp(App[None]):
         action = result.get("action")
 
         if action == "add":
+            model_index = self.controller.load_model_index()
             self.push_screen(
-                RunProfileModal(),
+                RunProfileModal(model_index=model_index),
                 self._handle_profile_modal_result,
             )
 
@@ -187,8 +214,9 @@ class DashboardApp(App[None]):
 
             source = "custom" if custom_profile_exists(profile_id) else "builtin"
 
+            model_index = self.controller.load_model_index()
             self.push_screen(
-                RunProfileModal(profile=spec, edit_source=source),
+                RunProfileModal(profile=spec, edit_source=source, model_index=model_index),
                 self._handle_edit_modal_result,
             )
 

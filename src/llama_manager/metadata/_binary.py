@@ -5,6 +5,7 @@ from threading import Event
 
 from gguf.constants import Keys
 
+from ._reader import _FILE_TYPE_QUANT_MAP
 from ._types import (
     _GENERAL_NAME_PATTERN,
     _GGUF_V2_MAGIC,
@@ -135,6 +136,18 @@ def _parse_tokenizer_type(data: bytes) -> str | None:
         if pattern in data:
             return tok_type
     return None
+
+
+def _parse_file_type(data: bytes) -> int | None:
+    """Extract the ``general.file_type`` key from raw GGUF header bytes.
+
+    Args:
+        data: Raw bytes from the file header.
+
+    Returns:
+        The file_type integer, or None if not found.
+    """
+    return _parse_numeric_field(data, "general.file_type")
 
 
 def _read_int8(data: bytes, offset: int) -> int | None:
@@ -451,6 +464,10 @@ def _extract_from_raw_bytes(
     general_name = _parse_general_name(data)
     architecture = _parse_architecture(data)
     tokenizer_type = _parse_tokenizer_type(data)
+    file_type = _parse_file_type(data)
+    quantization_type = (
+        _FILE_TYPE_QUANT_MAP.get(file_type, f"type_{file_type}") if file_type else None
+    )
     if architecture:
         embedding_length = _parse_numeric_field(
             data, Keys.LLM.EMBEDDING_LENGTH.format(arch=architecture)
@@ -481,6 +498,8 @@ def _extract_from_raw_bytes(
         general_name=general_name,
         architecture=architecture,
         tokenizer_type=tokenizer_type,
+        file_type=file_type,
+        quantization_type=quantization_type,
         embedding_length=embedding_length,
         block_count=block_count,
         context_length=context_length,

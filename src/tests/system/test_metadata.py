@@ -85,11 +85,25 @@ class TestValidMetadataExtraction:
             "context_length",
             "attention_head_count",
             "attention_head_count_kv",
+            "file_type",
+            "quantization_type",
             "parse_timestamp",
             "parse_timeout_s",
             "prefix_cap_bytes",
         }
         assert set(record.__dataclass_fields__.keys()) == expected_fields
+
+    def test_file_type_extracted(self) -> None:
+        """Extracted record should have file_type (int or None)."""
+        path = str(self._fixture_path("gguf_v3_valid.gguf"))
+        record = extract_gguf_metadata(path)
+        assert record.file_type is None or isinstance(record.file_type, int)
+
+    def test_quantization_type_extracted(self) -> None:
+        """Extracted record should have quantization_type (str or None)."""
+        path = str(self._fixture_path("gguf_v3_valid.gguf"))
+        record = extract_gguf_metadata(path)
+        assert record.quantization_type is None or isinstance(record.quantization_type, str)
 
 
 # ---------------------------------------------------------------------------
@@ -659,6 +673,142 @@ class TestParseNumericField:
         """_parse_numeric_field should skip f32 (type_tag=8) and return None."""
         data = self._make_gguf_kv_data(b"freq_scale", 8, 0)
         result = _parse_numeric_field(data, b"freq_scale")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# TestFileTypeExtraction — file_type and quantization_type in extraction
+# ---------------------------------------------------------------------------
+
+
+class TestFileTypeExtraction:
+    """Tests for file_type and quantization_type extraction from raw bytes."""
+
+    @staticmethod
+    def _make_gguf_kv_data(key: bytes, type_tag: int, value: int, n_kv: int = 1) -> bytes:
+        """Build minimal GGUF v3 header + KV records for testing."""
+        header = b"GGUF\x03\x00\x00\x00"
+        header += b"\x00\x00\x00\x00"
+        header += b"\x00\x00\x00\x00\x00\x00\x00\x00"
+        header += n_kv.to_bytes(8, "little")
+        record = len(key).to_bytes(4, "little") + key
+        record += type_tag.to_bytes(4, "little")
+        if type_tag in (1, 2):
+            record += value.to_bytes(1, "little")
+        elif type_tag in (3, 4):
+            record += value.to_bytes(2, "little")
+        elif type_tag in (5, 6):
+            record += value.to_bytes(4, "little")
+        else:
+            record += value.to_bytes(4, "little")
+        return header + record
+
+    def test_file_type_parsed_from_binary(self) -> None:
+        """_extract_from_raw_bytes should set file_type from raw bytes."""
+        from unittest.mock import patch
+
+        from llama_manager.metadata._binary import _extract_from_raw_bytes
+
+        # Build data with general.file_type = 15 (u32)
+        kv_data = self._make_gguf_kv_data(b"general.file_type", 5, 15)
+        # Add llama architecture so other fields are populated
+        kv_data += self._make_gguf_kv_data(b"general.architecture", 8, 0)  # string type
+
+        with patch(
+            "llama_manager.metadata._binary._read_gguf_header",
+            return_value=kv_data,
+        ):
+            record = _extract_from_raw_bytes(
+                "/fake/model.gguf",
+                prefix_cap_bytes=1024,
+                parse_timeout_s=1.0,
+            )
+        assert record.file_type == 15
+        assert record.quantization_type == "Q4_K_M"
+
+    def test_file_type_none_when_missing(self) -> None:
+        """file_type should be None when not present in file data."""
+        from unittest.mock import patch
+
+        from llama_manager.metadata._binary import _extract_from_raw_bytes
+
+        # Truncated data — no KV pairs
+        truncated = b"GGUF\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+        with patch(
+            "llama_manager.metadata._binary._read_gguf_header",
+            return_value=truncated,
+        ):
+            record = _extract_from_raw_bytes(
+                "/fake/model.gguf",
+                prefix_cap_bytes=1024,
+                parse_timeout_s=1.0,
+            )
+        assert record.file_type is None
+
+    def test_unknown_file_type_quant_fallback(self) -> None:
+        """Unknown file_type should produce quantization_type 'type_N'."""
+        from unittest.mock import patch
+
+        from llama_manager.metadata._binary import _extract_from_raw_bytes
+
+        kv_data = self._make_gguf_kv_data(b"general.file_type", 5, 99)
+        kv_data += self._make_gguf_kv_data(b"general.architecture", 8, 0)
+
+        with patch(
+            "llama_manager.metadata._binary._read_gguf_header",
+            return_value=kv_data,
+        ):
+            record = _extract_from_raw_bytes(
+                "/fake/model.gguf",
+                prefix_cap_bytes=1024,
+                parse_timeout_s=1.0,
+            )
+        assert record.file_type == 99
+        assert record.quantization_type == "type_99"
+
+
+# ---------------------------------------------------------------------------
+# TestParseFileType — _parse_file_type helper
+# ---------------------------------------------------------------------------
+
+
+class TestParseFileType:
+    """Tests for _parse_file_type helper function."""
+
+    @staticmethod
+    def _make_gguf_kv_data(key: bytes, type_tag: int, value: int, n_kv: int = 1) -> bytes:
+        """Build minimal GGUF v3 header + KV records for testing."""
+        header = b"GGUF\x03\x00\x00\x00"
+        header += b"\x00\x00\x00\x00"
+        header += b"\x00\x00\x00\x00\x00\x00\x00\x00"
+        header += n_kv.to_bytes(8, "little")
+        record = len(key).to_bytes(4, "little") + key
+        record += type_tag.to_bytes(4, "little")
+        if type_tag in (1, 2):
+            record += value.to_bytes(1, "little")
+        elif type_tag in (3, 4):
+            record += value.to_bytes(2, "little")
+        elif type_tag in (5, 6):
+            record += value.to_bytes(4, "little")
+        else:
+            record += value.to_bytes(4, "little")
+        return header + record
+
+    def test_parse_file_type_found(self) -> None:
+        """_parse_file_type should return the file_type value from data."""
+        from llama_manager.metadata._binary import _parse_file_type
+
+        data = self._make_gguf_kv_data(b"general.file_type", 5, 15)
+        result = _parse_file_type(data)
+        assert result == 15
+
+    def test_parse_file_type_not_found(self) -> None:
+        """_parse_file_type should return None when key is absent."""
+        from llama_manager.metadata._binary import _parse_file_type
+
+        truncated = b"GGUF\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        result = _parse_file_type(truncated)
         assert result is None
 
 

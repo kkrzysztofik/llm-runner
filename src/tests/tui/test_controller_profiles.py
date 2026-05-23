@@ -383,3 +383,45 @@ def test_delete_run_profile_exception_returns_false(
         result = mock_controller.delete_run_profile("summary-balanced")
 
     assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Model index delegation
+# ---------------------------------------------------------------------------
+
+
+def test_load_model_index_delegates(mock_controller: DashboardController) -> None:
+    """load_model_index should delegate to llama_manager.load_model_index."""
+    with patch(
+        "llama_cli.tui.controller.load_model_index",
+    ) as mock_load:
+        mock_load.return_value = []
+        result = mock_controller.load_model_index()
+
+    mock_load.assert_called_once_with(mock_controller.config)
+    assert result == []
+
+
+def test_refresh_model_index_delegates(mock_controller: DashboardController) -> None:
+    """refresh_model_index should delegate to llama_manager.refresh_model_index."""
+    with patch(
+        "llama_cli.tui.controller.refresh_model_index",
+    ) as mock_refresh:
+        mock_refresh.return_value = ([], 0, 0)
+        result = mock_controller.refresh_model_index()
+
+    mock_refresh.assert_called_once_with(mock_controller.config)
+    assert result == ([], 0, 0)
+
+
+def test_model_index_path_delegates(mock_controller: DashboardController) -> None:
+    """model_index_path should delegate and return a string."""
+    with patch(
+        "llama_cli.tui.controller.model_index_path",
+    ) as mock_path:
+        mock_path.return_value = "/tmp/idx.json"
+        result = mock_controller.model_index_path()
+
+    mock_path.assert_called_once_with(mock_controller.config)
+    assert isinstance(result, str)
+    assert result == "/tmp/idx.json"

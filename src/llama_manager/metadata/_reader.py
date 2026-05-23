@@ -11,6 +11,68 @@ from gguf.gguf_reader import ReaderField
 
 from ._types import GGUFMetadataRecord, normalize_filename
 
+# GGUF file_type → human-readable quantization string (from gguf-file.h)
+_FILE_TYPE_QUANT_MAP: dict[int, str] = {
+    0: "F32",
+    1: "F16",
+    2: "Q4_0",
+    3: "Q4_1",
+    4: "Q5_0",
+    5: "Q5_1",
+    6: "Q8_0",
+    7: "Q8_1",
+    8: "F16",
+    10: "Q2_K",
+    11: "Q3_K_S",
+    12: "Q3_K_M",
+    13: "Q3_K_L",
+    14: "Q4_K_S",
+    15: "Q4_K_M",
+    16: "Q5_K_S",
+    17: "Q5_K_M",
+    18: "Q6_K",
+    19: "Q8_K",
+    20: "IQ2_XXS",
+    21: "IQ2_XS",
+    22: "IQ3_XXS",
+    23: "IQ1_S",
+    24: "IQ4_NL",
+    25: "IQ3_S",
+    26: "IQ3_M",
+    27: "IQ2_S",
+    28: "IQ2_M",
+    29: "IQ4_XS",
+    30: "IQ1_M",
+    31: "IQ4_XS",
+    32: "IQ4_NL",
+}
+
+
+def _file_type_to_quant(file_type: int | None) -> str | None:
+    """Convert a GGUF file_type integer to a human-readable quantization string.
+
+    Args:
+        file_type: The raw GGUF general.file_type integer.
+
+    Returns:
+        Human-readable quantization name, or ``f"type_{file_type}\"`` if unmapped.
+    """
+    if file_type is None:
+        return None
+    return _FILE_TYPE_QUANT_MAP.get(file_type, f"type_{file_type}")
+
+
+def _extract_file_type(fields: Mapping[str, ReaderField]) -> int | None:
+    """Extract the ``general.file_type`` integer from GGUFReader fields.
+
+    Args:
+        fields: The fields dict from GGUFReader.
+
+    Returns:
+        The file_type integer, or None if not found.
+    """
+    return _extract_int_field_from_reader(fields, Keys.General.FILE_TYPE)
+
 
 def _extract_architecture_from_reader(
     reader_fields: Mapping[str, ReaderField],
@@ -209,6 +271,8 @@ def _extract_from_gguf_reader(
         raise InterruptedError("parse cancelled")
 
     tokenizer_type = _detect_tokenizer_type_from_reader(fields)
+    file_type = _extract_file_type(fields)
+    quantization_type = _file_type_to_quant(file_type)
 
     if architecture:
         ctx_key = Keys.LLM.CONTEXT_LENGTH.format(arch=architecture)
@@ -238,6 +302,8 @@ def _extract_from_gguf_reader(
         general_name=general_name,
         architecture=architecture,
         tokenizer_type=tokenizer_type,
+        file_type=file_type,
+        quantization_type=quantization_type,
         embedding_length=embedding_length,
         block_count=block_count,
         context_length=context_length,

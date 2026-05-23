@@ -100,6 +100,12 @@ from .metadata import (
     extract_gguf_metadata,
     normalize_filename,
 )
+from .model_index import (
+    ModelIndexEntry,
+    load_model_index,
+    model_index_path,
+    refresh_model_index,
+)
 from .orchestration import (
     ArtifactMetadata,
     DefaultProcessLauncher,
@@ -388,6 +394,11 @@ __all__ = [
     "GGUFMetadataRecord",
     "extract_gguf_metadata",
     "normalize_filename",
+    # Model index
+    "ModelIndexEntry",
+    "model_index_path",
+    "load_model_index",
+    "refresh_model_index",
     # Config builders
     "create_smoke_config",
     # Benchmark

@@ -457,6 +457,16 @@ ProfilesScreen {
     margin-bottom: 1;
 }
 
+.profile-row.profile-model-row {
+    height: auto;
+    min-height: 10;
+}
+
+.profile-model-picker {
+    width: 1fr;
+    height: auto;
+}
+
 .profile-actions {
     height: 3;
     align-horizontal: right;
@@ -469,4 +479,44 @@ ProfilesScreen {
 
 .profile-title {
     color: $accent;
+}
+
+.profile-model-list {
+    max-height: 15;
+    height: 8;
+    border: solid $panel;
+    margin-bottom: 1;
+}
+
+.profile-selection-summary {
+    height: auto;
+    min-height: 1;
+    color: $text;
+    margin-top: 0;
+    margin-bottom: 1;
+}
+
+.profile-model-option {
+    color: $text;
+}
+
+#profile-model-details {
+    color: $text-muted;
+    margin-bottom: 1;
+    display: none;
+}
+
+#profile-device > SelectCurrent {
+    background: $surface-lighten-1;
+    color: $text;
+}
+
+#profile-device > SelectCurrent Static#label {
+    color: $text;
+}
+
+#profile-device-summary {
+    width: 28;
+    color: $text-muted;
+    content-align: left middle;
 }
