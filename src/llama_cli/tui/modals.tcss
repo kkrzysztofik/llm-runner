@@ -113,6 +113,7 @@ Select:focus {
 
 .modal-scroll-body {
     max-height: 1fr;
+    overflow-y: auto;
 }
 
 .config-actions Button {
@@ -412,4 +413,60 @@ BuildModalScreen {
 
 .build-result-text-area:focus {
     border: solid $accent;
+}
+
+/* ---- Run Profile Modal ---- */
+
+RunProfileModal {
+    align: center middle;
+}
+
+ProfilesScreen {
+    align: center middle;
+}
+
+.profile-dialog {
+    width: 70%;
+    max-width: 95%;
+    height: 80%;
+    max-height: 90%;
+}
+
+.profile-scroll-body {
+    width: 100%;
+    padding-right: 1;
+    height: 1fr;
+}
+
+.profile-field-label {
+    width: 28;
+    height: 3;
+    color: $text;
+    padding-right: 1;
+    content-align: right middle;
+}
+
+.profile-input {
+    width: 1fr;
+    height: 3;
+}
+
+.profile-row {
+    width: 100%;
+    height: 3;
+    margin-bottom: 1;
+}
+
+.profile-actions {
+    height: 3;
+    align-horizontal: right;
+    margin-top: 1;
+}
+
+.profile-actions Button {
+    margin-left: 1;
+}
+
+.profile-title {
+    color: $accent;
 }

@@ -7,7 +7,8 @@ from llama_manager import (
     resolve_slot_runtime_status,
 )
 from llama_manager.build_pipeline import BuildConfig
-from llama_manager.config import Config, create_default_profile_registry
+from llama_manager.config import Config
+from llama_manager.config.builder import create_tui_profile_registry
 
 from .model import DashboardModel
 from .types import (
@@ -158,10 +159,11 @@ class DashboardViewModel:
 
     def profile_options(self, config: Config | None = None) -> list[tuple[str, str]]:
         """Return display label/value pairs for the profile dropdown."""
-        registry = create_default_profile_registry(config)
+        cfg = config or Config()
+        registry = create_tui_profile_registry(cfg)
         return [
             (
-                f"{profile.profile_id} - {profile.description}",
+                f"{profile.profile_id} - {profile.description or profile.profile_id}",
                 profile.profile_id,
             )
             for profile in registry.profiles

@@ -789,3 +789,43 @@ def create_smoke_config(
         first_token_timeout_s=config.smoke_first_token_timeout_s,
         total_chat_timeout_s=config.smoke_total_chat_timeout_s,
     )
+
+
+def create_tui_profile_registry(config: Config) -> RunProfileRegistry:
+    """Create a profile registry for TUI use: built-in + custom profiles from disk.
+
+    Custom profiles are loaded from ``run_profiles.toml``. Duplicate
+    ``profile_id`` between built-in and custom is resolved by preferring
+    the custom profile. Hidden built-in profiles (from
+    ``hidden_builtin_profiles`` in the TOML) are excluded.
+
+    Args:
+        config: Base configuration used to resolve built-in profiles.
+
+    Returns:
+        Merged ``RunProfileRegistry`` with built-in and custom profiles.
+    """
+    from ..run_profile_store import load_custom_run_profiles, load_hidden_builtin_profile_ids
+
+    hidden = load_hidden_builtin_profile_ids()
+
+    builtins = create_default_profile_registry(config)
+    custom = load_custom_run_profiles()
+
+    # Merge: skip hidden built-ins, custom profiles override built-ins with same profile_id
+    all_profiles: dict[str, RunProfileSpec] = {}
+    for p in builtins.profiles:
+        if p.profile_id not in hidden:
+            all_profiles[p.profile_id] = p
+    for p in custom:
+        all_profiles[p.profile_id] = p
+
+    # Filter run groups to only include those whose profiles are all present
+    filtered_groups: tuple[RunGroupSpec, ...] = tuple(
+        g for g in builtins.run_groups if all(pid in all_profiles for pid in g.profile_ids)
+    )
+
+    return RunProfileRegistry(
+        profiles=tuple(all_profiles.values()),
+        run_groups=filtered_groups,
+    )

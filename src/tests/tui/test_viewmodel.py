@@ -551,19 +551,19 @@ def test_stale_warning_absent() -> None:
 
 
 def test_profile_options() -> None:
-    """profile_options should return label/id pairs from the profile registry."""
+    """profile_options should return label/id pairs from the TUI profile registry."""
     profile1 = SimpleNamespace(profile_id="balanced", description="Balanced")
     profile2 = SimpleNamespace(profile_id="fast", description="Fast")
     registry = SimpleNamespace(profiles=[profile1, profile2])
 
     with patch(
-        "llama_cli.tui.viewmodel.create_default_profile_registry",
+        "llama_cli.tui.viewmodel.create_tui_profile_registry",
         return_value=registry,
     ) as mock_registry:
         vm = _make_viewmodel()
         result = vm.profile_options()
 
-    mock_registry.assert_called_once_with(None)
+    mock_registry.assert_called_once()
     assert result == [
         ("balanced - Balanced", "balanced"),
         ("fast - Fast", "fast"),

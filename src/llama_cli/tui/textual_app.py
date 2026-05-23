@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 from .components.build import BuildModalScreen
 from .components.config_modal import ConfigModal, ConfigPayload
 from .components.modal import AddSlotModal
+from .components.run_profile_modal import RunProfileModal, RunProfilePayload
 from .components.server_log import ServerLogPanel
 from .components.system_health import (
     CPUUsageWidget,
@@ -77,6 +78,7 @@ class DashboardApp(App[None]):
         Binding("b", "build", "Build"),
         Binding("a", "add_slot", "Add Slot"),
         Binding("c", "open_config", "Config"),
+        Binding("p", "manage_profiles", "Profiles"),
         Binding("y", "confirm", "Confirm"),
         Binding("n", "reject", "Abort"),
     ]
@@ -143,9 +145,126 @@ class DashboardApp(App[None]):
             self._handle_config_modal_result,
         )
 
+    def action_manage_profiles(self) -> None:
+        """Open the profiles management screen."""
+        from .components.profiles_screen import ProfilesScreen
+
+        profiles = self.controller.list_run_profiles()
+        in_use_ids = {pid for pid, _ in profiles if self.controller.is_profile_in_use(pid)}
+
+        self.push_screen(
+            ProfilesScreen(profiles=profiles, in_use_ids=in_use_ids),
+            self._handle_profiles_screen_result,
+        )
+
+    def _handle_profiles_screen_result(self, result: dict | None) -> None:
+        """Handle result from the ProfilesScreen."""
+        if result is None:
+            return
+
+        action = result.get("action")
+
+        if action == "add":
+            self.push_screen(
+                RunProfileModal(),
+                self._handle_profile_modal_result,
+            )
+
+        elif action == "edit":
+            profile_id = result.get("profile_id", "")
+            if not profile_id:
+                return
+
+            from llama_manager.config.builder import create_tui_profile_registry
+            from llama_manager.run_profile_store import custom_profile_exists
+
+            registry = create_tui_profile_registry(self.controller.config)
+            try:
+                spec = registry.get_profile(profile_id)
+            except Exception:
+                self.notify(f"Profile '{profile_id}' not found", severity="error")
+                return
+
+            source = "custom" if custom_profile_exists(profile_id) else "builtin"
+
+            self.push_screen(
+                RunProfileModal(profile=spec, edit_source=source),
+                self._handle_edit_modal_result,
+            )
+
+        elif action == "delete":
+            profile_id = result.get("profile_id", "")
+            if not profile_id:
+                return
+
+            success = self.controller.delete_run_profile(profile_id)
+            if success:
+                self.notify(f"Profile '{profile_id}' deleted", severity="information")
+                self._profile_options_cache = None
+                self._profile_cache_config_id = None
+            self.refresh_dashboard()
+
+    def _handle_edit_modal_result(self, result: RunProfilePayload | None) -> None:
+        """Handle result from the edit profile modal."""
+        if result is None:
+            return
+
+        original_id = result.original_profile_id or result.profile_id
+        saved = self.controller.update_run_profile(original_id, result)
+        if not saved:
+            self.notify("Failed to update profile", severity="error")
+            return
+
+        self.notify(f"Profile '{result.profile_id}' updated", severity="information")
+
+        # Invalidate profile options cache
+        self._profile_options_cache = None
+        self._profile_cache_config_id = None
+
+        if result.save_and_add_slot:
+            slot_form: dict[str, str] = {
+                "profile": result.profile_id,
+                "port": "",
+            }
+            self.controller.add_slot_from_form(slot_form)
+            self.notify("Slot added for profile", severity="information")
+            self._reconcile_server_log_panels()
+
+        self.refresh_dashboard()
+
+    def action_create_profile(self) -> None:
+        """Open the run profile creation modal (legacy alias)."""
+        self.push_screen(RunProfileModal(), self._handle_profile_modal_result)
+
     def _handle_config_modal_result(self, result: ConfigPayload | None) -> None:
         if result is not None:
             self.controller.save_config(result)
+        self.refresh_dashboard()
+
+    def _handle_profile_modal_result(self, result: RunProfilePayload | None) -> None:
+        if result is None:
+            return
+
+        saved = self.controller.save_run_profile_from_form(result)
+        if not saved:
+            self.notify("Failed to save profile", severity="error")
+            return
+
+        self.notify(f"Profile '{result.profile_id}' saved", severity="information")
+
+        # Invalidate profile options cache
+        self._profile_options_cache = None
+        self._profile_cache_config_id = None
+
+        if result.save_and_add_slot:
+            slot_form: dict[str, str] = {
+                "profile": result.profile_id,
+                "port": "",
+            }
+            self.controller.add_slot_from_form(slot_form)
+            self.notify("Slot added for profile", severity="information")
+            self._reconcile_server_log_panels()
+
         self.refresh_dashboard()
 
     def _handle_add_slot_modal_result(self, result: dict[str, str] | None) -> None:
