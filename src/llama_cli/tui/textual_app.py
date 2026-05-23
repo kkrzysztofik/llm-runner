@@ -5,13 +5,11 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING
 
-from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
 from textual.css.query import NoMatches
 from textual.widgets import Footer
-from textual.worker import get_current_worker
 
 if TYPE_CHECKING:
     from .controller import DashboardController
@@ -93,6 +91,7 @@ class DashboardApp(App[None]):
         self._active_notice_toasts: set[str] = set()
         self._profile_options_cache: list[tuple[str, str]] | None = None
         self._profile_cache_config_id: int | None = None
+        self._last_model_index_notice_scanned = 0
         self.last_build_backend: str = "sycl"
 
     def compose(self) -> ComposeResult:
@@ -122,27 +121,53 @@ class DashboardApp(App[None]):
         self.set_interval(0.25, self.refresh_dashboard)
         self._index_models()
 
-    @work(thread=True, name="model-index")
     def _index_models(self) -> None:
-        """Refresh model index in background thread."""
-        worker = get_current_worker()
-        self.call_from_thread(self.notify, "Indexing models...", title="Models")
+        """Refresh model index in a controller-owned background thread."""
+        started = self.controller.refresh_model_index_async(
+            progress_callback=self._index_models_progress_from_thread,
+            complete_callback=self._index_models_complete_from_thread,
+        )
+        if started:
+            self.notify("Indexing models...", title="Models")
 
-        entries, total, errors = self.controller.refresh_model_index()
+    def _index_models_progress_from_thread(
+        self,
+        _entries: object,
+        scanned: int,
+        total: int,
+        errors: int,
+    ) -> None:
+        """Forward model index progress from the controller worker to the UI thread."""
+        self.call_from_thread(self._handle_model_index_progress, scanned, total, errors)
 
-        if worker.is_cancelled:
+    def _index_models_complete_from_thread(
+        self,
+        _entries: object,
+        total: int,
+        errors: int,
+    ) -> None:
+        """Forward model index completion from the controller worker to the UI thread."""
+        self.call_from_thread(self._handle_model_index_complete, total, errors)
+
+    def _handle_model_index_progress(self, scanned: int, total: int, errors: int) -> None:
+        """Show sparse progress notifications while model indexing continues."""
+        if total <= 0:
             return
+        notify_every = max(1, total // 5)
+        if scanned < total and scanned - self._last_model_index_notice_scanned < notify_every:
+            return
+        self._last_model_index_notice_scanned = scanned
+        message = f"Indexed {scanned}/{total} models"
+        if errors:
+            message += f" ({errors} errors)"
+        self.notify(message, title="Models", severity="warning" if errors else "information")
 
+    def _handle_model_index_complete(self, total: int, errors: int) -> None:
+        """Show final model index status."""
         message = f"Indexing complete: {total} models found"
         if errors:
             message += f" ({errors} errors)"
-
-        self.call_from_thread(
-            self.notify,
-            message,
-            title="Models",
-            severity="warning" if errors else "information",
-        )
+        self.notify(message, title="Models", severity="warning" if errors else "information")
 
     def action_quit_dashboard(self) -> None:
         self.controller.request_quit()

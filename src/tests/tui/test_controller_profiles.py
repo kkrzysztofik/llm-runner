@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from threading import Event
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -410,8 +411,83 @@ def test_refresh_model_index_delegates(mock_controller: DashboardController) -> 
         mock_refresh.return_value = ([], 0, 0)
         result = mock_controller.refresh_model_index()
 
-    mock_refresh.assert_called_once_with(mock_controller.config)
+    mock_refresh.assert_called_once_with(
+        mock_controller.config,
+        progress_callback=None,
+        progressive=False,
+    )
     assert result == ([], 0, 0)
+
+
+def test_refresh_model_index_updates_cache(mock_controller: DashboardController) -> None:
+    """refresh_model_index should update the controller cache."""
+    entry = MagicMock()
+    with patch(
+        "llama_cli.tui.controller.refresh_model_index",
+        return_value=([entry], 1, 0),
+    ):
+        result = mock_controller.refresh_model_index()
+
+    assert result == ([entry], 1, 0)
+    assert mock_controller.load_model_index() == [entry]
+
+
+def test_refresh_model_index_async_runs_progressively(
+    mock_controller: DashboardController,
+) -> None:
+    """refresh_model_index_async should run in background and publish progress."""
+    progress_seen: list[tuple[int, int, int]] = []
+    complete_seen: list[tuple[int, int]] = []
+    done = Event()
+    entry = MagicMock()
+
+    def _refresh(config, progress_callback=None, *, progressive=False):
+        assert config is mock_controller.config
+        assert progressive is True
+        if progress_callback is not None:
+            progress_callback([entry], 1, 1, 0)
+        return [entry], 1, 0
+
+    def _progress(entries, scanned, total, errors) -> None:
+        assert entries == [entry]
+        progress_seen.append((scanned, total, errors))
+
+    def _complete(entries, total, errors) -> None:
+        assert entries == [entry]
+        complete_seen.append((total, errors))
+        done.set()
+
+    with patch("llama_cli.tui.controller.refresh_model_index", side_effect=_refresh):
+        started = mock_controller.refresh_model_index_async(
+            progress_callback=_progress,
+            complete_callback=_complete,
+        )
+
+    assert started is True
+    assert done.wait(timeout=2)
+    assert progress_seen == [(1, 1, 0)]
+    assert complete_seen == [(1, 0)]
+    assert mock_controller.load_model_index() == [entry]
+
+
+def test_refresh_model_index_async_rejects_concurrent_refresh(
+    mock_controller: DashboardController,
+) -> None:
+    """refresh_model_index_async should not start two workers at once."""
+    release = Event()
+    done = Event()
+
+    def _refresh(*args, **kwargs):
+        release.wait(timeout=2)
+        done.set()
+        return [], 0, 0
+
+    with patch("llama_cli.tui.controller.refresh_model_index", side_effect=_refresh):
+        assert mock_controller.refresh_model_index_async() is True
+        assert mock_controller.refresh_model_index_async() is False
+        release.set()
+
+    assert done.wait(timeout=2)
 
 
 def test_model_index_path_delegates(mock_controller: DashboardController) -> None:

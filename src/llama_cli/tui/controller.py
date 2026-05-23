@@ -94,6 +94,9 @@ class DashboardController:
         self.build_progress: BuildProgress | None = None
         self._original_sigint_handler: Callable[[int, FrameType | None], Any] | int | None = None
         self._build_wizard: Any = None  # BuildModalScreen | None
+        self._model_index_cache: list[ModelIndexEntry] | None = None
+        self._model_index_lock = threading.Lock()
+        self._model_index_refreshing = False
 
         if register_signals:
             signal.signal(signal.SIGINT, self._signal_handler)
@@ -1032,11 +1035,77 @@ class DashboardController:
 
     def load_model_index(self) -> list[ModelIndexEntry]:
         """Load cached model index from disk."""
-        return load_model_index(self.config)
+        with self._model_index_lock:
+            if self._model_index_cache is not None:
+                return list(self._model_index_cache)
 
-    def refresh_model_index(self) -> tuple[list[ModelIndexEntry], int, int]:
+        entries = load_model_index(self.config)
+        with self._model_index_lock:
+            self._model_index_cache = entries
+        return list(entries)
+
+    def refresh_model_index(
+        self,
+        progress_callback: Callable[[list[ModelIndexEntry], int, int, int], None] | None = None,
+        *,
+        progressive: bool = False,
+    ) -> tuple[list[ModelIndexEntry], int, int]:
         """Refresh the model index by scanning config.models_dir."""
-        return refresh_model_index(self.config)
+        entries, total, errors = refresh_model_index(
+            self.config,
+            progress_callback=progress_callback,
+            progressive=progressive,
+        )
+        with self._model_index_lock:
+            self._model_index_cache = entries
+        return entries, total, errors
+
+    def refresh_model_index_async(
+        self,
+        progress_callback: Callable[[list[ModelIndexEntry], int, int, int], None] | None = None,
+        complete_callback: Callable[[list[ModelIndexEntry], int, int], None] | None = None,
+    ) -> bool:
+        """Refresh the model index in a background thread.
+
+        Returns ``False`` when an index refresh is already running.
+        """
+        with self._model_index_lock:
+            if self._model_index_refreshing:
+                return False
+            self._model_index_refreshing = True
+
+        def _progress(
+            entries: list[ModelIndexEntry],
+            scanned: int,
+            total: int,
+            errors: int,
+        ) -> None:
+            with self._model_index_lock:
+                self._model_index_cache = entries
+            if progress_callback is not None:
+                progress_callback(entries, scanned, total, errors)
+
+        def _run_refresh() -> None:
+            try:
+                entries, total, errors = self.refresh_model_index(
+                    progress_callback=_progress,
+                    progressive=True,
+                )
+                if complete_callback is not None:
+                    complete_callback(entries, total, errors)
+            except Exception as exc:
+                self._push_status_message(f"Model indexing failed: {exc}")
+            finally:
+                with self._model_index_lock:
+                    self._model_index_refreshing = False
+
+        threading.Thread(target=_run_refresh, name="model-index-worker", daemon=True).start()
+        return True
+
+    def is_model_index_refreshing(self) -> bool:
+        """Return True while the background model index refresh is running."""
+        with self._model_index_lock:
+            return self._model_index_refreshing
 
     def model_index_path(self) -> str:
         """Return the path string where the model index cache is stored."""

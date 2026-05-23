@@ -239,6 +239,59 @@ def test_refresh_scans_directory(
     assert len(entries) == 2
 
 
+def test_refresh_reports_progress(
+    tmp_xdg_config: Path,
+    sample_config: MagicMock,
+    mock_model_dir: Path,
+) -> None:
+    """refresh_model_index should call progress callback after each scanned model."""
+    progress: list[tuple[int, int, int, int]] = []
+    record = GGUFMetadataRecord(
+        raw_path="/models/model.gguf",
+        normalized_stem="model",
+        architecture="llama",
+    )
+
+    with patch("llama_manager.model_index.extract_gguf_metadata", return_value=record):
+        entries, total, errors = refresh_model_index(
+            sample_config,
+            progress_callback=lambda current, scanned, total_models, error_count: progress.append(
+                (len(current), scanned, total_models, error_count)
+            ),
+        )
+
+    assert total == 2
+    assert errors == 0
+    assert len(entries) == 2
+    assert progress == [(1, 1, 2, 0), (2, 2, 2, 0)]
+
+
+def test_refresh_progressive_writes_partial_cache(
+    tmp_xdg_config: Path,
+    sample_config: MagicMock,
+    mock_model_dir: Path,
+) -> None:
+    """progressive=True should write cache snapshots during scanning."""
+    record = GGUFMetadataRecord(
+        raw_path="/models/model.gguf",
+        normalized_stem="model",
+        architecture="llama",
+    )
+
+    with (
+        patch("llama_manager.model_index.extract_gguf_metadata", return_value=record),
+        patch("llama_manager.model_index._write_model_index") as mock_write,
+    ):
+        entries, total, errors = refresh_model_index(sample_config, progressive=True)
+
+    assert total == 2
+    assert errors == 0
+    assert len(entries) == 2
+    assert mock_write.call_count == 3
+    progressive_sizes = [len(call.args[1]) for call in mock_write.call_args_list[:2]]
+    assert progressive_sizes == [1, 2]
+
+
 def test_refresh_with_errors(
     tmp_xdg_config: Path,
     sample_config: MagicMock,

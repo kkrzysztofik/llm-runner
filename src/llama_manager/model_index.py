@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,6 +20,8 @@ from .metadata import GGUFMetadataRecord, extract_gguf_metadata
 from .metadata._binary import _extract_from_raw_bytes
 
 logger = logging.getLogger(__name__)
+
+ModelIndexProgressCallback = Callable[[list["ModelIndexEntry"], int, int, int], None]
 
 
 @dataclass
@@ -100,6 +102,9 @@ def load_model_index(config: Config) -> list[ModelIndexEntry]:
 def refresh_model_index(
     config: Config,
     cancel_event: Event | None = None,
+    progress_callback: ModelIndexProgressCallback | None = None,
+    *,
+    progressive: bool = False,
 ) -> tuple[list[ModelIndexEntry], int, int]:
     """Scan ``config.models_dir`` for ``*.gguf`` files and rebuild the index.
 
@@ -109,6 +114,10 @@ def refresh_model_index(
     Args:
         config: The application Config instance.
         cancel_event: If set and not ``None``, stops scanning early.
+        progress_callback: Called after each scanned file with
+            ``(entries_so_far, total_scanned, total_models, error_count)``.
+        progressive: If ``True``, write the cache after each scanned file so
+            other readers can consume partial results while indexing continues.
 
     Returns:
         A tuple of ``(entries, total_scanned, error_count)`` where
@@ -203,11 +212,44 @@ def refresh_model_index(
             )
 
         total_scanned += 1
+        _emit_model_index_progress(
+            config,
+            entries,
+            total_scanned,
+            len(unique_files),
+            error_count,
+            progress_callback,
+            progressive=progressive,
+        )
 
     # Sort by normalized_stem alphabetically
     entries.sort(key=lambda e: e.normalized_stem)
 
-    # Atomic write: temp file in same dir, then rename
+    _write_model_index(config, entries)
+
+    return (entries, total_scanned, error_count)
+
+
+def _emit_model_index_progress(
+    config: Config,
+    entries: list[ModelIndexEntry],
+    total_scanned: int,
+    total_models: int,
+    error_count: int,
+    progress_callback: ModelIndexProgressCallback | None,
+    *,
+    progressive: bool,
+) -> None:
+    """Publish one incremental scan update."""
+    snapshot = sorted(entries, key=lambda e: e.normalized_stem)
+    if progressive:
+        _write_model_index(config, snapshot)
+    if progress_callback is not None:
+        progress_callback(snapshot, total_scanned, total_models, error_count)
+
+
+def _write_model_index(config: Config, entries: list[ModelIndexEntry]) -> None:
+    """Write model index entries atomically to disk."""
     idx_path = model_index_path(config)
     tmp_path: str | None = None
     try:
@@ -232,8 +274,6 @@ def refresh_model_index(
         if tmp_path is not None:
             with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-
-    return (entries, total_scanned, error_count)
 
 
 def _metadata_from_filename(path: str, stem: str) -> GGUFMetadataRecord:
