@@ -161,6 +161,17 @@ class TestBuildServerCmd:
         assert "--n-gpu-layers" in cmd
         assert "42" in cmd
 
+    def test_main_gpu_excluded_when_zero(self) -> None:
+        """--main-gpu should not appear when main_gpu is 0 (default)."""
+        cmd = build_server_cmd(self._minimal_cfg(main_gpu=0))
+        assert "--main-gpu" not in cmd
+
+    def test_main_gpu_included_when_nonzero(self) -> None:
+        """--main-gpu should appear when main_gpu is non-zero."""
+        cmd = build_server_cmd(self._minimal_cfg(main_gpu=1))
+        assert "--main-gpu" in cmd
+        assert "1" in cmd
+
     def test_ctx_size_in_command(self) -> None:
         cmd = build_server_cmd(self._minimal_cfg(ctx_size=16384))
         idx = cmd.index("--ctx-size")

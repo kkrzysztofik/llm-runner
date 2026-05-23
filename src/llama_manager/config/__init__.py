@@ -57,6 +57,9 @@ from .profiles import (
     RunProfileError,
     RunProfileRegistry,
     RunProfileSpec,
+    _derive_tensor_split_from_device,
+    _parse_device_indices,
+    _parse_main_gpu_from_device,
     resolve_backend_from_profile,
     resolve_profile_id,
 )
@@ -95,6 +98,9 @@ __all__ = [
     "RunProfileError",
     "RunProfileRegistry",
     "RunProfileSpec",
+    "_derive_tensor_split_from_device",
+    "_parse_device_indices",
+    "_parse_main_gpu_from_device",
     "resolve_backend_from_profile",
     "resolve_profile_id",
     # defaults

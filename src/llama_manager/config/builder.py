@@ -17,7 +17,14 @@ from .profile_cache import (
     load_profile_with_staleness,
     profile_to_override_dict,
 )
-from .profiles import RunGroupSpec, RunProfileError, RunProfileRegistry, RunProfileSpec
+from .profiles import (
+    RunGroupSpec,
+    RunProfileError,
+    RunProfileRegistry,
+    RunProfileSpec,
+    _derive_tensor_split_from_device,
+    _parse_main_gpu_from_device,
+)
 from .server import ServerConfig
 
 
@@ -111,6 +118,11 @@ def _validate_resolved_profile_data(data: dict[str, Any]) -> None:
 
 def _profile_to_config_data(profile: RunProfileSpec) -> dict[str, Any]:
     """Convert profile data to a complete ServerConfig-compatible mapping."""
+    # Auto-derive tensor_split and main_gpu from device if not explicitly set
+    tensor_split = profile.tensor_split or _derive_tensor_split_from_device(profile.device)
+    main_gpu = (
+        profile.main_gpu if profile.main_gpu != 0 else _parse_main_gpu_from_device(profile.device)
+    )
     return {
         "model": profile.model,
         "alias": profile.alias,
@@ -120,7 +132,7 @@ def _profile_to_config_data(profile: RunProfileSpec) -> dict[str, Any]:
         "ctx_size": profile.ctx_size,
         "ubatch_size": profile.ubatch_size,
         "threads": profile.threads,
-        "tensor_split": profile.tensor_split,
+        "tensor_split": tensor_split,
         "reasoning_mode": profile.reasoning_mode,
         "reasoning_format": profile.reasoning_format,
         "chat_template_kwargs": profile.chat_template_kwargs,
@@ -129,6 +141,7 @@ def _profile_to_config_data(profile: RunProfileSpec) -> dict[str, Any]:
         "cache_type_k": profile.cache_type_k,
         "cache_type_v": profile.cache_type_v,
         "n_gpu_layers": profile.n_gpu_layers,
+        "main_gpu": main_gpu,
         "server_bin": profile.server_bin,
         "backend": profile.backend,
         "risky_acknowledged": list(profile.risky_acknowledged),
@@ -155,6 +168,7 @@ def _config_data_to_server_config(data: dict[str, Any]) -> ServerConfig:
         cache_type_k=data["cache_type_k"],
         cache_type_v=data["cache_type_v"],
         n_gpu_layers=data["n_gpu_layers"],
+        main_gpu=data.get("main_gpu", 0),
         server_bin=data["server_bin"],
         backend=data["backend"],
         risky_acknowledged=data["risky_acknowledged"],
@@ -573,6 +587,7 @@ def merge_config_overrides(
         "cache_type_k": defaults.default_cache_type_summary_k,
         "cache_type_v": defaults.default_cache_type_summary_v,
         "n_gpu_layers": defaults.default_n_gpu_layers,
+        "main_gpu": 0,
         "server_bin": "",
         "backend": "llama_cpp",
         "risky_acknowledged": [],
@@ -638,6 +653,7 @@ def merge_config_overrides(
         cache_type_k=merged["cache_type_k"],
         cache_type_v=merged["cache_type_v"],
         n_gpu_layers=merged["n_gpu_layers"],
+        main_gpu=merged.get("main_gpu", 0),
         server_bin=merged["server_bin"],
         backend=merged["backend"],
         risky_acknowledged=merged["risky_acknowledged"],
@@ -726,6 +742,7 @@ def apply_profile_overrides(
         merged.server_bin = cfg.server_bin
         merged.backend = cfg.backend
         merged.tensor_split = cfg.tensor_split
+        merged.main_gpu = cfg.main_gpu
         merged.reasoning_mode = cfg.reasoning_mode
         merged.reasoning_format = cfg.reasoning_format
         merged.chat_template_kwargs = cfg.chat_template_kwargs

@@ -1207,7 +1207,7 @@ class TestProfileToOverrideDict:
                 "ubatch_size": 512,
                 "cache_type_k": "f16",
                 "cache_type_v": "f16",
-                "n_gpu_layers": 99,  # not in whitelist
+                "model": "/path/to/model.gguf",  # not in whitelist
                 "model_alias": "test",  # not in whitelist
             },
         )
@@ -1222,7 +1222,7 @@ class TestProfileToOverrideDict:
         assert result["cache_type_v"] == "f16"
 
         # Non-whitelisted fields excluded
-        assert "n_gpu_layers" not in result
+        assert "model" not in result
         assert "model_alias" not in result
 
     def test_empty_parameters_returns_empty_dict(self) -> None:
@@ -1280,7 +1280,7 @@ class TestProfileToOverrideDict:
                 peak_vram_mb=8192.0,
             ),
             parameters={
-                "n_gpu_layers": "all",
+                "model": "/path/to/model.gguf",
                 "model_alias": "test",
             },
         )

@@ -22,7 +22,15 @@ _CURRENT_SCHEMA_VERSION: str = "1.0"
 CURRENT_SCHEMA_VERSION: str = _CURRENT_SCHEMA_VERSION
 
 PROFILE_OVERRIDE_FIELDS: frozenset[str] = frozenset(
-    ["threads", "ctx_size", "ubatch_size", "cache_type_k", "cache_type_v"],
+    [
+        "threads",
+        "ctx_size",
+        "ubatch_size",
+        "cache_type_k",
+        "cache_type_v",
+        "n_gpu_layers",
+        "main_gpu",
+    ],
 )
 
 # ---------------------------------------------------------------------------
