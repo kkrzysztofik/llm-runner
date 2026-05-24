@@ -1,7 +1,6 @@
 """Config and SmokeProbeConfiguration dataclasses."""
 
 import os
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -202,14 +201,11 @@ class Config:
         """Return the profiles directory path.
 
         Returns:
-            Path to $XDG_RUNTIME_DIR/llm-runner/profiles when XDG_RUNTIME_DIR
-            is set to an absolute path; otherwise falls back to the system
-            temporary directory at <tempdir>/llm-runner/profiles.
+            Path to $XDG_DATA_HOME/llm-runner/profiles, falling back to
+            ~/.local/share/llm-runner/profiles.
         """
-        runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
-        if not runtime_dir or not Path(runtime_dir).is_absolute():
-            runtime_dir = tempfile.gettempdir()
-        return Path(runtime_dir).resolve() / "llm-runner" / "profiles"
+        data_base = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
+        return Path(data_base).resolve() / "llm-runner" / "profiles"
 
 
 @dataclass
