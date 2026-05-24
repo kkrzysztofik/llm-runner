@@ -284,6 +284,12 @@ def refresh_model_index(
                     mtime_iso=mtime_iso,
                 )
             )
+            logger.info(
+                "model index: parsed %s — %s (%s)",
+                abs_path,
+                meta.general_name or meta.normalized_stem,
+                meta.architecture or "unknown",
+            )
         except Exception as exc:
             error_count += 1
             logger.warning(
