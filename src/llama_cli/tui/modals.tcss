@@ -1,5 +1,6 @@
 AddSlotModal,
-ConfigModal {
+ConfigModal,
+ConfirmModal {
     align: center middle;
 }
 
@@ -63,9 +64,34 @@ Select:focus {
     background: $success 20%;
 }
 
-.modal-button-warning {
+  .modal-button-warning {
     border: tall $warning;
     background: $warning 20%;
+}
+
+.modal-button-danger {
+    border: tall $error;
+    background: $error 20%;
+    color: $error;
+}
+
+.modal-button-danger:hover {
+    background: $error 40%;
+    color: $text;
+}
+
+.confirm-dialog {
+    width: 50%;
+    max-width: 95%;
+    max-height: 50%;
+}
+
+.confirm-title {
+    margin-bottom: 1;
+}
+
+.confirm-message {
+    margin-bottom: 2;
 }
 
 .add-slot-dialog {

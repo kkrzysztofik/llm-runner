@@ -30,6 +30,7 @@ class ConfigPayload:
     smoke_first_token_timeout_s: str = ""
     smoke_total_chat_timeout_s: str = ""
     restart: bool = False
+    clean_cache: bool = False
 
 
 class ConfigModal(ModalScreen[ConfigPayload | None]):
@@ -65,6 +66,15 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                 Label("System Paths", classes=_SECTION_LABEL_CLASSES),
                 self._field_row("llama-cpp root", "llama_cpp_root", c.llama_cpp_root),
                 self._field_row("models directory", "models_dir", c.models_dir),
+                Horizontal(
+                    Label("Model Cache:", classes="form-label config-field-label"),
+                    Button(
+                        "Clean Model Cache",
+                        id="clean-model-cache",
+                        classes="modal-button-danger",
+                    ),
+                    classes="form-row config-row config-action-row",
+                ),
                 Label("Binary Paths", classes=_SECTION_LABEL_CLASSES),
                 self._field_row(
                     "llama-server (Intel/SYCL)",
@@ -181,4 +191,8 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
         elif event.button.id == "save-restart-config":
             values = self._collect_values()
             values.restart = True
+            self.dismiss(values)
+        elif event.button.id == "clean-model-cache":
+            values = self._collect_values()
+            values.clean_cache = True
             self.dismiss(values)

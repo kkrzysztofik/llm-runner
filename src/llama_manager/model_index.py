@@ -1,7 +1,7 @@
 """Disk cache for scanned GGUF model metadata.
 
-Scans ``Config.models_dir`` for ``*.gguf`` files, extracts metadata via
-``extract_gguf_metadata``, and caches results atomically in a JSON file.
+Scans ``Config.models_dir`` for ``*.gguf`` files, extracts lightweight metadata,
+and caches results atomically in a JSON file.
 """
 
 import contextlib
@@ -16,7 +16,7 @@ from pathlib import Path
 from threading import Event
 
 from .config.defaults import Config
-from .metadata import GGUFMetadataRecord, extract_gguf_metadata
+from .metadata import GGUFMetadataRecord
 from .metadata._binary import _extract_from_raw_bytes
 
 logger = logging.getLogger(__name__)
@@ -161,20 +161,15 @@ def refresh_model_index(
             total_scanned += 1
             continue
 
-        # Extract metadata (may fail)
+        # Extract metadata (may fail). Indexing uses the raw header parser only:
+        # it avoids GGUFReader's heavier temp-file path, which can monopolize the
+        # GIL long enough to make the TUI appear frozen.
         try:
-            try:
-                meta: GGUFMetadataRecord = extract_gguf_metadata(
-                    abs_path,
-                    prefix_cap_bytes=config.gguf_metadata_prefix_cap_bytes,
-                    parse_timeout_s=config.gguf_metadata_parse_timeout_s,
-                )
-            except TimeoutError:
-                meta = _extract_from_raw_bytes(
-                    abs_path,
-                    prefix_cap_bytes=config.gguf_metadata_prefix_cap_bytes,
-                    parse_timeout_s=config.gguf_metadata_parse_timeout_s,
-                )
+            meta: GGUFMetadataRecord = _extract_from_raw_bytes(
+                abs_path,
+                prefix_cap_bytes=config.gguf_metadata_prefix_cap_bytes,
+                parse_timeout_s=config.gguf_metadata_parse_timeout_s,
+            )
             entries.append(
                 ModelIndexEntry(
                     path=abs_path,

@@ -506,6 +506,25 @@ class DashboardController:
             )
             self.running = False
 
+    def clean_model_cache(self) -> tuple[bool, str]:
+        """Delete the model index cache file and clear in-memory cache.
+
+        Returns:
+            A tuple of (success, message).
+        """
+        idx_path = model_index_path(self.config)
+
+        if not idx_path.exists():
+            return (False, "No model cache to clean")
+
+        try:
+            idx_path.unlink()
+            with self._model_index_lock:
+                self._model_index_cache = None
+            return (True, "Model cache cleaned")
+        except OSError as exc:
+            return (False, f"Failed to clean model cache: {exc}")
+
     def list_run_profiles(self) -> list[tuple[Any, str]]:
         """Return list of ``(RunProfileSpec, source)`` tuples for all profiles.
 

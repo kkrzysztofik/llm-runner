@@ -213,7 +213,7 @@ def test_refresh_scans_directory(
     mock_model_dir: Path,
 ) -> None:
     """refresh_model_index should scan .gguf files and return entries."""
-    with patch("llama_manager.model_index.extract_gguf_metadata") as mock_extract:
+    with patch("llama_manager.model_index._extract_from_raw_bytes") as mock_extract:
         from llama_manager.metadata import GGUFMetadataRecord
 
         mock_extract.return_value = GGUFMetadataRecord(
@@ -252,7 +252,7 @@ def test_refresh_reports_progress(
         architecture="llama",
     )
 
-    with patch("llama_manager.model_index.extract_gguf_metadata", return_value=record):
+    with patch("llama_manager.model_index._extract_from_raw_bytes", return_value=record):
         entries, total, errors = refresh_model_index(
             sample_config,
             progress_callback=lambda current, scanned, total_models, error_count: progress.append(
@@ -279,7 +279,7 @@ def test_refresh_progressive_writes_partial_cache(
     )
 
     with (
-        patch("llama_manager.model_index.extract_gguf_metadata", return_value=record),
+        patch("llama_manager.model_index._extract_from_raw_bytes", return_value=record),
         patch("llama_manager.model_index._write_model_index") as mock_write,
     ):
         entries, total, errors = refresh_model_index(sample_config, progressive=True)
@@ -323,7 +323,7 @@ def test_refresh_with_errors(
         )
 
     with patch(
-        "llama_manager.model_index.extract_gguf_metadata",
+        "llama_manager.model_index._extract_from_raw_bytes",
         side_effect=_extract_with_error,
     ):
         entries, total, errors = refresh_model_index(sample_config)
@@ -337,12 +337,12 @@ def test_refresh_with_errors(
     assert "bad magic" in errored[0].parse_error
 
 
-def test_refresh_timeout_uses_raw_metadata_fallback(
+def test_refresh_uses_raw_metadata(
     tmp_xdg_config: Path,
     sample_config: MagicMock,
     mock_model_dir: Path,
 ) -> None:
-    """Timeouts in the primary parser should fall back to raw GGUF metadata."""
+    """Model indexing should use raw GGUF metadata."""
     raw_record = GGUFMetadataRecord(
         raw_path=str(mock_model_dir / "model_a.gguf"),
         normalized_stem="model_a",
@@ -352,13 +352,7 @@ def test_refresh_timeout_uses_raw_metadata_fallback(
         context_length=32768,
     )
 
-    with (
-        patch(
-            "llama_manager.model_index.extract_gguf_metadata",
-            side_effect=TimeoutError("slow primary parser"),
-        ),
-        patch("llama_manager.model_index._extract_from_raw_bytes", return_value=raw_record),
-    ):
+    with patch("llama_manager.model_index._extract_from_raw_bytes", return_value=raw_record):
         entries, total, errors = refresh_model_index(sample_config)
 
     assert total == 2
@@ -380,7 +374,7 @@ def test_refresh_parse_error_uses_filename_metadata(
     sample_config.models_dir = str(models_dir)
 
     with patch(
-        "llama_manager.model_index.extract_gguf_metadata",
+        "llama_manager.model_index._extract_from_raw_bytes",
         side_effect=ValueError("bad metadata"),
     ):
         entries, total, errors = refresh_model_index(sample_config)
@@ -427,7 +421,7 @@ def test_refresh_caches_mtime(
         return mock_record
 
     with patch(
-        "llama_manager.model_index.extract_gguf_metadata",
+        "llama_manager.model_index._extract_from_raw_bytes",
         side_effect=_count_calls,
     ):
         # First refresh
@@ -465,7 +459,7 @@ def test_refresh_cache_stale_mtime(
         return mock_record
 
     with patch(
-        "llama_manager.model_index.extract_gguf_metadata",
+        "llama_manager.model_index._extract_from_raw_bytes",
         side_effect=_count_calls,
     ):
         # First refresh
@@ -489,7 +483,7 @@ def test_refresh_writes_atomically(
     mock_model_dir: Path,
 ) -> None:
     """refresh_model_index should write the index file after scanning."""
-    with patch("llama_manager.model_index.extract_gguf_metadata") as mock_extract:
+    with patch("llama_manager.model_index._extract_from_raw_bytes") as mock_extract:
         mock_extract.return_value = MagicMock(
             normalized_stem="test",
             general_name=None,
@@ -515,7 +509,7 @@ def test_refresh_scans_case_insensitive_suffix(
     mock_model_dir: Path,
 ) -> None:
     """refresh_model_index should find files with mixed-case .Gguf suffix."""
-    with patch("llama_manager.model_index.extract_gguf_metadata") as mock_extract:
+    with patch("llama_manager.model_index._extract_from_raw_bytes") as mock_extract:
         mock_extract.return_value = MagicMock(
             normalized_stem="mixed",
             general_name=None,

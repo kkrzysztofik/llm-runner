@@ -291,8 +291,32 @@ class DashboardApp(App[None]):
 
     def _handle_config_modal_result(self, result: ConfigPayload | None) -> None:
         if result is not None:
+            if result.clean_cache:
+                from .components.confirm_modal import ConfirmModal
+
+                self.push_screen(
+                    ConfirmModal(
+                        title="Clean Model Cache",
+                        message="Delete the cached model index? Models will be re-scanned.",
+                    ),
+                    self._handle_cache_clean_confirm,
+                )
+                return
+
             self.controller.save_config(result)
         self.refresh_dashboard()
+
+    def _handle_cache_clean_confirm(self, confirmed: bool | None) -> None:
+        """Handle confirmation result from the cache clean dialog."""
+        if confirmed:
+            success, message = self.controller.clean_model_cache()
+            if success:
+                self.notify(message, title="Models", severity="information")
+                self._index_models()
+            else:
+                self.notify(message, title="Models", severity="error")
+        else:
+            self.notify("Cancelled", title="Models", severity="information")
 
     def _handle_profile_modal_result(self, result: RunProfilePayload | None) -> None:
         if result is None:
