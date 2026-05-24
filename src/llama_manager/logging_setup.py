@@ -149,7 +149,7 @@ def configure_logging(
         raise ValueError(f"unknown log level '{level}' — must be one of {list(_LEVEL_MAP)}")
 
     # Common format templates
-    text_format = "{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {name}:{line} | {message}\n"
+    text_format = "{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {name}:{line} | {message}"
 
     fmt = text_format if not json_logs else ""
 
@@ -240,7 +240,7 @@ def configure_logging_split(
     if file_level not in _LEVEL_MAP:
         raise ValueError(f"unknown file level '{file_level}' — must be one of {list(_LEVEL_MAP)}")
 
-    text_format = "{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {name}:{line} | {message}\n"
+    text_format = "{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {name}:{line} | {message}"
 
     fmt = text_format if not json_logs else ""
 
