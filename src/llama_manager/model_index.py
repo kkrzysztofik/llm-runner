@@ -7,13 +7,16 @@ and caches results atomically in a JSON file.
 import contextlib
 import json
 import logging
+import multiprocessing
 import os
 import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from queue import Empty
 from threading import Event
+from typing import Any, cast
 
 from .config.defaults import Config
 from .metadata import GGUFMetadataRecord
@@ -22,6 +25,7 @@ from .metadata._binary import _extract_from_raw_bytes
 logger = logging.getLogger(__name__)
 
 ModelIndexProgressCallback = Callable[[list["ModelIndexEntry"], int, int, int], None]
+_METADATA_WORKER_TIMEOUT_GRACE_S = 1.0
 
 
 @dataclass
@@ -55,6 +59,66 @@ def _file_mtime_iso(path: str) -> str:
     """Return the file mtime as an ISO timestamp string."""
     mtime = os.path.getmtime(path)
     return datetime.fromtimestamp(mtime, tz=UTC).isoformat()
+
+
+def _extract_raw_metadata_worker(
+    model_path: str,
+    prefix_cap_bytes: int,
+    parse_timeout_s: float,
+    result_queue: Any,
+) -> None:
+    """Run raw GGUF metadata extraction in a child process."""
+    try:
+        result_queue.put(
+            (
+                "ok",
+                _extract_from_raw_bytes(
+                    model_path,
+                    prefix_cap_bytes=prefix_cap_bytes,
+                    parse_timeout_s=parse_timeout_s,
+                ),
+            )
+        )
+    except BaseException as exc:
+        result_queue.put(("error", f"{type(exc).__name__}: {exc}"))
+
+
+def _extract_model_index_metadata(
+    model_path: str,
+    prefix_cap_bytes: int,
+    parse_timeout_s: float,
+) -> GGUFMetadataRecord:
+    """Extract model-index metadata outside the TUI process."""
+    timeout_s = max(float(parse_timeout_s), 0.1)
+    start_method = "fork" if "fork" in multiprocessing.get_all_start_methods() else "spawn"
+    ctx = cast(Any, multiprocessing.get_context(start_method))
+    result_queue = ctx.Queue(maxsize=1)
+    process = ctx.Process(
+        target=_extract_raw_metadata_worker,
+        args=(model_path, prefix_cap_bytes, timeout_s, result_queue),
+    )
+    process.start()
+    process.join(timeout_s)
+
+    if process.is_alive():
+        process.terminate()
+        process.join(_METADATA_WORKER_TIMEOUT_GRACE_S)
+        if process.is_alive():
+            process.kill()
+            process.join(_METADATA_WORKER_TIMEOUT_GRACE_S)
+        raise TimeoutError(f"GGUF metadata parse timed out after {timeout_s}s for {model_path}")
+
+    try:
+        status, payload = result_queue.get(timeout=0.1)
+    except Empty:
+        raise RuntimeError(
+            f"GGUF metadata worker exited without a result for {model_path} "
+            f"(exit code {process.exitcode})"
+        ) from None
+
+    if status == "ok" and isinstance(payload, GGUFMetadataRecord):
+        return payload
+    raise RuntimeError(str(payload))
 
 
 def model_index_path(config: Config) -> Path:
@@ -161,11 +225,10 @@ def refresh_model_index(
             total_scanned += 1
             continue
 
-        # Extract metadata (may fail). Indexing uses the raw header parser only:
-        # it avoids GGUFReader's heavier temp-file path, which can monopolize the
-        # GIL long enough to make the TUI appear frozen.
+        # Extract metadata (may fail). Indexing uses the raw header parser in a
+        # child process so CPU-heavy byte scans cannot monopolize the TUI GIL.
         try:
-            meta: GGUFMetadataRecord = _extract_from_raw_bytes(
+            meta: GGUFMetadataRecord = _extract_model_index_metadata(
                 abs_path,
                 prefix_cap_bytes=config.gguf_metadata_prefix_cap_bytes,
                 parse_timeout_s=config.gguf_metadata_parse_timeout_s,
