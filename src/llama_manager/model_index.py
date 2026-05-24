@@ -208,6 +208,7 @@ def refresh_model_index(
     """
     models_dir = Path(config.models_dir)
     if not models_dir.is_dir():
+        logger.debug("models_dir %s not a directory, skipping index", config.models_dir)
         return ([], 0, 0)
 
     old_index = load_model_index(config)
@@ -230,6 +231,13 @@ def refresh_model_index(
             seen.add(key)
             unique_files.append(p)
 
+    logger.info(
+        "model index: scanning %d GGUF file(s) in %s (cache: %d entries)",
+        len(unique_files),
+        config.models_dir,
+        len(old_lookup),
+    )
+
     for file_path in unique_files:
         if cancel_event is not None and cancel_event.is_set():
             break
@@ -242,6 +250,7 @@ def refresh_model_index(
         if abs_path in old_lookup and old_lookup[abs_path].mtime_iso == mtime_iso:
             entries.append(old_lookup[abs_path])
             total_scanned += 1
+            logger.debug("model index: cache hit %s", abs_path)
             continue
 
         # Extract metadata (may fail) — uses subprocess for isolation
@@ -270,6 +279,11 @@ def refresh_model_index(
             )
         except Exception as exc:
             error_count += 1
+            logger.warning(
+                "model index: parse failed for %s: %s; falling back to filename metadata",
+                abs_path,
+                exc,
+            )
             fallback_meta = _metadata_from_filename(abs_path, file_path.stem)
             entries.append(
                 ModelIndexEntry(
@@ -305,6 +319,12 @@ def refresh_model_index(
 
     _write_model_index(config, entries)
 
+    logger.info(
+        "model index: done — %d entries, %d scanned, %d errors",
+        len(entries),
+        total_scanned,
+        error_count,
+    )
     return (entries, total_scanned, error_count)
 
 

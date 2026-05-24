@@ -410,6 +410,13 @@ def write_profile(profiles_dir: Path, record: ProfileRecord) -> Path:
     )
 
     atomic_write_json(profile_path, record.to_dict(), verify_permissions=True)
+    logger.debug(
+        "profile cache write: %s (%s/%s/%s)",
+        profile_path,
+        record.gpu_identifier,
+        record.backend,
+        record.flavor.value,
+    )
     return profile_path
 
 
@@ -455,12 +462,14 @@ def read_profile(
     profile_path = get_profile_path(profiles_dir, gpu_identifier, backend, flavor)
 
     if not profile_path.is_file():
+        logger.debug("profile cache miss: %s", profile_path)
         return None
 
     try:
         raw = profile_path.read_text(encoding="utf-8")
         data = json.loads(raw)
     except OSError, json.JSONDecodeError:
+        logger.debug("profile cache corrupt: %s", profile_path)
         return None
 
     if not isinstance(data, dict):
@@ -583,6 +592,7 @@ def load_profile_with_staleness(
     record = read_profile(profiles_dir, gpu_identifier, backend, flavor)
 
     if record is None:
+        logger.debug("profile cache: no record for %s/%s/%s", gpu_identifier, backend, flavor.value)
         return None, None
 
     staleness = check_staleness(
