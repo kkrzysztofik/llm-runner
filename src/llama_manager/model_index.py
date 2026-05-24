@@ -231,12 +231,19 @@ def refresh_model_index(
             seen.add(key)
             unique_files.append(p)
 
-    logger.info(
-        "model index: scanning %d GGUF file(s) in %s (cache: %d entries)",
-        len(unique_files),
-        config.models_dir,
-        len(old_lookup),
-    )
+    if not old_lookup:
+        logger.info(
+            "model index: cache empty — full rescan of %d GGUF file(s) in %s",
+            len(unique_files),
+            config.models_dir,
+        )
+    else:
+        logger.info(
+            "model index: scanning %d GGUF file(s) in %s (cache: %d entries)",
+            len(unique_files),
+            config.models_dir,
+            len(old_lookup),
+        )
 
     for file_path in unique_files:
         if cancel_event is not None and cancel_event.is_set():

@@ -1,11 +1,14 @@
 """Persistent store for custom run profiles saved to XDG config TOML."""
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any
 
 from .config.profiles import RunProfileSpec
+
+logger = logging.getLogger(__name__)
 
 
 def run_profiles_file_path() -> Path:
@@ -129,6 +132,7 @@ def delete_custom_run_profile(profile_id: str, builtin_profile_ids: set[str] | N
         if custom_entries:
             filtered_dicts = [p for p in existing_dicts if p["profile_id"] != profile_id]
             _write_toml_data(filtered_dicts, hidden_builtins, path)
+            logger.info("profile cache: deleted custom profile %s", profile_id)
             return True
     else:
         existing_dicts = []
@@ -140,6 +144,7 @@ def delete_custom_run_profile(profile_id: str, builtin_profile_ids: set[str] | N
             hidden_builtins.add(profile_id)
             path.parent.mkdir(parents=True, exist_ok=True)
             _write_toml_data(existing_dicts, hidden_builtins, path)
+            logger.info("profile cache: hidden built-in profile %s", profile_id)
         return True
 
     return False
