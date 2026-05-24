@@ -285,10 +285,14 @@ def refresh_model_index(
                 )
             )
             logger.info(
-                "model index: parsed %s — %s (%s)",
+                "model index: parsed %s — name=%s arch=%s quant=%s ctx=%s emb=%s blocks=%s",
                 abs_path,
                 meta.general_name or meta.normalized_stem,
                 meta.architecture or "unknown",
+                meta.quantization_type or "?",
+                meta.context_length or "?",
+                meta.embedding_length or "?",
+                meta.block_count or "?",
             )
         except Exception as exc:
             error_count += 1
