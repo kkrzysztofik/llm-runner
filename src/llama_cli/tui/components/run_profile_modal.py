@@ -467,8 +467,9 @@ def _model_detail_parts(entry: ModelIndexEntry) -> list[str]:
         parts.append(f"Arch: {entry.architecture}")
     if entry.quantization_type:
         parts.append(f"Quant: {entry.quantization_type}")
-    if entry.context_length:
-        parts.append(f"Ctx: {entry.context_length}")
+    max_context_length = entry.max_context_length or entry.context_length
+    if max_context_length:
+        parts.append(f"Max Ctx: {max_context_length}")
     if entry.file_size_bytes:
         size_gib = entry.file_size_bytes / (1024**3)
         parts.append(f"Size: {size_gib:.1f} GiB")

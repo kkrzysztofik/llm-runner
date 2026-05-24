@@ -42,6 +42,7 @@ class GGUFMetadataRecord:
     embedding_length: int | None = None
     block_count: int | None = None
     context_length: int | None = None
+    max_context_length: int | None = None
     attention_head_count: int | None = None
     attention_head_count_kv: int | None = None
     parse_timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())

@@ -8,7 +8,6 @@ key constants and optional timeout.
 from queue import Empty, Queue
 from threading import Event, Thread
 
-from ._binary import _extract_from_raw_bytes
 from ._reader import _extract_from_gguf_reader, _try_gguf_reader
 from ._types import GGUFMetadataRecord, normalize_filename
 
@@ -50,12 +49,7 @@ def _parse_gguf_in_thread(
                 cancel_event,
             )
         else:
-            record = _extract_from_raw_bytes(
-                model_path,
-                prefix_cap_bytes,
-                parse_timeout_s,
-                cancel_event,
-            )
+            raise ValueError("GGUFReader failed for this file")
 
         if not cancel_event.is_set():
             result_queue.put(record, block=False)
@@ -71,10 +65,7 @@ def extract_gguf_metadata(
 ) -> GGUFMetadataRecord:
     """Extract metadata from a GGUF file without loading full weights.
 
-    Attempts to use the ``gguf`` library's ``GGUFReader`` for robust
-    parsing.  Falls back to raw bytes parsing using the ``gguf``
-    library's key constants for compatibility with existing test
-    fixtures.
+    Uses the ``gguf`` library's ``GGUFReader`` for robust parsing.
 
     The entire operation is wrapped in a timeout to prevent
     indefinite hangs.

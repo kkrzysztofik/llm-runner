@@ -109,6 +109,7 @@ def test_to_dict_roundtrip() -> None:
         file_type=15,
         quantization_type="Q4_K_M",
         context_length=8192,
+        max_context_length=8192,
         embedding_length=4096,
         block_count=32,
         file_size_bytes=4294967296,
@@ -123,6 +124,7 @@ def test_to_dict_roundtrip() -> None:
     assert restored.file_type == entry.file_type
     assert restored.quantization_type == entry.quantization_type
     assert restored.context_length == entry.context_length
+    assert restored.max_context_length == entry.max_context_length
     assert restored.file_size_bytes == entry.file_size_bytes
     assert restored.parse_error is None
 
@@ -148,6 +150,7 @@ def test_from_dict_missing_fields() -> None:
     assert entry.path == "/models/test.gguf"
     assert entry.architecture == "llama"
     assert entry.context_length == 8192
+    assert entry.max_context_length == 8192
     assert entry.file_size_bytes == 1000
 
 
@@ -175,31 +178,59 @@ def test_load_returns_empty_list_on_corrupt_json(
 
 
 def test_load_returns_cached_entries(tmp_xdg_config: Path, sample_config: MagicMock) -> None:
-    """load_model_index should return entries from valid cache."""
+    """load_model_index should return entries from valid cache with schema version."""
     idx_path = model_index_path(sample_config)
     idx_path.parent.mkdir(parents=True, exist_ok=True)
-    entries = [
-        {
-            "path": "/models/a.gguf",
-            "normalized_stem": "a",
-            "general_name": None,
-            "architecture": "llama",
-            "file_type": None,
-            "quantization_type": None,
-            "context_length": 8192,
-            "embedding_length": None,
-            "block_count": None,
-            "file_size_bytes": 1000,
-            "parse_error": None,
-            "mtime_iso": "2024-01-01T00:00:00+00:00",
-        }
-    ]
-    idx_path.write_text(json.dumps(entries))
+    data = {
+        "schema_version": 2,
+        "entries": [
+            {
+                "path": "/models/a.gguf",
+                "normalized_stem": "a",
+                "general_name": None,
+                "architecture": "llama",
+                "file_type": None,
+                "quantization_type": None,
+                "context_length": 8192,
+                "embedding_length": None,
+                "block_count": None,
+                "file_size_bytes": 1000,
+                "parse_error": None,
+                "mtime_iso": "2024-01-01T00:00:00+00:00",
+            }
+        ],
+    }
+    idx_path.write_text(json.dumps(data))
 
     result = load_model_index(sample_config)
     assert len(result) == 1
     assert result[0].path == "/models/a.gguf"
     assert result[0].normalized_stem == "a"
+
+
+def test_load_returns_empty_on_missing_schema_version(
+    tmp_xdg_config: Path, sample_config: MagicMock
+) -> None:
+    """load_model_index should return [] when schema_version is missing (old format)."""
+    idx_path = model_index_path(sample_config)
+    idx_path.parent.mkdir(parents=True, exist_ok=True)
+    idx_path.write_text(json.dumps([{"path": "/models/a.gguf"}]))
+
+    result = load_model_index(sample_config)
+    assert result == []
+
+
+def test_load_returns_empty_on_stale_schema_version(
+    tmp_xdg_config: Path, sample_config: MagicMock
+) -> None:
+    """load_model_index should return [] when schema_version is stale."""
+    idx_path = model_index_path(sample_config)
+    idx_path.parent.mkdir(parents=True, exist_ok=True)
+    data = {"schema_version": 1, "entries": [{"path": "/models/a.gguf"}]}
+    idx_path.write_text(json.dumps(data))
+
+    result = load_model_index(sample_config)
+    assert result == []
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +381,7 @@ def test_refresh_uses_raw_metadata(
         file_type=18,
         quantization_type="Q6_K",
         context_length=32768,
+        max_context_length=32768,
     )
 
     with patch("llama_manager.model_index._extract_model_index_metadata", return_value=raw_record):
@@ -358,6 +390,7 @@ def test_refresh_uses_raw_metadata(
     assert total == 2
     assert errors == 0
     assert {entry.quantization_type for entry in entries} == {"Q6_K"}
+    assert {entry.max_context_length for entry in entries} == {32768}
     assert all(entry.parse_error is None for entry in entries)
 
 
@@ -498,9 +531,10 @@ def test_refresh_writes_atomically(
 
     idx_path = model_index_path(sample_config)
     assert idx_path.exists()
-    # Should be valid JSON
     data = json.loads(idx_path.read_text())
-    assert isinstance(data, list)
+    assert "schema_version" in data
+    assert data["schema_version"] == 2
+    assert isinstance(data["entries"], list)
 
 
 def test_refresh_scans_case_insensitive_suffix(

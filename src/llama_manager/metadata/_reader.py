@@ -1,6 +1,5 @@
 """GGUFReader-based metadata extraction — primary parsing path."""
 
-import os
 from collections.abc import Mapping
 from contextlib import suppress
 from pathlib import Path
@@ -175,9 +174,10 @@ def _try_gguf_reader(
 ) -> tuple[dict[str, ReaderField], int] | None:
     """Try to read GGUF file using the gguf library's GGUFReader.
 
-    Creates a temporary file containing only the first ``prefix_cap_bytes``
-    bytes of the model to avoid memory-mapping the entire file.
-    Uses ``tempfile.mkstemp`` for collision-safe temp file creation.
+    Uses the full file directly. ``gguf.GGUFReader`` uses ``np.memmap`` which
+    maps the file into virtual address space without consuming physical RAM
+    until data is accessed. We only read key/value metadata fields, not tensor
+    data, so physical memory impact is minimal regardless of file size.
 
     Returns fields dict and version, or None if GGUFReader fails.
 
@@ -189,40 +189,10 @@ def _try_gguf_reader(
         A tuple of (fields_dict, version) or None on failure.
 
     """
-    import tempfile
-
     import gguf
 
-    capped_fd: int | None = None
-    capped_path: str | None = None
     try:
-        # Create collision-safe temp file in system temp directory
-        capped_fd, capped_path = tempfile.mkstemp(prefix="gguf_", suffix=".gguf", dir=None)
-        try:
-            with os.fdopen(capped_fd, "wb") as capped_file:
-                capped_fd = None  # Already transferred ownership
-                with open(model_path, "rb") as src:
-                    remaining = prefix_cap_bytes
-                    chunk_size = 64 * 1024  # 64 KB chunks
-                    while remaining > 0:
-                        if cancel_event is not None and cancel_event.is_set():
-                            return None
-                        chunk = src.read(min(remaining, chunk_size))
-                        if not chunk:
-                            break
-                        capped_file.write(chunk)
-                        remaining -= len(chunk)
-        except Exception:
-            # If writing fails, close and clean up
-            if capped_fd is not None:
-                os.close(capped_fd)
-                capped_fd = None
-            return None
-
-        if cancel_event is not None and cancel_event.is_set():
-            return None
-
-        reader = gguf.GGUFReader(capped_path, mode="r")
+        reader = gguf.GGUFReader(model_path, mode="r")
         fields = dict(reader.fields)
 
         version_field = fields.get("GGUF.version")
@@ -234,15 +204,6 @@ def _try_gguf_reader(
         return fields, version
     except Exception:
         return None
-    finally:
-        # Close fd if still open (shouldn't happen after fdopen transfer)
-        if capped_fd is not None:
-            with suppress(OSError):
-                os.close(capped_fd)
-        # Remove temp file
-        if capped_path:
-            with suppress(OSError):
-                Path(capped_path).unlink()
 
 
 def _extract_from_gguf_reader(
@@ -307,6 +268,7 @@ def _extract_from_gguf_reader(
         embedding_length=embedding_length,
         block_count=block_count,
         context_length=context_length,
+        max_context_length=context_length,
         attention_head_count=attention_head_count,
         attention_head_count_kv=attention_head_count_kv,
         parse_timeout_s=parse_timeout_s,

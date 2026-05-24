@@ -156,6 +156,10 @@ class ProfilesScreen(ModalScreen[dict[str, Any] | None]):
         in_use = spec.profile_id in self._in_use_ids
         source_label = "built-in" if source == "builtin" else "custom"
         source_badge_class = "badge-builtin" if source == "builtin" else "badge-custom"
+        model_details = _format_model_details(spec, self._model_index or [])
+        detail_widgets = (
+            [Label(model_details, classes="profile-model-text")] if model_details else []
+        )
 
         return Horizontal(
             Vertical(
@@ -167,6 +171,7 @@ class ProfilesScreen(ModalScreen[dict[str, Any] | None]):
                     _format_model_line(spec, self._model_index or []),
                     classes="profile-model-text",
                 ),
+                *detail_widgets,
                 Label(
                     f"Device: {spec.device or '(default)'}  |  "
                     f"Port: {spec.port}  |  "
@@ -229,3 +234,52 @@ def _format_model_line(
     if quant_match:
         return f"Model: {filename}  [{quant_match.group(1)}]"
     return f"Model: {filename}"
+
+
+def _format_model_details(
+    spec: RunProfileSpec,
+    model_index: list[ModelIndexEntry] | None = None,
+) -> str:
+    """Format indexed model metadata using the choose-dialog detail fields."""
+    entry = _find_model_index_entry(spec, model_index)
+    if entry is None:
+        return ""
+
+    parts = []
+    if entry.architecture:
+        parts.append(f"Arch: {entry.architecture}")
+    if entry.quantization_type:
+        parts.append(f"Quant: {entry.quantization_type}")
+    max_context_length = entry.max_context_length or entry.context_length
+    if max_context_length:
+        parts.append(f"Max Ctx: {max_context_length}")
+    if entry.file_size_bytes:
+        size_gib = entry.file_size_bytes / (1024**3)
+        parts.append(f"Size: {size_gib:.1f} GiB")
+    if entry.parse_error:
+        parts.append(f"Metadata: {_short_parse_error(entry.parse_error)}")
+    return "  |  ".join(parts)
+
+
+def _find_model_index_entry(
+    spec: RunProfileSpec,
+    model_index: list[ModelIndexEntry] | None = None,
+) -> ModelIndexEntry | None:
+    """Return the model index entry matching a profile model path or filename."""
+    path = spec.model or ""
+    if not path:
+        return None
+
+    filename = Path(path).name
+    for entry in model_index or []:
+        if entry.path == path or Path(entry.path).name == filename:
+            return entry
+    return None
+
+
+def _short_parse_error(error: str) -> str:
+    """Keep parse error display compact in profile rows."""
+    first_line = error.splitlines()[0] if error else ""
+    if len(first_line) <= 64:
+        return first_line
+    return f"{first_line[:61]}..."
