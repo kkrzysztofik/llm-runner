@@ -147,7 +147,7 @@ class Config:
 
     # GGUF metadata extraction
     gguf_metadata_prefix_cap_bytes: int = 32 * 1024 * 1024  # 32 MiB
-    gguf_metadata_parse_timeout_s: float = 5.0
+    gguf_metadata_parse_timeout_s: float = 60.0
 
     # TUI
     tui_launch_timeout_s: int = 120
