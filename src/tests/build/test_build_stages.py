@@ -386,6 +386,7 @@ class TestUtilityEdgeCases:
     def test_build_cmake_cmd_includes_build_args(self, tmp_path: Path) -> None:
         """_build_cmake_cmd should include build_args from config."""
         from llama_manager.build_pipeline.stages.build import _build_cmake_cmd
+        from llama_manager.build_pipeline.utils import _INTEL_SETVARS_SH
 
         config = BuildConfig(
             backend=BuildBackend.SYCL,
@@ -397,8 +398,9 @@ class TestUtilityEdgeCases:
             build_args=["-v", "--debug-output"],
         )
         ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
-        cmd = _build_cmake_cmd(ctx)
-        # get_build_env_cmd wraps SYCL commands in bash -c string
+        with patch.object(_INTEL_SETVARS_SH.__class__, "exists", return_value=True):
+            cmd = _build_cmake_cmd(ctx)
+        # get_build_env_cmd wraps SYCL commands in bash -c string when setvars.sh exists
         assert cmd[0] == "bash"
         assert cmd[1] == "-c"
         assert "cmake --build" in cmd[2]
