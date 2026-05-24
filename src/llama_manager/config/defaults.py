@@ -159,6 +159,10 @@ class Config:
     # Lockfile
     lock_stale_threshold_s: int = 300
 
+    # Logging
+    log_file_level: str = "DEBUG"
+    log_stderr_level: str = "INFO"
+
     # M2 XDG path utilities
     @property
     def venv_path(self) -> Path:
@@ -206,6 +210,17 @@ class Config:
         """
         data_base = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
         return Path(data_base).resolve() / "llm-runner" / "profiles"
+
+    @property
+    def logs_dir(self) -> Path:
+        """Return the logs directory path.
+
+        Returns:
+            Path to $XDG_STATE_HOME/llm-runner/logs, falling back to
+            ~/.local/state/llm-runner/logs.
+        """
+        xdg_state = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
+        return xdg_state / "llm-runner" / "logs"
 
 
 @dataclass

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -12,6 +13,8 @@ from typing import Any, Self
 
 from ..common.constants import DIR_MODE_OWNER_ONLY
 from ..common.file_ops import atomic_write_json
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -531,12 +534,22 @@ def check_staleness(
         if staleness_days > 0 and age_days > staleness_days:
             reasons.append(StalenessReason.AGE_EXCEEDED)
 
-    return StalenessResult(
+    result = StalenessResult(
         is_stale=len(reasons) > 0,
         reasons=reasons,
         driver_version_display=record.driver_version,
         age_days=round(age_days, 2),
     )
+    if result.is_stale:
+        logger.debug(
+            "profile stale: %s/%s/%s age=%.1fd reasons=%s",
+            record.gpu_identifier,
+            record.backend,
+            record.flavor.value,
+            result.age_days,
+            ", ".join(r.value for r in reasons),
+        )
+    return result
 
 
 def load_profile_with_staleness(

@@ -1,11 +1,16 @@
 """Dashboard controller for the Textual TUI."""
 
 import dataclasses
+import logging
 import signal
 import threading
 from collections.abc import Callable
 from types import FrameType
 from typing import Any, Literal
+
+logger = logging.getLogger(__name__)
+
+import contextlib
 
 from llama_manager import (
     Config,
@@ -35,7 +40,11 @@ from llama_manager.build_pipeline import (
     BuildProgress,
     run_build_for_backend,
 )
-from llama_manager.logging_setup import suppress_build_pipeline_stderr_for_tui
+from llama_manager.logging_setup import (
+    suppress_build_pipeline_stderr_for_tui,
+    update_file_level,
+    update_stderr_level,
+)
 
 from .components.config_modal import ConfigPayload
 from .components.run_profile_modal import RunProfilePayload
@@ -321,6 +330,7 @@ class DashboardController:
         This method is safe to call from TUI handlers — it only mutates the
         status buffer and leaves rendering to Textual.
         """
+        logger.debug("status: %s", message)
         self.model.push_status_message(message)
 
     def refresh_stale_warnings(self, get_driver_version: Callable[[str], str]) -> None:
@@ -497,6 +507,13 @@ class DashboardController:
 
         if result.updated_fields:
             self._push_status_message("Config saved to disk.")
+            # Live-update logging levels if they changed
+            if "log_file_level" in result.updated_fields:
+                with contextlib.suppress(Exception):
+                    update_file_level(self.config.log_file_level)
+            if "log_stderr_level" in result.updated_fields:
+                with contextlib.suppress(Exception):
+                    update_stderr_level(self.config.log_stderr_level)
 
         if payload.restart:
             self._push_status_message("Restarting servers with new config…")

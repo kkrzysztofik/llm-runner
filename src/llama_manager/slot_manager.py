@@ -4,10 +4,13 @@ Extracted from TUI controller so slot lifecycle management can be tested
 and reused without importing Rich, Textual, or other UI libraries.
 """
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from .config import Config, ModelSlot, ServerConfig, SlotState
+
+logger = logging.getLogger(__name__)
 from .config.builder import create_default_profile_registry, resolve_profile_config
 from .config.profiles import RunProfileError, RunProfileRegistry
 from .gpu_stats import GPUStats
@@ -117,6 +120,7 @@ def register_and_start_slot(
         if result is not None:
             message, _color = result
             messages.append(message)
+            logger.info("slot %s: %s", alias, message)
     else:
         state["slot_states"][alias] = SlotState.CRASHED.value
         messages.append(f"Slot '{alias}' failed to start: no process returned")

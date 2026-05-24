@@ -1,10 +1,10 @@
 """Server lifecycle management — ServerManager, launch_orchestrate, SlotRuntime."""
 
 import contextlib
+import logging
 import os
 import re
 import signal
-import sys
 import threading
 import time
 import traceback
@@ -16,6 +16,8 @@ from types import FrameType
 from typing import TYPE_CHECKING, Any, Final, TextIO
 
 import psutil
+
+logger = logging.getLogger(__name__)
 
 from ..common.constants import FILE_MODE_OWNER_ONLY
 from ..common.security import REDACTED_VALUE, SENSITIVE_KEY_NAME_PATTERN, SENSITIVE_WORD_PATTERN
@@ -441,6 +443,7 @@ def launch_orchestrate(
     acknowledged: bool = False,
 ) -> LaunchOrchestrationResult:
     """Orchestrate the full launch sequence for model slots."""
+    logger.info("launch_orchestrate: %d config(s)", len(configs))
     updated_configs, profile_messages = apply_profile_overrides(
         configs, base_config, get_driver_version
     )
@@ -667,7 +670,7 @@ class ServerManager:
                 if log_handler is not None:
                     log_handler(formatted)
                 else:
-                    print(formatted, file=sys.stderr if is_stderr else sys.stdout, flush=True)
+                    logger.warning("%s", formatted)
         finally:
             pipe.close()
 

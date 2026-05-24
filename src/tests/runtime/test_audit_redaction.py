@@ -186,10 +186,12 @@ class TestPipeStreaming:
         manager._stream_pipe(None, "test_server", False, buffer.add_line)
         assert buffer.line_count == 0
 
-    def test_stream_pipe_without_handler_writes_to_stdout(
+    def test_stream_pipe_without_handler_writes_to_logger(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """_stream_pipe should print stdout lines when no handler is provided."""
+        """_stream_pipe without a handler should log via logger.warning."""
+        from unittest.mock import MagicMock, patch
+
         from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
@@ -197,11 +199,11 @@ class TestPipeStreaming:
         mock_pipe = MagicMock()
         mock_pipe.readline.side_effect = ["stdout_line\n", ""]
 
-        manager._stream_pipe(mock_pipe, "test_server", False, None)
-
-        captured = capsys.readouterr()
-        assert "[test_server] stdout_line" in captured.out
-        assert captured.err == ""
+        with patch("llama_manager.orchestration.manager.logger") as mock_logger:
+            manager._stream_pipe(mock_pipe, "test_server", False, None)
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args[0][1]
+            assert "[test_server] stdout_line" in call_args
         mock_pipe.close.assert_called_once()
 
     def test_start_server_background_with_handler(self) -> None:

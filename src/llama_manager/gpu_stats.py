@@ -1,12 +1,15 @@
 """GPU statistics collection via nvtop/psutil."""
 
 import json
+import logging
 import subprocess
 import time
 from collections.abc import Callable
 from typing import Any
 
 import psutil
+
+logger = logging.getLogger(__name__)
 
 
 def _psutil_only_collector(device_index: int) -> dict[str, Any]:
@@ -48,6 +51,7 @@ class GPUStats:
         self.stats: dict[str, Any] = {}
         self.last_update: float = 0.0
         self.update_interval: float = 0.5
+        self._prev_gpu_util: float | None = None
         # Injectable collector callable (defaults to psutil-only)
         self._collector: Callable[[], dict[str, Any]] = (
             collector if collector is not None else lambda: _psutil_only_collector(device_index)
@@ -61,6 +65,30 @@ class GPUStats:
 
         self.stats = self._collector()
         self.last_update = current_time
+
+        # Change-triggered poll logging: log when GPU util changes >5%
+        new_util = self.stats.get("gpu_util")
+        if isinstance(new_util, str) and "%" in new_util:
+            try:
+                current_pct = float(new_util.replace("%", ""))
+            except ValueError:
+                current_pct = 0.0
+        elif isinstance(new_util, (int, float)):
+            current_pct = float(new_util)
+        else:
+            current_pct = 0.0
+
+        if self._prev_gpu_util is not None and current_pct > 0:
+            delta = abs(current_pct - self._prev_gpu_util)
+            if delta > 5.0:
+                logger.debug(
+                    "GPU %d util delta=%.1f%% (%.1f%% -> %.1f%%)",
+                    self.device_index,
+                    delta,
+                    self._prev_gpu_util,
+                    current_pct,
+                )
+        self._prev_gpu_util = current_pct if current_pct > 0 else None
 
     def get_stats_snapshot(self) -> dict[str, Any]:
         """Get current GPU stats as pure data."""
@@ -221,6 +249,7 @@ def collect_nvtop_stats(device_index: int = 0) -> dict[str, Any]:
         pass
 
     # Fallback to psutil
+    logger.debug("nvtop unavailable — falling back to psutil for GPU %s", device_index)
     return {
         "device": _format_metric(f"GPU {device_index}"),
         "gpu_util": _format_metric("N/A"),
