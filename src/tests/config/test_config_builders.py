@@ -19,9 +19,6 @@ from llama_manager.config import (
     RunProfileSpec,
     ServerConfig,
     ValidationResult,
-    _derive_tensor_split_from_device,
-    _parse_device_indices,
-    _parse_main_gpu_from_device,
     create_default_profile_registry,
     create_qwen35_cfg,
     create_server_config_from_profile,
@@ -35,7 +32,10 @@ from llama_manager.config import (
     validate_slot_port,
 )
 from llama_manager.config.profiles import (
+    _derive_tensor_split_from_device,
     _normalize_alias,
+    _parse_device_indices,
+    _parse_main_gpu_from_device,
     _resolve_alias_to_profile_id,
 )
 from llama_manager.log_buffer import LogBuffer

@@ -11,6 +11,8 @@ import psutil
 
 logger = logging.getLogger(__name__)
 
+_nvtop_fallback_logged: set[int] = set()
+
 
 def _psutil_only_collector(device_index: int) -> dict[str, Any]:
     """Pure psutil-based GPU collector with no subprocess usage.
@@ -249,7 +251,9 @@ def collect_nvtop_stats(device_index: int = 0) -> dict[str, Any]:
         pass
 
     # Fallback to psutil
-    logger.debug("nvtop unavailable — falling back to psutil for GPU %s", device_index)
+    if device_index not in _nvtop_fallback_logged:
+        _nvtop_fallback_logged.add(device_index)
+        logger.debug("nvtop unavailable — falling back to psutil for GPU %s", device_index)
     return {
         "device": _format_metric(f"GPU {device_index}"),
         "gpu_util": _format_metric("N/A"),

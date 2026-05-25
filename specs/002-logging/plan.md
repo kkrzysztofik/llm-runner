@@ -30,7 +30,7 @@
 
 ### Log File Path
 
-```
+```text
 $XDG_STATE_HOME/llm-runner/logs/llm-runner-<YYYYMMDD-HHMMSS>.log
 ```
 

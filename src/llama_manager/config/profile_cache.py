@@ -592,7 +592,12 @@ def load_profile_with_staleness(
     record = read_profile(profiles_dir, gpu_identifier, backend, flavor)
 
     if record is None:
-        logger.debug("profile cache: no record for %s/%s/%s", gpu_identifier, backend, flavor.value)
+        logger.debug(
+            "profile cache: no record for %s/%s/%s",
+            gpu_identifier,
+            backend,
+            flavor.value,
+        )
         return None, None
 
     staleness = check_staleness(

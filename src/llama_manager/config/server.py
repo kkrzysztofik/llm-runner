@@ -1,6 +1,7 @@
 """ServerConfig, ModelSlot, and slot utility functions."""
 
 import re
+import sys
 from dataclasses import dataclass, field
 
 from .errors import ErrorCode, ValidationResult
@@ -62,6 +63,11 @@ class ServerConfig:
     server_bin: str = ""
     backend: str = "llama_cpp"
     risky_acknowledged: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.main_gpu, int) or self.main_gpu < 0:
+            sys.stderr.write("main_gpu must be a non-negative integer\n")
+            sys.exit(1)
 
 
 @dataclass

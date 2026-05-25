@@ -46,6 +46,8 @@ class RunProfileSpec:
         _require_positive_int(self.ctx_size, "ctx_size")
         _require_positive_int(self.ubatch_size, "ubatch_size")
         _require_positive_int(self.threads, "threads")
+        if not isinstance(self.main_gpu, int) or self.main_gpu < 0:
+            raise RunProfileError("main_gpu must be a non-negative integer")
         if isinstance(self.n_gpu_layers, int) and self.n_gpu_layers < 0:
             raise RunProfileError("n_gpu_layers must be non-negative")
         if isinstance(self.n_gpu_layers, str):
@@ -283,9 +285,11 @@ def _parse_device_indices(device: str) -> list[int]:
     if not device:
         return []
 
-    # Strip backend prefix (SYCL or CUDA:)
+    # Strip backend prefix (SYCL: or CUDA:)
     upper = device.upper()
-    if upper.startswith("SYCL"):
+    if upper.startswith("SYCL:"):
+        remainder = device[5:]
+    elif upper.startswith("SYCL"):
         remainder = device[4:]
     elif upper.startswith("CUDA:"):
         remainder = device[5:]

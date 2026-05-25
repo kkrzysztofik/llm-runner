@@ -1,5 +1,6 @@
 """Dashboard controller for the Textual TUI."""
 
+import contextlib
 import dataclasses
 import logging
 import signal
@@ -9,8 +10,6 @@ from types import FrameType
 from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
-
-import contextlib
 
 from llama_manager import (
     Config,

@@ -208,8 +208,8 @@ class Config:
             Path to $XDG_DATA_HOME/llm-runner/profiles, falling back to
             ~/.local/share/llm-runner/profiles.
         """
-        data_base = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
-        return Path(data_base).resolve() / "llm-runner" / "profiles"
+        data_base = Path(self.xdg_data_base).resolve()
+        return data_base / "llm-runner" / "profiles"
 
     @property
     def logs_dir(self) -> Path:
@@ -219,8 +219,8 @@ class Config:
             Path to $XDG_STATE_HOME/llm-runner/logs, falling back to
             ~/.local/state/llm-runner/logs.
         """
-        xdg_state = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
-        return xdg_state / "llm-runner" / "logs"
+        state_base = Path(self.xdg_state_base).resolve()
+        return state_base / "llm-runner" / "logs"
 
 
 @dataclass

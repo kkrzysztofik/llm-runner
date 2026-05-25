@@ -5,6 +5,7 @@ BuildModalScreen that drives the multi-step build wizard workflow.
 """
 
 import re
+import shlex
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -301,7 +302,7 @@ def collect_build_options(
 
     build_args: list[str] | None = None
     if build_args_raw is not None and build_args_raw.strip():
-        build_args = build_args_raw.strip().split()
+        build_args = shlex.split(build_args_raw.strip())
 
     return BuildConfig(
         backend=BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA,

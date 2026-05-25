@@ -19,7 +19,7 @@ from threading import Event
 from typing import Any, cast
 
 from .config.defaults import Config
-from .metadata import GGUFMetadataRecord, extract_gguf_metadata
+from .metadata import GGUFMetadataRecord, extract_gguf_metadata, normalize_filename
 
 logger = logging.getLogger(__name__)
 
@@ -220,11 +220,13 @@ def refresh_model_index(
     error_count = 0
 
     # Collect all gguf files (case-insensitive) so we can check cancel before each parse
-    gguf_files: list[Path] = sorted(models_dir.rglob("**/*"))
+    gguf_files: list[Path] = sorted(
+        p for p in models_dir.rglob("*") if p.is_file() and p.name.lower().endswith(".gguf")
+    )
     unique_files: list[Path] = []
     seen: set[str] = set()
     for p in gguf_files:
-        if not p.is_file() or p.suffix.lower() != ".gguf":
+        if not p.is_file():
             continue
         key = str(p.resolve())
         if key not in seen:
@@ -258,6 +260,16 @@ def refresh_model_index(
             entries.append(old_lookup[abs_path])
             total_scanned += 1
             logger.debug("model index: cache hit %s", abs_path)
+            if progress_callback is not None:
+                _emit_model_index_progress(
+                    config,
+                    entries,
+                    total_scanned,
+                    len(unique_files),
+                    error_count,
+                    progress_callback,
+                    progressive=progressive,
+                )
             continue
 
         # Extract metadata (may fail) — uses subprocess for isolation
@@ -398,7 +410,7 @@ def _metadata_from_filename(path: str, stem: str) -> GGUFMetadataRecord:
     """Build best-effort metadata from a model filename after parse failure."""
     import re
 
-    normalized = stem
+    normalized = normalize_filename(stem)
     quant_match = re.search(r"(IQ\d_[A-Z]+|Q\d_[A-Z_]+|F16|F32)", stem)
     arch_match = re.search(r"(qwen3|qwen2|qwen|llama|mistral|phi3|phi)", stem, re.I)
     return GGUFMetadataRecord(

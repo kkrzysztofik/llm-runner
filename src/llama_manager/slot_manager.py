@@ -9,14 +9,14 @@ from collections.abc import Callable
 from typing import Any
 
 from .config import Config, ModelSlot, ServerConfig, SlotState
-
-logger = logging.getLogger(__name__)
 from .config.builder import create_default_profile_registry, resolve_profile_config
 from .config.profiles import RunProfileError, RunProfileRegistry
 from .gpu_stats import GPUStats
 from .log_buffer import LogBuffer
 from .orchestration import ServerManager
 from .slot_state import compute_slot_transition
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_slot_port(port_str: str) -> tuple[int, str | None]:

@@ -321,8 +321,8 @@ build_server_cmd() {
   local reasoning_format="${11-none}"
   local chat_template_kwargs="${12:-}"
   local reasoning_budget="${13:-}"
-  local use_jinja="${14:-false}"\
-``````````````    local cache_type_k="${15:-q8_0}"
+  local use_jinja="${14:-false}"
+  local cache_type_k="${15:-q8_0}"
   local cache_type_v="${16:-q8_0}"
   local n_gpu_layers="${17:-$DEFAULT_N_GPU_LAYERS}"
   local server_bin="${18:-$LLAMA_SERVER_BIN_INTEL}"

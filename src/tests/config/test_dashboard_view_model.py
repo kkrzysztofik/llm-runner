@@ -61,13 +61,14 @@ def test_profile_options_caching_with_different_config(
     vm: DashboardViewModel,
     config: Config,
 ) -> None:
-    """Different config instance should return cached value (cache is not config-aware)."""
+    """Different config instance should NOT return cached value (cache uses id(cfg))."""
     options_first = vm.profile_options(config)
     different_config = Config()
     options_second = vm.profile_options(different_config)
 
-    # Cache is simple (no config-aware invalidation), so same object returned
-    assert options_first is options_second
+    # Different config -> different id -> cache miss -> new list
+    assert options_first == options_second
+    assert options_first is not options_second
 
 
 def test_profile_options_cache_invalidation_with_none_config(
@@ -103,9 +104,8 @@ def test_get_state_returns_profile_options(vm: DashboardViewModel, config: Confi
     """get_state should include profile_options in the returned dict."""
     state = vm.get_state()
     assert "profile_options" in state
-    # Note: get_state references self.profile_options (method), not self.profile_options()
-    # This is the actual behavior of the source code
-    assert callable(state["profile_options"])
+    assert isinstance(state["profile_options"], list)
+    assert len(state["profile_options"]) >= 3
 
 
 def test_get_state_triggers_profile_options_populate(
@@ -114,9 +114,9 @@ def test_get_state_triggers_profile_options_populate(
 ) -> None:
     """get_state should populate the cache by calling profile_options internally."""
     vm.get_state()
-    # get_state does NOT call profile_options(), so cache stays None
-    # This matches the actual source code behavior
-    assert vm._profile_options is None
+    # get_state calls profile_options(), so cache is populated
+    assert vm._profile_options is not None
+    assert len(vm._profile_options) >= 3
 
 
 # ---------------------------------------------------------------------------

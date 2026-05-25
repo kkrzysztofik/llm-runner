@@ -189,7 +189,7 @@ class TestPipeStreaming:
     def test_stream_pipe_without_handler_writes_to_logger(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """_stream_pipe without a handler should log via logger.warning."""
+        """_stream_pipe without a handler should log stdout via logger.info."""
         from unittest.mock import MagicMock, patch
 
         from llama_manager.orchestration import ServerManager
@@ -201,8 +201,8 @@ class TestPipeStreaming:
 
         with patch("llama_manager.orchestration.manager.logger") as mock_logger:
             manager._stream_pipe(mock_pipe, "test_server", False, None)
-            mock_logger.warning.assert_called_once()
-            call_args = mock_logger.warning.call_args[0][1]
+            mock_logger.info.assert_called_once()
+            call_args = mock_logger.info.call_args[0][1]
             assert "[test_server] stdout_line" in call_args
         mock_pipe.close.assert_called_once()
 

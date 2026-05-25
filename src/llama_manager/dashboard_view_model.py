@@ -35,11 +35,12 @@ class DashboardViewModel:
         Returns:
             List of profile ID strings.
         """
-        if self._profile_options is not None:
-            return self._profile_options
         cfg = config or Config()
+        if self._profile_options is not None and self._last_config_id == id(cfg):
+            return self._profile_options
         registry = create_tui_profile_registry(cfg)
         self._profile_options = [p.profile_id for p in registry.profiles]
+        self._last_config_id = id(cfg)
         return self._profile_options
 
     def clear_cache(self) -> None:
@@ -50,5 +51,5 @@ class DashboardViewModel:
     def get_state(self) -> dict[str, Any]:
         """Return the current view state as a serialisable dict."""
         return {
-            "profile_options": self.profile_options,
+            "profile_options": self.profile_options(),
         }

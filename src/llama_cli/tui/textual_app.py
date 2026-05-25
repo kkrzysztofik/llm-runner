@@ -128,6 +128,7 @@ class DashboardApp(App[None]):
             complete_callback=self._index_models_complete_from_thread,
         )
         if started:
+            self._last_model_index_notice_scanned = 0
             self.notify("Indexing models...", title="Models")
 
     def _index_models_progress_from_thread(
@@ -200,7 +201,11 @@ class DashboardApp(App[None]):
         from .components.profiles_screen import ProfilesScreen
 
         profiles = self.controller.list_run_profiles()
-        in_use_ids = {pid for pid, _ in profiles if self.controller.is_profile_in_use(pid)}
+        in_use_ids = {
+            spec.profile_id
+            for spec, _ in profiles
+            if self.controller.is_profile_in_use(spec.profile_id)
+        }
         model_index = self.controller.load_model_index()
 
         self.push_screen(
@@ -233,7 +238,7 @@ class DashboardApp(App[None]):
             registry = create_tui_profile_registry(self.controller.config)
             try:
                 spec = registry.get_profile(profile_id)
-            except Exception:
+            except KeyError, ValueError:
                 self.notify(f"Profile '{profile_id}' not found", severity="error")
                 return
 

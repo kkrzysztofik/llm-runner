@@ -670,7 +670,10 @@ class ServerManager:
                 if log_handler is not None:
                     log_handler(formatted)
                 else:
-                    logger.warning("%s", formatted)
+                    if is_stderr:
+                        logger.warning("%s", formatted)
+                    else:
+                        logger.info("%s", formatted)
         finally:
             pipe.close()
 

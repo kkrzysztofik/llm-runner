@@ -195,12 +195,12 @@ def configure_logging(
         )
 
     # --- Install stdlib → Loguru bridge ---
-    intercept = _InterceptHandler()
+    root_logger = logging.getLogger()
+    if not any(isinstance(h, _InterceptHandler) for h in root_logger.handlers):
+        root_logger.addHandler(_InterceptHandler())
     for target_name in ("llama_manager", "llama_cli"):
         logging.getLogger(target_name).setLevel(logging.DEBUG)
         logging.getLogger(target_name).handlers = []
-    root_logger = logging.getLogger()
-    root_logger.addHandler(intercept)
 
 
 def configure_logging_split(
@@ -284,12 +284,12 @@ def configure_logging_split(
         )
 
     # --- Install stdlib → Loguru bridge ---
-    intercept = _InterceptHandler()
+    root_logger = logging.getLogger()
+    if not any(isinstance(h, _InterceptHandler) for h in root_logger.handlers):
+        root_logger.addHandler(_InterceptHandler())
     for target_name in ("llama_manager", "llama_cli"):
         logging.getLogger(target_name).setLevel(logging.DEBUG)
         logging.getLogger(target_name).handlers = []
-    root_logger = logging.getLogger()
-    root_logger.addHandler(intercept)
 
 
 def update_stderr_level(level: str) -> None:

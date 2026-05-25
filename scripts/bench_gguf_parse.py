@@ -45,7 +45,8 @@ def bench(path: str, n: int = 3) -> None:
         times.append(elapsed)
     avg_proc = sum(times) / len(times)
     print(
-        f"  _extract_model_index_metadata:    {avg_proc:.3f}s  (min={min(times):.3f}s  max={max(times):.3f}s)"
+        f"  _extract_model_index_metadata:    {avg_proc:.3f}s"
+        f"  (min={min(times):.3f}s  max={max(times):.3f}s)"
     )
 
     speedup = avg_thread / avg_proc if avg_proc > 0 else float("inf")
