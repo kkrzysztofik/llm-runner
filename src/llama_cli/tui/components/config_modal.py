@@ -7,7 +7,7 @@ from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Button, Input, Label
+from textual.widgets import Button, Input, Label, Select
 
 from llama_manager.config import Config
 
@@ -29,7 +29,10 @@ class ConfigPayload:
     smoke_http_request_timeout_s: str = ""
     smoke_first_token_timeout_s: str = ""
     smoke_total_chat_timeout_s: str = ""
+    log_file_level: str = ""
+    log_stderr_level: str = ""
     restart: bool = False
+    clean_cache: bool = False
 
 
 class ConfigModal(ModalScreen[ConfigPayload | None]):
@@ -65,6 +68,15 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                 Label("System Paths", classes=_SECTION_LABEL_CLASSES),
                 self._field_row("llama-cpp root", "llama_cpp_root", c.llama_cpp_root),
                 self._field_row("models directory", "models_dir", c.models_dir),
+                Horizontal(
+                    Label("Model Cache:", classes="form-label config-field-label"),
+                    Button(
+                        "Clean Model Cache",
+                        id="clean-model-cache",
+                        classes="modal-button-danger",
+                    ),
+                    classes="form-row config-row config-action-row",
+                ),
                 Label("Binary Paths", classes=_SECTION_LABEL_CLASSES),
                 self._field_row(
                     "llama-server (Intel/SYCL)",
@@ -102,7 +114,10 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                     "smoke_total_chat_timeout_s",
                     str(c.smoke_total_chat_timeout_s),
                 ),
-                classes="modal-scroll-body",
+                Label("Logging", classes=_SECTION_LABEL_CLASSES),
+                self._log_level_select("stderr level", "log_stderr_level", c.log_stderr_level),
+                self._log_level_select("file level", "log_file_level", c.log_file_level),
+                classes="modal-scroll-body config-scroll-body",
             ),
             Horizontal(
                 Button("Cancel", id="cancel-config", classes="modal-button-cancel"),
@@ -135,6 +150,26 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             classes="form-row config-row",
         )
 
+    def _log_level_select(self, label: str, select_id: str, value: str) -> Widget:
+        """Build a labelled Select widget for log level selection."""
+        choices = [
+            ("DEBUG", "DEBUG"),
+            ("INFO", "INFO"),
+            ("WARNING", "WARNING"),
+            ("ERROR", "ERROR"),
+            ("CRITICAL", "CRITICAL"),
+        ]
+        return Horizontal(
+            Label(f"{label}:", classes="form-label config-field-label"),
+            Select(
+                choices,
+                value=value,
+                id=f"cfg-{select_id}",
+                classes="form-input config-input",
+            ),
+            classes="form-row config-row",
+        )
+
     def _collect_values(self) -> ConfigPayload:
         """Read all Input widgets and return a typed payload."""
         return ConfigPayload(
@@ -161,6 +196,8 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             smoke_total_chat_timeout_s=self.query_one(
                 "#cfg-smoke_total_chat_timeout_s", Input
             ).value.strip(),
+            log_file_level=str(self.query_one("#cfg-log_file_level", Select).value or "DEBUG"),
+            log_stderr_level=str(self.query_one("#cfg-log_stderr_level", Select).value or "INFO"),
         )
 
     # ------------------------------------------------------------------
@@ -181,4 +218,8 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
         elif event.button.id == "save-restart-config":
             values = self._collect_values()
             values.restart = True
+            self.dismiss(values)
+        elif event.button.id == "clean-model-cache":
+            values = self._collect_values()
+            values.clean_cache = True
             self.dismiss(values)

@@ -170,6 +170,37 @@ class TestConfigureStageEdgeCases:
         assert "-DGGML_CUDA=ON" in flags
         assert "-DBUILD_SERVER=ON" in flags
 
+    def test_configure_build_args_included(self, tmp_path: Path) -> None:
+        """Configure should include build_args in cmake command."""
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+            build_args=["-DCMAKE_BUILD_TYPE=Release"],
+        )
+        ctx = _BuildContext(config=config, dry_run=True, build_start_time=0.0)
+        result = run_configure(ctx)
+        assert result.status == "success"
+        assert "CMAKE_BUILD_TYPE=Release" in result.message
+
+    def test_configure_no_build_args(self, tmp_path: Path) -> None:
+        """Configure should work without build_args."""
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+        )
+        ctx = _BuildContext(config=config, dry_run=True, build_start_time=0.0)
+        result = run_configure(ctx)
+        assert result.status == "success"
+        assert "CMAKE_BUILD_TYPE" not in result.message
+
     def test_configure_base_flags_always_present(self) -> None:
         """Base cmake flags should always be present regardless of backend."""
         for backend in (BuildBackend.SYCL, BuildBackend.CUDA):
@@ -351,6 +382,50 @@ class TestUtilityEdgeCases:
         with patch.object(type(_INTEL_SETVARS_SH), "exists", return_value=False):
             result = get_build_env_cmd(cmd, BuildBackend.SYCL)
         assert result == cmd
+
+    def test_build_cmake_cmd_includes_build_args(self, tmp_path: Path) -> None:
+        """_build_cmake_cmd should include build_args from config."""
+        from llama_manager.build_pipeline.stages.build import _build_cmake_cmd
+
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+            build_args=["-v", "--debug-output"],
+        )
+        ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
+        setvars = tmp_path / "setvars.sh"
+        setvars.touch()
+        with patch("llama_manager.build_pipeline.utils._INTEL_SETVARS_SH", setvars):
+            cmd = _build_cmake_cmd(ctx)
+        # get_build_env_cmd wraps SYCL commands in bash -c string when setvars.sh exists
+        assert cmd[0] == "bash"
+        assert cmd[1] == "-c"
+        assert "cmake --build" in cmd[2]
+        assert "-v" in cmd[2]
+        assert "--debug-output" in cmd[2]
+
+    def test_build_cmake_cmd_no_build_args(self, tmp_path: Path) -> None:
+        """_build_cmake_cmd should not include extra args when build_args is None."""
+        from llama_manager.build_pipeline.stages.build import _build_cmake_cmd
+
+        config = BuildConfig(
+            backend=BuildBackend.CUDA,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+        )
+        ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
+        cmd = _build_cmake_cmd(ctx)
+        # Should only have cmake, --build, build_dir, -j (CUDA doesn't wrap in bash)
+        assert cmd[0] == "cmake"
+        assert cmd[1] == "--build"
+        assert "-v" not in cmd
 
     def test_terminate_process_tree_already_dead(self) -> None:
         mock_proc = MagicMock()

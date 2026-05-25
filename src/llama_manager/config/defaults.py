@@ -1,7 +1,6 @@
 """Config and SmokeProbeConfiguration dataclasses."""
 
 import os
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -126,6 +125,7 @@ class Config:
     build_retry_delay: int = 5
     build_max_reports: int = 50
     build_output_truncate_bytes: int = 8192
+    build_args_default: str = ""
     toolchain_timeout_seconds: int = 30
 
     # Profile management
@@ -147,7 +147,7 @@ class Config:
 
     # GGUF metadata extraction
     gguf_metadata_prefix_cap_bytes: int = 32 * 1024 * 1024  # 32 MiB
-    gguf_metadata_parse_timeout_s: float = 5.0
+    gguf_metadata_parse_timeout_s: float = 60.0
 
     # TUI
     tui_launch_timeout_s: int = 120
@@ -158,6 +158,10 @@ class Config:
 
     # Lockfile
     lock_stale_threshold_s: int = 300
+
+    # Logging
+    log_file_level: str = "DEBUG"
+    log_stderr_level: str = "INFO"
 
     # M2 XDG path utilities
     @property
@@ -201,14 +205,22 @@ class Config:
         """Return the profiles directory path.
 
         Returns:
-            Path to $XDG_RUNTIME_DIR/llm-runner/profiles when XDG_RUNTIME_DIR
-            is set to an absolute path; otherwise falls back to the system
-            temporary directory at <tempdir>/llm-runner/profiles.
+            Path to $XDG_DATA_HOME/llm-runner/profiles, falling back to
+            ~/.local/share/llm-runner/profiles.
         """
-        runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
-        if not runtime_dir or not Path(runtime_dir).is_absolute():
-            runtime_dir = tempfile.gettempdir()
-        return Path(runtime_dir).resolve() / "llm-runner" / "profiles"
+        data_base = Path(self.xdg_data_base).resolve()
+        return data_base / "llm-runner" / "profiles"
+
+    @property
+    def logs_dir(self) -> Path:
+        """Return the logs directory path.
+
+        Returns:
+            Path to $XDG_STATE_HOME/llm-runner/logs, falling back to
+            ~/.local/state/llm-runner/logs.
+        """
+        state_base = Path(self.xdg_state_base).resolve()
+        return state_base / "llm-runner" / "logs"
 
 
 @dataclass

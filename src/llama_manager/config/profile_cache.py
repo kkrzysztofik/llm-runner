@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -13,6 +14,8 @@ from typing import Any, Self
 from ..common.constants import DIR_MODE_OWNER_ONLY
 from ..common.file_ops import atomic_write_json
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Module-level constants
 # ---------------------------------------------------------------------------
@@ -22,7 +25,15 @@ _CURRENT_SCHEMA_VERSION: str = "1.0"
 CURRENT_SCHEMA_VERSION: str = _CURRENT_SCHEMA_VERSION
 
 PROFILE_OVERRIDE_FIELDS: frozenset[str] = frozenset(
-    ["threads", "ctx_size", "ubatch_size", "cache_type_k", "cache_type_v"],
+    [
+        "threads",
+        "ctx_size",
+        "ubatch_size",
+        "cache_type_k",
+        "cache_type_v",
+        "n_gpu_layers",
+        "main_gpu",
+    ],
 )
 
 # ---------------------------------------------------------------------------
@@ -399,6 +410,13 @@ def write_profile(profiles_dir: Path, record: ProfileRecord) -> Path:
     )
 
     atomic_write_json(profile_path, record.to_dict(), verify_permissions=True)
+    logger.debug(
+        "profile cache write: %s (%s/%s/%s)",
+        profile_path,
+        record.gpu_identifier,
+        record.backend,
+        record.flavor.value,
+    )
     return profile_path
 
 
@@ -444,12 +462,14 @@ def read_profile(
     profile_path = get_profile_path(profiles_dir, gpu_identifier, backend, flavor)
 
     if not profile_path.is_file():
+        logger.debug("profile cache miss: %s", profile_path)
         return None
 
     try:
         raw = profile_path.read_text(encoding="utf-8")
         data = json.loads(raw)
     except OSError, json.JSONDecodeError:
+        logger.debug("profile cache corrupt: %s", profile_path)
         return None
 
     if not isinstance(data, dict):
@@ -523,12 +543,22 @@ def check_staleness(
         if staleness_days > 0 and age_days > staleness_days:
             reasons.append(StalenessReason.AGE_EXCEEDED)
 
-    return StalenessResult(
+    result = StalenessResult(
         is_stale=len(reasons) > 0,
         reasons=reasons,
         driver_version_display=record.driver_version,
         age_days=round(age_days, 2),
     )
+    if result.is_stale:
+        logger.debug(
+            "profile stale: %s/%s/%s age=%.1fd reasons=%s",
+            record.gpu_identifier,
+            record.backend,
+            record.flavor.value,
+            result.age_days,
+            ", ".join(r.value for r in reasons),
+        )
+    return result
 
 
 def load_profile_with_staleness(
@@ -562,6 +592,12 @@ def load_profile_with_staleness(
     record = read_profile(profiles_dir, gpu_identifier, backend, flavor)
 
     if record is None:
+        logger.debug(
+            "profile cache: no record for %s/%s/%s",
+            gpu_identifier,
+            backend,
+            flavor.value,
+        )
         return None, None
 
     staleness = check_staleness(

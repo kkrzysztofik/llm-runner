@@ -27,6 +27,8 @@ _PERSISTED_FIELDS: tuple[str, ...] = (
     "smoke_http_request_timeout_s",
     "smoke_first_token_timeout_s",
     "smoke_total_chat_timeout_s",
+    "log_file_level",
+    "log_stderr_level",
 )
 
 # Fields that have a corresponding env var. When building a Config from the

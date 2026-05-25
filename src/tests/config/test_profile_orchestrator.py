@@ -415,40 +415,33 @@ class TestRunProfile:
 
     def _make_mock_config(self, tmp_path: Path) -> Config:
         """Create a Config with test paths."""
-        import os
-
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir(parents=True, exist_ok=True)
 
-        # Set XDG_RUNTIME_DIR to control profiles_dir property
-        old_runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
-        os.environ["XDG_RUNTIME_DIR"] = str(tmp_path)
+        cfg = _make_config()
+        server_bin = tmp_path / "llama-server"
+        server_bin.write_text("#!/bin/sh\n")
+        server_bin.chmod(0o755)
 
-        try:
-            cfg = _make_config()
-            server_bin = tmp_path / "llama-server"
-            server_bin.write_text("#!/bin/sh\n")
-            server_bin.chmod(0o755)
+        bench_bin = tmp_path / "llama-bench"
+        bench_bin.write_text("#!/bin/sh\n")
+        bench_bin.chmod(0o755)
 
-            bench_bin = tmp_path / "llama-bench"
-            bench_bin.write_text("#!/bin/sh\n")
-            bench_bin.chmod(0o755)
+        cfg.llama_server_bin_intel = str(server_bin)
+        cfg.server_binary_version = "llama-server 1.0.0"
+        cfg.model_summary_balanced = str(tmp_path / "model.gguf")
+        cfg.default_threads_summary_balanced = 8
+        cfg.default_threads_summary_fast = 4
+        cfg.default_ubatch_size_summary_balanced = 1024
+        cfg.default_ubatch_size_summary_fast = 512
+        cfg.default_cache_type_summary_k = "q8_0"
+        cfg.default_cache_type_summary_v = "q8_0"
 
-            cfg.llama_server_bin_intel = str(server_bin)
-            cfg.server_binary_version = "llama-server 1.0.0"
-            cfg.model_summary_balanced = str(tmp_path / "model.gguf")
-            cfg.default_threads_summary_balanced = 8
-            cfg.default_threads_summary_fast = 4
-            cfg.default_ubatch_size_summary_balanced = 1024
-            cfg.default_ubatch_size_summary_fast = 512
-            cfg.default_cache_type_summary_k = "q8_0"
-            cfg.default_cache_type_summary_v = "q8_0"
-            return cfg
-        finally:
-            if old_runtime_dir is not None:
-                os.environ["XDG_RUNTIME_DIR"] = old_runtime_dir
-            else:
-                os.environ.pop("XDG_RUNTIME_DIR", None)
+        mock_cls = type(
+            "MockConfig", (Config,), {"profiles_dir": property(lambda self: profiles_dir)}
+        )
+        object.__setattr__(cfg, "__class__", mock_cls)
+        return cfg
 
     def test_successful_profile_returns_record(self, tmp_path: Path) -> None:
         """run_profile should return a ProfileRecord on success."""

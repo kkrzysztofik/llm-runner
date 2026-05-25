@@ -349,24 +349,30 @@ def main(args: list[str] | None = None) -> int:
     return _handle_mode(parsed)
 
 
-def _get_log_level_from_env() -> str:
-    """Resolve log level from environment or default."""
-    return os.environ.get("LLM_RUNNER_LOG_LEVEL", "INFO").upper()
-
-
-def _get_log_file_from_env() -> str | None:
-    """Resolve optional log file path from environment."""
-    path = os.environ.get("LLM_RUNNER_LOG_FILE")
-    return path or None
-
-
 def cli_main() -> None:
     """Entry point for the `llm-runner` console script."""
-    # Initialize logging infrastructure
-    from llama_manager.logging_setup import configure_logging
+    from datetime import datetime
 
-    configure_logging(
-        level=_get_log_level_from_env(),
-        log_file=_get_log_file_from_env(),
+    from llama_manager.logging_setup import configure_logging_split
+
+    # Load persisted config for log level defaults
+    cfg = build_config()
+
+    # Auto-compute log file path: $XDG_STATE_HOME/llm-runner/logs/llm-runner-<timestamp>.log
+    logs_dir = cfg.logs_dir
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_file = str(logs_dir / f"llm-runner-{timestamp}.log")
+
+    # Environment variable overrides persisted config
+    stderr_level = os.environ.get("LLM_RUNNER_LOG_LEVEL", cfg.log_stderr_level).upper()
+    file_level = os.environ.get("LLM_RUNNER_LOG_FILE_LEVEL", cfg.log_file_level).upper()
+
+    # Ensure logs directory exists
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    configure_logging_split(
+        stderr_level=stderr_level,
+        file_level=file_level,
+        log_file=log_file,
     )
     raise SystemExit(main(sys.argv[1:]))

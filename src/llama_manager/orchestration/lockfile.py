@@ -2,6 +2,7 @@
 
 import contextlib
 import json
+import logging
 import os
 import stat
 import time
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import psutil
+
+logger = logging.getLogger(__name__)
 
 from ..common.constants import DIR_MODE_OWNER_ONLY, FILE_MODE_OWNER_ONLY
 from ..common.file_ops import atomic_exclusive_create_json, atomic_write_json
@@ -266,6 +269,7 @@ def release_lock(runtime_dir: Path, slot_id: str) -> None:
     if lock_path.exists():
         with contextlib.suppress(OSError):
             lock_path.unlink()
+            logger.debug("lock released: %s", slot_id)
 
 
 def check_lockfile_integrity(runtime_dir: Path, slot_id: str) -> ErrorDetail | None:

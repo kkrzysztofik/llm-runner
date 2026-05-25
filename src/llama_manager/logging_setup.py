@@ -149,7 +149,7 @@ def configure_logging(
         raise ValueError(f"unknown log level '{level}' — must be one of {list(_LEVEL_MAP)}")
 
     # Common format templates
-    text_format = "{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {name}:{line} | {message}\n"
+    text_format = "{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {name}:{line} | {message}"
 
     fmt = text_format if not json_logs else ""
 
@@ -195,12 +195,141 @@ def configure_logging(
         )
 
     # --- Install stdlib → Loguru bridge ---
-    intercept = _InterceptHandler()
+    root_logger = logging.getLogger()
+    if not any(isinstance(h, _InterceptHandler) for h in root_logger.handlers):
+        root_logger.addHandler(_InterceptHandler())
     for target_name in ("llama_manager", "llama_cli"):
         logging.getLogger(target_name).setLevel(logging.DEBUG)
         logging.getLogger(target_name).handlers = []
+
+
+def configure_logging_split(
+    *,
+    stderr_level: str = "INFO",
+    file_level: str = "DEBUG",
+    log_file: str | None = None,
+    json_logs: bool = False,
+) -> None:
+    """Configure logging with separate levels for stderr and file sinks.
+
+    Removes the default Loguru handler and installs:
+    - A coloured stderr sink at *stderr_level*
+    - An optional rotating file sink at *file_level* (when *log_file* is provided)
+    - A stdlib → Loguru bridge for ``logging.getLogger(...)`` consumers
+
+    Parameters
+    ----------
+    stderr_level:
+        Minimum log level for the stderr sink.
+    file_level:
+        Minimum log level for the file sink.
+    log_file:
+        If provided, a rotating file sink is added at the given path.
+    json_logs:
+        If ``True``, both sinks emit JSON-encoded records.
+    """
+    logger.remove()
+
+    stderr_level = stderr_level.upper()
+    if stderr_level not in _LEVEL_MAP:
+        raise ValueError(
+            f"unknown stderr level '{stderr_level}' — must be one of {list(_LEVEL_MAP)}"
+        )
+
+    file_level = file_level.upper()
+    if file_level not in _LEVEL_MAP:
+        raise ValueError(f"unknown file level '{file_level}' — must be one of {list(_LEVEL_MAP)}")
+
+    text_format = "{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {name}:{line} | {message}"
+
+    fmt = text_format if not json_logs else ""
+
+    def _redact_only_filter(record: LoguruRecord) -> bool:
+        original = record["message"]
+        record["message"] = _redact_log_message(original)
+        return True
+
+    def _stderr_sink_filter(record: LoguruRecord) -> bool:
+        rec_name = record["name"] or ""
+        if _SUPPRESS_BUILD_PIPELINE_ON_STDERR.get() and rec_name.startswith(
+            _BUILD_PIPELINE_LOG_PREFIX
+        ):
+            return False
+        original = record["message"]
+        record["message"] = _redact_log_message(original)
+        return True
+
+    # --- Stderr sink ---
+    logger.add(
+        sys.stderr,
+        level=stderr_level,
+        format=fmt,
+        colorize=True,
+        filter=_stderr_sink_filter,
+        serialize=json_logs,
+    )
+
+    # --- Optional file sink ---
+    if log_file is not None:
+        logger.add(
+            log_file,
+            level=file_level,
+            format=fmt,
+            colorize=False,
+            rotation="10 MB",
+            retention="30 days",
+            compression="gz",
+            filter=_redact_only_filter,
+            serialize=json_logs,
+        )
+
+    # --- Install stdlib → Loguru bridge ---
     root_logger = logging.getLogger()
-    root_logger.addHandler(intercept)
+    if not any(isinstance(h, _InterceptHandler) for h in root_logger.handlers):
+        root_logger.addHandler(_InterceptHandler())
+    for target_name in ("llama_manager", "llama_cli"):
+        logging.getLogger(target_name).setLevel(logging.DEBUG)
+        logging.getLogger(target_name).handlers = []
+
+
+def update_stderr_level(level: str) -> None:
+    """Update the stderr sink level at runtime.
+
+    Parameters
+    ----------
+    level:
+        New minimum log level for stderr (one of DEBUG, INFO, WARNING, ERROR, CRITICAL).
+    """
+    level = level.upper()
+    if level not in _LEVEL_MAP:
+        raise ValueError(f"unknown log level '{level}' — must be one of {list(_LEVEL_MAP)}")
+
+    sinks: dict[int, Any] = logger._core.handlers  # type: ignore[union-attr]
+    for idx, handler in list(sinks.items()):
+        # Stderr sink is the first non-None handler (sys.stderr target)
+        if handler._name is None and handler._sink._stream is sys.stderr:
+            sinks[idx]._level = (level, _LEVEL_MAP[level])
+            return
+
+
+def update_file_level(level: str) -> None:
+    """Update the file sink level at runtime.
+
+    Parameters
+    ----------
+    level:
+        New minimum log level for file sink.
+    """
+    level = level.upper()
+    if level not in _LEVEL_MAP:
+        raise ValueError(f"unknown log level '{level}' — must be one of {list(_LEVEL_MAP)}")
+
+    sinks: dict[int, Any] = logger._core.handlers  # type: ignore[union-attr]
+    for idx, handler in list(sinks.items()):
+        # File sink has a file path as _name
+        if handler._name is not None and not handler._sink._stream.closed:
+            sinks[idx]._level = (level, _LEVEL_MAP[level])
+            return
 
 
 @contextlib.contextmanager

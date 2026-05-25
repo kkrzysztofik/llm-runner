@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 from .components.build import BuildModalScreen
 from .components.config_modal import ConfigModal, ConfigPayload
 from .components.modal import AddSlotModal
+from .components.run_profile_modal import RunProfileModal, RunProfilePayload
 from .components.server_log import ServerLogPanel
 from .components.system_health import (
     CPUUsageWidget,
@@ -77,6 +78,7 @@ class DashboardApp(App[None]):
         Binding("b", "build", "Build"),
         Binding("a", "add_slot", "Add Slot"),
         Binding("c", "open_config", "Config"),
+        Binding("p", "manage_profiles", "Profiles"),
         Binding("y", "confirm", "Confirm"),
         Binding("n", "reject", "Abort"),
     ]
@@ -89,6 +91,7 @@ class DashboardApp(App[None]):
         self._active_notice_toasts: set[str] = set()
         self._profile_options_cache: list[tuple[str, str]] | None = None
         self._profile_cache_config_id: int | None = None
+        self._last_model_index_notice_scanned = 0
         self.last_build_backend: str = "sycl"
 
     def compose(self) -> ComposeResult:
@@ -116,6 +119,56 @@ class DashboardApp(App[None]):
     def on_mount(self) -> None:
         self.refresh_dashboard()
         self.set_interval(0.25, self.refresh_dashboard)
+        self._index_models()
+
+    def _index_models(self) -> None:
+        """Refresh model index in a controller-owned background thread."""
+        started = self.controller.refresh_model_index_async(
+            progress_callback=self._index_models_progress_from_thread,
+            complete_callback=self._index_models_complete_from_thread,
+        )
+        if started:
+            self._last_model_index_notice_scanned = 0
+            self.notify("Indexing models...", title="Models")
+
+    def _index_models_progress_from_thread(
+        self,
+        _entries: object,
+        scanned: int,
+        total: int,
+        errors: int,
+    ) -> None:
+        """Forward model index progress from the controller worker to the UI thread."""
+        self.call_from_thread(self._handle_model_index_progress, scanned, total, errors)
+
+    def _index_models_complete_from_thread(
+        self,
+        _entries: object,
+        total: int,
+        errors: int,
+    ) -> None:
+        """Forward model index completion from the controller worker to the UI thread."""
+        self.call_from_thread(self._handle_model_index_complete, total, errors)
+
+    def _handle_model_index_progress(self, scanned: int, total: int, errors: int) -> None:
+        """Show sparse progress notifications while model indexing continues."""
+        if total <= 0:
+            return
+        notify_every = max(1, total // 5)
+        if scanned < total and scanned - self._last_model_index_notice_scanned < notify_every:
+            return
+        self._last_model_index_notice_scanned = scanned
+        message = f"Indexed {scanned}/{total} models"
+        if errors:
+            message += f" ({errors} errors)"
+        self.notify(message, title="Models", severity="warning" if errors else "information")
+
+    def _handle_model_index_complete(self, total: int, errors: int) -> None:
+        """Show final model index status."""
+        message = f"Indexing complete: {total} models found"
+        if errors:
+            message += f" ({errors} errors)"
+        self.notify(message, title="Models", severity="warning" if errors else "information")
 
     def action_quit_dashboard(self) -> None:
         self.controller.request_quit()
@@ -143,9 +196,157 @@ class DashboardApp(App[None]):
             self._handle_config_modal_result,
         )
 
+    def action_manage_profiles(self) -> None:
+        """Open the profiles management screen."""
+        from .components.profiles_screen import ProfilesScreen
+
+        profiles = self.controller.list_run_profiles()
+        in_use_ids = {
+            spec.profile_id
+            for spec, _ in profiles
+            if self.controller.is_profile_in_use(spec.profile_id)
+        }
+        model_index = self.controller.load_model_index()
+
+        self.push_screen(
+            ProfilesScreen(profiles=profiles, in_use_ids=in_use_ids, model_index=model_index),
+            self._handle_profiles_screen_result,
+        )
+
+    def _handle_profiles_screen_result(self, result: dict | None) -> None:
+        """Handle result from the ProfilesScreen."""
+        if result is None:
+            return
+
+        action = result.get("action")
+
+        if action == "add":
+            model_index = self.controller.load_model_index()
+            self.push_screen(
+                RunProfileModal(model_index=model_index),
+                self._handle_profile_modal_result,
+            )
+
+        elif action == "edit":
+            profile_id = result.get("profile_id", "")
+            if not profile_id:
+                return
+
+            from llama_manager.config.builder import create_tui_profile_registry
+            from llama_manager.run_profile_store import custom_profile_exists
+
+            registry = create_tui_profile_registry(self.controller.config)
+            try:
+                spec = registry.get_profile(profile_id)
+            except KeyError, ValueError:
+                self.notify(f"Profile '{profile_id}' not found", severity="error")
+                return
+
+            source = "custom" if custom_profile_exists(profile_id) else "builtin"
+
+            model_index = self.controller.load_model_index()
+            self.push_screen(
+                RunProfileModal(profile=spec, edit_source=source, model_index=model_index),
+                self._handle_edit_modal_result,
+            )
+
+        elif action == "delete":
+            profile_id = result.get("profile_id", "")
+            if not profile_id:
+                return
+
+            success = self.controller.delete_run_profile(profile_id)
+            if success:
+                self.notify(f"Profile '{profile_id}' deleted", severity="information")
+                self._profile_options_cache = None
+                self._profile_cache_config_id = None
+            self.refresh_dashboard()
+
+    def _handle_edit_modal_result(self, result: RunProfilePayload | None) -> None:
+        """Handle result from the edit profile modal."""
+        if result is None:
+            return
+
+        original_id = result.original_profile_id or result.profile_id
+        saved = self.controller.update_run_profile(original_id, result)
+        if not saved:
+            self.notify("Failed to update profile", severity="error")
+            return
+
+        self.notify(f"Profile '{result.profile_id}' updated", severity="information")
+
+        # Invalidate profile options cache
+        self._profile_options_cache = None
+        self._profile_cache_config_id = None
+
+        if result.save_and_add_slot:
+            slot_form: dict[str, str] = {
+                "profile": result.profile_id,
+                "port": "",
+            }
+            self.controller.add_slot_from_form(slot_form)
+            self.notify("Slot added for profile", severity="information")
+            self._reconcile_server_log_panels()
+
+        self.refresh_dashboard()
+
+    def action_create_profile(self) -> None:
+        """Open the run profile creation modal (legacy alias)."""
+        self.push_screen(RunProfileModal(), self._handle_profile_modal_result)
+
     def _handle_config_modal_result(self, result: ConfigPayload | None) -> None:
         if result is not None:
+            if result.clean_cache:
+                from .components.confirm_modal import ConfirmModal
+
+                self.push_screen(
+                    ConfirmModal(
+                        title="Clean Model Cache",
+                        message="Delete the cached model index? Models will be re-scanned.",
+                    ),
+                    self._handle_cache_clean_confirm,
+                )
+                return
+
             self.controller.save_config(result)
+        self.refresh_dashboard()
+
+    def _handle_cache_clean_confirm(self, confirmed: bool | None) -> None:
+        """Handle confirmation result from the cache clean dialog."""
+        if confirmed:
+            success, message = self.controller.clean_model_cache()
+            if success:
+                self.notify(message, title="Models", severity="information")
+                self._index_models()
+            else:
+                self.notify(message, title="Models", severity="error")
+        else:
+            self.notify("Cancelled", title="Models", severity="information")
+
+    def _handle_profile_modal_result(self, result: RunProfilePayload | None) -> None:
+        if result is None:
+            return
+
+        saved = self.controller.save_run_profile_from_form(result)
+        if not saved:
+            self.notify("Failed to save profile", severity="error")
+            return
+
+        self.notify(f"Profile '{result.profile_id}' saved", severity="information")
+
+        # Invalidate profile options cache
+        self._profile_options_cache = None
+        self._profile_cache_config_id = None
+
+        if result.save_and_add_slot:
+            slot_form: dict[str, str] = {
+                "profile": result.profile_id,
+                "port": "",
+            }
+            self.controller.add_slot_from_form(slot_form)
+            self.notify("Slot added for profile", severity="information")
+            self._reconcile_server_log_panels()
+
         self.refresh_dashboard()
 
     def _handle_add_slot_modal_result(self, result: dict[str, str] | None) -> None:

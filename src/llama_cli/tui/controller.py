@@ -1,6 +1,8 @@
 """Dashboard controller for the Textual TUI."""
 
+import contextlib
 import dataclasses
+import logging
 import signal
 import threading
 from collections.abc import Callable
@@ -12,6 +14,7 @@ from llama_manager import (
     GPUStats,
     LaunchResult,
     LogBuffer,
+    ModelIndexEntry,
     ModelSlot,
     ProfileFlavor,
     RiskAckResult,
@@ -22,7 +25,10 @@ from llama_manager import (
     compute_slot_transition,
     get_gpu_identifier,
     launch_orchestrate,
+    load_model_index,
     load_profile_with_staleness,
+    model_index_path,
+    refresh_model_index,
     resolve_risk_action,
 )
 from llama_manager.build_pipeline import (
@@ -31,13 +37,20 @@ from llama_manager.build_pipeline import (
     BuildProgress,
     run_build_for_backend,
 )
-from llama_manager.logging_setup import suppress_build_pipeline_stderr_for_tui
+from llama_manager.logging_setup import (
+    suppress_build_pipeline_stderr_for_tui,
+    update_file_level,
+    update_stderr_level,
+)
 
 from .components.config_modal import ConfigPayload
+from .components.run_profile_modal import RunProfilePayload
 from .constants import MSG_BUILD_CANCELLED, MSG_BUILD_FAILED
 from .model import DashboardModel
 from .textual_app import DashboardApp
 from .viewmodel import DashboardViewModel
+
+logger = logging.getLogger(__name__)
 
 
 class DashboardController:
@@ -89,6 +102,9 @@ class DashboardController:
         self.build_progress: BuildProgress | None = None
         self._original_sigint_handler: Callable[[int, FrameType | None], Any] | int | None = None
         self._build_wizard: Any = None  # BuildModalScreen | None
+        self._model_index_cache: list[ModelIndexEntry] | None = None
+        self._model_index_lock = threading.Lock()
+        self._model_index_refreshing = False
 
         if register_signals:
             signal.signal(signal.SIGINT, self._signal_handler)
@@ -313,6 +329,7 @@ class DashboardController:
         This method is safe to call from TUI handlers — it only mutates the
         status buffer and leaves rendering to Textual.
         """
+        logger.debug("status: %s", message)
         self.model.push_status_message(message)
 
     def refresh_stale_warnings(self, get_driver_version: Callable[[str], str]) -> None:
@@ -342,6 +359,12 @@ class DashboardController:
 
         self.model.stale_warnings = warnings
 
+    def _build_tui_registry(self) -> Any:
+        """Build the TUI profile registry (built-in + custom profiles from disk)."""
+        from llama_manager.config.builder import create_tui_profile_registry
+
+        return create_tui_profile_registry(self.config)
+
     def add_slot_from_form(self, values: dict[str, str]) -> bool:
         """Create or replace a slot from modal profile selection."""
         state = {
@@ -351,6 +374,7 @@ class DashboardController:
             "unsaved_slots": self.unsaved_slots,
             "slots": self.slots,
         }
+        registry = self._build_tui_registry()
         success, messages, _updated_state = add_slot_from_form(
             values,
             self.config,
@@ -360,6 +384,7 @@ class DashboardController:
             self.server_manager,
             state,
             self._make_collector,
+            registry=registry,
         )
         for msg in messages:
             self._push_status_message(msg)
@@ -481,6 +506,13 @@ class DashboardController:
 
         if result.updated_fields:
             self._push_status_message("Config saved to disk.")
+            # Live-update logging levels if they changed
+            if "log_file_level" in result.updated_fields:
+                with contextlib.suppress(Exception):
+                    update_file_level(self.config.log_file_level)
+            if "log_stderr_level" in result.updated_fields:
+                with contextlib.suppress(Exception):
+                    update_stderr_level(self.config.log_stderr_level)
 
         if payload.restart:
             self._push_status_message("Restarting servers with new config…")
@@ -489,6 +521,258 @@ class DashboardController:
                 "Servers stopped. Use 'uv run llm-runner' to relaunch with updated config."
             )
             self.running = False
+
+    def clean_model_cache(self) -> tuple[bool, str]:
+        """Delete the model index cache file and clear in-memory cache.
+
+        Returns:
+            A tuple of (success, message).
+        """
+        idx_path = model_index_path(self.config)
+
+        if not idx_path.exists():
+            return (False, "No model cache to clean")
+
+        try:
+            idx_path.unlink()
+            with self._model_index_lock:
+                self._model_index_cache = None
+            return (True, "Model cache cleaned")
+        except OSError as exc:
+            return (False, f"Failed to clean model cache: {exc}")
+
+    def list_run_profiles(self) -> list[tuple[Any, str]]:
+        """Return list of ``(RunProfileSpec, source)`` tuples for all profiles.
+
+        Source is ``'builtin'`` or ``'custom'``.
+        """
+        from llama_manager.run_profile_store import custom_profile_exists
+
+        registry = self._build_tui_registry()
+        result: list[tuple[Any, str]] = []
+        for p in registry.profiles:
+            is_custom = custom_profile_exists(p.profile_id)
+            source = "custom" if is_custom else "builtin"
+            result.append((p, source))
+        return result
+
+    def _builtin_profile_ids(self) -> set[str]:
+        """Return the set of known built-in profile IDs."""
+        return {"summary-balanced", "summary-fast", "qwen35"}
+
+    def is_profile_in_use(self, profile_id: str) -> bool:
+        """Check if *profile_id* is used by any currently running server config."""
+        for cfg in self.configs:
+            if cfg.alias == profile_id or cfg.alias == f"{profile_id}-coding":
+                return True
+        return False
+
+    def update_run_profile(self, original_profile_id: str, payload: RunProfilePayload) -> bool:
+        """Update an existing run profile.
+
+        Handles both built-in override and custom profile update.
+
+        Args:
+            original_profile_id: The profile_id that was used when the profile
+                was loaded.
+            payload: Typed form values from the edit modal.
+
+        Returns:
+            True if the profile was updated successfully, False otherwise.
+        """
+        import json
+
+        from llama_manager.config.profiles import RunProfileSpec
+        from llama_manager.run_profile_store import upsert_custom_run_profile
+
+        profile_id = payload.profile_id.strip().lower().replace(" ", "-")
+        if not profile_id:
+            self._push_status_message("Profile ID is required")
+            return False
+
+        if not payload.device:
+            self._push_status_message("Device is required")
+            return False
+
+        if not payload.model:
+            self._push_status_message("Model path is required")
+            return False
+
+        if not (1024 <= payload.port <= 65535):
+            self._push_status_message("Port must be between 1024 and 65535")
+            return False
+
+        if payload.ctx_size <= 0 or payload.ubatch_size <= 0 or payload.threads <= 0:
+            self._push_status_message("ctx_size, ubatch_size, and threads must be positive")
+            return False
+
+        ngl = payload.n_gpu_layers
+        if ngl != "all":
+            try:
+                ngl_int = int(ngl)
+                if ngl_int < 0:
+                    self._push_status_message("n_gpu_layers must be >= 0 or 'all'")
+                    return False
+            except ValueError, TypeError:
+                self._push_status_message("n_gpu_layers must be an integer or 'all'")
+                return False
+
+        ctk = payload.chat_template_kwargs
+        if ctk:
+            try:
+                if isinstance(ctk, str):
+                    json.loads(ctk)
+            except json.JSONDecodeError, TypeError:
+                self._push_status_message("chat_template_kwargs must be valid JSON")
+                return False
+
+        spec = RunProfileSpec(
+            profile_id=profile_id,
+            alias=payload.label or profile_id,
+            device=payload.device,
+            model=payload.model,
+            port=payload.port,
+            ctx_size=payload.ctx_size,
+            ubatch_size=payload.ubatch_size,
+            threads=payload.threads,
+            description=payload.label or "",
+            server_bin=payload.server_bin,
+            n_gpu_layers=ngl if ngl == "all" else int(ngl),
+            backend="llama_cpp",
+            chat_template_kwargs=(
+                ctk if isinstance(ctk, str) else json.dumps(ctk) if isinstance(ctk, dict) else ""
+            ),
+        )
+
+        try:
+            upsert_custom_run_profile(original_profile_id, spec)
+            self._push_status_message(f"Profile '{profile_id}' updated")
+            return True
+        except ValueError as exc:
+            self._push_status_message(str(exc))
+            return False
+
+    def delete_run_profile(self, profile_id: str) -> bool:
+        """Delete/hide a run profile. Returns True if successful.
+
+        Args:
+            profile_id: The profile identifier to delete/hide.
+
+        Returns:
+            True if the profile was found and acted on, False otherwise.
+        """
+        from llama_manager.run_profile_store import delete_custom_run_profile
+
+        # Check if in use
+        if self.is_profile_in_use(profile_id):
+            self._push_status_message(f"Cannot delete '{profile_id}': in use by running slot")
+            return False
+
+        builtin_ids = self._builtin_profile_ids()
+        try:
+            result = delete_custom_run_profile(profile_id, builtin_ids)
+            if result:
+                self._push_status_message(f"Profile '{profile_id}' deleted")
+            else:
+                self._push_status_message(f"Profile '{profile_id}' not found")
+            return result
+        except Exception as exc:
+            self._push_status_message(f"Error deleting profile: {exc}")
+            return False
+
+    def save_run_profile_from_form(self, payload: RunProfilePayload) -> bool:
+        """Save a custom run profile from the modal form payload.
+
+        Args:
+            payload: Typed form values from the run profile modal.
+
+        Returns:
+            True if the profile was saved successfully, False otherwise.
+        """
+        import json
+
+        from llama_manager.config.profiles import RunProfileSpec
+        from llama_manager.run_profile_store import save_custom_run_profile
+
+        profile_id = payload.profile_id.strip().lower().replace(" ", "-")
+        if not profile_id:
+            self._push_status_message("Profile ID is required")
+            return False
+
+        if not payload.model:
+            self._push_status_message("Model path is required")
+            return False
+
+        if not (1024 <= payload.port <= 65535):
+            self._push_status_message("Port must be between 1024 and 65535")
+            return False
+
+        if payload.ctx_size <= 0 or payload.ubatch_size <= 0 or payload.threads <= 0:
+            self._push_status_message("ctx_size, ubatch_size, and threads must be positive")
+            return False
+
+        ngl = payload.n_gpu_layers
+        if ngl != "all":
+            try:
+                ngl_int = int(ngl)
+                if ngl_int < 0:
+                    self._push_status_message("n_gpu_layers must be >= 0 or 'all'")
+                    return False
+            except ValueError, TypeError:
+                self._push_status_message("n_gpu_layers must be an integer or 'all'")
+                return False
+
+        ctk = payload.chat_template_kwargs
+        if ctk:
+            try:
+                if isinstance(ctk, str):
+                    json.loads(ctk)
+            except json.JSONDecodeError, TypeError:
+                self._push_status_message("chat_template_kwargs must be valid JSON")
+                return False
+
+        # Reject duplicate profile_id against any existing profile (built-in or custom)
+        from llama_manager.config.builder import create_tui_profile_registry
+
+        registry = create_tui_profile_registry(self.config)
+        existing_ids = {p.profile_id for p in registry.profiles}
+        if profile_id in existing_ids:
+            self._push_status_message(f"Profile ID '{profile_id}' already exists")
+            return False
+
+        if not payload.device:
+            self._push_status_message("Device is required")
+            return False
+
+        # Derive backend from server_bin hint or default to llama_cpp
+        backend = "llama_cpp"
+
+        spec = RunProfileSpec(
+            profile_id=profile_id,
+            alias=payload.label or profile_id,
+            device=payload.device,
+            model=payload.model,
+            port=payload.port,
+            ctx_size=payload.ctx_size,
+            ubatch_size=payload.ubatch_size,
+            threads=payload.threads,
+            description=payload.label or "",
+            server_bin=payload.server_bin,
+            n_gpu_layers=ngl if ngl == "all" else int(ngl),
+            backend=backend,
+            chat_template_kwargs=ctk
+            if isinstance(ctk, str)
+            else json.dumps(ctk)
+            if isinstance(ctk, dict)
+            else "",
+        )
+
+        try:
+            save_custom_run_profile(spec)
+            return True
+        except ValueError as exc:
+            self._push_status_message(str(exc))
+            return False
 
     def _handle_build_progress(self, progress: BuildProgress) -> None:
         """Handle build progress updates from pipeline.
@@ -513,8 +797,6 @@ class DashboardController:
                 self._push_status_message(f"Build failed: {progress.message}")
             elif progress.status == "success":
                 self._push_status_message("Build completed successfully.")
-            else:
-                self._push_status_message(f"Build {progress.status}: {progress.message}")
 
         # Push to wizard modal if active
         wizard = self._build_wizard
@@ -785,3 +1067,81 @@ class DashboardController:
             DashboardApp(self).run()
         finally:
             self._cleanup()
+
+    def load_model_index(self) -> list[ModelIndexEntry]:
+        """Load cached model index from disk."""
+        with self._model_index_lock:
+            if self._model_index_cache is not None:
+                return list(self._model_index_cache)
+
+        entries = load_model_index(self.config)
+        with self._model_index_lock:
+            self._model_index_cache = entries
+        return list(entries)
+
+    def refresh_model_index(
+        self,
+        progress_callback: Callable[[list[ModelIndexEntry], int, int, int], None] | None = None,
+        *,
+        progressive: bool = False,
+    ) -> tuple[list[ModelIndexEntry], int, int]:
+        """Refresh the model index by scanning config.models_dir."""
+        entries, total, errors = refresh_model_index(
+            self.config,
+            progress_callback=progress_callback,
+            progressive=progressive,
+        )
+        with self._model_index_lock:
+            self._model_index_cache = entries
+        return entries, total, errors
+
+    def refresh_model_index_async(
+        self,
+        progress_callback: Callable[[list[ModelIndexEntry], int, int, int], None] | None = None,
+        complete_callback: Callable[[list[ModelIndexEntry], int, int], None] | None = None,
+    ) -> bool:
+        """Refresh the model index in a background thread.
+
+        Returns ``False`` when an index refresh is already running.
+        """
+        with self._model_index_lock:
+            if self._model_index_refreshing:
+                return False
+            self._model_index_refreshing = True
+
+        def _progress(
+            entries: list[ModelIndexEntry],
+            scanned: int,
+            total: int,
+            errors: int,
+        ) -> None:
+            with self._model_index_lock:
+                self._model_index_cache = entries
+            if progress_callback is not None:
+                progress_callback(entries, scanned, total, errors)
+
+        def _run_refresh() -> None:
+            try:
+                entries, total, errors = self.refresh_model_index(
+                    progress_callback=_progress,
+                    progressive=True,
+                )
+                if complete_callback is not None:
+                    complete_callback(entries, total, errors)
+            except Exception as exc:
+                self._push_status_message(f"Model indexing failed: {exc}")
+            finally:
+                with self._model_index_lock:
+                    self._model_index_refreshing = False
+
+        threading.Thread(target=_run_refresh, name="model-index-worker", daemon=True).start()
+        return True
+
+    def is_model_index_refreshing(self) -> bool:
+        """Return True while the background model index refresh is running."""
+        with self._model_index_lock:
+            return self._model_index_refreshing
+
+    def model_index_path(self) -> str:
+        """Return the path string where the model index cache is stored."""
+        return str(model_index_path(self.config))

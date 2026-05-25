@@ -1,6 +1,5 @@
 """GGUFReader-based metadata extraction — primary parsing path."""
 
-import os
 from collections.abc import Mapping
 from contextlib import suppress
 from pathlib import Path
@@ -10,6 +9,68 @@ from gguf.constants import Keys
 from gguf.gguf_reader import ReaderField
 
 from ._types import GGUFMetadataRecord, normalize_filename
+
+# GGUF file_type → human-readable quantization string (from gguf-file.h)
+_FILE_TYPE_QUANT_MAP: dict[int, str] = {
+    0: "F32",
+    1: "F16",
+    2: "Q4_0",
+    3: "Q4_1",
+    4: "Q5_0",
+    5: "Q5_1",
+    6: "Q8_0",
+    7: "Q8_1",
+    8: "F16",
+    10: "Q2_K",
+    11: "Q3_K_S",
+    12: "Q3_K_M",
+    13: "Q3_K_L",
+    14: "Q4_K_S",
+    15: "Q4_K_M",
+    16: "Q5_K_S",
+    17: "Q5_K_M",
+    18: "Q6_K",
+    19: "Q8_K",
+    20: "IQ2_XXS",
+    21: "IQ2_XS",
+    22: "IQ3_XXS",
+    23: "IQ1_S",
+    24: "IQ4_NL",
+    25: "IQ3_S",
+    26: "IQ3_M",
+    27: "IQ2_S",
+    28: "IQ2_M",
+    29: "IQ4_XS",
+    30: "IQ1_M",
+    31: "IQ4_XS",
+    32: "IQ4_NL",
+}
+
+
+def _file_type_to_quant(file_type: int | None) -> str | None:
+    """Convert a GGUF file_type integer to a human-readable quantization string.
+
+    Args:
+        file_type: The raw GGUF general.file_type integer.
+
+    Returns:
+        Human-readable quantization name, or ``f"type_{file_type}\"`` if unmapped.
+    """
+    if file_type is None:
+        return None
+    return _FILE_TYPE_QUANT_MAP.get(file_type, f"type_{file_type}")
+
+
+def _extract_file_type(fields: Mapping[str, ReaderField]) -> int | None:
+    """Extract the ``general.file_type`` integer from GGUFReader fields.
+
+    Args:
+        fields: The fields dict from GGUFReader.
+
+    Returns:
+        The file_type integer, or None if not found.
+    """
+    return _extract_int_field_from_reader(fields, Keys.General.FILE_TYPE)
 
 
 def _extract_architecture_from_reader(
@@ -113,9 +174,10 @@ def _try_gguf_reader(
 ) -> tuple[dict[str, ReaderField], int] | None:
     """Try to read GGUF file using the gguf library's GGUFReader.
 
-    Creates a temporary file containing only the first ``prefix_cap_bytes``
-    bytes of the model to avoid memory-mapping the entire file.
-    Uses ``tempfile.mkstemp`` for collision-safe temp file creation.
+    Uses the full file directly. ``gguf.GGUFReader`` uses ``np.memmap`` which
+    maps the file into virtual address space without consuming physical RAM
+    until data is accessed. We only read key/value metadata fields, not tensor
+    data, so physical memory impact is minimal regardless of file size.
 
     Returns fields dict and version, or None if GGUFReader fails.
 
@@ -127,40 +189,10 @@ def _try_gguf_reader(
         A tuple of (fields_dict, version) or None on failure.
 
     """
-    import tempfile
-
     import gguf
 
-    capped_fd: int | None = None
-    capped_path: str | None = None
     try:
-        # Create collision-safe temp file in system temp directory
-        capped_fd, capped_path = tempfile.mkstemp(prefix="gguf_", suffix=".gguf", dir=None)
-        try:
-            with os.fdopen(capped_fd, "wb") as capped_file:
-                capped_fd = None  # Already transferred ownership
-                with open(model_path, "rb") as src:
-                    remaining = prefix_cap_bytes
-                    chunk_size = 64 * 1024  # 64 KB chunks
-                    while remaining > 0:
-                        if cancel_event is not None and cancel_event.is_set():
-                            return None
-                        chunk = src.read(min(remaining, chunk_size))
-                        if not chunk:
-                            break
-                        capped_file.write(chunk)
-                        remaining -= len(chunk)
-        except Exception:
-            # If writing fails, close and clean up
-            if capped_fd is not None:
-                os.close(capped_fd)
-                capped_fd = None
-            return None
-
-        if cancel_event is not None and cancel_event.is_set():
-            return None
-
-        reader = gguf.GGUFReader(capped_path, mode="r")
+        reader = gguf.GGUFReader(model_path, mode="r")
         fields = dict(reader.fields)
 
         version_field = fields.get("GGUF.version")
@@ -172,15 +204,6 @@ def _try_gguf_reader(
         return fields, version
     except Exception:
         return None
-    finally:
-        # Close fd if still open (shouldn't happen after fdopen transfer)
-        if capped_fd is not None:
-            with suppress(OSError):
-                os.close(capped_fd)
-        # Remove temp file
-        if capped_path:
-            with suppress(OSError):
-                Path(capped_path).unlink()
 
 
 def _extract_from_gguf_reader(
@@ -209,6 +232,8 @@ def _extract_from_gguf_reader(
         raise InterruptedError("parse cancelled")
 
     tokenizer_type = _detect_tokenizer_type_from_reader(fields)
+    file_type = _extract_file_type(fields)
+    quantization_type = _file_type_to_quant(file_type)
 
     if architecture:
         ctx_key = Keys.LLM.CONTEXT_LENGTH.format(arch=architecture)
@@ -238,9 +263,12 @@ def _extract_from_gguf_reader(
         general_name=general_name,
         architecture=architecture,
         tokenizer_type=tokenizer_type,
+        file_type=file_type,
+        quantization_type=quantization_type,
         embedding_length=embedding_length,
         block_count=block_count,
         context_length=context_length,
+        max_context_length=context_length,
         attention_head_count=attention_head_count,
         attention_head_count_kv=attention_head_count_kv,
         parse_timeout_s=parse_timeout_s,

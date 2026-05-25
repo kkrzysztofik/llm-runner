@@ -71,6 +71,9 @@ from .config import (
     validate_slot_id,
     validate_slot_port,
 )
+from .config.builder import (
+    create_tui_profile_registry,
+)
 from .config.profile_cache import (
     CURRENT_SCHEMA_VERSION,
     PROFILE_OVERRIDE_FIELDS,
@@ -96,6 +99,12 @@ from .metadata import (
     GGUFMetadataRecord,
     extract_gguf_metadata,
     normalize_filename,
+)
+from .model_index import (
+    ModelIndexEntry,
+    load_model_index,
+    model_index_path,
+    refresh_model_index,
 )
 from .orchestration import (
     ArtifactMetadata,
@@ -151,6 +160,15 @@ from .risk_ack import (
     RiskAckResult,
     evaluate_risks,
     resolve_risk_action,
+)
+from .run_profile_store import (
+    custom_profile_exists,
+    delete_custom_run_profile,
+    load_custom_run_profiles,
+    load_hidden_builtin_profile_ids,
+    run_profiles_file_path,
+    save_custom_run_profile,
+    upsert_custom_run_profile,
 )
 from .setup_venv import (
     VenvResult,
@@ -289,12 +307,21 @@ __all__ = [
     "create_default_profile_registry",
     "create_default_run_profiles",
     "create_default_run_groups",
+    "create_tui_profile_registry",
     "create_server_config_from_profile",
     "merge_config_overrides",
     "resolve_profile_config",
     "resolve_run_group_configs",
     "resolve_profile_id",
     "resolve_backend_from_profile",
+    # Run profile persistence
+    "load_custom_run_profiles",
+    "save_custom_run_profile",
+    "run_profiles_file_path",
+    "upsert_custom_run_profile",
+    "delete_custom_run_profile",
+    "load_hidden_builtin_profile_ids",
+    "custom_profile_exists",
     # Reports
     "FailureReport",
     "MutatingActionLogEntry",
@@ -367,6 +394,11 @@ __all__ = [
     "GGUFMetadataRecord",
     "extract_gguf_metadata",
     "normalize_filename",
+    # Model index
+    "ModelIndexEntry",
+    "model_index_path",
+    "load_model_index",
+    "refresh_model_index",
     # Config builders
     "create_smoke_config",
     # Benchmark

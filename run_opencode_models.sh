@@ -27,8 +27,8 @@ LLAMA_SERVER_BIN_INTEL="$LLAMA_CPP_ROOT/build/bin/llama-server"
 LLAMA_SERVER_BIN_NVIDIA="$LLAMA_CPP_ROOT/build_cuda/bin/llama-server"
 MODEL_SUMMARY_BALANCED="/home/kmk/models/unsloth/Qwen3.5-2B-MTP-GGUF/Qwen3.5-2B-UD-Q6_K_XL.gguf"
 MODEL_SUMMARY_FAST="/home/kmk/models/unsloth/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q4_K_M.gguf"
-# Qwen3.6-35B-A3B-UD-Q6_K MTP: used for both qwen35 single-run and both-qwen35 dual-run modes.
-# Spread across dual RTX 3090 via --tensor-split 1,1 (see DEFAULT_TENSOR_SPLIT_QWEN35).
+# Qwen3.6-35B-A3B MTP: used for both qwen35 single-run and both-qwen35 dual-run modes.
+# Benchmarked fastest stable profile on dual RTX 3090: layer split, q8 KV, batch 1024, ubatch 256.
 MODEL_QWEN35="/home/kmk/models/byteshape/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf"
 # MODEL_QWEN35_BOTH kept for reference (IQ4_XS, single-GPU); superseded by MODEL_QWEN35_BOTH_MTP.
 MODEL_QWEN35_BOTH="/home/kmk/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf"
@@ -57,16 +57,16 @@ GEMMA4_CHAT_TEMPLATE_KWARGS='{"enable_thinking":true}'
 
 # Server defaults
 DEFAULT_N_GPU_LAYERS=99                  # Max GPU layers for fastest inference
-DEFAULT_CTX_SIZE_SUMMARY=262144           # 256k with headroom for summary assistants
-DEFAULT_CTX_SIZE_QWEN35=262144           # Match NVIDIA qwen35 single-run config
+DEFAULT_CTX_SIZE_SUMMARY=1048576           # 256k with headroom for summary assistants
+DEFAULT_CTX_SIZE_QWEN35=1048576          # 1M context on dual RTX 3090
 DEFAULT_CTX_SIZE_QWEN27B=262144          # Match NVIDIA qwen27b MTP config
 DEFAULT_CTX_SIZE_GEMMA4_E4B=131072       # Full 128k context for Gemma 4 E4B
 # 27B Q4_K_XL: validated llama-completion warmup + gen at 262144 on RTX 3090 (f16 KV, -np 1)
 DEFAULT_CTX_SIZE_GEMMA4_27B=262144
 # 31B IQ4_XS: max stable ctx with default batch/ubatch (see probe notes in script header paths)
 DEFAULT_CTX_SIZE_GEMMA4_31B=82176
-DEFAULT_CTX_SIZE_BOTH_SUMMARY=262144      # Keep summarizer at 256k in dual-run mode
-DEFAULT_CTX_SIZE_BOTH_QWEN35=262144      # Match NVIDIA qwen35 dual-run config
+DEFAULT_CTX_SIZE_BOTH_SUMMARY=1048576      # Keep summarizer at 256k in dual-run mode
+DEFAULT_CTX_SIZE_BOTH_QWEN35=1048576     # 1M context on dual RTX 3090
 DEFAULT_CTX_SIZE_BOTH_GEMMA4_27B=262144   # Same as single-GPU 27B when paired with E4B on Intel
 DEFAULT_N_GPU_LAYERS_QWEN35=all
 DEFAULT_N_GPU_LAYERS_QWEN27B=all
@@ -78,13 +78,14 @@ DEFAULT_N_GPU_LAYERS_GEMMA4_27B_BOTH=99
 DEFAULT_N_GPU_LAYERS_GEMMA4_31B=99
 DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED=1024
 DEFAULT_UBATCH_SIZE_SUMMARY_FAST=512
-DEFAULT_UBATCH_SIZE_QWEN35=1024
+DEFAULT_BATCH_SIZE_QWEN35=1024
+DEFAULT_UBATCH_SIZE_QWEN35=256
 DEFAULT_UBATCH_SIZE_QWEN27B=1024
 DEFAULT_UBATCH_SIZE_GEMMA4_E4B=512
 DEFAULT_UBATCH_SIZE_GEMMA4_27B=1024
 DEFAULT_UBATCH_SIZE_GEMMA4_31B=512
-DEFAULT_BATCH_SIZE_QWEN35_BOTH=2048
-DEFAULT_UBATCH_SIZE_QWEN35_BOTH=1024
+DEFAULT_BATCH_SIZE_QWEN35_BOTH=1024
+DEFAULT_UBATCH_SIZE_QWEN35_BOTH=256
 DEFAULT_UBATCH_SIZE_GEMMA4_27B_BOTH=1024
 DEFAULT_THREADS_SUMMARY_BALANCED=8
 DEFAULT_THREADS_SUMMARY_FAST=8
@@ -100,7 +101,8 @@ DEFAULT_POLL_MS_GEMMA4_E4B=0
 DEFAULT_POLL_MS_QWEN35=0
 DEFAULT_POLL_MS_QWEN27B=0
 DEFAULT_PARALLEL_SUMMARY=4
-DEFAULT_PARALLEL_QWEN35_BOTH=1
+DEFAULT_PARALLEL_QWEN35=4
+DEFAULT_PARALLEL_QWEN35_BOTH=4
 DEFAULT_PARALLEL_QWEN27B=1
 DEFAULT_PARALLEL_GEMMA4_E4B=-1
 # Single slot minimizes VRAM for parallel KV / server batching (matches llama-completion -np 1 probes)
@@ -146,6 +148,10 @@ DEFAULT_DRAFT_MAX_QWEN35_BOTH=64
 # Qwen MTP speculative decoding (NVIDIA)
 DEFAULT_SPEC_TYPE_QWEN_MTP=draft-mtp
 DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP=3
+DEFAULT_SPEC_DRAFT_N_MAX_QWEN35_MTP=2
+DEFAULT_SPEC_DRAFT_P_MIN_QWEN35_MTP=0.2
+DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_K=q8_0
+DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_V=q8_0
 
 # ============================================================
 # GLOBAL STATE
@@ -170,13 +176,13 @@ init_colors() {
 
 server_color_code() {
   local server_name="$1"
-  
+
   # Return cached value if available
   if [[ -n "${COLOR_CACHE[$server_name]:-}" ]]; then
     printf '%s' "${COLOR_CACHE[$server_name]}"
     return
   fi
-  
+
   local code
   case "$server_name" in
     summary-balanced) code='1;34' ;;
@@ -188,7 +194,7 @@ server_color_code() {
     gemma4-31b-coding) code='1;95' ;;
     *)              code='1;36' ;;
   esac
-  
+
   COLOR_CACHE["$server_name"]="$code"
   printf '%s' "$code"
 }
@@ -200,34 +206,34 @@ server_color_code() {
 validate_port() {
   local port="$1"
   local name="${2:-port}"
-  
+
   if ! [[ "$port" =~ ^[0-9]+$ ]]; then
     echo "error: $name must be a number, got: $port" >&2
     return 1
   fi
-  
+
   if (( port < 1 || port > 65535 )); then
     echo "error: $name must be between 1 and 65535, got: $port" >&2
     return 1
   fi
-  
+
   return 0
 }
 
 validate_threads() {
   local threads="$1"
   local name="${2:-threads}"
-  
+
   if ! [[ "$threads" =~ ^[0-9]+$ ]]; then
     echo "error: $name must be a positive integer, got: $threads" >&2
     return 1
   fi
-  
+
   if (( threads < 1 )); then
     echo "error: $name must be greater than 0, got: $threads" >&2
     return 1
   fi
-  
+
   return 0
 }
 
@@ -265,12 +271,12 @@ validate_ports() {
   local port2="$2"
   local name1="${3:-port1}"
   local name2="${4:-port2}"
-  
+
   if [[ "$port1" == "$port2" ]]; then
     echo "error: $name1 and $name2 must be different, got: $port1" >&2
     return 1
   fi
-  
+
   return 0
 }
 
@@ -281,6 +287,19 @@ append_qwen_mtp_spec_flags() {
   _target+=(
     --spec-type "$DEFAULT_SPEC_TYPE_QWEN_MTP"
     --spec-draft-n-max "$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP"
+  )
+}
+
+# Append the benchmarked Qwen 35B MTP settings.
+# shellcheck disable=SC2178
+append_qwen35_mtp_spec_flags() {
+  local -n _target="$1"
+  _target+=(
+    --spec-type "$DEFAULT_SPEC_TYPE_QWEN_MTP"
+    --spec-draft-n-max "$DEFAULT_SPEC_DRAFT_N_MAX_QWEN35_MTP"
+    --spec-draft-p-min "$DEFAULT_SPEC_DRAFT_P_MIN_QWEN35_MTP"
+    --spec-draft-type-k "$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_K"
+    --spec-draft-type-v "$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_V"
   )
 }
 
@@ -310,7 +329,7 @@ build_server_cmd() {
   local mmproj_path="${19:-}"
   local poll_ms="${20:-50}"
   local batch_size="${21:-2048}"
-  
+
   cmd_ref=(
     "$server_bin"
     --model "$model"
@@ -326,13 +345,13 @@ build_server_cmd() {
 
   [[ -n "$reasoning_mode" ]] && cmd_ref+=(--reasoning "$reasoning_mode")
   [[ -n "$reasoning_format" ]] && cmd_ref+=(--reasoning-format "$reasoning_format")
-  
+
   [[ -n "$tensor_split" ]] && cmd_ref+=(--tensor-split "$tensor_split")
   [[ -n "$chat_template_kwargs" ]] && cmd_ref+=(--chat-template-kwargs "$chat_template_kwargs")
   [[ -n "$reasoning_budget" ]] && cmd_ref+=(--reasoning-budget "$reasoning_budget")
   [[ -n "$mmproj_path" ]] && cmd_ref+=(--mmproj "$mmproj_path")
   [[ "$use_jinja" == "true" ]] && cmd_ref+=(--jinja)
-  
+
   cmd_ref+=(
     --ctx-size "$ctx_size"
     --n-predict "$DEFAULT_N_PREDICT"
@@ -355,9 +374,9 @@ prefix_output() {
   local line
   local timestamp
   local color_code
-  
+
   color_code="$(server_color_code "$server_name")"
-  
+
   while IFS= read -r line || [[ -n "$line" ]]; do
     timestamp="$(date +"%H:%M:%S")"
     if ((COLOR_ENABLED)) && [[ -n "$color_code" ]]; then
@@ -371,18 +390,18 @@ prefix_output() {
 start_server_background() {
   local server_name="$1"
   local -n cmd_ref="$2"
-  
+
   "${cmd_ref[@]}" \
     > >(prefix_output "$server_name") \
     2> >(prefix_output "$server_name" >&2) &
-  
+
   PIDS+=("$!")
 }
 
 exec_server() {
   local server_name="$1"
   local -n cmd_ref="$2"
-  
+
   "${cmd_ref[@]}" \
     > >(prefix_output "$server_name") \
     2> >(prefix_output "$server_name" >&2)
@@ -405,36 +424,36 @@ log_warning() {
 cleanup_servers() {
   ((SHUTTING_DOWN)) && return
   SHUTTING_DOWN=1
-  
+
   local running_pids=()
   local pid
-  
+
   for pid in "${PIDS[@]:-}"; do
     if kill -0 "$pid" 2>/dev/null; then
       running_pids+=("$pid")
     fi
   done
-  
+
   if [[ ${#running_pids[@]} -eq 0 ]]; then
     return
   fi
-  
+
   log_warning "Sending TERM to ${#running_pids[@]} server(s)..."
   kill -TERM "${running_pids[@]}" 2>/dev/null || log_warning "Failed to send TERM"
   sleep 1
-  
+
   local stubborn_pids=()
   for pid in "${running_pids[@]}"; do
     if kill -0 "$pid" 2>/dev/null; then
       stubborn_pids+=("$pid")
     fi
   done
-  
+
   if [[ ${#stubborn_pids[@]} -gt 0 ]]; then
     log_warning "Killing ${#stubborn_pids[@]} stubborn server(s)..."
     kill -KILL "${stubborn_pids[@]}" 2>/dev/null || log_warning "Failed to send KILL"
   fi
-  
+
   wait "${running_pids[@]}" 2>/dev/null || log_warning "Wait failed"
 }
 
@@ -509,18 +528,19 @@ start_gemma4_e4b() {
 start_qwen35() {
   local port="$1"
   local cmd=()
-  
+
   require_model "$MODEL_QWEN35"
   require_executable "$LLAMA_SERVER_BIN_NVIDIA" "NVIDIA llama-server"
   build_server_cmd cmd "$MODEL_QWEN35" "qwen35-coding" "" "$port" \
     "$DEFAULT_CTX_SIZE_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35" "$DEFAULT_THREADS_QWEN35" \
     "$DEFAULT_TENSOR_SPLIT_QWEN35" on deepseek '{"enable_thinking":true}' "" "false" \
-    "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
+    "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35" "$DEFAULT_BATCH_SIZE_QWEN35"
   cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
-  append_qwen_mtp_spec_flags cmd
+  cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN35")
+  append_qwen35_mtp_spec_flags cmd
   cmd=(env CUDA_SCALE_LAUNCH_QUEUES=4x "${cmd[@]}")
-  
+
   exec_server "qwen35-coding" cmd
 }
 
@@ -602,7 +622,7 @@ start_both_qwen35() {
   summary_balanced_cmd+=(--parallel "$DEFAULT_PARALLEL_SUMMARY")
   summary_balanced_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   summary_balanced_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
-  
+
   build_server_cmd qwen35_cmd "$MODEL_QWEN35_BOTH_MTP" "qwen35-coding" "" "$qwen35_port" \
     "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
     "$DEFAULT_TENSOR_SPLIT_QWEN35" on deepseek '{"preserve_thinking":true}' "" "false" \
@@ -610,13 +630,13 @@ start_both_qwen35() {
   qwen35_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   qwen35_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   qwen35_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN35_BOTH")
-  append_qwen_mtp_spec_flags qwen35_cmd
+  append_qwen35_mtp_spec_flags qwen35_cmd
 
   # Setup signal handlers BEFORE launching servers
   trap on_interrupt INT
   trap on_terminate TERM
   trap cleanup_servers EXIT
-  
+
   # Launch servers in background
   start_server_background "summary-balanced" summary_balanced_cmd
   qwen35_cmd=(env CUDA_SCALE_LAUNCH_QUEUES=4x "${qwen35_cmd[@]}")
@@ -624,7 +644,7 @@ start_both_qwen35() {
 
   echo "summary-balanced: http://$HOST:$summary_balanced_port/v1"
   echo "qwen35-coding: http://$HOST:$qwen35_port/v1"
-  
+
   wait -n "${PIDS[@]}"
 }
 
@@ -893,7 +913,9 @@ dry_run() {
       echo "  Device: NVIDIA (CUDA)"
       echo "  Context: $DEFAULT_CTX_SIZE_QWEN35"
       echo "  Threads: $DEFAULT_THREADS_QWEN35"
+      echo "  Batch: $DEFAULT_BATCH_SIZE_QWEN35"
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_QWEN35"
+      echo "  Parallel slots: $DEFAULT_PARALLEL_QWEN35"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_QWEN35_K/$DEFAULT_CACHE_TYPE_QWEN35_V"
       echo "  n-gpu-layers: $DEFAULT_N_GPU_LAYERS_QWEN35"
       echo "  Tensor Split: $DEFAULT_TENSOR_SPLIT_QWEN35"
@@ -901,14 +923,15 @@ dry_run() {
       echo "  Reasoning Format: deepseek"
       echo "  Chat Template Kwargs: {\"enable_thinking\":true}"
       echo "  Poll: $DEFAULT_POLL_MS_QWEN35"
-      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP)"
+      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN35_MTP, draft-p-min=$DEFAULT_SPEC_DRAFT_P_MIN_QWEN35_MTP, draft-kv=$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_K/$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_V)"
       build_server_cmd tmp_cmd "$MODEL_QWEN35" "qwen35-coding" "" "$qwen35_port_single" \
         "$DEFAULT_CTX_SIZE_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35" "$DEFAULT_THREADS_QWEN35" \
         "$DEFAULT_TENSOR_SPLIT_QWEN35" on deepseek '{"enable_thinking":true}' "" "false" \
-        "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35"
+        "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35" "$DEFAULT_BATCH_SIZE_QWEN35"
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
-      append_qwen_mtp_spec_flags tmp_cmd
+      tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN35")
+      append_qwen35_mtp_spec_flags tmp_cmd
       echo "  Command: env CUDA_SCALE_LAUNCH_QUEUES=4x ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
@@ -979,7 +1002,7 @@ dry_run() {
       echo "  Reasoning Format: deepseek"
       echo "  Chat Template Kwargs: {\"preserve_thinking\":true}"
       echo "  Poll: $DEFAULT_POLL_MS_QWEN35"
-      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP)"
+      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN35_MTP, draft-p-min=$DEFAULT_SPEC_DRAFT_P_MIN_QWEN35_MTP, draft-kv=$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_K/$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_V)"
       build_server_cmd tmp_cmd "$MODEL_QWEN35_BOTH_MTP" "qwen35-coding" "" "$qwen35_port_both" \
         "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
         "$DEFAULT_TENSOR_SPLIT_QWEN35" on deepseek '{"preserve_thinking":true}' "" "false" \
@@ -987,7 +1010,7 @@ dry_run() {
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN35_BOTH")
-      append_qwen_mtp_spec_flags tmp_cmd
+      append_qwen35_mtp_spec_flags tmp_cmd
       echo "  Command: env CUDA_SCALE_LAUNCH_QUEUES=4x ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;

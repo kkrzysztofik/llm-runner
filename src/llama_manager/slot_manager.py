@@ -4,16 +4,19 @@ Extracted from TUI controller so slot lifecycle management can be tested
 and reused without importing Rich, Textual, or other UI libraries.
 """
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from .config import Config, ModelSlot, ServerConfig, SlotState
 from .config.builder import create_default_profile_registry, resolve_profile_config
-from .config.profiles import RunProfileError
+from .config.profiles import RunProfileError, RunProfileRegistry
 from .gpu_stats import GPUStats
 from .log_buffer import LogBuffer
 from .orchestration import ServerManager
 from .slot_state import compute_slot_transition
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_slot_port(port_str: str) -> tuple[int, str | None]:
@@ -117,6 +120,7 @@ def register_and_start_slot(
         if result is not None:
             message, _color = result
             messages.append(message)
+            logger.info("slot %s: %s", alias, message)
     else:
         state["slot_states"][alias] = SlotState.CRASHED.value
         messages.append(f"Slot '{alias}' failed to start: no process returned")
@@ -206,6 +210,7 @@ def add_slot_from_form(
     server_manager: ServerManager,
     state: dict[str, Any],
     make_collector: Callable[[int], Callable[[], dict[str, Any]]],
+    registry: RunProfileRegistry | None = None,
 ) -> tuple[bool, list[str], dict[str, Any]]:
     """Create or replace a slot from modal form values.
 
@@ -219,6 +224,8 @@ def add_slot_from_form(
         state: Mutable runtime-state dictionary.
         make_collector: Factory that returns a GPU collector callable for a
             given device index.
+        registry: Optional pre-built ``RunProfileRegistry``. When omitted,
+            a fresh registry is created via ``create_default_profile_registry``.
 
     Returns:
         ``(success, messages, updated_state)``.
@@ -230,7 +237,8 @@ def add_slot_from_form(
         messages.append("Profile is required")
         return False, messages, state
 
-    registry = create_default_profile_registry(config)
+    if registry is None:
+        registry = create_default_profile_registry(config)
 
     override_config: dict[str, int] | None = None
     port_value = values.get("port", "").strip()

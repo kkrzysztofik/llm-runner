@@ -343,8 +343,6 @@ def _build_test_registry(
     Returns a tuple of (mock config, registry) where the mock Config
     has all the attributes needed by cmd_profile.
     """
-    import os
-
     from llama_manager import (
         Config,
         RunGroupSpec,
@@ -355,125 +353,113 @@ def _build_test_registry(
     profiles_dir = tmp_path / "profiles"
     profiles_dir.mkdir(parents=True, exist_ok=True)
 
-    # Set XDG_RUNTIME_DIR to control profiles_dir
-    old_runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
-    os.environ["XDG_RUNTIME_DIR"] = str(tmp_path)
+    # Create a real Config with test values
+    cfg = Config()
+    cfg.model_summary_balanced = str(tmp_path / "model_summary.gguf")
+    cfg.model_summary_fast = str(tmp_path / "model_fast.gguf")
+    cfg.model_qwen35 = str(tmp_path / "model_qwen35.gguf")
+    cfg.summary_balanced_port = summary_port
+    cfg.summary_fast_port = fast_port
+    cfg.qwen35_port = qwen35_port
+    cfg.default_threads_summary_balanced = 8
+    cfg.default_threads_summary_fast = 4
+    cfg.default_threads_qwen35 = 16
+    cfg.default_ctx_size_summary = 32768
+    cfg.default_ubatch_size_summary_balanced = 1024
+    cfg.default_ubatch_size_summary_fast = 512
+    cfg.default_ubatch_size_qwen35 = 2048
+    cfg.default_cache_type_summary_k = "q8_0"
+    cfg.default_cache_type_summary_v = "q8_0"
+    cfg.default_cache_type_qwen35_k = "q8_0"
+    cfg.default_cache_type_qwen35_v = "q8_0"
+    cfg.default_n_gpu_layers = 99
+    cfg.default_n_gpu_layers_qwen35 = "all"
+    cfg.server_binary_version = "1.18.0"
+    cfg.llama_server_bin_intel = str(tmp_path / "llama-server")
+    cfg.llama_server_bin_nvidia = str(tmp_path / "llama-server-cuda")
+    cfg.summary_balanced_chat_template_kwargs = ""
+    cfg.summary_fast_chat_template_kwargs = ""
 
-    try:
-        # Create a real Config with test values
-        cfg = Config()
-        cfg.model_summary_balanced = str(tmp_path / "model_summary.gguf")
-        cfg.model_summary_fast = str(tmp_path / "model_fast.gguf")
-        cfg.model_qwen35 = str(tmp_path / "model_qwen35.gguf")
-        cfg.summary_balanced_port = summary_port
-        cfg.summary_fast_port = fast_port
-        cfg.qwen35_port = qwen35_port
-        cfg.default_threads_summary_balanced = 8
-        cfg.default_threads_summary_fast = 4
-        cfg.default_threads_qwen35 = 16
-        cfg.default_ctx_size_summary = 16144
-        cfg.default_ctx_size_qwen35 = 32768
-        cfg.default_ubatch_size_summary_balanced = 1024
-        cfg.default_ubatch_size_summary_fast = 512
-        cfg.default_ubatch_size_qwen35 = 2048
-        cfg.default_cache_type_summary_k = "q8_0"
-        cfg.default_cache_type_summary_v = "q8_0"
-        cfg.default_cache_type_qwen35_k = "q8_0"
-        cfg.default_cache_type_qwen35_v = "q8_0"
-        cfg.default_n_gpu_layers = 99
-        cfg.default_n_gpu_layers_qwen35 = "all"
-        cfg.server_binary_version = "1.18.0"
-        cfg.llama_server_bin_intel = str(tmp_path / "llama-server")
-        cfg.llama_server_bin_nvidia = str(tmp_path / "llama-server-cuda")
-        cfg.summary_balanced_chat_template_kwargs = ""
-        cfg.summary_fast_chat_template_kwargs = ""
-
-        registry = RunProfileRegistry(
-            profiles=(
-                RunProfileSpec(
-                    profile_id="summary-balanced",
-                    description="Run summary-balanced model on Intel SYCL.",
-                    model=cfg.model_summary_balanced,
-                    alias="summary-balanced",
-                    device="SYCL0",
-                    port=summary_port,
-                    ctx_size=cfg.default_ctx_size_summary,
-                    ubatch_size=cfg.default_ubatch_size_summary_balanced,
-                    threads=cfg.default_threads_summary_balanced,
-                    reasoning_mode="off",
-                    reasoning_format="deepseek",
-                    chat_template_kwargs=cfg.summary_balanced_chat_template_kwargs,
-                    use_jinja=True,
-                    cache_type_k=cfg.default_cache_type_summary_k,
-                    cache_type_v=cfg.default_cache_type_summary_v,
-                    backend="llama_cpp",
-                ),
-                RunProfileSpec(
-                    profile_id="summary-fast",
-                    description="Run summary-fast model on Intel SYCL.",
-                    model=cfg.model_summary_fast,
-                    alias="summary-fast",
-                    device="SYCL0",
-                    port=fast_port,
-                    ctx_size=cfg.default_ctx_size_summary,
-                    ubatch_size=cfg.default_ubatch_size_summary_fast,
-                    threads=cfg.default_threads_summary_fast,
-                    reasoning_mode="off",
-                    reasoning_format="deepseek",
-                    chat_template_kwargs=cfg.summary_fast_chat_template_kwargs,
-                    use_jinja=True,
-                    cache_type_k=cfg.default_cache_type_summary_k,
-                    cache_type_v=cfg.default_cache_type_summary_v,
-                    backend="llama_cpp",
-                ),
-                RunProfileSpec(
-                    profile_id="qwen35",
-                    description="Run qwen35-coding model on NVIDIA CUDA.",
-                    model=cfg.model_qwen35,
-                    alias="qwen35-coding",
-                    device="",
-                    port=qwen35_port,
-                    ctx_size=cfg.default_ctx_size_qwen35,
-                    ubatch_size=cfg.default_ubatch_size_qwen35,
-                    threads=cfg.default_threads_qwen35,
-                    cache_type_k=cfg.default_cache_type_qwen35_k,
-                    cache_type_v=cfg.default_cache_type_qwen35_v,
-                    n_gpu_layers=cfg.default_n_gpu_layers_qwen35,
-                    server_bin=cfg.llama_server_bin_nvidia,
-                    backend="llama_cpp",
-                ),
+    registry = RunProfileRegistry(
+        profiles=(
+            RunProfileSpec(
+                profile_id="summary-balanced",
+                description="Run summary-balanced model on Intel SYCL.",
+                model=cfg.model_summary_balanced,
+                alias="summary-balanced",
+                device="SYCL0",
+                port=summary_port,
+                ctx_size=cfg.default_ctx_size_summary,
+                ubatch_size=cfg.default_ubatch_size_summary_balanced,
+                threads=cfg.default_threads_summary_balanced,
+                reasoning_mode="off",
+                reasoning_format="deepseek",
+                chat_template_kwargs=cfg.summary_balanced_chat_template_kwargs,
+                use_jinja=True,
+                cache_type_k=cfg.default_cache_type_summary_k,
+                cache_type_v=cfg.default_cache_type_summary_v,
+                backend="llama_cpp",
             ),
-            run_groups=(
-                RunGroupSpec(
-                    group_id="summary-balanced",
-                    profile_ids=("summary-balanced",),
-                    description="Launch the summary-balanced profile.",
-                ),
-                RunGroupSpec(
-                    group_id="summary-fast",
-                    profile_ids=("summary-fast",),
-                    description="Launch the summary-fast profile.",
-                ),
-                RunGroupSpec(
-                    group_id="qwen35",
-                    profile_ids=("qwen35",),
-                    description="Launch the qwen35 profile.",
-                ),
-                RunGroupSpec(
-                    group_id="both",
-                    profile_ids=("summary-balanced", "qwen35"),
-                    description="Launch summary-balanced and qwen35 profiles together.",
-                ),
+            RunProfileSpec(
+                profile_id="summary-fast",
+                description="Run summary-fast model on Intel SYCL.",
+                model=cfg.model_summary_fast,
+                alias="summary-fast",
+                device="SYCL0",
+                port=fast_port,
+                ctx_size=cfg.default_ctx_size_summary,
+                ubatch_size=cfg.default_ubatch_size_summary_fast,
+                threads=cfg.default_threads_summary_fast,
+                reasoning_mode="off",
+                reasoning_format="deepseek",
+                chat_template_kwargs=cfg.summary_fast_chat_template_kwargs,
+                use_jinja=True,
+                cache_type_k=cfg.default_cache_type_summary_k,
+                cache_type_v=cfg.default_cache_type_summary_v,
+                backend="llama_cpp",
             ),
-        )
+            RunProfileSpec(
+                profile_id="qwen35",
+                description="Run qwen35-coding model on NVIDIA CUDA.",
+                model=cfg.model_qwen35,
+                alias="qwen35-coding",
+                device="",
+                port=qwen35_port,
+                ctx_size=cfg.default_ctx_size_qwen35,
+                ubatch_size=cfg.default_ubatch_size_qwen35,
+                threads=cfg.default_threads_qwen35,
+                cache_type_k=cfg.default_cache_type_qwen35_k,
+                cache_type_v=cfg.default_cache_type_qwen35_v,
+                n_gpu_layers=cfg.default_n_gpu_layers_qwen35,
+                server_bin=cfg.llama_server_bin_nvidia,
+                backend="llama_cpp",
+            ),
+        ),
+        run_groups=(
+            RunGroupSpec(
+                group_id="summary-balanced",
+                profile_ids=("summary-balanced",),
+                description="Launch the summary-balanced profile.",
+            ),
+            RunGroupSpec(
+                group_id="summary-fast",
+                profile_ids=("summary-fast",),
+                description="Launch the summary-fast profile.",
+            ),
+            RunGroupSpec(
+                group_id="qwen35",
+                profile_ids=("qwen35",),
+                description="Launch the qwen35 profile.",
+            ),
+            RunGroupSpec(
+                group_id="both",
+                profile_ids=("summary-balanced", "qwen35"),
+                description="Launch summary-balanced and qwen35 profiles together.",
+            ),
+        ),
+    )
 
-        return cfg, registry
-    finally:
-        # Restore original XDG_RUNTIME_DIR
-        if old_runtime_dir is not None:
-            os.environ["XDG_RUNTIME_DIR"] = old_runtime_dir
-        else:
-            os.environ.pop("XDG_RUNTIME_DIR", None)
+    return cfg, registry
 
 
 def _populate_profile_mock_defaults(mock_cfg: Any, tmp_path: Path) -> None:

@@ -142,6 +142,8 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         "--no-webui",
     ]
 
+    if cfg.main_gpu != 0:
+        cmd.extend(["--main-gpu", str(cfg.main_gpu)])
     if cfg.device:
         cmd.extend(["--device", cfg.device])
     if cfg.reasoning_mode:

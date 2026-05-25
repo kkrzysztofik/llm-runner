@@ -30,6 +30,12 @@ def run_configure(ctx: _BuildContext) -> BuildProgress:
     )
 
     cmake_cache = ctx.config.build_dir / "CMakeCache.txt"
+    if cmake_cache.exists() and ctx.config.clean_cache:
+        try:
+            cmake_cache.unlink()
+            logger.info("[configure] removed stale CMakeCache.txt (clean_cache=True)")
+        except OSError as exc:
+            logger.error("[configure] failed to remove CMakeCache.txt: %s", exc)
     if cmake_cache.exists() and not ctx.config.update_sources:
         logger.info("[configure] CMakeCache.txt exists; skipping configure")
         progress.status = "skipped"
@@ -38,6 +44,8 @@ def run_configure(ctx: _BuildContext) -> BuildProgress:
         return progress
 
     cmake_args = get_cmake_flags(ctx.config.backend)
+    if ctx.config.build_args:
+        cmake_args.extend(ctx.config.build_args)
     logger.debug("[configure] cmake_flags=%s", cmake_args)
 
     if ctx.dry_run:

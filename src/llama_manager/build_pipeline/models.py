@@ -50,6 +50,8 @@ class BuildConfig:
     update_sources: bool = True
     git_commit: str | None = None
     build_timeout_seconds: int = 3600
+    build_args: list[str] | None = None
+    clean_cache: bool = False
 
     def __post_init__(self) -> None:
         """Ensure Path objects are Path instances and validate constraints."""

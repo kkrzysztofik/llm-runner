@@ -32,7 +32,10 @@ from llama_manager.config import (
     validate_slot_port,
 )
 from llama_manager.config.profiles import (
+    _derive_tensor_split_from_device,
     _normalize_alias,
+    _parse_device_indices,
+    _parse_main_gpu_from_device,
     _resolve_alias_to_profile_id,
 )
 from llama_manager.log_buffer import LogBuffer
@@ -1787,9 +1790,7 @@ class TestResolveBackendFromProfile:
         assert resolve_backend_from_profile(profile) == "sycl"
 
     def test_cuda_device_returns_sycl(self) -> None:
-        """Non-empty 'cuda' device field should indicate SYCL backend (by convention)."""
-        # Note: this tests the convention that any non-empty device field
-        # maps to SYCL, even if the device name contains "cuda"
+        """Device 'cuda' should return CUDA backend (case-insensitive prefix match)."""
         profile = RunProfileSpec(
             profile_id="test",
             model="/path/to/model.gguf",
@@ -1804,7 +1805,72 @@ class TestResolveBackendFromProfile:
             backend="llama_cpp",
             risky_acknowledged=(),
         )
-        assert resolve_backend_from_profile(profile) == "sycl"
+        assert resolve_backend_from_profile(profile) == "cuda"
+
+
+# =============================================================================
+# Device parsing and tensor_split derivation
+# =============================================================================
+
+
+class TestParseDeviceIndices:
+    """Tests for _parse_device_indices helper."""
+
+    def test_empty_string(self) -> None:
+        assert _parse_device_indices("") == []
+
+    def test_single_index(self) -> None:
+        assert _parse_device_indices("CUDA:1") == [1]
+
+    def test_multiple_indices(self) -> None:
+        assert _parse_device_indices("CUDA:0,1") == [0, 1]
+
+    def test_mixed_whitespace(self) -> None:
+        assert _parse_device_indices("CUDA: 0 , 1 ") == [0, 1]
+
+    def test_no_prefix(self) -> None:
+        assert _parse_device_indices("0,1") == [0, 1]
+
+    def test_sycl_device(self) -> None:
+        assert _parse_device_indices("SYCL0") == [0]
+
+
+class TestDeriveTensorSplitFromDevice:
+    """Tests for _derive_tensor_split_from_device helper."""
+
+    def test_empty_device(self) -> None:
+        assert _derive_tensor_split_from_device("") == ""
+
+    def test_single_gpu(self) -> None:
+        assert _derive_tensor_split_from_device("CUDA:0") == ""
+
+    def test_dual_gpu(self) -> None:
+        assert _derive_tensor_split_from_device("CUDA:0,1") == "1,1"
+
+    def test_triple_gpu(self) -> None:
+        assert _derive_tensor_split_from_device("CUDA:0,1,2") == "1,1,1"
+
+    def test_sycl_device(self) -> None:
+        assert _derive_tensor_split_from_device("SYCL0") == ""
+
+
+class TestParseMainGpuFromDevice:
+    """Tests for _parse_main_gpu_from_device helper."""
+
+    def test_empty_device(self) -> None:
+        assert _parse_main_gpu_from_device("") == 0
+
+    def test_single_gpu_zero(self) -> None:
+        assert _parse_main_gpu_from_device("CUDA:0") == 0
+
+    def test_single_gpu_one(self) -> None:
+        assert _parse_main_gpu_from_device("CUDA:1") == 1
+
+    def test_multi_gpu_first(self) -> None:
+        assert _parse_main_gpu_from_device("CUDA:0,1") == 0
+
+    def test_sycl_device(self) -> None:
+        assert _parse_main_gpu_from_device("SYCL0") == 0
 
 
 # =============================================================================
@@ -2061,13 +2127,13 @@ class TestResolveBackendFromProfileEdgeCases:
         """SYCL0 device should return 'sycl'."""
         assert resolve_backend_from_profile(self._make_profile("SYCL0")) == "sycl"
 
-    def test_cpu_device_returns_sycl(self) -> None:
-        """CPU device should return 'sycl' (non-empty = SYCL by convention)."""
-        assert resolve_backend_from_profile(self._make_profile("CPU")) == "sycl"
+    def test_cpu_device_returns_cuda(self) -> None:
+        """CPU device should return 'cuda' (only SYCL prefix maps to sycl)."""
+        assert resolve_backend_from_profile(self._make_profile("CPU")) == "cuda"
 
-    def test_custom_device_returns_sycl(self) -> None:
-        """Any non-empty device should return 'sycl'."""
-        assert resolve_backend_from_profile(self._make_profile("custom-device")) == "sycl"
+    def test_custom_device_returns_cuda(self) -> None:
+        """Non-SYCL device should return 'cuda'."""
+        assert resolve_backend_from_profile(self._make_profile("custom-device")) == "cuda"
 
 
 from llama_manager.config import merge_config_overrides
@@ -2136,7 +2202,7 @@ def test_non_whitelisted_profile_keys_ignored() -> None:
     defaults = Config()
     profile_cfg: dict[str, object] = {
         "port": 9999,  # NOT in PROFILE_OVERRIDE_FIELDS
-        "n_gpu_layers": 100,  # NOT in PROFILE_OVERRIDE_FIELDS
+        "device": "SYCL99",  # NOT in PROFILE_OVERRIDE_FIELDS
         "threads": 32,  # IS in PROFILE_OVERRIDE_FIELDS
     }
 
@@ -2146,8 +2212,33 @@ def test_non_whitelisted_profile_keys_ignored() -> None:
     assert result.threads == 32
     # port should NOT be overridden by profile (not whitelisted)
     assert result.port == defaults.summary_balanced_port
-    # n_gpu_layers should NOT be overridden by profile (not whitelisted)
-    assert result.n_gpu_layers == defaults.default_n_gpu_layers
+    # device should NOT be overridden by profile (not whitelisted)
+    assert result.device == ""
+
+
+# ---- Tests for new GPU fields ----
+
+
+def test_profile_override_applies_n_gpu_layers() -> None:
+    """n_gpu_layers should be applied from profile_config when whitelisted."""
+    defaults = Config()
+    profile_cfg: dict[str, object] = {
+        "n_gpu_layers": 100,  # IS in PROFILE_OVERRIDE_FIELDS
+    }
+
+    result = merge_config_overrides(defaults, profile_config=profile_cfg)
+    assert result.n_gpu_layers == 100
+
+
+def test_profile_override_applies_main_gpu() -> None:
+    """main_gpu should be applied from profile_config when whitelisted."""
+    defaults = Config()
+    profile_cfg: dict[str, object] = {
+        "main_gpu": 1,  # IS in PROFILE_OVERRIDE_FIELDS
+    }
+
+    result = merge_config_overrides(defaults, profile_config=profile_cfg)
+    assert result.main_gpu == 1
 
 
 def test_merge_validates_port_range() -> None:

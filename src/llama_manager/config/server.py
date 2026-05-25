@@ -1,6 +1,7 @@
 """ServerConfig, ModelSlot, and slot utility functions."""
 
 import re
+import sys
 from dataclasses import dataclass, field
 
 from .errors import ErrorCode, ValidationResult
@@ -35,6 +36,7 @@ class ServerConfig:
         cache_type_k: KV-cache key type (e.g. ``"q8_0"``, ``"f16"``).
         cache_type_v: KV-cache value type (e.g. ``"q8_0"``, ``"f16"``).
         n_gpu_layers: Number of layers to offload to GPU; ``"all"`` offloads everything.
+        main_gpu: Primary GPU index for this server instance (default ``0``).
         server_bin: Path to the llama.cpp server binary (empty = use Config default).
         backend: Inference backend name (e.g. ``"llama_cpp"``).
         risky_acknowledged: List of risk identifiers the user has acknowledged.
@@ -57,9 +59,15 @@ class ServerConfig:
     cache_type_k: str = "q8_0"
     cache_type_v: str = "q8_0"
     n_gpu_layers: int | str = 99
+    main_gpu: int = 0
     server_bin: str = ""
     backend: str = "llama_cpp"
     risky_acknowledged: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.main_gpu, int) or self.main_gpu < 0:
+            sys.stderr.write("main_gpu must be a non-negative integer\n")
+            sys.exit(1)
 
 
 @dataclass

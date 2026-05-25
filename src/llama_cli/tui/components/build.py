@@ -5,6 +5,7 @@ BuildModalScreen that drives the multi-step build wizard workflow.
 """
 
 import re
+import shlex
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -16,13 +17,14 @@ from rich.text import Text
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import (
     Button,
     Checkbox,
+    Collapsible,
     Input,
     LoadingIndicator,
     ProgressBar,
@@ -30,6 +32,7 @@ from textual.widgets import (
     RadioSet,
     RichLog,
     Static,
+    TextArea,
 )
 
 from llama_manager.build_pipeline import (
@@ -39,6 +42,7 @@ from llama_manager.build_pipeline import (
     get_build_status,
 )
 from llama_manager.build_pipeline.models import BuildBackend
+from llama_manager.build_pipeline.stages.configure import get_cmake_flags
 
 from ..constants import (
     BUILD_WIZARD_TITLE,
@@ -260,7 +264,9 @@ def read_build_form_fields(
         "retry_delay": int_val("retry_delay"),
         "shallow_clone": bool_val("shallow_clone"),
         "update_sources": bool_val("update_sources"),
+        "clean_cache": bool_val("clean_cache"),
         "build_timeout_seconds": int_val("build_timeout_seconds"),
+        "build_args": str_val("build_args"),
     }
 
 
@@ -290,7 +296,13 @@ def collect_build_options(
     retry_delay = cast(int | None, fields["retry_delay"])
     shallow_clone = cast(bool | None, fields["shallow_clone"])
     update_sources = cast(bool | None, fields["update_sources"])
+    clean_cache = cast(bool | None, fields["clean_cache"])
     build_timeout = cast(int | None, fields["build_timeout_seconds"])
+    build_args_raw = cast(str | None, fields["build_args"])
+
+    build_args: list[str] | None = None
+    if build_args_raw is not None and build_args_raw.strip():
+        build_args = shlex.split(build_args_raw.strip())
 
     return BuildConfig(
         backend=BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA,
@@ -305,7 +317,9 @@ def collect_build_options(
         retry_delay=float(retry_delay) if retry_delay is not None else 5.0,
         shallow_clone=shallow_clone if shallow_clone is not None else True,
         update_sources=update_sources if update_sources is not None else True,
+        clean_cache=clean_cache if clean_cache is not None else False,
         build_timeout_seconds=build_timeout or 3600,
+        build_args=build_args,
     )
 
 
@@ -516,13 +530,17 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             self._release_select_step_widgets()
         placeholder.remove_children()
         placeholder.remove_class("build-modal-building")
+        placeholder.remove_class("build-modal-options")
+        placeholder.remove_class("build-modal-result")
         if step == self.STEP_SELECT:
             self._compose_step_select(placeholder)
             self.call_after_refresh(self._focus_step_select)
         elif step == self.STEP_SYCL_OPTS:
+            placeholder.add_class("build-modal-options")
             self._compose_step_options(placeholder, "sycl")
             self.call_after_refresh(self._focus_step_options)
         elif step == self.STEP_CUDA_OPTS:
+            placeholder.add_class("build-modal-options")
             self._compose_step_options(placeholder, "cuda")
             self.call_after_refresh(self._focus_step_options)
         elif step == self.STEP_BUILDING:
@@ -531,6 +549,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             self._output_flush_pending = False
             self._compose_step_building(placeholder)
         elif step == self.STEP_RESULT:
+            placeholder.add_class("build-modal-result")
             self._compose_step_result(placeholder)
 
     def _focus_step_select(self) -> None:  # pragma: no cover
@@ -635,7 +654,9 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             value=getattr(config, "build_shallow_clone", True),
         )
         update_cb = Checkbox("Update sources", classes="build-option-checkbox", value=True)
+        clean_cache_cb = Checkbox("Clean cmake cache", classes="build-option-checkbox", value=False)
         timeout_input = Input(value="3600", classes="build-option-input")
+        build_args_input = Input(value=config.build_args_default, classes="build-option-input")
 
         inputs["git_branch"] = git_branch_input
         inputs["git_commit"] = git_commit_input
@@ -644,23 +665,76 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         inputs["retry_delay"] = retry_delay_input
         inputs["shallow_clone"] = shallow_cb
         inputs["update_sources"] = update_cb
+        inputs["clean_cache"] = clean_cache_cb
         inputs["build_timeout_seconds"] = timeout_input
+        inputs["build_args"] = build_args_input
+
+        advanced_options = Collapsible(
+            Horizontal(
+                Static("", classes="build-option-label"),
+                shallow_cb,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("", classes="build-option-label"),
+                update_cb,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("", classes="build-option-label"),
+                clean_cache_cb,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("  Build timeout (seconds):", classes="build-option-label"),
+                timeout_input,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("  Default flags:", classes="build-option-label"),
+                Static(
+                    f" {' '.join(get_cmake_flags(BuildBackend(backend)))}",
+                    classes="build-option-value",
+                ),
+                classes="build-option-row build-option-row-flags",
+            ),
+            Horizontal(
+                Static("  Extra build args (space-separated):", classes="build-option-label"),
+                build_args_input,
+                classes="build-option-row",
+            ),
+            title="Advanced build options",
+            collapsed=True,
+            classes="build-advanced-options",
+        )
 
         form = Vertical(
-            Static("  Git branch:", classes="build-option-label"),
-            git_branch_input,
-            Static("  Git commit (optional):", classes="build-option-label"),
-            git_commit_input,
-            Static("  Jobs (empty = auto):", classes="build-option-label"),
-            jobs_input,
-            Static("  Retry attempts:", classes="build-option-label"),
-            retry_attempts_input,
-            Static("  Retry delay (seconds):", classes="build-option-label"),
-            retry_delay_input,
-            shallow_cb,
-            update_cb,
-            Static("  Build timeout (seconds):", classes="build-option-label"),
-            timeout_input,
+            Horizontal(
+                Static("  Git branch:", classes="build-option-label"),
+                git_branch_input,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("  Git commit (optional):", classes="build-option-label"),
+                git_commit_input,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("  Jobs (empty = auto):", classes="build-option-label"),
+                jobs_input,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("  Retry attempts:", classes="build-option-label"),
+                retry_attempts_input,
+                classes="build-option-row",
+            ),
+            Horizontal(
+                Static("  Retry delay (seconds):", classes="build-option-label"),
+                retry_delay_input,
+                classes="build-option-row",
+            ),
+            advanced_options,
             classes="build-options-form",
         )
 
@@ -678,11 +752,14 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         parent.mount(
             Container(
                 title,
-                form,
-                Static("", classes="build-step-label"),
-                Static(f"  Source: {source_dir}", classes="build-derived-path"),
-                Static(f"  Build:  {build_dir}", classes="build-derived-path"),
-                Static(f"  Output: {output_dir}", classes="build-derived-path"),
+                VerticalScroll(
+                    form,
+                    Static("", classes="build-step-label"),
+                    Static(f"  Source: {source_dir}", classes="build-derived-path"),
+                    Static(f"  Build:  {build_dir}", classes="build-derived-path"),
+                    Static(f"  Output: {output_dir}", classes="build-derived-path"),
+                    classes="build-options-scroll",
+                ),
                 actions,
                 classes="build-wizard-step-options",
             )
@@ -725,7 +802,9 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             "retry_delay": int_val("retry_delay"),
             "shallow_clone": bool_val("shallow_clone"),
             "update_sources": bool_val("update_sources"),
+            "clean_cache": bool_val("clean_cache"),
             "build_timeout_seconds": int_val("build_timeout_seconds"),
+            "build_args": str_val("build_args"),
         }
 
     def _collect_options(self, backend: str) -> BuildConfig | None:  # pragma: no cover
@@ -745,7 +824,13 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         retry_delay = cast(int | None, fields["retry_delay"])
         shallow_clone = cast(bool | None, fields["shallow_clone"])
         update_sources = cast(bool | None, fields["update_sources"])
+        clean_cache = cast(bool | None, fields["clean_cache"])
         build_timeout = cast(int | None, fields["build_timeout_seconds"])
+        build_args_raw = cast(str | None, fields["build_args"])
+
+        build_args: list[str] | None = None
+        if build_args_raw is not None and build_args_raw.strip():
+            build_args = shlex.split(build_args_raw.strip())
 
         return BuildConfig(
             backend=BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA,
@@ -760,7 +845,9 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             retry_delay=float(retry_delay) if retry_delay is not None else 5.0,
             shallow_clone=shallow_clone if shallow_clone is not None else True,
             update_sources=update_sources if update_sources is not None else True,
+            clean_cache=clean_cache if clean_cache is not None else False,
             build_timeout_seconds=build_timeout or 3600,
+            build_args=build_args,
         )
 
     # -- Step 4: Building --------------------------------------------------
@@ -805,20 +892,133 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         success = self._wizard_state.get("build_result_success")
 
         title = Static(BUILD_WIZARD_TITLE, id="build-title", classes="build-title")
-        panel = Static(classes="build-result-panel")
-        panel.update(self._result_content(success))
+        status_text = Text()
+        if success is True:
+            status_text.append("Build completed successfully!", style=STYLE_BOLD_GREEN)
+        else:
+            status_text.append("Build failed", style=STYLE_BOLD_RED)
+        panel = Static(status_text, classes="build-result-panel")
         self._result_panel = panel
+
+        artifact = self._wizard_state.get("build_result_artifact")
+        error = str(self._wizard_state.get("build_result_error", "Unknown error"))
+        summary = Static(classes="build-result-summary")
+        if success is True:
+            summary.update(f"Binary: {artifact}" if artifact else "No artifact path was reported.")
+        else:
+            summary.update(self._result_summary(error))
+
+        log_sections: list[Widget] = []
+        if success is True:
+            if artifact:
+                log_sections.append(
+                    self._result_text_area("Build artifact", f"Binary: {artifact}", "artifact")
+                )
+        else:
+            details, stderr_tail, stdout_tail = self._split_result_error(error)
+            if details:
+                log_sections.append(self._result_text_area("Failure details", details, "details"))
+            if stderr_tail:
+                log_sections.append(self._result_text_area("stderr tail", stderr_tail, "stderr"))
+            if stdout_tail:
+                log_sections.append(self._result_text_area("stdout tail", stdout_tail, "stdout"))
+            if not log_sections:
+                log_sections.append(
+                    self._result_text_area(
+                        "Failure details", "No additional log output.", "details"
+                    )
+                )
 
         self._btn_done = Button("Done", id="build-done", classes="modal-button-success")
         actions = Horizontal(self._btn_done, classes="modal-actions")
 
-        parent.mount(Container(title, panel, actions, classes="build-wizard-step-result"))
+        parent.mount(
+            Container(
+                title,
+                VerticalScroll(
+                    panel,
+                    summary,
+                    *log_sections,
+                    classes="build-result-scroll",
+                ),
+                actions,
+                classes="build-wizard-step-result",
+            )
+        )
 
     def _result_content(self, success: bool | None) -> Text:
         """Build result copy as Rich Text (avoids markup parse errors in error messages)."""
         artifact = self._wizard_state.get("build_result_artifact")
         error = str(self._wizard_state.get("build_result_error", "Unknown error"))
         return build_result_content(success, artifact_path=artifact, error_message=error)
+
+    @staticmethod
+    def _strip_failure_prefix(error: str) -> str:
+        error = error.strip()
+        prefix = "Build failed:"
+        if error.startswith(prefix):
+            return error.removeprefix(prefix).strip()
+        return error or "Unknown error"
+
+    @classmethod
+    def _result_summary(cls, error: str) -> str:
+        """Return the primary failure line without duplicating the failure heading."""
+        for line in cls._strip_failure_prefix(error).splitlines():
+            text = line.strip()
+            if text:
+                return text
+        return "Unknown error"
+
+    @staticmethod
+    def _trim_log_text(text: str) -> str:
+        """Trim excess surrounding blank lines while preserving log indentation."""
+        return text.strip("\n") or "No output captured."
+
+    @classmethod
+    def _split_result_error(cls, error: str) -> tuple[str, str, str]:
+        """Split build failure text into details, stderr tail, and stdout tail."""
+        cleaned = cls._strip_failure_prefix(error)
+        stderr_marker = "\nstderr tail:"
+        stdout_marker = "\nstdout tail:"
+
+        details = cleaned
+        stderr_tail = ""
+        stdout_tail = ""
+
+        if stderr_marker in cleaned:
+            details, rest = cleaned.split(stderr_marker, 1)
+            if stdout_marker in rest:
+                stderr_tail, stdout_tail = rest.split(stdout_marker, 1)
+            else:
+                stderr_tail = rest
+        elif stdout_marker in cleaned:
+            details, stdout_tail = cleaned.split(stdout_marker, 1)
+
+        details_lines = details.splitlines()
+        if details_lines and details_lines[0].strip() == cls._result_summary(error):
+            details = "\n".join(details_lines[1:])
+
+        return (
+            cls._trim_log_text(details) if details.strip() else "",
+            cls._trim_log_text(stderr_tail) if stderr_tail.strip() else "",
+            cls._trim_log_text(stdout_tail) if stdout_tail.strip() else "",
+        )
+
+    @staticmethod
+    def _result_text_area(title: str, text: str, section: str) -> Container:
+        """Build a selectable, read-only result log section."""
+        return Container(
+            Static(title, classes="build-result-log-title"),
+            TextArea(
+                text,
+                read_only=True,
+                soft_wrap=False,
+                show_line_numbers=False,
+                tab_behavior="focus",
+                classes=f"build-result-text-area build-result-text-area-{section}",
+            ),
+            classes="build-result-log-section",
+        )
 
     # -- Public API for controller progress updates ------------------------
 

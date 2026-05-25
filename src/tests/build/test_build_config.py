@@ -65,6 +65,20 @@ class TestBuildConfig:
         assert config.retry_delay == 5  # Default
         assert config.shallow_clone is True  # Default
         assert config.jobs is None  # Default
+        assert config.build_args is None  # Default
+
+    def test_build_config_build_args_settable(self, tmp_path: Path) -> None:
+        """BuildConfig should accept build_args as a list of strings."""
+        config = BuildConfig(
+            backend=BuildBackend.SYCL,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/ggerganov/llama.cpp",
+            git_branch="main",
+            build_args=["-DCMAKE_BUILD_TYPE=Release", "-v"],
+        )
+        assert config.build_args == ["-DCMAKE_BUILD_TYPE=Release", "-v"]
 
     def test_build_config_class_constants(self) -> None:
         """BuildConfig should have GGML_SYCL and GGML_CUDA CMake flag constants."""

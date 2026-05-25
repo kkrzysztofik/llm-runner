@@ -37,9 +37,12 @@ class GGUFMetadataRecord:
     general_name: str | None = None
     architecture: str | None = None
     tokenizer_type: str | None = None
+    file_type: int | None = None
+    quantization_type: str | None = None
     embedding_length: int | None = None
     block_count: int | None = None
     context_length: int | None = None
+    max_context_length: int | None = None
     attention_head_count: int | None = None
     attention_head_count_kv: int | None = None
     parse_timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())

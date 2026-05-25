@@ -7,6 +7,7 @@ CLI output, JSON export, or TUI integration.
 Pure library — no argparse, no Rich, no subprocess at module level.
 """
 
+import logging
 import os
 import socket
 import time
@@ -14,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from ..config import (
     SmokeFailurePhase,
@@ -288,6 +291,13 @@ def probe_slot(
     resolved_model_id = model_id or smoke_cfg.model_id_override or expected_model_id or ""
     if not resolved_model_id and model_path:
         resolved_model_id = resolve_model_id_from_gguf(model_path) or ""
+
+    logger.info(
+        "probe: %s:%d model=%s",
+        host,
+        port,
+        resolved_model_id or "(none)",
+    )
 
     # Phase 1: TCP connect
     phase = SmokePhase.LISTEN
