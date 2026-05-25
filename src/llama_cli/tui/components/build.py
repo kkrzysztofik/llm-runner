@@ -830,7 +830,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
         build_args: list[str] | None = None
         if build_args_raw is not None and build_args_raw.strip():
-            build_args = build_args_raw.strip().split()
+            build_args = shlex.split(build_args_raw.strip())
 
         return BuildConfig(
             backend=BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA,

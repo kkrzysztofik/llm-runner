@@ -301,7 +301,7 @@ def _write_toml_data(
         lines.append(f"reasoning_format = {json.dumps(p.get('reasoning_format', 'none'))}")
         ctk = p.get("chat_template_kwargs", "")
         if isinstance(ctk, dict):
-            lines.append(f"chat_template_kwargs = {json.dumps(ctk)}")
+            lines.append(f"chat_template_kwargs = {json.dumps(json.dumps(ctk))}")
         else:
             lines.append(f"chat_template_kwargs = {json.dumps(str(ctk))}")
         lines.append(f"reasoning_budget = {json.dumps(p.get('reasoning_budget', ''))}")

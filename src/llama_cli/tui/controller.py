@@ -9,8 +9,6 @@ from collections.abc import Callable
 from types import FrameType
 from typing import Any, Literal
 
-logger = logging.getLogger(__name__)
-
 from llama_manager import (
     Config,
     GPUStats,
@@ -51,6 +49,8 @@ from .constants import MSG_BUILD_CANCELLED, MSG_BUILD_FAILED
 from .model import DashboardModel
 from .textual_app import DashboardApp
 from .viewmodel import DashboardViewModel
+
+logger = logging.getLogger(__name__)
 
 
 class DashboardController:

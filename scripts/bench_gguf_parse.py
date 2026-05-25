@@ -31,7 +31,8 @@ def bench(path: str, n: int = 3) -> None:
         times.append(elapsed)
     avg_thread = sum(times) / len(times)
     print(
-        f"  extract_gguf_metadata (thread):  {avg_thread:.3f}s  (min={min(times):.3f}s  max={max(times):.3f}s)"
+        f"  extract_gguf_metadata (thread):  {avg_thread:.3f}s"
+        f"  (min={min(times):.3f}s  max={max(times):.3f}s)"
     )
 
     # Subprocess-based

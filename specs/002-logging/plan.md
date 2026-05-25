@@ -41,7 +41,7 @@ $XDG_STATE_HOME/llm-runner/logs/llm-runner-<YYYYMMDD-HHMMSS>.log
 
 ### Audit Log Path
 
-```
+```text
 $XDG_STATE_HOME/llm-runner/logs/audit-<YYYYMMDD-HHMMSS>.log
 ```
 
@@ -160,7 +160,7 @@ logger.warning("[smoke] probe timeout", slot=slot, timeout_s=timeout)
 
 New "Logging" section added to `ConfigModal`, below "Smoke Probes":
 
-```
+```text
 ┌─ Logging ─────────────────────────────────────────┐
 │  File log level    [ DEBUG ▼ ]                     │
 │  Stderr log level  [ INFO  ▼ ]                     │
