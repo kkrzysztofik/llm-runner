@@ -12,11 +12,18 @@ from __future__ import annotations
 
 import signal
 import threading
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
+
+import pytest
 
 from llama_cli.tui import DashboardController
 from llama_manager import SlotState
 from tests.support.helpers import make_server_config
+
+if TYPE_CHECKING:
+    from llama_cli.tui.components.config_modal import ConfigPayload
+    from llama_cli.tui.components.run_profile_modal import RunProfilePayload
 
 
 def _make_controller(**kwargs: object) -> DashboardController:
@@ -375,3 +382,184 @@ class TestControllerBuildLifecycle:
         controller._graceful_shutdown()
 
         assert controller.running is False
+
+
+class TestControllerSaveConfig:
+    """Tests for DashboardController.save_config — config persistence."""
+
+    def _make_payload(self, **kwargs: object) -> ConfigPayload:
+        from llama_cli.tui.components.config_modal import ConfigPayload
+
+        return ConfigPayload(**{**{"restart": False, "clean_cache": False}, **kwargs})  # type: ignore[arg-type]
+
+    def test_errors_push_messages_and_return_early(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """save_config should push each error from apply_config_updates and not save."""
+        from llama_manager.config.persistence import ConfigUpdateResult
+
+        mock_result = ConfigUpdateResult(success=False, updated_fields=[], errors=["Bad value"])
+        monkeypatch.setattr("llama_manager.apply_config_updates", lambda *a, **kw: mock_result)
+        controller = _make_controller()
+
+        controller.save_config(self._make_payload())
+
+        texts = [msg for _, msg in controller._status_messages]
+        assert any("Bad value" in t for t in texts)
+        # Should NOT push a "Config saved" message
+        assert not any("Config saved" in t for t in texts)
+
+    def test_updated_fields_pushes_saved_message(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """save_config should push 'Config saved' when apply_config_updates updates fields."""
+        from llama_manager.config.persistence import ConfigUpdateResult
+
+        mock_result = ConfigUpdateResult(success=True, updated_fields=["models_dir"], errors=[])
+        monkeypatch.setattr("llama_manager.apply_config_updates", lambda *a, **kw: mock_result)
+        controller = _make_controller()
+
+        controller.save_config(self._make_payload())
+
+        texts = [msg for _, msg in controller._status_messages]
+        assert any("Config saved" in t for t in texts)
+
+    def test_no_changes_no_message(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """save_config should not push any message when no fields were updated."""
+        from llama_manager.config.persistence import ConfigUpdateResult
+
+        mock_result = ConfigUpdateResult(success=True, updated_fields=[], errors=[])
+        monkeypatch.setattr("llama_manager.apply_config_updates", lambda *a, **kw: mock_result)
+        controller = _make_controller()
+
+        controller.save_config(self._make_payload())
+
+        assert len(controller._status_messages) == 0
+
+    def test_restart_flag_stops_running(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """save_config with restart=True should set controller.running to False."""
+        from llama_manager.config.persistence import ConfigUpdateResult
+
+        mock_result = ConfigUpdateResult(success=True, updated_fields=["models_dir"], errors=[])
+        monkeypatch.setattr("llama_manager.apply_config_updates", lambda *a, **kw: mock_result)
+        controller = _make_controller()
+        assert controller.running is True
+
+        controller.save_config(self._make_payload(restart=True))
+
+        assert controller.running is False
+
+    def test_log_file_level_calls_update_file_level(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """save_config should call update_file_level when log_file_level is updated."""
+        from llama_manager.config.persistence import ConfigUpdateResult
+
+        mock_result = ConfigUpdateResult(success=True, updated_fields=["log_file_level"], errors=[])
+        monkeypatch.setattr("llama_manager.apply_config_updates", lambda *a, **kw: mock_result)
+        called_with: list[str] = []
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.update_file_level", lambda lvl: called_with.append(lvl)
+        )
+        controller = _make_controller()
+
+        controller.save_config(self._make_payload())
+
+        assert len(called_with) == 1
+
+
+class TestControllerProfileMethods:
+    """Tests for DashboardController run-profile management methods."""
+
+    def _make_profile_payload(self, **kwargs: object) -> RunProfilePayload:
+        from llama_cli.tui.components.run_profile_modal import RunProfilePayload
+
+        defaults: dict[str, object] = {
+            "profile_id": "my-profile",
+            "label": "My Profile",
+            "server_bin": "",
+            "model": "/data/models/model.gguf",
+            "port": 8080,
+            "ctx_size": 4096,
+            "ubatch_size": 512,
+            "n_gpu_layers": "all",
+            "threads": 8,
+            "chat_template_kwargs": "",
+            "device": "CUDA:0",
+            "save_and_add_slot": False,
+            "original_profile_id": "",
+        }
+        defaults.update(kwargs)
+        return RunProfilePayload(**defaults)  # type: ignore[arg-type]
+
+    def test_save_profile_empty_id_returns_false(self) -> None:
+        """save_run_profile_from_form should return False for an empty profile_id."""
+        controller = _make_controller()
+
+        result = controller.save_run_profile_from_form(self._make_profile_payload(profile_id=""))
+
+        assert result is False
+        texts = [msg for _, msg in controller._status_messages]
+        assert any("Profile ID is required" in t for t in texts)
+
+    def test_save_profile_empty_model_returns_false(self) -> None:
+        """save_run_profile_from_form should return False for an empty model path."""
+        controller = _make_controller()
+
+        result = controller.save_run_profile_from_form(self._make_profile_payload(model=""))
+
+        assert result is False
+        texts = [msg for _, msg in controller._status_messages]
+        assert any("Model path is required" in t for t in texts)
+
+    def test_save_profile_invalid_port_returns_false(self) -> None:
+        """save_run_profile_from_form should return False for port < 1024."""
+        controller = _make_controller()
+
+        result = controller.save_run_profile_from_form(self._make_profile_payload(port=80))
+
+        assert result is False
+        texts = [msg for _, msg in controller._status_messages]
+        assert any("Port must be between 1024 and 65535" in t for t in texts)
+
+    def test_save_profile_zero_ctx_size_returns_false(self) -> None:
+        """save_run_profile_from_form should return False for ctx_size <= 0."""
+        controller = _make_controller()
+
+        result = controller.save_run_profile_from_form(self._make_profile_payload(ctx_size=0))
+
+        assert result is False
+        texts = [msg for _, msg in controller._status_messages]
+        assert any("must be positive" in t for t in texts)
+
+    def test_delete_profile_in_use_returns_false(self) -> None:
+        """delete_run_profile should return False when the profile is in use."""
+        controller = _make_controller()
+        # slot0 alias matches profile_id "slot0"
+        result = controller.delete_run_profile("slot0")
+
+        assert result is False
+        texts = [msg for _, msg in controller._status_messages]
+        assert any("in use" in t for t in texts)
+
+    def test_delete_profile_not_found_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """delete_run_profile should return False when the profile does not exist."""
+        monkeypatch.setattr(
+            "llama_manager.run_profile_store.delete_custom_run_profile",
+            lambda *a, **kw: False,
+        )
+        controller = _make_controller()
+
+        result = controller.delete_run_profile("nonexistent-profile")
+
+        assert result is False
+        texts = [msg for _, msg in controller._status_messages]
+        assert any("not found" in t for t in texts)
+
+    def test_delete_profile_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """delete_run_profile should return True and push a message on success."""
+        monkeypatch.setattr(
+            "llama_manager.run_profile_store.delete_custom_run_profile",
+            lambda *a, **kw: True,
+        )
+        controller = _make_controller()
+
+        result = controller.delete_run_profile("some-other-profile")
+
+        assert result is True
+        texts = [msg for _, msg in controller._status_messages]
+        assert any("deleted" in t for t in texts)
