@@ -1,4 +1,5 @@
 AddSlotModal,
+AboutModal,
 ConfigModal,
 ConfirmModal {
     align: center middle;
@@ -78,6 +79,15 @@ Select:focus {
 .modal-button-danger:hover {
     background: $error 40%;
     color: $text;
+}
+
+.about-dialog {
+    width: 50%;
+    max-width: 70%;
+    height: auto;
+    padding: 1 2;
+    border: round $accent;
+    background: $surface;
 }
 
 .confirm-dialog {

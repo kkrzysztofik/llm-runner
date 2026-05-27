@@ -14,6 +14,7 @@ from textual.widgets import Footer
 if TYPE_CHECKING:
     from .controller import DashboardController
 
+from .components.about_modal import AboutModal
 from .components.build import BuildModalScreen
 from .components.config_modal import ConfigModal, ConfigPayload
 from .components.modal import AddSlotModal
@@ -50,7 +51,7 @@ def _profile_options_cached(
 
 
 _RISK_HIDDEN_ACTIONS = frozenset(
-    {"refresh_dashboard", "add_slot", "build", "open_config"},
+    {"refresh_dashboard", "add_slot", "build", "open_config", "about"},
 )
 _NORMAL_HIDDEN_ACTIONS = frozenset({"confirm", "reject"})
 
@@ -79,6 +80,7 @@ class DashboardApp(App[None]):
         Binding("a", "add_slot", "Add Slot"),
         Binding("c", "open_config", "Config"),
         Binding("p", "manage_profiles", "Profiles"),
+        Binding("h", "about", "About"),
         Binding("y", "confirm", "Confirm"),
         Binding("n", "reject", "Abort"),
     ]
@@ -195,6 +197,9 @@ class DashboardApp(App[None]):
             ConfigModal(config=self.controller.config),
             self._handle_config_modal_result,
         )
+
+    def action_about(self) -> None:
+        self.push_screen(AboutModal())
 
     def action_manage_profiles(self) -> None:
         """Open the profiles management screen."""
