@@ -29,10 +29,10 @@ MODEL_SUMMARY_BALANCED="/home/kmk/models/unsloth/Qwen3.5-2B-MTP-GGUF/Qwen3.5-2B-
 MODEL_SUMMARY_FAST="/home/kmk/models/unsloth/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q4_K_M.gguf"
 # Qwen3.6-35B-A3B MTP: used for both qwen35 single-run and both-qwen35 dual-run modes.
 # Benchmarked fastest stable profile on dual RTX 3090: layer split, q8 KV, batch 1024, ubatch 256.
-MODEL_QWEN35="/home/kmk/models/byteshape/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf"
+MODEL_QWEN35="/home/kmk/models/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf"
 # MODEL_QWEN35_BOTH kept for reference (IQ4_XS, single-GPU); superseded by MODEL_QWEN35_BOTH_MTP.
 MODEL_QWEN35_BOTH="/home/kmk/models/unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf"
-MODEL_QWEN35_BOTH_MTP="/home/kmk/models/byteshape/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-IQ4_XS-4.19bpw.gguf"
+MODEL_QWEN35_BOTH_MTP="/home/kmk/models/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf"
 MODEL_QWEN27B_MTP="/home/kmk/models/unsloth/Qwen3.6-27B-MTP-GGUF/Qwen3.6-27B-UD-Q6_K_XL.gguf"
 MODEL_GEMMA4_E4B="/home/kmk/models/unsloth/gemma-4-E4B-it-GGUF/gemma-4-E4B-it-UD-Q6_K_XL.gguf"
 MODEL_GEMMA4_E4B_MMPROJ="/home/kmk/models/unsloth/gemma-4-E4B-it-GGUF/mmproj-BF16.gguf"
@@ -79,6 +79,7 @@ DEFAULT_N_GPU_LAYERS_GEMMA4_31B=99
 DEFAULT_UBATCH_SIZE_SUMMARY_BALANCED=1024
 DEFAULT_UBATCH_SIZE_SUMMARY_FAST=512
 DEFAULT_BATCH_SIZE_QWEN35=1024
+DEFAULT_BATCH_SIZE_QWEN27B=1024
 DEFAULT_UBATCH_SIZE_QWEN35=256
 DEFAULT_UBATCH_SIZE_QWEN27B=1024
 DEFAULT_UBATCH_SIZE_GEMMA4_E4B=512
@@ -152,6 +153,7 @@ DEFAULT_SPEC_DRAFT_N_MAX_QWEN35_MTP=2
 DEFAULT_SPEC_DRAFT_P_MIN_QWEN35_MTP=0.2
 DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_K=q8_0
 DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_V=q8_0
+DEFAULT_SPEC_DRAFT_DEVICE_QWEN35=CUDA0,CUDA1
 
 # ============================================================
 # GLOBAL STATE
@@ -300,6 +302,7 @@ append_qwen35_mtp_spec_flags() {
     --spec-draft-p-min "$DEFAULT_SPEC_DRAFT_P_MIN_QWEN35_MTP"
     --spec-draft-type-k "$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_K"
     --spec-draft-type-v "$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_V"
+    --spec-draft-device "$DEFAULT_SPEC_DRAFT_DEVICE_QWEN35"
   )
 }
 
@@ -533,7 +536,7 @@ start_qwen35() {
   require_executable "$LLAMA_SERVER_BIN_NVIDIA" "NVIDIA llama-server"
   build_server_cmd cmd "$MODEL_QWEN35" "qwen35-coding" "" "$port" \
     "$DEFAULT_CTX_SIZE_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35" "$DEFAULT_THREADS_QWEN35" \
-    "$DEFAULT_TENSOR_SPLIT_QWEN35" on deepseek '{"enable_thinking":true}' "" "false" \
+    "$DEFAULT_TENSOR_SPLIT_QWEN35" on deepseek '{"preserve_thinking":true}' "" "false" \
     "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35" "$DEFAULT_BATCH_SIZE_QWEN35"
   cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
@@ -553,11 +556,12 @@ start_qwen27b() {
   build_server_cmd cmd "$MODEL_QWEN27B_MTP" "qwen27b-coding" "" "$port" \
     "$DEFAULT_CTX_SIZE_QWEN27B" "$DEFAULT_UBATCH_SIZE_QWEN27B" "$DEFAULT_THREADS_QWEN27B" \
     "$DEFAULT_TENSOR_SPLIT_QWEN27B" on deepseek '{"preserve_thinking":true}' "" "false" \
-    "$DEFAULT_CACHE_TYPE_QWEN27B_K" "$DEFAULT_CACHE_TYPE_QWEN27B_V" "$DEFAULT_N_GPU_LAYERS_QWEN27B" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN27B"
+    "$DEFAULT_CACHE_TYPE_QWEN27B_K" "$DEFAULT_CACHE_TYPE_QWEN27B_V" "$DEFAULT_N_GPU_LAYERS_QWEN27B" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN27B" "$DEFAULT_BATCH_SIZE_QWEN27B"
   cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
   cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
   cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN27B")
-  append_qwen_mtp_spec_flags cmd
+  append_qwen35_mtp_spec_flags cmd
+  cmd=(env CUDA_SCALE_LAUNCH_QUEUES=4x "${cmd[@]}")
 
   exec_server "qwen27b-coding" cmd
 }
@@ -921,12 +925,12 @@ dry_run() {
       echo "  Tensor Split: $DEFAULT_TENSOR_SPLIT_QWEN35"
       echo "  Reasoning: on"
       echo "  Reasoning Format: deepseek"
-      echo "  Chat Template Kwargs: {\"enable_thinking\":true}"
+      echo "  Chat Template Kwargs: {\"preserve_thinking\":true}"
       echo "  Poll: $DEFAULT_POLL_MS_QWEN35"
-      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN35_MTP, draft-p-min=$DEFAULT_SPEC_DRAFT_P_MIN_QWEN35_MTP, draft-kv=$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_K/$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_V)"
+      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN35_MTP, draft-p-min=$DEFAULT_SPEC_DRAFT_P_MIN_QWEN35_MTP, draft-kv=$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_K/$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_V, draft-device=$DEFAULT_SPEC_DRAFT_DEVICE_QWEN35)"
       build_server_cmd tmp_cmd "$MODEL_QWEN35" "qwen35-coding" "" "$qwen35_port_single" \
         "$DEFAULT_CTX_SIZE_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35" "$DEFAULT_THREADS_QWEN35" \
-        "$DEFAULT_TENSOR_SPLIT_QWEN35" on deepseek '{"enable_thinking":true}' "" "false" \
+        "$DEFAULT_TENSOR_SPLIT_QWEN35" on deepseek '{"preserve_thinking":true}' "" "false" \
         "$DEFAULT_CACHE_TYPE_QWEN35_K" "$DEFAULT_CACHE_TYPE_QWEN35_V" "$DEFAULT_N_GPU_LAYERS_QWEN35" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN35" "$DEFAULT_BATCH_SIZE_QWEN35"
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
@@ -941,6 +945,7 @@ dry_run() {
       echo "  Device: NVIDIA (CUDA)"
       echo "  Context: $DEFAULT_CTX_SIZE_QWEN27B"
       echo "  Threads: $DEFAULT_THREADS_QWEN27B"
+      echo "  Batch: $DEFAULT_BATCH_SIZE_QWEN27B"
       echo "  UBatch: $DEFAULT_UBATCH_SIZE_QWEN27B"
       echo "  Parallel slots: $DEFAULT_PARALLEL_QWEN27B"
       echo "  KV cache: $DEFAULT_CACHE_TYPE_QWEN27B_K/$DEFAULT_CACHE_TYPE_QWEN27B_V"
@@ -948,18 +953,18 @@ dry_run() {
       echo "  Tensor Split: $DEFAULT_TENSOR_SPLIT_QWEN27B"
       echo "  Reasoning: on"
       echo "  Reasoning Format: deepseek"
-      echo "  Chat Template Kwargs: {\"preserve_thinking\":true}"
+      echo "  Chat Template Kwargs: {\"enable_thinking\":true}"
       echo "  Poll: $DEFAULT_POLL_MS_QWEN27B"
-      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN_MTP)"
+      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN35_MTP, draft-p-min=$DEFAULT_SPEC_DRAFT_P_MIN_QWEN35_MTP, draft-kv=$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_K/$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_V, draft-device=$DEFAULT_SPEC_DRAFT_DEVICE_QWEN35)"
       build_server_cmd tmp_cmd "$MODEL_QWEN27B_MTP" "qwen27b-coding" "" "$qwen27b_port_single" \
         "$DEFAULT_CTX_SIZE_QWEN27B" "$DEFAULT_UBATCH_SIZE_QWEN27B" "$DEFAULT_THREADS_QWEN27B" \
-        "$DEFAULT_TENSOR_SPLIT_QWEN27B" on deepseek '{"preserve_thinking":true}' "" "false" \
-        "$DEFAULT_CACHE_TYPE_QWEN27B_K" "$DEFAULT_CACHE_TYPE_QWEN27B_V" "$DEFAULT_N_GPU_LAYERS_QWEN27B" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN27B"
+        "$DEFAULT_TENSOR_SPLIT_QWEN27B" on deepseek '{"enable_thinking":true}' "" "false" \
+        "$DEFAULT_CACHE_TYPE_QWEN27B_K" "$DEFAULT_CACHE_TYPE_QWEN27B_V" "$DEFAULT_N_GPU_LAYERS_QWEN27B" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN27B" "$DEFAULT_BATCH_SIZE_QWEN27B"
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)
       tmp_cmd+=(--parallel "$DEFAULT_PARALLEL_QWEN27B")
-      append_qwen_mtp_spec_flags tmp_cmd
-      echo "  Command: ${tmp_cmd[*]}"
+      append_qwen35_mtp_spec_flags tmp_cmd
+      echo "  Command: env CUDA_SCALE_LAUNCH_QUEUES=4x ${tmp_cmd[*]}"
       unset tmp_cmd
       ;;
     both-qwen35)
@@ -1002,7 +1007,7 @@ dry_run() {
       echo "  Reasoning Format: deepseek"
       echo "  Chat Template Kwargs: {\"preserve_thinking\":true}"
       echo "  Poll: $DEFAULT_POLL_MS_QWEN35"
-      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN35_MTP, draft-p-min=$DEFAULT_SPEC_DRAFT_P_MIN_QWEN35_MTP, draft-kv=$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_K/$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_V)"
+      echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN35_MTP, draft-p-min=$DEFAULT_SPEC_DRAFT_P_MIN_QWEN35_MTP, draft-kv=$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_K/$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_V, draft-device=$DEFAULT_SPEC_DRAFT_DEVICE_QWEN35)"
       build_server_cmd tmp_cmd "$MODEL_QWEN35_BOTH_MTP" "qwen35-coding" "" "$qwen35_port_both" \
         "$DEFAULT_CTX_SIZE_BOTH_QWEN35" "$DEFAULT_UBATCH_SIZE_QWEN35_BOTH" "$DEFAULT_THREADS_QWEN35_BOTH" \
         "$DEFAULT_TENSOR_SPLIT_QWEN35" on deepseek '{"preserve_thinking":true}' "" "false" \
