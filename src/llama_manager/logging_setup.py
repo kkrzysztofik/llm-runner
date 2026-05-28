@@ -205,7 +205,7 @@ def configure_logging(
 
 def configure_logging_split(
     *,
-    stderr_level: str = "INFO",
+    stderr_level: str | None = "INFO",
     file_level: str = "DEBUG",
     log_file: str | None = None,
     json_logs: bool = False,
@@ -213,14 +213,14 @@ def configure_logging_split(
     """Configure logging with separate levels for stderr and file sinks.
 
     Removes the default Loguru handler and installs:
-    - A coloured stderr sink at *stderr_level*
+    - A coloured stderr sink at *stderr_level* when not ``None``
     - An optional rotating file sink at *file_level* (when *log_file* is provided)
     - A stdlib → Loguru bridge for ``logging.getLogger(...)`` consumers
 
     Parameters
     ----------
     stderr_level:
-        Minimum log level for the stderr sink.
+        Minimum log level for the stderr sink, or ``None`` to disable stderr logging.
     file_level:
         Minimum log level for the file sink.
     log_file:
@@ -230,11 +230,13 @@ def configure_logging_split(
     """
     logger.remove()
 
-    stderr_level = stderr_level.upper()
-    if stderr_level not in _LEVEL_MAP:
-        raise ValueError(
-            f"unknown stderr level '{stderr_level}' — must be one of {list(_LEVEL_MAP)}"
-        )
+    normalized_stderr_level: str | None = None
+    if stderr_level is not None:
+        normalized_stderr_level = stderr_level.upper()
+        if normalized_stderr_level not in _LEVEL_MAP:
+            raise ValueError(
+                f"unknown stderr level '{normalized_stderr_level}' — must be one of {list(_LEVEL_MAP)}"
+            )
 
     file_level = file_level.upper()
     if file_level not in _LEVEL_MAP:
@@ -259,15 +261,16 @@ def configure_logging_split(
         record["message"] = _redact_log_message(original)
         return True
 
-    # --- Stderr sink ---
-    logger.add(
-        sys.stderr,
-        level=stderr_level,
-        format=fmt,
-        colorize=True,
-        filter=_stderr_sink_filter,
-        serialize=json_logs,
-    )
+    # --- Optional stderr sink ---
+    if normalized_stderr_level is not None:
+        logger.add(
+            sys.stderr,
+            level=normalized_stderr_level,
+            format=fmt,
+            colorize=True,
+            filter=_stderr_sink_filter,
+            serialize=json_logs,
+        )
 
     # --- Optional file sink ---
     if log_file is not None:

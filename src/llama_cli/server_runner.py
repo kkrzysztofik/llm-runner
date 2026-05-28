@@ -363,15 +363,17 @@ def cli_main() -> None:
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_file = str(logs_dir / f"llm-runner-{timestamp}.log")
 
-    # Environment variable overrides persisted config
+    # Environment variable overrides persisted config. TUI logs stay file-only so
+    # diagnostic output cannot corrupt Textual's alternate screen.
     stderr_level = os.environ.get("LLM_RUNNER_LOG_LEVEL", cfg.log_stderr_level).upper()
     file_level = os.environ.get("LLM_RUNNER_LOG_FILE_LEVEL", cfg.log_file_level).upper()
+    stderr_sink_level = None if len(sys.argv) > 1 and sys.argv[1] == "tui" else stderr_level
 
     # Ensure logs directory exists
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     configure_logging_split(
-        stderr_level=stderr_level,
+        stderr_level=stderr_sink_level,
         file_level=file_level,
         log_file=log_file,
     )

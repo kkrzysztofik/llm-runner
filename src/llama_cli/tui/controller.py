@@ -367,6 +367,11 @@ class DashboardController:
 
     def add_slot_from_form(self, values: dict[str, str]) -> bool:
         """Create or replace a slot from modal profile selection."""
+        logger.debug(
+            "add_slot_from_form: enter values=%r configs_before=%r",
+            values,
+            [c.alias for c in self.configs],
+        )
         state = {
             "log_buffers": self.log_buffers,
             "server_processes": self.server_processes,
@@ -385,6 +390,12 @@ class DashboardController:
             state,
             self._make_collector,
             registry=registry,
+        )
+        logger.debug(
+            "add_slot_from_form: result success=%s messages=%r configs_after=%r",
+            success,
+            messages,
+            [c.alias for c in self.configs],
         )
         for msg in messages:
             self._push_status_message(msg)

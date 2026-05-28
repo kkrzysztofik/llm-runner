@@ -1,5 +1,8 @@
 """View models for the Textual dashboard."""
 
+import logging
+import time
+
 from llama_manager import (
     GPUStats,
     ServerConfig,
@@ -19,6 +22,8 @@ from .types import (
     ServerColumnState,
     SystemInfoSnapshot,
 )
+
+logger = logging.getLogger(__name__)
 
 BACKEND_LABELS: dict[str, str] = {
     "sycl": "SYCL",
@@ -129,8 +134,14 @@ class DashboardViewModel:
         return notices
 
     def column(self, slot_index: int) -> ServerColumnState | None:
+        start = time.perf_counter()
         configs = self.model.configs
         if slot_index >= len(configs):
+            logger.debug(
+                "DashboardViewModel.column: empty slot_index=%d configs=%d",
+                slot_index,
+                len(configs),
+            )
             return None
 
         cfg = configs[slot_index]
@@ -138,7 +149,8 @@ class DashboardViewModel:
             self.model.gpu_stats[slot_index] if slot_index < len(self.model.gpu_stats) else None
         )
         status = self._resolve_slot_status(cfg.alias)
-        return ServerColumnState(
+        gpu_stats = dict(gpu.stats) if gpu is not None else None
+        state = ServerColumnState(
             alias=cfg.alias,
             status=status,
             status_class=f"server-column-status-{status.replace('_', '-')}",
@@ -148,10 +160,22 @@ class DashboardViewModel:
             logs_text=self.model.log_buffers[cfg.alias].get_text(
                 empty_message="Waiting for output..."
             ),
-            gpu_stats=gpu.get_stats_snapshot() if gpu is not None else None,
+            gpu_stats=gpu_stats,
             stale_warning=self.stale_warning(cfg),
             is_unsaved=cfg.alias in self.model.unsaved_slots,
         )
+        duration_ms = (time.perf_counter() - start) * 1000
+        logger.debug(
+            "DashboardViewModel.column: built slot_index=%d alias=%s status=%s "
+            "gpu_cached=%s logs_chars=%d duration_ms=%.1f",
+            slot_index,
+            cfg.alias,
+            status,
+            gpu_stats is not None,
+            len(state.logs_text),
+            duration_ms,
+        )
+        return state
 
     def stale_warning(self, cfg: ServerConfig) -> str | None:
         """Return the cached stale-profile warning for a config."""
