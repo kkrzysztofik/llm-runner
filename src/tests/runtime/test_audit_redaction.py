@@ -140,7 +140,9 @@ class TestPipeStreaming:
     """Tests for pipe streaming with optional log buffer support (T013)."""
 
     def test_stream_pipe_to_handler(self) -> None:
-        """_stream_pipe should write to log handler when provided."""
+        """_stream_pipe should write stdout to log handler and main logger."""
+        from unittest.mock import patch
+
         from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
@@ -150,8 +152,8 @@ class TestPipeStreaming:
         mock_pipe = MagicMock()
         mock_pipe.readline.side_effect = ["line1\n", "line2\n", "line3\n", ""]
 
-        # Stream to handler
-        manager._stream_pipe(mock_pipe, "test_server", False, buffer.add_line)
+        with patch("llama_manager.orchestration.manager.logger") as mock_logger:
+            manager._stream_pipe(mock_pipe, "test_server", False, buffer.add_line)
 
         # Verify buffer received lines
         assert buffer.line_count == 3
@@ -159,9 +161,13 @@ class TestPipeStreaming:
         assert "[test_server] line1" in lines[0]
         assert "[test_server] line2" in lines[1]
         assert "[test_server] line3" in lines[2]
+        assert mock_logger.info.call_count == 3
+        assert "[test_server] line1" in mock_logger.info.call_args_list[0].args[1]
 
     def test_stream_pipe_to_handler_stderr(self) -> None:
-        """_stream_pipe should handle stderr to handler correctly."""
+        """_stream_pipe should write stderr to log handler and main logger."""
+        from unittest.mock import patch
+
         from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
@@ -170,10 +176,12 @@ class TestPipeStreaming:
         mock_pipe = MagicMock()
         mock_pipe.readline.side_effect = ["error1\n", "error2\n", ""]
 
-        # Stream stderr to handler
-        manager._stream_pipe(mock_pipe, "test_server", True, buffer.add_line)
+        with patch("llama_manager.orchestration.manager.logger") as mock_logger:
+            manager._stream_pipe(mock_pipe, "test_server", True, buffer.add_line)
 
         assert buffer.line_count == 2
+        assert mock_logger.warning.call_count == 2
+        assert "[test_server] error1" in mock_logger.warning.call_args_list[0].args[1]
 
     def test_stream_pipe_null_pipe(self) -> None:
         """_stream_pipe should handle None pipe gracefully."""
