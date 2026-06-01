@@ -691,6 +691,31 @@ async def test_create_modal_prefills_from_config() -> None:
     assert jinja.value is True
 
 
+@pytest.mark.anyio
+async def test_select_displays_current_value_in_control() -> None:
+    """Select widgets should render the chosen option inside SelectCurrent."""
+    from textual.widgets import Static
+    from textual.widgets._select import SelectCurrent
+
+    config = Config(default_profile_cache_type_k="f16", default_reasoning_mode="off")
+    modal = RunProfileModal(config=config)
+    app = App[None]()
+
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+
+        cache_k = modal.query_one("#profile-cache-type-k", Select)
+        assert cache_k.value == "f16"
+        cache_label = cache_k.query_one(SelectCurrent).query_one("#label", Static)
+        assert "f16" in str(cache_label.content)
+
+        reasoning = modal.query_one("#profile-reasoning-mode", Select)
+        assert reasoning.value == "off"
+        reasoning_label = reasoning.query_one(SelectCurrent).query_one("#label", Static)
+        assert "off" in str(reasoning_label.content)
+
+
 # ---------------------------------------------------------------------------
 # Model index — case-insensitive scan
 # ---------------------------------------------------------------------------

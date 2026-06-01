@@ -18,6 +18,8 @@ from llama_manager.model_index import ModelIndexEntry
 from .form_widgets import (
     REASONING_FORMAT_CHOICES,
     REASONING_MODE_CHOICES,
+    ROW_SELECT_CLASSES,
+    SELECT_CLASSES,
     SPEC_TYPE_CHOICES,
     cache_type_row,
     checkbox_row,
@@ -121,10 +123,6 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
         height: 3;
     }
 
-    .profile-input Select {
-        height: 3;
-    }
-
     .profile-row.profile-model-row {
         height: auto;
         min-height: 10;
@@ -158,21 +156,6 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
         color: $text-muted;
         margin-bottom: 1;
         display: none;
-    }
-
-    #profile-device > SelectCurrent {
-        background: $surface-lighten-1;
-        color: $text;
-    }
-
-    #profile-device > SelectCurrent Static#label {
-        color: $text;
-    }
-
-    #profile-device-summary {
-        width: 28;
-        color: $text-muted;
-        content-align: left middle;
     }
 
     .profile-row {
@@ -248,13 +231,6 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
                 self.query_one("#profile-model-search", Input).value = entry.path
                 self._update_selected_model(entry)
                 break
-
-    def on_select_changed(self, event: Select.Changed) -> None:
-        """Keep a plain visible device summary beside the Select widget."""
-        if event.select.id != "profile-device":
-            return
-        value = str(event.value) if event.value else "CUDA:0"
-        self.query_one("#profile-device-summary", Label).update(_device_label(value))
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Filter model list as user types in the search input."""
@@ -564,10 +540,9 @@ def _device_row(current_value: str = "CUDA:0") -> Horizontal:
                 ("SYCL0 — Intel Arc GPU", "SYCL0"),
             ],
             id="profile-device",
-            classes="form-input profile-input",
+            classes=SELECT_CLASSES,
         ),
-        Label(_device_label(current_value), id="profile-device-summary"),
-        classes="form-row profile-row",
+        classes=ROW_SELECT_CLASSES,
     )
 
 
@@ -615,17 +590,6 @@ def _selected_model_text(path: str) -> str:
     if not path:
         return "Selected: (none)"
     return f"Selected: {Path(path).name}"
-
-
-def _device_label(value: str) -> str:
-    """Format device value for a visible summary label."""
-    labels = {
-        "CUDA:0": "CUDA:0 NVIDIA",
-        "CUDA:0,1": "CUDA:0,1 NVIDIA",
-        "CUDA:1": "CUDA:1 NVIDIA",
-        "SYCL0": "SYCL0 Intel Arc",
-    }
-    return labels.get(value, value or "CUDA:0 NVIDIA")
 
 
 def _model_detail_parts(entry: ModelIndexEntry) -> list[str]:

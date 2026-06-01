@@ -44,7 +44,11 @@ DEFAULT_PARALLEL_CHOICES: tuple[tuple[str, str], ...] = (
 
 LABEL_CLASSES = "form-label profile-field-label"
 INPUT_CLASSES = "form-input profile-input"
+SELECT_CLASSES = "form-input profile-select"
+CONFIG_SELECT_CLASSES = "form-input config-select"
 ROW_CLASSES = "form-row profile-row"
+ROW_SELECT_CLASSES = "form-row profile-row profile-row-select"
+CONFIG_ROW_SELECT_CLASSES = "form-row config-row config-row-select"
 
 
 def field_row(
@@ -80,8 +84,8 @@ def select_row(
     id_prefix: str = "profile",
     allow_blank: bool = False,
     label_classes: str = LABEL_CLASSES,
-    input_classes: str = INPUT_CLASSES,
-    row_classes: str = ROW_CLASSES,
+    input_classes: str = SELECT_CLASSES,
+    row_classes: str = ROW_SELECT_CLASSES,
 ) -> Horizontal:
     """Build a labelled Select row."""
     return Horizontal(
@@ -105,8 +109,8 @@ def cache_type_row(
     id_prefix: str = "profile",
     allow_empty: bool = False,
     label_classes: str = LABEL_CLASSES,
-    input_classes: str = INPUT_CLASSES,
-    row_classes: str = ROW_CLASSES,
+    input_classes: str = SELECT_CLASSES,
+    row_classes: str = ROW_SELECT_CLASSES,
 ) -> Horizontal:
     """Build a KV cache type Select row."""
     choices = CACHE_TYPE_CHOICES
@@ -118,6 +122,7 @@ def cache_type_row(
         choices,
         value or ("" if allow_empty else "q8_0"),
         id_prefix=id_prefix,
+        allow_blank=False,
         label_classes=label_classes,
         input_classes=input_classes,
         row_classes=row_classes,
@@ -162,7 +167,9 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
     """Profile/server default fields for the global Config modal."""
     cfg_label = "form-label config-field-label"
     cfg_input = "form-input config-input"
+    cfg_select = CONFIG_SELECT_CLASSES
     cfg_row = "form-row config-row"
+    cfg_row_select = CONFIG_ROW_SELECT_CLASSES
     prefix = "cfg"
 
     speculative = Collapsible(
@@ -222,8 +229,8 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             id_prefix=prefix,
             allow_empty=True,
             label_classes=cfg_label,
-            input_classes=cfg_input,
-            row_classes=cfg_row,
+            input_classes=cfg_select,
+            row_classes=cfg_row_select,
         ),
         cache_type_row(
             "Draft Cache V",
@@ -232,8 +239,8 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             id_prefix=prefix,
             allow_empty=True,
             label_classes=cfg_label,
-            input_classes=cfg_input,
-            row_classes=cfg_row,
+            input_classes=cfg_select,
+            row_classes=cfg_row_select,
         ),
         field_row(
             "Draft Device",
@@ -345,8 +352,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             str(config.default_parallel),
             id_prefix=prefix,
             label_classes=cfg_label,
-            input_classes=cfg_input,
-            row_classes=cfg_row,
+            input_classes=cfg_select,
         ),
         field_row(
             "Threads batch",
@@ -364,8 +370,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             config.default_profile_cache_type_k,
             id_prefix=prefix,
             label_classes=cfg_label,
-            input_classes=cfg_input,
-            row_classes=cfg_row,
+            input_classes=cfg_select,
         ),
         cache_type_row(
             "Cache V",
@@ -373,8 +378,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             config.default_profile_cache_type_v,
             id_prefix=prefix,
             label_classes=cfg_label,
-            input_classes=cfg_input,
-            row_classes=cfg_row,
+            input_classes=cfg_select,
         ),
         select_row(
             "Reasoning mode",
@@ -383,8 +387,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             config.default_reasoning_mode,
             id_prefix=prefix,
             label_classes=cfg_label,
-            input_classes=cfg_input,
-            row_classes=cfg_row,
+            input_classes=cfg_select,
         ),
         select_row(
             "Reasoning format",
@@ -393,8 +396,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             config.default_reasoning_format,
             id_prefix=prefix,
             label_classes=cfg_label,
-            input_classes=cfg_input,
-            row_classes=cfg_row,
+            input_classes=cfg_select,
         ),
         field_row(
             "Reasoning budget",
@@ -437,8 +439,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             config.default_spec_type,
             id_prefix=prefix,
             label_classes=cfg_label,
-            input_classes=cfg_input,
-            row_classes=cfg_row,
+            input_classes=cfg_select,
         ),
         speculative,
         title="Profile / server defaults",

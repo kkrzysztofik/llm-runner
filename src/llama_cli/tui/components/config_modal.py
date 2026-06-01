@@ -11,7 +11,12 @@ from textual.widgets import Button, Checkbox, Input, Label, Select
 
 from llama_manager.config import Config
 
-from .form_widgets import build_config_profile_defaults_collapsible
+from .form_widgets import (
+    CONFIG_ROW_SELECT_CLASSES,
+    CONFIG_SELECT_CLASSES,
+    build_config_profile_defaults_collapsible,
+    select_row,
+)
 
 _SECTION_LABEL_CLASSES = "form-section-label config-section-label"
 
@@ -183,22 +188,23 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
 
     def _log_level_select(self, label: str, select_id: str, value: str) -> Widget:
         """Build a labelled Select widget for log level selection."""
-        choices = [
+        choices = (
             ("DEBUG", "DEBUG"),
             ("INFO", "INFO"),
             ("WARNING", "WARNING"),
             ("ERROR", "ERROR"),
             ("CRITICAL", "CRITICAL"),
-        ]
-        return Horizontal(
-            Label(f"{label}:", classes="form-label config-field-label"),
-            Select(
-                choices,
-                value=value,
-                id=f"cfg-{select_id}",
-                classes="form-input config-input",
-            ),
-            classes="form-row config-row",
+        )
+        return select_row(
+            label,
+            select_id,
+            choices,
+            value,
+            id_prefix="cfg",
+            allow_blank=False,
+            label_classes="form-label config-field-label",
+            input_classes=CONFIG_SELECT_CLASSES,
+            row_classes=CONFIG_ROW_SELECT_CLASSES,
         )
 
     def _collect_values(self) -> ConfigPayload:
