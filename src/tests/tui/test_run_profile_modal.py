@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from textual.app import App
-from textual.widgets import Input, ListView, Select
+from textual.widgets import Collapsible, Input, ListView, Select
 
 from llama_cli.tui.components.run_profile_modal import (
     RunProfileModal,
@@ -571,6 +571,27 @@ def test_modal_create_has_empty_selected_model_path() -> None:
     """Create mode should have empty _selected_model_path."""
     modal = RunProfileModal()
     assert modal._selected_model_path == ""
+
+
+@pytest.mark.anyio
+async def test_modal_advanced_section_collapsed_by_default() -> None:
+    """Advanced profile fields should live in a collapsed Collapsible section."""
+    modal = RunProfileModal()
+    app = App[None]()
+
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+
+        advanced = modal.query_one(".profile-advanced-options", Collapsible)
+        assert advanced.title == "Advanced"
+        assert advanced.collapsed is True
+
+        modal.query_one("#profile-server-bin", Input)
+        modal.query_one("#profile-port", Input)
+        modal.query_one("#profile-ubatch-size", Input)
+        modal.query_one("#profile-n-gpu-layers", Input)
+        modal.query_one("#profile-threads", Input)
 
 
 @pytest.mark.anyio

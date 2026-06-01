@@ -10,7 +10,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, ListItem, ListView, Select
+from textual.widgets import Button, Collapsible, Input, Label, ListItem, ListView, Select
 
 from llama_manager.config.profiles import RunProfileSpec
 from llama_manager.model_index import ModelIndexEntry
@@ -335,28 +335,42 @@ def _build_form_fields(
         _field_row("Profile ID", "profile-id", p.get("profile-id", "")),
         _field_row("Display Label", "label", p.get("label", "")),
         _model_row(model_index or [], p.get("model", "")),
-        _field_row("Server Binary (optional)", "server-bin", p.get("server-bin", "")),
         _device_row(p.get("device", "CUDA:0")),
-        _field_row("Port", "port", p.get("port", ""), type="number"),
         _field_row("Context Size", "ctx-size", p.get("ctx-size", ""), type="number"),
-        _field_row(
-            "Ubatch Size",
-            "ubatch-size",
-            p.get("ubatch-size", ""),
-            type="number",
-        ),
-        _field_row(
-            "GPU Layers (int or 'all')",
-            "n-gpu-layers",
-            p.get("n-gpu-layers", "all"),
-        ),
-        _field_row("Threads", "threads", p.get("threads", ""), type="number"),
+        _build_advanced_fields(p),
         _field_row(
             "Chat Template Kwargs (JSON, optional)",
             "chat-template-kwargs",
             p.get("chat-template-kwargs", "{}"),
         ),
         classes="modal-scroll-body profile-scroll-body",
+    )
+
+
+def _build_advanced_fields(prefill: dict[str, str]) -> Collapsible:
+    """Build the collapsed advanced section for optional profile tuning fields."""
+    return Collapsible(
+        _field_row(
+            "Server Binary (optional)",
+            "server-bin",
+            prefill.get("server-bin", ""),
+        ),
+        _field_row("Port", "port", prefill.get("port", ""), type="number"),
+        _field_row(
+            "Ubatch Size",
+            "ubatch-size",
+            prefill.get("ubatch-size", ""),
+            type="number",
+        ),
+        _field_row(
+            "GPU Layers (int or 'all')",
+            "n-gpu-layers",
+            prefill.get("n-gpu-layers", "all"),
+        ),
+        _field_row("Threads", "threads", prefill.get("threads", ""), type="number"),
+        title="Advanced",
+        collapsed=True,
+        classes="profile-advanced-options",
     )
 
 

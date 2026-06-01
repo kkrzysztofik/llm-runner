@@ -354,6 +354,14 @@ BuildModalScreen {
     padding: 0 1;
 }
 
+.profile-advanced-options {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
 .build-option-row {
     height: auto;
     min-height: 3;
