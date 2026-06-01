@@ -9,9 +9,13 @@ class TestParseArgsBasic:
     """Basic argument parsing tests."""
 
     def test_parse_no_args(self) -> None:
-        """parse_args with no args should return mode=None."""
+        """parse_args with no args should default to standalone TUI."""
         args = parse_args([])
-        assert args.mode is None
+        assert args.mode == "tui"
+        assert args.tui_mode is None
+        assert args.port is None
+        assert args.port2 is None
+        assert args.acknowledge_risky is False
 
     def test_parse_direct_mode_exits(self) -> None:
         """parse_args with a bare runnable mode (no 'tui') should exit with code 1."""

@@ -95,17 +95,20 @@ class TestNormalizeMainArgs:
         result = _normalize_main_args(["--port", "8080"])
         assert result == ["--port", "8080"]
 
-    def test_normalize_skip_first_when_invalid_mode(self) -> None:
-        """_normalize_main_args should skip first arg when it's not a valid mode."""
-        result = _normalize_main_args(["not-a-mode", "summary-balanced"])
+    def test_normalize_skip_first_when_program_name(self) -> None:
+        """_normalize_main_args should drop a leading console-script program name."""
+        result = _normalize_main_args(["llm-runner", "summary-balanced"])
+        assert result == ["summary-balanced"]
+
+    def test_normalize_preserves_bare_run_group(self) -> None:
+        """Bare run-group names must not be stripped (they are not program names)."""
+        result = _normalize_main_args(["summary-balanced"])
         assert result == ["summary-balanced"]
 
     def test_normalize_non_flag_non_mode_passes_through(self) -> None:
-        """_normalize_main_args should pass through non-flag args that aren't modes."""
-        # "8080" is not a valid mode and doesn't start with "-",
-        # so it should be skipped
+        """Unknown bare tokens should be preserved for parse_args to reject."""
         result = _normalize_main_args(["8080"])
-        assert result == []
+        assert result == ["8080"]
 
 
 # =============================================================================
@@ -347,21 +350,27 @@ class TestPrintValidationError:
 class TestMain:
     """Tests for main() CLI entry point."""
 
-    def test_main_no_mode_prints_usage(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """main should print usage and return 1 when no mode provided."""
+    def test_main_no_args_launches_tui(self) -> None:
+        """main with no args should launch the TUI in standalone mode."""
         with (
             patch("llama_cli.server_runner._normalize_main_args", return_value=[]),
             patch("llama_cli.server_runner.parse_args") as mock_parse,
+            patch("llama_cli.server_runner._run_tui", return_value=0) as mock_run_tui,
         ):
-            mock_parse.return_value = argparse.Namespace(mode=None)
+            mock_parse.return_value = argparse.Namespace(
+                mode="tui",
+                tui_mode=None,
+                port=None,
+                port2=None,
+                acknowledge_risky=False,
+            )
 
             from llama_cli.server_runner import main
 
             result = main()
 
-            assert result == 1
-            captured = capsys.readouterr()
-            assert "Usage:" in captured.out
+            assert result == 0
+            mock_run_tui.assert_called_once()
 
     def test_main_build_dispatch(self, tmp_path: Path) -> None:
         """main should dispatch build args to the build CLI."""
@@ -668,15 +677,17 @@ class TestMain:
                 smoke_args = mock_smoke.call_args[0][0]
                 assert smoke_args == ["both"]
 
-    def test_main_direct_mode_returns_1(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """main should print usage and return 1 when a direct mode (no tui) is given."""
+    def test_main_direct_mode_exits_with_error(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """main should reject bare run-group names (require the tui subcommand)."""
         from llama_cli.server_runner import main
 
-        result = main(["summary-balanced"])
+        with pytest.raises(SystemExit) as exc_info:
+            main(["summary-balanced"])
 
-        assert result == 1
+        assert exc_info.value.code == 1
         captured = capsys.readouterr()
-        assert "Usage:" in captured.out
+        assert "summary-balanced" in captured.err
+        assert "tui" in captured.err.lower()
 
 
 # =============================================================================
