@@ -282,7 +282,7 @@ class DashboardApp(App[None]):
         if action == "add":
             model_index = self.controller.load_model_index()
             self.push_screen(
-                RunProfileModal(model_index=model_index),
+                RunProfileModal(model_index=model_index, config=self.controller.config),
                 self._handle_profile_modal_result,
             )
 
@@ -305,7 +305,12 @@ class DashboardApp(App[None]):
 
             model_index = self.controller.load_model_index()
             self.push_screen(
-                RunProfileModal(profile=spec, edit_source=source, model_index=model_index),
+                RunProfileModal(
+                    profile=spec,
+                    edit_source=source,
+                    model_index=model_index,
+                    config=self.controller.config,
+                ),
                 self._handle_edit_modal_result,
             )
 
@@ -350,7 +355,10 @@ class DashboardApp(App[None]):
 
     def action_create_profile(self) -> None:
         """Open the run profile creation modal (legacy alias)."""
-        self.push_screen(RunProfileModal(), self._handle_profile_modal_result)
+        self.push_screen(
+            RunProfileModal(config=self.controller.config),
+            self._handle_profile_modal_result,
+        )
 
     def _handle_config_modal_result(self, result: ConfigPayload | None) -> None:
         if result is not None:

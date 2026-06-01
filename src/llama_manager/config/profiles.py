@@ -35,6 +35,21 @@ class RunProfileSpec:
     server_bin: str = ""
     backend: str = "llama_cpp"
     risky_acknowledged: tuple[str, ...] = ()
+    batch_size: int = 2048
+    poll_ms: int = 50
+    n_predict: int = 32768
+    parallel: int = 4
+    threads_batch: int = 0
+    mmproj: str = ""
+    spec_type: str = ""
+    spec_ngram_size_n: int = 0
+    draft_min: int = 0
+    draft_max: int = 0
+    spec_draft_n_max: int = 0
+    spec_draft_p_min: float = 0.0
+    spec_draft_cache_type_k: str = ""
+    spec_draft_cache_type_v: str = ""
+    spec_draft_device: str = ""
 
     def __post_init__(self) -> None:
         """Validate profile data at construction time."""
@@ -46,6 +61,27 @@ class RunProfileSpec:
         _require_positive_int(self.ctx_size, "ctx_size")
         _require_positive_int(self.ubatch_size, "ubatch_size")
         _require_positive_int(self.threads, "threads")
+        _require_positive_int(self.batch_size, "batch_size")
+        _require_positive_int(self.n_predict, "n_predict")
+        if self.poll_ms < 0:
+            raise RunProfileError("poll_ms must be non-negative")
+        if self.parallel != -1 and self.parallel < 1:
+            raise RunProfileError("parallel must be -1 or at least 1")
+        if self.threads_batch < 0:
+            raise RunProfileError("threads_batch must be non-negative")
+        for name in (
+            "spec_ngram_size_n",
+            "draft_min",
+            "draft_max",
+            "spec_draft_n_max",
+        ):
+            value = getattr(self, name)
+            if value < 0:
+                raise RunProfileError(f"{name} must be non-negative")
+        if self.spec_draft_p_min < 0:
+            raise RunProfileError("spec_draft_p_min must be non-negative")
+        if self.spec_type not in ("", "ngram-mod", "draft-mtp"):
+            raise RunProfileError("spec_type must be '', 'ngram-mod', or 'draft-mtp'")
         if not isinstance(self.main_gpu, int) or self.main_gpu < 0:
             raise RunProfileError("main_gpu must be a non-negative integer")
         if isinstance(self.n_gpu_layers, int) and self.n_gpu_layers < 0:

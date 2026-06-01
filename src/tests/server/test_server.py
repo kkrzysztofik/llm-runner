@@ -185,6 +185,65 @@ class TestBuildServerCmd:
         cmd = build_server_cmd(self._minimal_cfg())
         assert all(isinstance(part, str) for part in cmd)
 
+    def test_launch_throughput_flags(self) -> None:
+        cmd = build_server_cmd(
+            self._minimal_cfg(
+                batch_size=1024,
+                poll_ms=0,
+                n_predict=8192,
+                parallel=4,
+            )
+        )
+        assert cmd[cmd.index("--batch-size") + 1] == "1024"
+        assert cmd[cmd.index("--poll") + 1] == "0"
+        assert cmd[cmd.index("--n-predict") + 1] == "8192"
+        assert cmd[cmd.index("--parallel") + 1] == "4"
+
+    def test_threads_batch_omitted_when_zero(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(threads_batch=0))
+        assert "--threads-batch" not in cmd
+
+    def test_threads_batch_included_when_positive(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(threads_batch=8))
+        assert cmd[cmd.index("--threads-batch") + 1] == "8"
+
+    def test_mmproj_included_when_set(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(mmproj="/models/mmproj.gguf"))
+        assert cmd[cmd.index("--mmproj") + 1] == "/models/mmproj.gguf"
+
+    def test_ngram_spec_flags(self) -> None:
+        cmd = build_server_cmd(
+            self._minimal_cfg(
+                spec_type="ngram-mod",
+                spec_ngram_size_n=12,
+                draft_min=1,
+                draft_max=8,
+            )
+        )
+        assert "--spec-type" in cmd
+        assert "ngram-mod" in cmd
+        assert cmd[cmd.index("--spec-ngram-size-n") + 1] == "12"
+        assert cmd[cmd.index("--draft-min") + 1] == "1"
+        assert cmd[cmd.index("--draft-max") + 1] == "8"
+
+    def test_draft_mtp_spec_flags(self) -> None:
+        cmd = build_server_cmd(
+            self._minimal_cfg(
+                spec_type="draft-mtp",
+                spec_draft_n_max=16,
+                spec_draft_p_min=0.5,
+                spec_draft_cache_type_k="q8_0",
+                spec_draft_cache_type_v="f16",
+                spec_draft_device="CUDA:1",
+            )
+        )
+        assert "draft-mtp" in cmd
+        assert cmd[cmd.index("--spec-draft-n-max") + 1] == "16"
+        assert cmd[cmd.index("--spec-draft-p-min") + 1] == "0.5"
+        assert cmd[cmd.index("--spec-draft-type-k") + 1] == "q8_0"
+        assert cmd[cmd.index("--spec-draft-type-v") + 1] == "f16"
+        assert cmd[cmd.index("--spec-draft-device") + 1] == "CUDA:1"
+
 
 class TestSortValidationErrors:
     """Tests for deterministic sorting of validation errors (T003)."""

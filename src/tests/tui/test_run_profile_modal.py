@@ -8,12 +8,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from textual.app import App
-from textual.widgets import Collapsible, Input, ListView, Select
+from textual.widgets import Checkbox, Collapsible, Input, ListView, Select
 
 from llama_cli.tui.components.run_profile_modal import (
     RunProfileModal,
     RunProfilePayload,
 )
+from llama_manager.config import Config
 from llama_manager.config.profiles import RunProfileSpec
 from llama_manager.model_index import ModelIndexEntry
 
@@ -654,6 +655,40 @@ async def test_modal_model_selection_keeps_selected_path_in_filter() -> None:
 
         model_list = modal.query_one("#profile-model-list", ListView)
         assert len(list(model_list.children)) == 1
+
+
+@pytest.mark.anyio
+async def test_create_modal_prefills_from_config() -> None:
+    """Create mode should prefill advanced fields from Config defaults."""
+    config = Config(
+        default_batch_size=1024,
+        default_poll_ms=0,
+        default_n_predict=8192,
+        default_parallel=2,
+        default_profile_cache_type_k="f16",
+        default_reasoning_mode="off",
+        default_use_jinja=True,
+    )
+    modal = RunProfileModal(config=config)
+    app = App[None]()
+
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+
+        batch = modal.query_one("#profile-batch-size", Input)
+        poll = modal.query_one("#profile-poll-ms", Input)
+        n_predict = modal.query_one("#profile-n-predict", Input)
+        parallel = modal.query_one("#profile-parallel", Input)
+        cache_k = modal.query_one("#profile-cache-type-k", Select)
+        jinja = modal.query_one("#profile-use-jinja", Checkbox)
+
+    assert batch.value == "1024"
+    assert poll.value == "0"
+    assert n_predict.value == "8192"
+    assert parallel.value == "2"
+    assert cache_k.value == "f16"
+    assert jinja.value is True
 
 
 # ---------------------------------------------------------------------------

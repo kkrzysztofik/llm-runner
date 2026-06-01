@@ -7,9 +7,11 @@ from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Button, Input, Label, Select
+from textual.widgets import Button, Checkbox, Input, Label, Select
 
 from llama_manager.config import Config
+
+from .form_widgets import build_config_profile_defaults_collapsible
 
 _SECTION_LABEL_CLASSES = "form-section-label config-section-label"
 
@@ -31,6 +33,34 @@ class ConfigPayload:
     smoke_total_chat_timeout_s: str = ""
     log_file_level: str = ""
     log_stderr_level: str = ""
+    default_profile_port: str = ""
+    default_profile_ctx_size: str = ""
+    default_profile_ubatch_size: str = ""
+    default_profile_threads: str = ""
+    default_profile_n_gpu_layers: str = ""
+    default_bind_address: str = ""
+    default_batch_size: str = ""
+    default_poll_ms: str = ""
+    default_n_predict: str = ""
+    default_parallel: str = ""
+    default_threads_batch: str = ""
+    default_profile_cache_type_k: str = ""
+    default_profile_cache_type_v: str = ""
+    default_reasoning_mode: str = ""
+    default_reasoning_format: str = ""
+    default_reasoning_budget: str = ""
+    default_use_jinja: bool = False
+    default_profile_chat_template_kwargs: str = ""
+    default_mmproj: str = ""
+    default_spec_type: str = ""
+    default_spec_ngram_size_n: str = ""
+    default_draft_min: str = ""
+    default_draft_max: str = ""
+    default_spec_draft_n_max: str = ""
+    default_spec_draft_p_min: str = ""
+    default_spec_draft_cache_type_k: str = ""
+    default_spec_draft_cache_type_v: str = ""
+    default_spec_draft_device: str = ""
     restart: bool = False
     clean_cache: bool = False
 
@@ -90,6 +120,7 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                 ),
                 Label("Network", classes=_SECTION_LABEL_CLASSES),
                 self._field_row("bind host", "host", c.host),
+                build_config_profile_defaults_collapsible(c),
                 Label("Build", classes=_SECTION_LABEL_CLASSES),
                 self._field_row("git remote", "build_git_remote", c.build_git_remote),
                 self._field_row("git branch", "build_git_branch", c.build_git_branch),
@@ -198,6 +229,66 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             ).value.strip(),
             log_file_level=str(self.query_one("#cfg-log_file_level", Select).value or "DEBUG"),
             log_stderr_level=str(self.query_one("#cfg-log_stderr_level", Select).value or "INFO"),
+            default_profile_port=self.query_one("#cfg-default_profile_port", Input).value.strip(),
+            default_profile_ctx_size=self.query_one(
+                "#cfg-default_profile_ctx_size", Input
+            ).value.strip(),
+            default_profile_ubatch_size=self.query_one(
+                "#cfg-default_profile_ubatch_size", Input
+            ).value.strip(),
+            default_profile_threads=self.query_one(
+                "#cfg-default_profile_threads", Input
+            ).value.strip(),
+            default_profile_n_gpu_layers=self.query_one(
+                "#cfg-default_profile_n_gpu_layers", Input
+            ).value.strip(),
+            default_bind_address=self.query_one("#cfg-default_bind_address", Input).value.strip(),
+            default_batch_size=self.query_one("#cfg-default_batch_size", Input).value.strip(),
+            default_poll_ms=self.query_one("#cfg-default_poll_ms", Input).value.strip(),
+            default_n_predict=self.query_one("#cfg-default_n_predict", Input).value.strip(),
+            default_parallel=str(self.query_one("#cfg-default_parallel", Select).value or "4"),
+            default_threads_batch=self.query_one("#cfg-default_threads_batch", Input).value.strip(),
+            default_profile_cache_type_k=str(
+                self.query_one("#cfg-default_profile_cache_type_k", Select).value or "q8_0"
+            ),
+            default_profile_cache_type_v=str(
+                self.query_one("#cfg-default_profile_cache_type_v", Select).value or "q8_0"
+            ),
+            default_reasoning_mode=str(
+                self.query_one("#cfg-default_reasoning_mode", Select).value or "auto"
+            ),
+            default_reasoning_format=str(
+                self.query_one("#cfg-default_reasoning_format", Select).value or "none"
+            ),
+            default_reasoning_budget=self.query_one(
+                "#cfg-default_reasoning_budget", Input
+            ).value.strip(),
+            default_use_jinja=self.query_one("#cfg-default_use_jinja", Checkbox).value,
+            default_profile_chat_template_kwargs=self.query_one(
+                "#cfg-default_profile_chat_template_kwargs", Input
+            ).value.strip(),
+            default_mmproj=self.query_one("#cfg-default_mmproj", Input).value.strip(),
+            default_spec_type=str(self.query_one("#cfg-default_spec_type", Select).value or ""),
+            default_spec_ngram_size_n=self.query_one(
+                "#cfg-default_spec_ngram_size_n", Input
+            ).value.strip(),
+            default_draft_min=self.query_one("#cfg-default_draft_min", Input).value.strip(),
+            default_draft_max=self.query_one("#cfg-default_draft_max", Input).value.strip(),
+            default_spec_draft_n_max=self.query_one(
+                "#cfg-default_spec_draft_n_max", Input
+            ).value.strip(),
+            default_spec_draft_p_min=self.query_one(
+                "#cfg-default_spec_draft_p_min", Input
+            ).value.strip(),
+            default_spec_draft_cache_type_k=str(
+                self.query_one("#cfg-default_spec_draft_cache_type_k", Select).value or ""
+            ),
+            default_spec_draft_cache_type_v=str(
+                self.query_one("#cfg-default_spec_draft_cache_type_v", Select).value or ""
+            ),
+            default_spec_draft_device=self.query_one(
+                "#cfg-default_spec_draft_device", Input
+            ).value.strip(),
         )
 
     # ------------------------------------------------------------------

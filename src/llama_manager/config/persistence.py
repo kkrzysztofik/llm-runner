@@ -29,6 +29,34 @@ _PERSISTED_FIELDS: tuple[str, ...] = (
     "smoke_total_chat_timeout_s",
     "log_file_level",
     "log_stderr_level",
+    "default_profile_port",
+    "default_profile_ctx_size",
+    "default_profile_ubatch_size",
+    "default_profile_threads",
+    "default_profile_n_gpu_layers",
+    "default_bind_address",
+    "default_batch_size",
+    "default_poll_ms",
+    "default_n_predict",
+    "default_parallel",
+    "default_threads_batch",
+    "default_profile_cache_type_k",
+    "default_profile_cache_type_v",
+    "default_reasoning_mode",
+    "default_reasoning_format",
+    "default_reasoning_budget",
+    "default_use_jinja",
+    "default_profile_chat_template_kwargs",
+    "default_mmproj",
+    "default_spec_type",
+    "default_spec_ngram_size_n",
+    "default_draft_min",
+    "default_draft_max",
+    "default_spec_draft_n_max",
+    "default_spec_draft_p_min",
+    "default_spec_draft_cache_type_k",
+    "default_spec_draft_cache_type_v",
+    "default_spec_draft_device",
 )
 
 # Fields that have a corresponding env var. When building a Config from the
@@ -129,8 +157,25 @@ _INT_FIELDS: frozenset[str] = frozenset(
         "smoke_http_request_timeout_s",
         "smoke_first_token_timeout_s",
         "smoke_total_chat_timeout_s",
+        "default_profile_port",
+        "default_profile_ctx_size",
+        "default_profile_ubatch_size",
+        "default_profile_threads",
+        "default_batch_size",
+        "default_poll_ms",
+        "default_n_predict",
+        "default_parallel",
+        "default_threads_batch",
+        "default_spec_ngram_size_n",
+        "default_draft_min",
+        "default_draft_max",
+        "default_spec_draft_n_max",
     }
 )
+
+_FLOAT_FIELDS: frozenset[str] = frozenset({"default_spec_draft_p_min"})
+
+_BOOL_FIELDS: frozenset[str] = frozenset({"default_use_jinja"})
 
 
 @dataclasses.dataclass
@@ -171,13 +216,25 @@ def apply_config_updates(
         if field_name not in config_fields:
             continue
 
-        # Coerce integer fields
         if field_name in _INT_FIELDS:
             try:
                 value = int(raw_value)  # type: ignore[arg-type]
             except ValueError, TypeError:
                 errors.append(f"Invalid value '{raw_value}' for {field_name} — config not saved.")
                 continue
+        elif field_name in _FLOAT_FIELDS:
+            try:
+                value = float(raw_value)  # type: ignore[arg-type]
+            except ValueError, TypeError:
+                errors.append(f"Invalid value '{raw_value}' for {field_name} — config not saved.")
+                continue
+        elif field_name in _BOOL_FIELDS:
+            if isinstance(raw_value, bool):
+                value = raw_value
+            elif isinstance(raw_value, str):
+                value = raw_value.strip().lower() in ("1", "true", "yes", "on")
+            else:
+                value = bool(raw_value)
         else:
             value = raw_value
 

@@ -127,13 +127,17 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         "--cache-type-v",
         cfg.cache_type_v,
         "--batch-size",
-        "2048",
+        str(cfg.batch_size),
         "--ubatch-size",
         str(cfg.ubatch_size),
         "--threads",
         str(cfg.threads),
         "--poll",
-        "50",
+        str(cfg.poll_ms),
+        "--n-predict",
+        str(cfg.n_predict),
+        "--parallel",
+        str(cfg.parallel),
         "--mmap",
         "--host",
         cfg.bind_address,
@@ -141,6 +145,12 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         str(cfg.port),
         "--no-webui",
     ]
+
+    if cfg.threads_batch > 0:
+        cmd.extend(["--threads-batch", str(cfg.threads_batch)])
+    if cfg.mmproj:
+        cmd.extend(["--mmproj", cfg.mmproj])
+    _append_speculative_flags(cmd, cfg)
 
     if cfg.main_gpu != 0:
         cmd.extend(["--main-gpu", str(cfg.main_gpu)])
@@ -160,6 +170,35 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         cmd.append("--jinja")
 
     return cmd
+
+
+def _append_speculative_flags(cmd: list[str], cfg: ServerConfig) -> None:
+    """Append llama-server speculative decoding flags when configured."""
+    if cfg.spec_type == "ngram-mod":
+        cmd.extend(
+            [
+                "--spec-type",
+                "ngram-mod",
+                "--spec-ngram-size-n",
+                str(cfg.spec_ngram_size_n),
+                "--draft-min",
+                str(cfg.draft_min),
+                "--draft-max",
+                str(cfg.draft_max),
+            ]
+        )
+        return
+    if cfg.spec_type != "draft-mtp":
+        return
+    cmd.extend(["--spec-type", "draft-mtp", "--spec-draft-n-max", str(cfg.spec_draft_n_max)])
+    if cfg.spec_draft_p_min > 0:
+        cmd.extend(["--spec-draft-p-min", str(cfg.spec_draft_p_min)])
+    if cfg.spec_draft_cache_type_k:
+        cmd.extend(["--spec-draft-type-k", cfg.spec_draft_cache_type_k])
+    if cfg.spec_draft_cache_type_v:
+        cmd.extend(["--spec-draft-type-v", cfg.spec_draft_cache_type_v])
+    if cfg.spec_draft_device:
+        cmd.extend(["--spec-draft-device", cfg.spec_draft_device])
 
 
 def sort_validation_errors(

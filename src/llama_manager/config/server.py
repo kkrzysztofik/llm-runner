@@ -63,6 +63,21 @@ class ServerConfig:
     server_bin: str = ""
     backend: str = "llama_cpp"
     risky_acknowledged: list[str] = field(default_factory=list)
+    batch_size: int = 2048
+    poll_ms: int = 50
+    n_predict: int = 32768
+    parallel: int = 4
+    threads_batch: int = 0
+    mmproj: str = ""
+    spec_type: str = ""
+    spec_ngram_size_n: int = 0
+    draft_min: int = 0
+    draft_max: int = 0
+    spec_draft_n_max: int = 0
+    spec_draft_p_min: float = 0.0
+    spec_draft_cache_type_k: str = ""
+    spec_draft_cache_type_v: str = ""
+    spec_draft_device: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.main_gpu, int) or self.main_gpu < 0:

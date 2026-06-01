@@ -134,3 +134,26 @@ class TestApplyConfigUpdates:
         assert result.success is True
         assert isinstance(cfg.host, str)
         assert cfg.host == "192.168.1.1"
+
+    def test_profile_default_fields_coerced(self) -> None:
+        """Profile launch defaults should coerce numeric and bool fields."""
+        cfg = Config()
+
+        result = apply_config_updates(
+            cfg,
+            {
+                "default_batch_size": "1024",
+                "default_poll_ms": "0",
+                "default_parallel": "4",
+                "default_use_jinja": True,
+                "default_spec_draft_p_min": "0.25",
+            },
+            persist=False,
+        )
+
+        assert result.success is True
+        assert cfg.default_batch_size == 1024
+        assert cfg.default_poll_ms == 0
+        assert cfg.default_parallel == 4
+        assert cfg.default_use_jinja is True
+        assert cfg.default_spec_draft_p_min == 0.25

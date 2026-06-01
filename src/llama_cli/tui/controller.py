@@ -593,7 +593,6 @@ class DashboardController:
         """
         import json
 
-        from llama_manager.config.profiles import RunProfileSpec
         from llama_manager.run_profile_store import upsert_custom_run_profile
 
         profile_id = payload.profile_id.strip().lower().replace(" ", "-")
@@ -637,23 +636,15 @@ class DashboardController:
                 self._push_status_message("chat_template_kwargs must be valid JSON")
                 return False
 
-        spec = RunProfileSpec(
-            profile_id=profile_id,
-            alias=payload.label or profile_id,
-            device=payload.device,
-            model=payload.model,
-            port=payload.port,
-            ctx_size=payload.ctx_size,
-            ubatch_size=payload.ubatch_size,
-            threads=payload.threads,
-            description=payload.label or "",
-            server_bin=payload.server_bin,
-            n_gpu_layers=ngl if ngl == "all" else int(ngl),
-            backend="llama_cpp",
-            chat_template_kwargs=(
-                ctk if isinstance(ctk, str) else json.dumps(ctk) if isinstance(ctk, dict) else ""
-            ),
-        )
+        from llama_manager.config.profiles import RunProfileError
+
+        from .components.run_profile_modal import payload_to_run_profile_spec
+
+        try:
+            spec = payload_to_run_profile_spec(profile_id, payload)
+        except (ValueError, RunProfileError) as exc:
+            self._push_status_message(str(exc))
+            return False
 
         try:
             upsert_custom_run_profile(original_profile_id, spec)
@@ -702,7 +693,6 @@ class DashboardController:
         """
         import json
 
-        from llama_manager.config.profiles import RunProfileSpec
         from llama_manager.run_profile_store import save_custom_run_profile
 
         profile_id = payload.profile_id.strip().lower().replace(" ", "-")
@@ -755,28 +745,15 @@ class DashboardController:
             self._push_status_message("Device is required")
             return False
 
-        # Derive backend from server_bin hint or default to llama_cpp
-        backend = "llama_cpp"
+        from llama_manager.config.profiles import RunProfileError
 
-        spec = RunProfileSpec(
-            profile_id=profile_id,
-            alias=payload.label or profile_id,
-            device=payload.device,
-            model=payload.model,
-            port=payload.port,
-            ctx_size=payload.ctx_size,
-            ubatch_size=payload.ubatch_size,
-            threads=payload.threads,
-            description=payload.label or "",
-            server_bin=payload.server_bin,
-            n_gpu_layers=ngl if ngl == "all" else int(ngl),
-            backend=backend,
-            chat_template_kwargs=ctk
-            if isinstance(ctk, str)
-            else json.dumps(ctk)
-            if isinstance(ctk, dict)
-            else "",
-        )
+        from .components.run_profile_modal import payload_to_run_profile_spec
+
+        try:
+            spec = payload_to_run_profile_spec(profile_id, payload)
+        except (ValueError, RunProfileError) as exc:
+            self._push_status_message(str(exc))
+            return False
 
         try:
             save_custom_run_profile(spec)

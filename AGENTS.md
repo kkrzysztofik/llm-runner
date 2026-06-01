@@ -423,18 +423,21 @@ specs/001-m4-op-hardening/plan.md
 - System-health datetime row: use Textual `Digits` for block digital time—not analog wall clock or `textual-hires-canvas`.
 - Datetime header layout: `LLM_RUNNER_LOGO` (wordmark + robot) on the left; date and digital time on the far right with a flex spacer—do not put date on the left beside the logo.
 - Logo wordmark block letters must read **LLM**, not LIM—verify spacing in `_LLM_BLOCK` / `LLM_RUNNER_LOGO` when refining the mascot.
+- TUI header logo: R2-D2-inspired mascot, horizontal rainbow on the LLM wordmark, no separate "runner" label under the robot; robot height should match the wordmark block.
+- Run profile create/edit: keep port, ubatch size, GPU layers, threads, and server binary in a collapsed **Advanced** section by default.
+- When adding profile/server fields, align with `run_opencode_models.sh`; expose global defaults in the Config modal; use Select/Checkbox for enumerated values and Input for freeform or wide numeric ranges.
 
 ## Learned Workspace Facts
 
 - For build wizard binary display and readiness badges, run `llama-server --version` and parse the `version:` line; do not substitute git `source_head_sha` as the binary version. Prefer `git_commit_sha` from `build-artifact.json`; else take the last parenthesized hex (7–40 chars), not the first (build number). Compare up to 8 chars to source HEAD; missing or mismatched binary commit ⇒ needs_update.
-- Build wizard step-1 async status (`@work` + `call_from_thread`) must not call `BackendStatusCard.set_status` after leaving step 1—release card refs on re-render and apply UI only on `STEP_SELECT` (avoids `NoMatches` on detached `.build-backend-header`).
+- Build wizard step 1: mount immediately with parallel SYCL/CUDA `get_build_status` on `@work(thread=True)`; show Loading… until `call_from_thread` applies results on `STEP_SELECT` only—never call `BackendStatusCard.set_status` after leaving step 1 (avoids `NoMatches` on detached `.build-backend-header`).
 - TUI builds: wrap pipeline work in `suppress_build_pipeline_stderr_for_tui()`; Stop sets `build_cancel_event` and kills the active stage via `run_command_with_cancel` (process-group termination, not dismiss-only).
 - When `BuildConfig.jobs` is unset, `cmake --build` uses `-j` from `os.cpu_count()`.
 - SYCL `llama-server --version` probes need oneAPI via `get_build_env_cmd()` in `build_pipeline/utils.py` (sources `/opt/intel/oneapi/setvars.sh` when present).
-- Build wizard step 1 must mount immediately: fetch `get_build_status` on a Textual `@work(thread=True)` worker with parallel SYCL/CUDA probes; show Loading… until results apply via `app.call_from_thread`.
 - Build wizard “Artifact” means provenance JSON at `builds_dir/{sycl|cuda}/build-artifact.json`; untracked binaries fall back to `llama_server_bin_intel` / `llama_server_bin_nvidia` on Config.
 - Default runtime binaries live under `llama_cpp_root`: SYCL at `build/bin/llama-server`, CUDA at `build_cuda/bin/llama-server`; provenance JSON lives under XDG state `builds_dir`.
-- llama.cpp build documentation lives under `docs/build/` (linked from `docs/ARCHITECTURE.md`).
-- `LLM_RUNNER_LOGO` and `DigitalClockWidget` live in `src/llama_cli/tui/components/digital_clock.py`; `DateTimeWidget` in `system_health.py` lays out logo | spacer | date + `Digits`.
-- `DateTimeSnapshot.date_text` uses `%a %Y-%m-%d` (display like `Wed 2026-05-20`).
-- `DigitalClockWidget` updates time on a 1s `set_interval` tick, not the dashboard’s 250ms recompose loop.
+- `LLM_RUNNER_LOGO` and `DigitalClockWidget` live in `digital_clock.py`; `DateTimeWidget` mounts the logo with `markup=True` (rainbow `_LLM_BLOCK`, R2-D2 `_ROBOT_BLOCK`); layout is logo | spacer | date + `Digits`.
+- TUI bottom bar: Textual built-in `Footer` (`show_command_palette=False`) in `textual_app.py`, with `check_action` + `refresh_bindings` for mode-aware bindings (replaced `CommandMenu`).
+- Bare `llm-runner` / `parse_args([])` launches standalone TUI via `_default_tui_namespace()` in `cli_parser.py`; `_normalize_main_args` must not strip bare run-group names as the program name.
+- Run profile Advanced fields live in a collapsed Textual `Collapsible` in `run_profile_modal.py` (pattern/CSS from build wizard via `.profile-advanced-options`).
+- `DigitalClockWidget` updates time on a 1s `set_interval` tick, not the dashboard’s 250ms recompose loop; date label uses `%a %Y-%m-%d` via `DateTimeSnapshot`.
