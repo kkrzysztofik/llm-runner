@@ -408,3 +408,162 @@ class TestDashboardAppCheckAction:
             app.action_about()
             await pilot.pause()
             assert isinstance(app.screen, AboutModal)
+
+
+class TestDashboardAppGpuStatsRefresh:
+    """Tests for background GPU stats refresh helpers."""
+
+    def test_schedule_gpu_stats_refresh_skips_when_active(self) -> None:
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app._gpu_stats_refresh_active = True
+        app._refresh_gpu_stats_worker = MagicMock()  # type: ignore[method-assign]
+
+        app._schedule_gpu_stats_refresh()
+
+        app._refresh_gpu_stats_worker.assert_not_called()
+
+    def test_mark_gpu_stats_refresh_complete_clears_flag(self) -> None:
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app._gpu_stats_refresh_active = True
+
+        app._mark_gpu_stats_refresh_complete()
+
+        assert app._gpu_stats_refresh_active is False
+
+    @pytest.mark.anyio
+    async def test_refresh_gpu_stats_worker_survives_gpu_update_error(self) -> None:
+        controller = _make_controller()
+        gpu = MagicMock()
+        gpu.device_index = 0
+        gpu.update.side_effect = RuntimeError("gpu unavailable")
+        controller.model.gpu_stats = [gpu]
+        controller.refresh_model_index_async.return_value = False
+
+        app = DashboardApp(controller)
+        app.call_from_thread = lambda fn, *args, **kwargs: fn(*args, **kwargs)  # type: ignore[method-assign]
+
+        async with app.run_test() as pilot:
+            app._refresh_gpu_stats_worker()
+            for _ in range(10):
+                await pilot.pause()
+
+        assert app._gpu_stats_refresh_active is False
+
+
+class TestDashboardAppAddSlotFlow:
+    """Tests for async add-slot worker and finish handler."""
+
+    @pytest.mark.anyio
+    async def test_finish_add_slot_applies_successful_slot(self) -> None:
+        controller = _make_controller()
+        controller.apply_add_slot_from_form.return_value = (True, ["Slot added"])
+        app = DashboardApp(controller)
+        new_cfg = make_server_config(alias="new-slot")
+
+        async with app.run_test() as pilot:
+            await app._finish_add_slot(
+                "Slot added for profile",
+                None,
+                True,
+                ["Validated"],
+                "new-slot",
+                new_cfg,
+            )
+            await pilot.pause()
+
+        controller.apply_add_slot_from_form.assert_called_once_with(new_cfg, "new-slot")
+        controller._push_status_message.assert_called_with("Validated")
+
+    @pytest.mark.anyio
+    async def test_finish_add_slot_shows_error(self) -> None:
+        controller = _make_controller()
+        controller.refresh_model_index_async.return_value = False
+        app = DashboardApp(controller)
+        notify_mock = MagicMock()
+        app.notify = notify_mock  # type: ignore[method-assign]
+
+        async with app.run_test() as pilot:
+            await app._finish_add_slot(error="Add slot failed: boom")
+            await pilot.pause()
+
+        error_calls = [
+            call for call in notify_mock.call_args_list if call.kwargs.get("severity") == "error"
+        ]
+        assert len(error_calls) == 1
+        assert "Add slot failed: boom" in error_calls[0].args[0]
+
+    @pytest.mark.anyio
+    async def test_finish_add_slot_pushes_validation_messages_on_failure(self) -> None:
+        controller = _make_controller()
+        app = DashboardApp(controller)
+
+        async with app.run_test() as pilot:
+            await app._finish_add_slot(
+                success=False,
+                messages=["Profile is required"],
+            )
+            await pilot.pause()
+
+        controller._push_status_message.assert_called_with("Profile is required")
+
+    @pytest.mark.anyio
+    async def test_run_add_slot_handles_compute_exception(self) -> None:
+        controller = _make_controller()
+        controller.compute_add_slot_from_form.side_effect = RuntimeError("boom")
+        controller.refresh_model_index_async.return_value = False
+        app = DashboardApp(controller)
+        captured: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        def _capture_finish(fn: object, *args: object, **kwargs: object) -> None:
+            captured.append((fn, args, kwargs))
+
+        app.call_from_thread = _capture_finish  # type: ignore[method-assign]
+
+        async with app.run_test() as pilot:
+            worker = app._run_add_slot({"profile": "summary-balanced", "port": "8080"})
+            await worker.wait()
+            await pilot.pause()
+
+        finish_calls = [
+            call for call in captured if getattr(call[0], "__name__", "") == "_finish_add_slot"
+        ]
+        assert len(finish_calls) == 1
+        finish_args = finish_calls[0][1]
+        assert finish_args[1] == "Add slot failed: boom"
+        assert finish_args[2] is False
+
+
+class TestDashboardAppProfileModalResult:
+    """Tests for profile save callback handling."""
+
+    def test_handle_profile_modal_result_save_and_add_slot(self) -> None:
+        from llama_cli.tui.components.run_profile_modal import RunProfilePayload
+
+        controller = _make_controller()
+        controller.save_run_profile_from_form.return_value = True
+        app = DashboardApp(controller)
+        app._run_add_slot = MagicMock()  # type: ignore[method-assign]
+        app.notify = MagicMock()  # type: ignore[method-assign]
+        app.refresh_dashboard = MagicMock()  # type: ignore[method-assign]
+
+        payload = RunProfilePayload(profile_id="my-profile", save_and_add_slot=True)
+        app._handle_profile_modal_result(payload)
+
+        controller.save_run_profile_from_form.assert_called_once_with(payload)
+        app._run_add_slot.assert_called_once()
+        app.refresh_dashboard.assert_not_called()
+
+    def test_handle_profile_modal_result_failed_save(self) -> None:
+        from llama_cli.tui.components.run_profile_modal import RunProfilePayload
+
+        controller = _make_controller()
+        controller.save_run_profile_from_form.return_value = False
+        app = DashboardApp(controller)
+        notify_mock = MagicMock()
+        app.notify = notify_mock  # type: ignore[method-assign]
+
+        app._handle_profile_modal_result(RunProfilePayload(profile_id="my-profile"))
+
+        notify_mock.assert_called_once_with("Failed to save profile", severity="error")

@@ -846,6 +846,43 @@ async def test_parse_float_falls_back_for_invalid_input() -> None:
         assert modal._parse_float("profile-spec-draft-p-min", 0.25) == 0.25
 
 
+def test_short_parse_error_timeout_message() -> None:
+    from llama_cli.tui.components.run_profile_modal import _short_parse_error
+
+    assert (
+        _short_parse_error("parse timed out after 30s")
+        == "parse timed out; using filename/cache fallback"
+    )
+
+
+def test_short_parse_error_strips_for_suffix() -> None:
+    from llama_cli.tui.components.run_profile_modal import _short_parse_error
+
+    assert _short_parse_error("invalid header for /path/model.gguf") == "invalid header"
+
+
+def test_model_detail_parts_includes_parse_error() -> None:
+    from llama_cli.tui.components.run_profile_modal import _model_detail_parts
+
+    entry = ModelIndexEntry(
+        path="/models/test.gguf",
+        normalized_stem="test",
+        general_name=None,
+        architecture=None,
+        file_type=None,
+        quantization_type=None,
+        context_length=None,
+        embedding_length=None,
+        block_count=None,
+        file_size_bytes=0,
+        parse_error="parse timed out after 30s",
+        mtime_iso="2024-01-01T00:00:00+00:00",
+    )
+    parts = _model_detail_parts(entry)
+    assert any("Metadata:" in part for part in parts)
+    assert any("parse timed out" in part for part in parts)
+
+
 # ---------------------------------------------------------------------------
 # Model index — case-insensitive scan
 # ---------------------------------------------------------------------------
