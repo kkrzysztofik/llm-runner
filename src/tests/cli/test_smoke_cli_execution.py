@@ -440,12 +440,13 @@ class TestParseArgsNonePath:
         # We verify the function signature accepts None without error
         # The actual sys.argv behavior is a runtime detail
         result = parse_args([])
-        assert result.mode is None
+        assert result.mode == "tui"
 
     def test_parse_args_empty_list_no_exit(self) -> None:
         """parse_args([]) should not raise SystemExit for empty args."""
         result = parse_args([])
-        assert result.mode is None
+        assert result.mode == "tui"
+        assert result.tui_mode is None
 
     def test_parse_args_smoke_both_json(self) -> None:
         """parse_args should handle 'smoke both --json'."""

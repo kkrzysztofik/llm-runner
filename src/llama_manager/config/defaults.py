@@ -103,6 +103,36 @@ class Config:
     default_cache_type_qwen35_both_k: str = "q8_0"
     default_cache_type_qwen35_both_v: str = "q8_0"
 
+    # Template defaults for new custom profiles (Config modal / create-profile prefill)
+    default_profile_port: int = 8080
+    default_profile_ctx_size: int = 4096
+    default_profile_ubatch_size: int = 512
+    default_profile_threads: int = 8
+    default_profile_n_gpu_layers: str = "all"
+    default_bind_address: str = "127.0.0.1"
+    default_batch_size: int = 2048
+    default_poll_ms: int = 50
+    default_n_predict: int = 32768
+    default_parallel: int = 4
+    default_threads_batch: int = 0
+    default_profile_cache_type_k: str = "q8_0"
+    default_profile_cache_type_v: str = "q8_0"
+    default_reasoning_mode: str = "auto"
+    default_reasoning_format: str = "none"
+    default_reasoning_budget: str = ""
+    default_use_jinja: bool = False
+    default_profile_chat_template_kwargs: str = "{}"
+    default_mmproj: str = ""
+    default_spec_type: str = ""
+    default_spec_ngram_size_n: int = 24
+    default_draft_min: int = 48
+    default_draft_max: int = 64
+    default_spec_draft_n_max: int = 0
+    default_spec_draft_p_min: float = 0.0
+    default_spec_draft_cache_type_k: str = ""
+    default_spec_draft_cache_type_v: str = ""
+    default_spec_draft_device: str = ""
+
     # M2 build setup XDG directories
     xdg_cache_base: str = field(
         default_factory=lambda: os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))

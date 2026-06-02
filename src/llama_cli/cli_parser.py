@@ -474,6 +474,17 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
     )
 
 
+def _default_tui_namespace() -> argparse.Namespace:
+    """Namespace for launching the TUI in standalone mode (no run group)."""
+    return argparse.Namespace(
+        mode="tui",
+        tui_mode=None,
+        port=None,
+        port2=None,
+        acknowledge_risky=False,
+    )
+
+
 def _try_special_case_handlers(args: list[str]) -> argparse.Namespace | None:
     """Try all special case handlers in order.
 
@@ -519,7 +530,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         return result
 
     if not args:
-        return argparse.Namespace(mode=None)
+        return _default_tui_namespace()
 
     emit_error(f"unknown command '{args[0]}'. Use 'tui' to launch model servers.")
     sys.exit(1)

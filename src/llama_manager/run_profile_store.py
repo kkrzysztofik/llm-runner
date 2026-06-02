@@ -206,6 +206,21 @@ def _profile_to_dict(profile: RunProfileSpec) -> dict[str, Any]:
         "server_bin": profile.server_bin,
         "backend": profile.backend,
         "risky_acknowledged": list(profile.risky_acknowledged),
+        "batch_size": profile.batch_size,
+        "poll_ms": profile.poll_ms,
+        "n_predict": profile.n_predict,
+        "parallel": profile.parallel,
+        "threads_batch": profile.threads_batch,
+        "mmproj": profile.mmproj,
+        "spec_type": profile.spec_type,
+        "spec_ngram_size_n": profile.spec_ngram_size_n,
+        "draft_min": profile.draft_min,
+        "draft_max": profile.draft_max,
+        "spec_draft_n_max": profile.spec_draft_n_max,
+        "spec_draft_p_min": profile.spec_draft_p_min,
+        "spec_draft_cache_type_k": profile.spec_draft_cache_type_k,
+        "spec_draft_cache_type_v": profile.spec_draft_cache_type_v,
+        "spec_draft_device": profile.spec_draft_device,
     }
 
 
@@ -235,6 +250,21 @@ def _profile_from_dict(data: dict[str, Any]) -> RunProfileSpec:
         server_bin=data.get("server_bin", ""),
         backend=data.get("backend", "llama_cpp"),
         risky_acknowledged=tuple(data.get("risky_acknowledged", [])),
+        batch_size=int(data.get("batch_size", 2048)),
+        poll_ms=int(data.get("poll_ms", 50)),
+        n_predict=int(data.get("n_predict", 32768)),
+        parallel=int(data.get("parallel", 4)),
+        threads_batch=int(data.get("threads_batch", 0)),
+        mmproj=data.get("mmproj", ""),
+        spec_type=data.get("spec_type", ""),
+        spec_ngram_size_n=int(data.get("spec_ngram_size_n", 0)),
+        draft_min=int(data.get("draft_min", 0)),
+        draft_max=int(data.get("draft_max", 0)),
+        spec_draft_n_max=int(data.get("spec_draft_n_max", 0)),
+        spec_draft_p_min=float(data.get("spec_draft_p_min", 0.0)),
+        spec_draft_cache_type_k=data.get("spec_draft_cache_type_k", ""),
+        spec_draft_cache_type_v=data.get("spec_draft_cache_type_v", ""),
+        spec_draft_device=data.get("spec_draft_device", ""),
     )
 
 
@@ -319,6 +349,25 @@ def _write_toml_data(
         ra = p.get("risky_acknowledged", [])
         if ra:
             lines.append(f"risky_acknowledged = {json.dumps(ra)}")
+        lines.append(f"batch_size = {int(p.get('batch_size', 2048))}")
+        lines.append(f"poll_ms = {int(p.get('poll_ms', 50))}")
+        lines.append(f"n_predict = {int(p.get('n_predict', 32768))}")
+        lines.append(f"parallel = {int(p.get('parallel', 4))}")
+        lines.append(f"threads_batch = {int(p.get('threads_batch', 0))}")
+        lines.append(f"mmproj = {json.dumps(p.get('mmproj', ''))}")
+        lines.append(f"spec_type = {json.dumps(p.get('spec_type', ''))}")
+        lines.append(f"spec_ngram_size_n = {int(p.get('spec_ngram_size_n', 0))}")
+        lines.append(f"draft_min = {int(p.get('draft_min', 0))}")
+        lines.append(f"draft_max = {int(p.get('draft_max', 0))}")
+        lines.append(f"spec_draft_n_max = {int(p.get('spec_draft_n_max', 0))}")
+        lines.append(f"spec_draft_p_min = {float(p.get('spec_draft_p_min', 0.0))}")
+        lines.append(
+            f"spec_draft_cache_type_k = {json.dumps(p.get('spec_draft_cache_type_k', ''))}"
+        )
+        lines.append(
+            f"spec_draft_cache_type_v = {json.dumps(p.get('spec_draft_cache_type_v', ''))}"
+        )
+        lines.append(f"spec_draft_device = {json.dumps(p.get('spec_draft_device', ''))}")
 
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")

@@ -323,6 +323,68 @@ def test_update_run_profile_upsert_raises_returns_false(
     assert result is False
 
 
+def test_update_run_profile_invalid_chat_template_json(
+    mock_controller: DashboardController,
+) -> None:
+    """update_run_profile should return False for invalid chat_template_kwargs JSON."""
+    payload = RunProfilePayload(
+        profile_id="my-profile",
+        label="My Profile",
+        model="/models/test.gguf",
+        device="CUDA:0",
+        port=8080,
+        ctx_size=4096,
+        ubatch_size=512,
+        n_gpu_layers="all",
+        threads=8,
+        chat_template_kwargs="{not-json",
+    )
+
+    result = mock_controller.update_run_profile("original-id", payload)
+    assert result is False
+
+
+def test_update_run_profile_invalid_ngl_string(mock_controller: DashboardController) -> None:
+    """update_run_profile should return False for non-integer n_gpu_layers."""
+    payload = RunProfilePayload(
+        profile_id="my-profile",
+        label="My Profile",
+        model="/models/test.gguf",
+        device="CUDA:0",
+        port=8080,
+        ctx_size=4096,
+        ubatch_size=512,
+        n_gpu_layers="many",
+        threads=8,
+        chat_template_kwargs="",
+    )
+
+    result = mock_controller.update_run_profile("original-id", payload)
+    assert result is False
+
+
+def test_update_run_profile_payload_to_spec_value_error(
+    mock_controller: DashboardController,
+) -> None:
+    """update_run_profile should return False when spec conversion raises ValueError."""
+    payload = RunProfilePayload(
+        profile_id="my-profile",
+        label="My Profile",
+        model="/models/test.gguf",
+        device="CUDA:0",
+        port=8080,
+        ctx_size=4096,
+        ubatch_size=512,
+        n_gpu_layers="all",
+        threads=8,
+        chat_template_kwargs="",
+        poll_ms=-1,
+    )
+
+    result = mock_controller.update_run_profile("original-id", payload)
+    assert result is False
+
+
 # ---------------------------------------------------------------------------
 # delete_run_profile
 # ---------------------------------------------------------------------------

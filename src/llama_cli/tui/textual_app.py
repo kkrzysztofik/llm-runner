@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import contextlib
+import logging
+import time
 from typing import TYPE_CHECKING
 
+logger = logging.getLogger(__name__)
+
+from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
@@ -14,10 +19,14 @@ from textual.widgets import Footer
 if TYPE_CHECKING:
     from .controller import DashboardController
 
+from llama_manager.config import ServerConfig
+
+from .components.about_modal import AboutModal
 from .components.build import BuildModalScreen
 from .components.config_modal import ConfigModal, ConfigPayload
 from .components.modal import AddSlotModal
 from .components.run_profile_modal import RunProfileModal, RunProfilePayload
+from .components.server_column import ServerColumnPanel
 from .components.server_log import ServerLogPanel
 from .components.system_health import (
     CPUUsageWidget,
@@ -26,6 +35,8 @@ from .components.system_health import (
 )
 from .components.system_status import SystemStatusWidget
 from .types import BuildWizardResult
+
+_CONTENT_CONTAINER_ID = "#content"
 
 # ---------------------------------------------------------------------------
 # Extracted pure helper: profile options caching
@@ -50,7 +61,7 @@ def _profile_options_cached(
 
 
 _RISK_HIDDEN_ACTIONS = frozenset(
-    {"refresh_dashboard", "add_slot", "build", "open_config"},
+    {"refresh_dashboard", "add_slot", "build", "open_config", "about"},
 )
 _NORMAL_HIDDEN_ACTIONS = frozenset({"confirm", "reject"})
 
@@ -79,6 +90,7 @@ class DashboardApp(App[None]):
         Binding("a", "add_slot", "Add Slot"),
         Binding("c", "open_config", "Config"),
         Binding("p", "manage_profiles", "Profiles"),
+        Binding("h", "about", "About"),
         Binding("y", "confirm", "Confirm"),
         Binding("n", "reject", "Abort"),
     ]
@@ -92,6 +104,7 @@ class DashboardApp(App[None]):
         self._profile_options_cache: list[tuple[str, str]] | None = None
         self._profile_cache_config_id: int | None = None
         self._last_model_index_notice_scanned = 0
+        self._gpu_stats_refresh_active = False
         self.last_build_backend: str = "sycl"
 
     def compose(self) -> ComposeResult:
@@ -117,9 +130,55 @@ class DashboardApp(App[None]):
         return action not in _NORMAL_HIDDEN_ACTIONS
 
     def on_mount(self) -> None:
+        interval_s = max(0.1, self.controller.config.tui_refresh_interval_ms / 1000)
+        logger.info(
+            "DashboardApp.on_mount: initial refresh start interval_s=%.3f configs=%r",
+            interval_s,
+            [c.alias for c in self.controller.configs],
+        )
         self.refresh_dashboard()
-        self.set_interval(0.25, self.refresh_dashboard)
+        logger.info("DashboardApp.on_mount: initial refresh complete")
+        self.set_interval(interval_s, self.refresh_dashboard)
+        self.set_interval(max(1.0, interval_s), self._schedule_gpu_stats_refresh)
+        self._schedule_gpu_stats_refresh()
         self._index_models()
+
+    def _schedule_gpu_stats_refresh(self) -> None:
+        """Start one background GPU stats refresh if no refresh is already running."""
+        if self._gpu_stats_refresh_active:
+            logger.debug("_schedule_gpu_stats_refresh: skipped, refresh already active")
+            return
+        self._gpu_stats_refresh_active = True
+        self._refresh_gpu_stats_worker()
+
+    @work(thread=True)
+    def _refresh_gpu_stats_worker(self) -> None:
+        """Refresh GPU stats off the render thread."""
+        start = time.perf_counter()
+        stats = list(self.controller.model.gpu_stats)
+        logger.debug("_refresh_gpu_stats_worker: start count=%d", len(stats))
+        try:
+            for index, gpu in enumerate(stats):
+                gpu_start = time.perf_counter()
+                gpu.update()
+                logger.debug(
+                    "_refresh_gpu_stats_worker: updated index=%d device_index=%s duration_ms=%.1f",
+                    index,
+                    getattr(gpu, "device_index", "unknown"),
+                    (time.perf_counter() - gpu_start) * 1000,
+                )
+        except Exception:
+            logger.exception("_refresh_gpu_stats_worker: unhandled exception")
+        finally:
+            logger.debug(
+                "_refresh_gpu_stats_worker: complete count=%d duration_ms=%.1f",
+                len(stats),
+                (time.perf_counter() - start) * 1000,
+            )
+            self.call_from_thread(self._mark_gpu_stats_refresh_complete)
+
+    def _mark_gpu_stats_refresh_complete(self) -> None:
+        self._gpu_stats_refresh_active = False
 
     def _index_models(self) -> None:
         """Refresh model index in a controller-owned background thread."""
@@ -127,6 +186,7 @@ class DashboardApp(App[None]):
             progress_callback=self._index_models_progress_from_thread,
             complete_callback=self._index_models_complete_from_thread,
         )
+        logger.info("_index_models: background refresh started=%s", started)
         if started:
             self._last_model_index_notice_scanned = 0
             self.notify("Indexing models...", title="Models")
@@ -196,6 +256,9 @@ class DashboardApp(App[None]):
             self._handle_config_modal_result,
         )
 
+    def action_about(self) -> None:
+        self.push_screen(AboutModal())
+
     def action_manage_profiles(self) -> None:
         """Open the profiles management screen."""
         from .components.profiles_screen import ProfilesScreen
@@ -223,7 +286,7 @@ class DashboardApp(App[None]):
         if action == "add":
             model_index = self.controller.load_model_index()
             self.push_screen(
-                RunProfileModal(model_index=model_index),
+                RunProfileModal(model_index=model_index, config=self.controller.config),
                 self._handle_profile_modal_result,
             )
 
@@ -246,7 +309,12 @@ class DashboardApp(App[None]):
 
             model_index = self.controller.load_model_index()
             self.push_screen(
-                RunProfileModal(profile=spec, edit_source=source, model_index=model_index),
+                RunProfileModal(
+                    profile=spec,
+                    edit_source=source,
+                    model_index=model_index,
+                    config=self.controller.config,
+                ),
                 self._handle_edit_modal_result,
             )
 
@@ -284,15 +352,17 @@ class DashboardApp(App[None]):
                 "profile": result.profile_id,
                 "port": "",
             }
-            self.controller.add_slot_from_form(slot_form)
-            self.notify("Slot added for profile", severity="information")
-            self._reconcile_server_log_panels()
+            self._run_add_slot(slot_form, "Slot added for profile")
+            return
 
         self.refresh_dashboard()
 
     def action_create_profile(self) -> None:
         """Open the run profile creation modal (legacy alias)."""
-        self.push_screen(RunProfileModal(), self._handle_profile_modal_result)
+        self.push_screen(
+            RunProfileModal(config=self.controller.config),
+            self._handle_profile_modal_result,
+        )
 
     def _handle_config_modal_result(self, result: ConfigPayload | None) -> None:
         if result is not None:
@@ -343,19 +413,114 @@ class DashboardApp(App[None]):
                 "profile": result.profile_id,
                 "port": "",
             }
-            self.controller.add_slot_from_form(slot_form)
-            self.notify("Slot added for profile", severity="information")
-            self._reconcile_server_log_panels()
+            self._run_add_slot(slot_form, "Slot added for profile")
+            return
 
         self.refresh_dashboard()
+
+    @work(thread=True)
+    def _run_add_slot(self, slot_form: dict[str, str], notify_message: str = "") -> None:
+        """Resolve add-slot form values on a worker; apply mutations on the UI thread."""
+        logger.debug("_run_add_slot: starting, slot_form=%r", slot_form)
+        error: str | None = None
+        success: bool | None = None
+        messages: list[str] = []
+        profile_id = ""
+        new_cfg = None
+        try:
+            success, messages, profile_id, new_cfg = self.controller.compute_add_slot_from_form(
+                slot_form
+            )
+            logger.debug(
+                "_run_add_slot: compute_add_slot_from_form returned success=%s profile_id=%r",
+                success,
+                profile_id,
+            )
+        except Exception as exc:
+            logger.exception("_run_add_slot: unhandled exception")
+            error = f"Add slot failed: {exc}"
+            success = False
+        self.call_from_thread(
+            self._finish_add_slot,
+            notify_message,
+            error,
+            success,
+            messages,
+            profile_id,
+            new_cfg,
+        )
+
+    async def _finish_add_slot(
+        self,
+        notify_message: str = "",
+        error: str | None = None,
+        success: bool | None = None,
+        messages: list[str] | None = None,
+        profile_id: str = "",
+        new_cfg: ServerConfig | None = None,
+    ) -> None:
+        """Called on the UI thread after background add-slot validation completes."""
+        slot_messages = list(messages or [])
+        apply_success = success
+        if error is None and success and new_cfg is not None:
+            for msg in slot_messages:
+                self.controller._push_status_message(msg)
+            apply_success, apply_messages = self.controller.apply_add_slot_from_form(
+                new_cfg,
+                profile_id,
+            )
+            slot_messages.extend(apply_messages)
+        elif error is None and not success:
+            for msg in slot_messages:
+                self.controller._push_status_message(msg)
+
+        configs_aliases = [c.alias for c in self.controller.configs]
+        try:
+            container = self.query_one(_CONTENT_CONTAINER_ID)
+            panel_count_before = len(list(container.query(ServerLogPanel)))
+        except NoMatches:
+            panel_count_before = -1
+        logger.debug(
+            "_finish_add_slot: configs=%r panels_before=%d column_count=%d",
+            configs_aliases,
+            panel_count_before,
+            self.view_model.server_column_count(),
+        )
+        if error:
+            self.notify(error, title="Add Slot", severity="error")
+        elif apply_success and notify_message:
+            logger.debug("_finish_add_slot: success=%s notify=%r", apply_success, notify_message)
+            self.notify(notify_message, severity="information")
+        reconcile_start = time.perf_counter()
+        logger.debug("_finish_add_slot: reconcile panels start")
+        await self._reconcile_server_log_panels()
+        logger.debug(
+            "_finish_add_slot: reconcile panels complete duration_ms=%.1f",
+            (time.perf_counter() - reconcile_start) * 1000,
+        )
+        try:
+            container = self.query_one(_CONTENT_CONTAINER_ID)
+            panel_count_after = len(list(container.query(ServerLogPanel)))
+        except NoMatches:
+            panel_count_after = -1
+        logger.debug(
+            "_finish_add_slot: panels_after=%d — calling refresh_dashboard",
+            panel_count_after,
+        )
+        refresh_start = time.perf_counter()
+        self.refresh_dashboard()
+        logger.debug(
+            "_finish_add_slot: refresh_dashboard returned duration_ms=%.1f",
+            (time.perf_counter() - refresh_start) * 1000,
+        )
 
     def _handle_add_slot_modal_result(self, result: dict[str, str] | None) -> None:
         if result is None:
             self.controller.cancel_add_slot_form()
+            self.refresh_dashboard()
         else:
-            self.controller.add_slot_from_form(result)
-            self._reconcile_server_log_panels()
-        self.refresh_dashboard()
+            self.notify("Adding slot…", title="Slot", severity="information")
+            self._run_add_slot(result)
 
     def _handle_build_modal_result(self, result: BuildWizardResult | None) -> None:
         if result is None:
@@ -365,16 +530,45 @@ class DashboardApp(App[None]):
             self.controller.handle_build_selection(result.backends, result.options)
         self.refresh_dashboard()
 
-    def _reconcile_server_log_panels(self) -> None:
+    async def _reconcile_server_log_panels(self) -> None:
         """Ensure ServerLogPanel widgets match the current slot count."""
-        container = self.query_one("#content", Container)
+        start = time.perf_counter()
+        container = self.query_one(_CONTENT_CONTAINER_ID, Container)
         current_panels = list(container.query(ServerLogPanel))
         needed = self.view_model.server_column_count()
+        logger.debug(
+            "_reconcile_server_log_panels: start current=%d needed=%d",
+            len(current_panels),
+            needed,
+        )
+        # Remove excess panels.
         if len(current_panels) > needed:
             for panel in current_panels[needed:]:
-                panel.remove()
+                logger.debug("_reconcile_server_log_panels: removing excess panel=%r", panel)
+                await panel.remove()
+        # Replace placeholder panels that now have real data (e.g. 0→1 slot).
+        # A placeholder has no ServerColumnPanel child; replacing it with a
+        # fresh ServerLogPanel ensures compose() runs with live view-model state.
+        for i, panel in enumerate(current_panels[:needed]):
+            if self.view_model.column(i) is not None and not panel.query(ServerColumnPanel):
+                logger.debug("_reconcile_server_log_panels: replacing placeholder slot_index=%d", i)
+                await panel.remove()
+                await container.mount(ServerLogPanel(i, self.view_model))
+                logger.debug(
+                    "_reconcile_server_log_panels: replaced placeholder duration_ms=%.1f",
+                    (time.perf_counter() - start) * 1000,
+                )
+                return  # one replacement per call
+        # Mount any panels still missing.
         for i in range(len(current_panels), needed):
-            container.mount(ServerLogPanel(i, self.view_model))
+            logger.debug("_reconcile_server_log_panels: mounting missing slot_index=%d", i)
+            await container.mount(ServerLogPanel(i, self.view_model))
+        logger.debug(
+            "_reconcile_server_log_panels: complete current=%d needed=%d duration_ms=%.1f",
+            len(current_panels),
+            needed,
+            (time.perf_counter() - start) * 1000,
+        )
 
     def _build_profile_options(self) -> list[tuple[str, str]]:
         options, config_id = _profile_options_cached(
@@ -408,20 +602,45 @@ class DashboardApp(App[None]):
         self.refresh_dashboard()
 
     def refresh_dashboard(self) -> None:
+        start = time.perf_counter()
         if not self.controller.running:
+            logger.info("refresh_dashboard: controller stopped, exiting app")
             self.exit()
             return
 
+        panel_count = len(list(self.query(ServerLogPanel)))
+        logger.debug(
+            "refresh_dashboard: start panels=%d configs=%d",
+            panel_count,
+            len(self.controller.configs),
+        )
         self._emit_status_toasts()
 
         # Refresh each leaf widget.  SystemStatusWidget and SystemHealthWidget
         # use compose(), so their children own their own repaints.
         for widget_type in (CPUUsageWidget, MemorySwapWidget, SystemInfoWidget):
             with contextlib.suppress(NoMatches):
+                widget_start = time.perf_counter()
                 self.query_one(widget_type).refresh(recompose=True)
+                logger.debug(
+                    "refresh_dashboard: refreshed widget=%s duration_ms=%.1f",
+                    widget_type.__name__,
+                    (time.perf_counter() - widget_start) * 1000,
+                )
         for panel in self.query(ServerLogPanel):
+            panel_start = time.perf_counter()
             panel.refresh(recompose=True)
+            logger.debug(
+                "refresh_dashboard: refreshed ServerLogPanel slot_index=%s duration_ms=%.1f",
+                getattr(panel, "_slot_index", "unknown"),
+                (time.perf_counter() - panel_start) * 1000,
+            )
         self.refresh_bindings()
+        logger.debug(
+            "refresh_dashboard: complete panels=%d duration_ms=%.1f",
+            panel_count,
+            (time.perf_counter() - start) * 1000,
+        )
 
     def _emit_status_toasts(self) -> None:
         notices = self.view_model.system_notices()

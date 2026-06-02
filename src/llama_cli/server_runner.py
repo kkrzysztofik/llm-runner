@@ -35,7 +35,7 @@ NVIDIA_SERVER_NAME = "NVIDIA llama-server"
 
 def usage() -> None:
     emit_plain("""Usage:
-  llm-runner tui <mode> [--port PORT] [--port2 PORT2]
+  llm-runner [tui] [<mode>] [--port PORT] [--port2 PORT2]
   llm-runner dry-run <mode> [ports...]
   llm-runner smoke <mode> [slot_id] [--json]
   llm-runner profile <slot_id> <flavor> [--json]
@@ -77,6 +77,7 @@ Doctor Subcommands:
   repair          Repair detected issues
 
 Examples:
+  llm-runner
   llm-runner tui summary-balanced
   llm-runner tui both --port 8080 --port2 8081
   llm-runner dry-run summary-balanced
@@ -237,6 +238,17 @@ def _run_tui(parsed: argparse.Namespace) -> int:
     return 0
 
 
+def _looks_like_program_name(arg: str) -> bool:
+    """True when *arg* is argv[0] from a console script invocation, not a subcommand."""
+    return (
+        arg in ("llm-runner", "run_models_tui.py")
+        or arg.endswith("llm-runner")
+        or "/" in arg
+        or "\\" in arg
+        or arg.endswith(".py")
+    )
+
+
 def _normalize_main_args(args: list[str] | None) -> list[str]:
     if args is None:
         return sys.argv[1:]
@@ -254,7 +266,9 @@ def _normalize_main_args(args: list[str] | None) -> list[str]:
     }
     if args[0] in modes or args[0].startswith("-"):
         return args
-    return args[1:]
+    if _looks_like_program_name(args[0]):
+        return args[1:]
+    return args
 
 
 def _build_target_configs(parsed_mode: str, ports: list[int], cfg: Config) -> list[ServerConfig]:
@@ -339,10 +353,6 @@ def main(args: list[str] | None = None) -> int:
     argv = _normalize_main_args(args)
     parsed = parse_args(argv)
 
-    if not parsed.mode:
-        usage()
-        return 1
-
     # Enable Intel Sysman for telemetry before any backend operations
     os.environ["ZES_ENABLE_SYSMAN"] = "1"
 
@@ -363,15 +373,19 @@ def cli_main() -> None:
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_file = str(logs_dir / f"llm-runner-{timestamp}.log")
 
-    # Environment variable overrides persisted config
+    # Environment variable overrides persisted config. TUI logs stay file-only so
+    # diagnostic output cannot corrupt Textual's alternate screen.
     stderr_level = os.environ.get("LLM_RUNNER_LOG_LEVEL", cfg.log_stderr_level).upper()
     file_level = os.environ.get("LLM_RUNNER_LOG_FILE_LEVEL", cfg.log_file_level).upper()
+    argv = _normalize_main_args(sys.argv[1:])
+    launches_tui = not argv or argv[0] == "tui"
+    stderr_sink_level = None if launches_tui else stderr_level
 
     # Ensure logs directory exists
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     configure_logging_split(
-        stderr_level=stderr_level,
+        stderr_level=stderr_sink_level,
         file_level=file_level,
         log_file=log_file,
     )

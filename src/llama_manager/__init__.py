@@ -178,6 +178,7 @@ from .setup_venv import (
 )
 from .slot_manager import (
     add_slot_from_form,
+    compute_add_slot_from_form,
     device_class_for_config,
     gpu_index_for_config,
     normalize_slot_port,
@@ -292,6 +293,7 @@ __all__ = [
     "register_and_start_slot",
     "upsert_profile_slot",
     "add_slot_from_form",
+    "compute_add_slot_from_form",
     # Security helpers
     "redact_env_value",
     "is_sensitive_key",

@@ -29,6 +29,34 @@ _PERSISTED_FIELDS: tuple[str, ...] = (
     "smoke_total_chat_timeout_s",
     "log_file_level",
     "log_stderr_level",
+    "default_profile_port",
+    "default_profile_ctx_size",
+    "default_profile_ubatch_size",
+    "default_profile_threads",
+    "default_profile_n_gpu_layers",
+    "default_bind_address",
+    "default_batch_size",
+    "default_poll_ms",
+    "default_n_predict",
+    "default_parallel",
+    "default_threads_batch",
+    "default_profile_cache_type_k",
+    "default_profile_cache_type_v",
+    "default_reasoning_mode",
+    "default_reasoning_format",
+    "default_reasoning_budget",
+    "default_use_jinja",
+    "default_profile_chat_template_kwargs",
+    "default_mmproj",
+    "default_spec_type",
+    "default_spec_ngram_size_n",
+    "default_draft_min",
+    "default_draft_max",
+    "default_spec_draft_n_max",
+    "default_spec_draft_p_min",
+    "default_spec_draft_cache_type_k",
+    "default_spec_draft_cache_type_v",
+    "default_spec_draft_device",
 )
 
 # Fields that have a corresponding env var. When building a Config from the
@@ -129,8 +157,25 @@ _INT_FIELDS: frozenset[str] = frozenset(
         "smoke_http_request_timeout_s",
         "smoke_first_token_timeout_s",
         "smoke_total_chat_timeout_s",
+        "default_profile_port",
+        "default_profile_ctx_size",
+        "default_profile_ubatch_size",
+        "default_profile_threads",
+        "default_batch_size",
+        "default_poll_ms",
+        "default_n_predict",
+        "default_parallel",
+        "default_threads_batch",
+        "default_spec_ngram_size_n",
+        "default_draft_min",
+        "default_draft_max",
+        "default_spec_draft_n_max",
     }
 )
+
+_FLOAT_FIELDS: frozenset[str] = frozenset({"default_spec_draft_p_min"})
+
+_BOOL_FIELDS: frozenset[str] = frozenset({"default_use_jinja"})
 
 
 @dataclasses.dataclass
@@ -140,6 +185,41 @@ class ConfigUpdateResult:
     success: bool
     updated_fields: list[str]
     errors: list[str]
+
+
+def _coerce_config_field_value(
+    field_name: str,
+    raw_value: object,
+) -> tuple[object | None, str | None]:
+    """Return (coerced_value, error). value is None when coercion fails."""
+    if field_name in _INT_FIELDS:
+        try:
+            return int(raw_value), None  # type: ignore[arg-type]
+        except ValueError, TypeError:
+            return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
+    if field_name in _FLOAT_FIELDS:
+        try:
+            return float(raw_value), None  # type: ignore[arg-type]
+        except ValueError, TypeError:
+            return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
+    if field_name in _BOOL_FIELDS:
+        if isinstance(raw_value, bool):
+            return raw_value, None
+        if isinstance(raw_value, int):
+            if raw_value == 1:
+                return True, None
+            if raw_value == 0:
+                return False, None
+            return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
+        if isinstance(raw_value, str):
+            token = raw_value.strip().lower()
+            if token in ("1", "true", "yes", "on"):
+                return True, None
+            if token in ("0", "false", "no", "off"):
+                return False, None
+            return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
+        return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
+    return raw_value, None
 
 
 def apply_config_updates(
@@ -171,15 +251,10 @@ def apply_config_updates(
         if field_name not in config_fields:
             continue
 
-        # Coerce integer fields
-        if field_name in _INT_FIELDS:
-            try:
-                value = int(raw_value)  # type: ignore[arg-type]
-            except ValueError, TypeError:
-                errors.append(f"Invalid value '{raw_value}' for {field_name} — config not saved.")
-                continue
-        else:
-            value = raw_value
+        value, error = _coerce_config_field_value(field_name, raw_value)
+        if error is not None:
+            errors.append(error)
+            continue
 
         setattr(config, field_name, value)
         updated_fields.append(field_name)

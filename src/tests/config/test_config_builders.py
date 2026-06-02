@@ -1306,6 +1306,159 @@ class TestRunProfileSpec:
         # Optional tuple defaults to empty
         assert spec.risky_acknowledged == ()
 
+    def test_negative_poll_ms_raises(self) -> None:
+        """poll_ms below zero should raise RunProfileError."""
+        with pytest.raises(RunProfileError, match="poll_ms must be non-negative"):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                poll_ms=-1,
+                risky_acknowledged=(),
+            )
+
+    def test_invalid_spec_type_raises(self) -> None:
+        """Unknown spec_type values should raise RunProfileError."""
+        with pytest.raises(RunProfileError, match="spec_type must be"):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                spec_type="invalid",
+                risky_acknowledged=(),
+            )
+
+    def test_negative_spec_draft_p_min_raises(self) -> None:
+        """Negative spec_draft_p_min should raise RunProfileError."""
+        with pytest.raises(RunProfileError, match="spec_draft_p_min must be non-negative"):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                spec_draft_p_min=-0.1,
+                risky_acknowledged=(),
+            )
+
+    def test_zero_batch_size_raises(self) -> None:
+        """batch_size must be positive."""
+        with pytest.raises(RunProfileError, match="batch_size"):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                batch_size=0,
+                risky_acknowledged=(),
+            )
+
+    def test_invalid_parallel_raises(self) -> None:
+        """parallel must be -1 or at least 1."""
+        with pytest.raises(RunProfileError, match="parallel must be -1 or at least 1"):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                parallel=0,
+                risky_acknowledged=(),
+            )
+
+    def test_negative_threads_batch_raises(self) -> None:
+        """threads_batch must be non-negative."""
+        with pytest.raises(RunProfileError, match="threads_batch must be non-negative"):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                threads_batch=-1,
+                risky_acknowledged=(),
+            )
+
+    def test_draft_min_greater_than_max_raises(self) -> None:
+        """draft_min above draft_max should raise RunProfileError."""
+        with pytest.raises(RunProfileError, match="draft_min must be <= draft_max"):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                draft_min=8,
+                draft_max=2,
+                risky_acknowledged=(),
+            )
+
+    def test_spec_draft_p_min_gt_one_raises(self) -> None:
+        """spec_draft_p_min above 1.0 should raise RunProfileError."""
+        with pytest.raises(RunProfileError, match="spec_draft_p_min must be <= 1.0"):
+            RunProfileSpec(
+                profile_id="test",
+                model="/path/to/model.gguf",
+                alias="test",
+                device="SYCL0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=4,
+                n_gpu_layers=99,
+                server_bin="/path/to/server",
+                backend="llama_cpp",
+                spec_draft_p_min=1.1,
+                risky_acknowledged=(),
+            )
+
 
 # =============================================================================
 # RunGroupSpec validation

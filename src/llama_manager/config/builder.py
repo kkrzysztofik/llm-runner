@@ -145,6 +145,21 @@ def _profile_to_config_data(profile: RunProfileSpec) -> dict[str, Any]:
         "server_bin": profile.server_bin,
         "backend": profile.backend,
         "risky_acknowledged": list(profile.risky_acknowledged),
+        "batch_size": profile.batch_size,
+        "poll_ms": profile.poll_ms,
+        "n_predict": profile.n_predict,
+        "parallel": profile.parallel,
+        "threads_batch": profile.threads_batch,
+        "mmproj": profile.mmproj,
+        "spec_type": profile.spec_type,
+        "spec_ngram_size_n": profile.spec_ngram_size_n,
+        "draft_min": profile.draft_min,
+        "draft_max": profile.draft_max,
+        "spec_draft_n_max": profile.spec_draft_n_max,
+        "spec_draft_p_min": profile.spec_draft_p_min,
+        "spec_draft_cache_type_k": profile.spec_draft_cache_type_k,
+        "spec_draft_cache_type_v": profile.spec_draft_cache_type_v,
+        "spec_draft_device": profile.spec_draft_device,
     }
 
 
@@ -172,6 +187,21 @@ def _config_data_to_server_config(data: dict[str, Any]) -> ServerConfig:
         server_bin=data["server_bin"],
         backend=data["backend"],
         risky_acknowledged=data["risky_acknowledged"],
+        batch_size=int(data.get("batch_size", 2048)),
+        poll_ms=int(data.get("poll_ms", 50)),
+        n_predict=int(data.get("n_predict", 32768)),
+        parallel=int(data.get("parallel", 4)),
+        threads_batch=int(data.get("threads_batch", 0)),
+        mmproj=str(data.get("mmproj", "")),
+        spec_type=str(data.get("spec_type", "")),
+        spec_ngram_size_n=int(data.get("spec_ngram_size_n", 0)),
+        draft_min=int(data.get("draft_min", 0)),
+        draft_max=int(data.get("draft_max", 0)),
+        spec_draft_n_max=int(data.get("spec_draft_n_max", 0)),
+        spec_draft_p_min=float(data.get("spec_draft_p_min", 0.0)),
+        spec_draft_cache_type_k=str(data.get("spec_draft_cache_type_k", "")),
+        spec_draft_cache_type_v=str(data.get("spec_draft_cache_type_v", "")),
+        spec_draft_device=str(data.get("spec_draft_device", "")),
     )
 
 
@@ -423,6 +453,7 @@ def create_default_run_profiles(config: Config | None = None) -> tuple[RunProfil
             use_jinja=True,
             cache_type_k=cfg.default_cache_type_summary_k,
             cache_type_v=cfg.default_cache_type_summary_v,
+            parallel=4,
             backend="llama_cpp",
         ),
         RunProfileSpec(
@@ -441,6 +472,7 @@ def create_default_run_profiles(config: Config | None = None) -> tuple[RunProfil
             use_jinja=True,
             cache_type_k=cfg.default_cache_type_summary_k,
             cache_type_v=cfg.default_cache_type_summary_v,
+            parallel=4,
             backend="llama_cpp",
         ),
         RunProfileSpec(
@@ -451,12 +483,15 @@ def create_default_run_profiles(config: Config | None = None) -> tuple[RunProfil
             device="",
             port=cfg.qwen35_port,
             ctx_size=cfg.default_ctx_size_qwen35,
-            ubatch_size=cfg.default_ubatch_size_qwen35,
+            ubatch_size=256,
             threads=cfg.default_threads_qwen35,
             cache_type_k=cfg.default_cache_type_qwen35_k,
             cache_type_v=cfg.default_cache_type_qwen35_v,
             n_gpu_layers=cfg.default_n_gpu_layers_qwen35,
             server_bin=cfg.llama_server_bin_nvidia,
+            batch_size=1024,
+            poll_ms=0,
+            parallel=4,
             backend="llama_cpp",
         ),
     )
@@ -634,30 +669,7 @@ def merge_config_overrides(
         override_config=override_config,
     )
 
-    # Convert dict back to ServerConfig
-    return ServerConfig(
-        model=merged["model"],
-        alias=merged["alias"],
-        device=merged["device"],
-        port=merged["port"],
-        bind_address=merged.get("bind_address", "127.0.0.1"),
-        ctx_size=merged["ctx_size"],
-        ubatch_size=merged["ubatch_size"],
-        threads=merged["threads"],
-        tensor_split=merged.get("tensor_split", ""),
-        reasoning_mode=merged["reasoning_mode"],
-        reasoning_format=merged["reasoning_format"],
-        chat_template_kwargs=merged["chat_template_kwargs"],
-        reasoning_budget=merged.get("reasoning_budget", ""),
-        use_jinja=merged["use_jinja"],
-        cache_type_k=merged["cache_type_k"],
-        cache_type_v=merged["cache_type_v"],
-        n_gpu_layers=merged["n_gpu_layers"],
-        main_gpu=merged.get("main_gpu", 0),
-        server_bin=merged["server_bin"],
-        backend=merged["backend"],
-        risky_acknowledged=merged["risky_acknowledged"],
-    )
+    return _config_data_to_server_config(merged)
 
 
 def apply_profile_overrides(

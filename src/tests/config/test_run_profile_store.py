@@ -257,6 +257,21 @@ def test_roundtrip_serialization_with_all_fields(xdg_config_home: Path) -> None:
         server_bin="/usr/local/bin/llama-server",
         backend="llama_cpp",
         risky_acknowledged=("risky1", "risky2"),
+        batch_size=1024,
+        poll_ms=25,
+        n_predict=16384,
+        parallel=2,
+        threads_batch=4,
+        mmproj="/models/mmproj.gguf",
+        spec_type="ngram-mod",
+        spec_ngram_size_n=10,
+        draft_min=2,
+        draft_max=6,
+        spec_draft_n_max=0,
+        spec_draft_p_min=0.0,
+        spec_draft_cache_type_k="",
+        spec_draft_cache_type_v="",
+        spec_draft_device="",
     )
     save_custom_run_profile(full_profile)
     loaded = load_custom_run_profiles()
@@ -286,6 +301,16 @@ def test_roundtrip_serialization_with_all_fields(xdg_config_home: Path) -> None:
     assert r.server_bin == full_profile.server_bin
     assert r.backend == full_profile.backend
     assert r.risky_acknowledged == full_profile.risky_acknowledged
+    assert r.batch_size == full_profile.batch_size
+    assert r.poll_ms == full_profile.poll_ms
+    assert r.n_predict == full_profile.n_predict
+    assert r.parallel == full_profile.parallel
+    assert r.threads_batch == full_profile.threads_batch
+    assert r.mmproj == full_profile.mmproj
+    assert r.spec_type == full_profile.spec_type
+    assert r.spec_ngram_size_n == full_profile.spec_ngram_size_n
+    assert r.draft_min == full_profile.draft_min
+    assert r.draft_max == full_profile.draft_max
 
 
 # ---------------------------------------------------------------------------

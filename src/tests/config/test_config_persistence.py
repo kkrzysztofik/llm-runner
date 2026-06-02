@@ -8,6 +8,8 @@ from llama_manager.config import Config
 from llama_manager.config.persistence import (
     _ENV_OVERRIDES,
     _PERSISTED_FIELDS,
+    _coerce_config_field_value,
+    _toml_value,
     build_config,
     config_file_path,
     load_config_overrides_from_file,
@@ -96,6 +98,34 @@ def test_save_writes_all_persisted_fields(tmp_path: Path) -> None:
     loaded = load_config_overrides_from_file(path)
     for field in _PERSISTED_FIELDS:
         assert field in loaded, f"Field '{field}' missing from saved TOML"
+
+
+def test_toml_value_rejects_unsupported_type() -> None:
+    with pytest.raises(TypeError, match="unsupported TOML value type"):
+        _toml_value([])
+
+
+def test_toml_value_escapes_non_printable_string_chars() -> None:
+    assert _toml_value("line\x01break") == '"line\\u0001break"'
+
+
+def test_coerce_config_field_value_bool_from_int() -> None:
+    value, error = _coerce_config_field_value("default_use_jinja", 1)
+    assert error is None
+    assert value is True
+
+
+def test_coerce_config_field_value_bool_from_false_string() -> None:
+    value, error = _coerce_config_field_value("default_use_jinja", "off")
+    assert error is None
+    assert value is False
+
+
+def test_coerce_config_field_value_invalid_float() -> None:
+    value, error = _coerce_config_field_value("default_spec_draft_p_min", "bad")
+    assert value is None
+    assert error is not None
+    assert "Invalid value" in error
 
 
 # ---------------------------------------------------------------------------

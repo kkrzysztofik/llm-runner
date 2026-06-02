@@ -1,19 +1,59 @@
 AddSlotModal,
+AboutModal,
 ConfigModal,
 ConfirmModal {
     align: center middle;
 }
 
-Input,
-Select {
+Input {
     border: solid ansi_bright_black;
     background: $surface-lighten-1;
 }
 
-Input:focus,
-Select:focus {
+Input:focus {
     border: solid $accent;
     background: $surface-lighten-2;
+}
+
+/* Select: style SelectCurrent (not the outer Vertical) to match Input height.
+   Textual defaults to border: tall which needs ~3 lines and gets clipped in height:3 rows. */
+Select.profile-select,
+Select.config-select {
+    width: 1fr;
+    height: 3;
+    border: none;
+    background: transparent;
+    padding: 0;
+}
+
+Select.profile-select > SelectCurrent,
+Select.config-select > SelectCurrent {
+    width: 1fr;
+    height: 3;
+    border: solid ansi_bright_black;
+    background: $surface-lighten-1;
+    color: $text;
+    padding: 0 1;
+    content-align: left middle;
+}
+
+Select.profile-select:focus > SelectCurrent,
+Select.config-select:focus > SelectCurrent {
+    border: solid $accent;
+    background: $surface-lighten-2;
+}
+
+Select.profile-select > SelectCurrent Static#label,
+Select.config-select > SelectCurrent Static#label {
+    width: 1fr;
+    height: 1fr;
+    color: $text;
+    content-align: left middle;
+}
+
+Select.profile-select > SelectCurrent.-has-value Static#label,
+Select.config-select > SelectCurrent.-has-value Static#label {
+    color: $text;
 }
 
 .modal-dialog {
@@ -78,6 +118,15 @@ Select:focus {
 .modal-button-danger:hover {
     background: $error 40%;
     color: $text;
+}
+
+.about-dialog {
+    width: 50%;
+    max-width: 70%;
+    height: auto;
+    padding: 1 2;
+    border: round $accent;
+    background: $surface;
 }
 
 .confirm-dialog {
@@ -344,6 +393,22 @@ BuildModalScreen {
     padding: 0 1;
 }
 
+.profile-advanced-options {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+.config-advanced-options {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
 .build-option-row {
     height: auto;
     min-height: 3;
@@ -483,6 +548,18 @@ ProfilesScreen {
     margin-bottom: 1;
 }
 
+.profile-row-select,
+.config-row-select {
+    height: 3;
+    margin-bottom: 1;
+}
+
+.profile-row-select > .profile-field-label,
+.config-row-select > .config-field-label {
+    height: 3;
+    content-align: right middle;
+}
+
 .profile-row.profile-model-row {
     height: auto;
     min-height: 10;
@@ -530,19 +607,4 @@ ProfilesScreen {
     color: $text-muted;
     margin-bottom: 1;
     display: none;
-}
-
-#profile-device > SelectCurrent {
-    background: $surface-lighten-1;
-    color: $text;
-}
-
-#profile-device > SelectCurrent Static#label {
-    color: $text;
-}
-
-#profile-device-summary {
-    width: 28;
-    color: $text-muted;
-    content-align: left middle;
 }

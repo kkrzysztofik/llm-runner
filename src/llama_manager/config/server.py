@@ -1,7 +1,6 @@
 """ServerConfig, ModelSlot, and slot utility functions."""
 
 import re
-import sys
 from dataclasses import dataclass, field
 
 from .errors import ErrorCode, ValidationResult
@@ -63,11 +62,47 @@ class ServerConfig:
     server_bin: str = ""
     backend: str = "llama_cpp"
     risky_acknowledged: list[str] = field(default_factory=list)
+    batch_size: int = 2048
+    poll_ms: int = 50
+    n_predict: int = 32768
+    parallel: int = 4
+    threads_batch: int = 0
+    mmproj: str = ""
+    spec_type: str = ""
+    spec_ngram_size_n: int = 0
+    draft_min: int = 0
+    draft_max: int = 0
+    spec_draft_n_max: int = 0
+    spec_draft_p_min: float = 0.0
+    spec_draft_cache_type_k: str = ""
+    spec_draft_cache_type_v: str = ""
+    spec_draft_device: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.main_gpu, int) or self.main_gpu < 0:
-            sys.stderr.write("main_gpu must be a non-negative integer\n")
-            sys.exit(1)
+            raise ValueError("main_gpu must be a non-negative integer")
+        if self.batch_size <= 0:
+            raise ValueError("batch_size must be greater than 0")
+        if self.n_predict <= 0:
+            raise ValueError("n_predict must be greater than 0")
+        if self.parallel != -1 and self.parallel < 1:
+            raise ValueError("parallel must be -1 or at least 1")
+        if self.poll_ms < 0:
+            raise ValueError("poll_ms must be non-negative")
+        if self.threads_batch < 0:
+            raise ValueError("threads_batch must be non-negative")
+        if self.spec_ngram_size_n < 0:
+            raise ValueError("spec_ngram_size_n must be non-negative")
+        if self.draft_min < 0:
+            raise ValueError("draft_min must be non-negative")
+        if self.draft_max < 0:
+            raise ValueError("draft_max must be non-negative")
+        if self.draft_min > self.draft_max:
+            raise ValueError("draft_min must be <= draft_max")
+        if self.spec_draft_n_max < 0:
+            raise ValueError("spec_draft_n_max must be non-negative")
+        if self.spec_draft_p_min < 0.0 or self.spec_draft_p_min > 1.0:
+            raise ValueError("spec_draft_p_min must be between 0.0 and 1.0")
 
 
 @dataclass

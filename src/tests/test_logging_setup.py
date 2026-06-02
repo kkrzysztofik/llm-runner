@@ -482,3 +482,19 @@ class TestUpdateLevels:
 
         # Should not raise even though there is no file sink
         update_file_level("DEBUG")
+
+    def test_configure_logging_split_can_disable_stderr(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """stderr_level=None should route diagnostic logs to file only."""
+        _clean_slate()
+        log_file = str(tmp_path / "file_only.log")
+        configure_logging_split(stderr_level=None, file_level="DEBUG", log_file=log_file)
+
+        logging.getLogger("llama_manager").info("file only diagnostic")
+
+        captured = capsys.readouterr()
+        assert "file only diagnostic" not in captured.err
+        assert "file only diagnostic" in tmp_path.joinpath("file_only.log").read_text(
+            encoding="utf-8"
+        )

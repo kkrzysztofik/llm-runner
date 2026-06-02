@@ -660,7 +660,7 @@ class ServerManager:
         is_stderr: bool = False,
         log_handler: Callable[[str], None] | None = None,
     ) -> None:
-        """Stream pipe output with timestamp and color, optionally to a log handler."""
+        """Stream pipe output to the main log and optionally to a UI log handler."""
         if pipe is None:
             return
         try:
@@ -669,11 +669,10 @@ class ServerManager:
                 formatted = self._format_output(server_name, redacted)
                 if log_handler is not None:
                     log_handler(formatted)
+                if is_stderr:
+                    logger.warning("%s", formatted)
                 else:
-                    if is_stderr:
-                        logger.warning("%s", formatted)
-                    else:
-                        logger.info("%s", formatted)
+                    logger.info("%s", formatted)
         finally:
             pipe.close()
 

@@ -136,6 +136,33 @@ class TestConfigModalCollectValues:
         assert isinstance(payload.smoke_listen_timeout_s, str)
         assert payload.smoke_listen_timeout_s == "30"
 
+    @pytest.mark.anyio
+    async def test_profile_defaults_collected(self) -> None:
+        """Profile/server default fields should be collected from the Config modal."""
+        config = _make_config(
+            default_batch_size=1024,
+            default_poll_ms=0,
+            default_parallel=4,
+            default_profile_cache_type_k="f16",
+            default_reasoning_mode="off",
+            default_use_jinja=True,
+            default_spec_type="ngram-mod",
+        )
+        modal = ConfigModal(config)
+        app = ConfigModalHostApp()
+        async with app.run_test() as pilot:
+            await app.push_screen(modal)
+            await pilot.pause()
+            payload = modal._collect_values()
+
+        assert payload.default_batch_size == "1024"
+        assert payload.default_poll_ms == "0"
+        assert payload.default_parallel == "4"
+        assert payload.default_profile_cache_type_k == "f16"
+        assert payload.default_reasoning_mode == "off"
+        assert payload.default_use_jinja is True
+        assert payload.default_spec_type == "ngram-mod"
+
 
 class TestConfigModalSave:
     """Tests for ConfigModal save button — returns ConfigPayload."""

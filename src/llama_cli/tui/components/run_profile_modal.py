@@ -4,16 +4,29 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, ListItem, ListView, Select
+from textual.widgets import Button, Checkbox, Collapsible, Input, Label, ListItem, ListView, Select
 
+from llama_manager.config import Config
 from llama_manager.config.profiles import RunProfileSpec
 from llama_manager.model_index import ModelIndexEntry
+
+from .form_widgets import (
+    REASONING_FORMAT_CHOICES,
+    REASONING_MODE_CHOICES,
+    ROW_SELECT_CLASSES,
+    SELECT_CLASSES,
+    SPEC_TYPE_CHOICES,
+    cache_type_row,
+    checkbox_row,
+    config_profile_prefill,
+    field_row,
+    select_row,
+)
 
 
 @dataclass
@@ -31,8 +44,43 @@ class RunProfilePayload:
     threads: int = 8
     chat_template_kwargs: str = ""
     device: str = "CUDA:0"
+    bind_address: str = "127.0.0.1"
+    tensor_split: str = ""
+    reasoning_mode: str = "auto"
+    reasoning_format: str = "none"
+    reasoning_budget: str = ""
+    use_jinja: bool = False
+    cache_type_k: str = "q8_0"
+    cache_type_v: str = "q8_0"
+    main_gpu: int = 0
+    batch_size: int = 2048
+    poll_ms: int = 50
+    n_predict: int = 32768
+    parallel: int = 4
+    threads_batch: int = 0
+    mmproj: str = ""
+    spec_type: str = ""
+    spec_ngram_size_n: int = 0
+    draft_min: int = 0
+    draft_max: int = 0
+    spec_draft_n_max: int = 0
+    spec_draft_p_min: float = 0.0
+    spec_draft_cache_type_k: str = ""
+    spec_draft_cache_type_v: str = ""
+    spec_draft_device: str = ""
     save_and_add_slot: bool = False
     original_profile_id: str = ""  # filled for edits
+
+
+def _parse_n_gpu_layers(raw: str) -> int | str:
+    if raw.lower() == "all":
+        return "all"
+    if not raw:
+        return 0
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
 
 
 class RunProfileModal(ModalScreen[RunProfilePayload | None]):
@@ -46,11 +94,13 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
         profile: RunProfileSpec | None = None,
         edit_source: str | None = None,
         model_index: list[ModelIndexEntry] | None = None,
+        config: Config | None = None,
     ) -> None:
         super().__init__()
         self._profile = profile
         self._edit_source = edit_source or ""
         self._model_index = model_index or []
+        self._config = config
         self._selected_model_path: str = profile.model if profile else ""
 
     BINDINGS = [
@@ -81,10 +131,6 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
 
     .profile-input {
         width: 1fr;
-        height: 3;
-    }
-
-    .profile-input Select {
         height: 3;
     }
 
@@ -123,21 +169,6 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
         display: none;
     }
 
-    #profile-device > SelectCurrent {
-        background: $surface-lighten-1;
-        color: $text;
-    }
-
-    #profile-device > SelectCurrent Static#label {
-        color: $text;
-    }
-
-    #profile-device-summary {
-        width: 28;
-        color: $text-muted;
-        content-align: left middle;
-    }
-
     .profile-row {
         width: 100%;
         height: 3;
@@ -168,7 +199,7 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
                 classes="modal-title profile-title",
             ),
             _build_form_fields(
-                prefill=self._profile_to_prefill(self._profile) if self._profile else {},
+                prefill=self._compose_prefill(),
                 model_index=self._model_index,
             ),
             Horizontal(
@@ -205,13 +236,6 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
                 self.query_one("#profile-model-search", Input).value = entry.path
                 self._update_selected_model(entry)
                 break
-
-    def on_select_changed(self, event: Select.Changed) -> None:
-        """Keep a plain visible device summary beside the Select widget."""
-        if event.select.id != "profile-device":
-            return
-        value = str(event.value) if event.value else "CUDA:0"
-        self.query_one("#profile-device-summary", Label).update(_device_label(value))
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Filter model list as user types in the search input."""
@@ -251,6 +275,13 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
         details.update("  |  ".join(parts))
         details.styles.display = "block" if parts else "none"
 
+    def _compose_prefill(self) -> dict[str, str]:
+        if self._profile:
+            return self._profile_to_prefill(self._profile)
+        if self._config:
+            return config_profile_prefill(self._config)
+        return {}
+
     def _profile_to_prefill(self, spec: RunProfileSpec) -> dict[str, str]:
         """Convert RunProfileSpec to prefill dict for form fields."""
         return {
@@ -267,6 +298,30 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
                 spec.chat_template_kwargs if spec.chat_template_kwargs else "{}"
             ),
             "device": spec.device or "CUDA:0",
+            "bind-address": spec.bind_address,
+            "tensor-split": spec.tensor_split,
+            "reasoning-mode": spec.reasoning_mode,
+            "reasoning-format": spec.reasoning_format,
+            "reasoning-budget": spec.reasoning_budget,
+            "use-jinja": "true" if spec.use_jinja else "false",
+            "cache-type-k": spec.cache_type_k,
+            "cache-type-v": spec.cache_type_v,
+            "main-gpu": str(spec.main_gpu),
+            "batch-size": str(spec.batch_size),
+            "poll-ms": str(spec.poll_ms),
+            "n-predict": str(spec.n_predict),
+            "parallel": str(spec.parallel),
+            "threads-batch": str(spec.threads_batch),
+            "mmproj": spec.mmproj,
+            "spec-type": spec.spec_type,
+            "spec-ngram-size-n": str(spec.spec_ngram_size_n),
+            "draft-min": str(spec.draft_min),
+            "draft-max": str(spec.draft_max),
+            "spec-draft-n-max": str(spec.spec_draft_n_max),
+            "spec-draft-p-min": str(spec.spec_draft_p_min),
+            "spec-draft-cache-type-k": spec.spec_draft_cache_type_k,
+            "spec-draft-cache-type-v": spec.spec_draft_cache_type_v,
+            "spec-draft-device": spec.spec_draft_device,
         }
 
     def action_cancel(self) -> None:
@@ -285,13 +340,7 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
     def _collect_values(self, *, save_and_add_slot: bool = False) -> RunProfilePayload:
         """Read all Input widgets and return a typed payload."""
         ngl_raw = self.query_one("#profile-n-gpu-layers", Input).value.strip()
-        if ngl_raw.lower() == "all":
-            ngl_val: int | str = "all"
-        else:
-            try:
-                ngl_val = int(ngl_raw) if ngl_raw else 0
-            except ValueError:
-                ngl_val = 0
+        ngl_val = _parse_n_gpu_layers(ngl_raw)
 
         device_select = self.query_one("#profile-device", Select)
         device_val = str(device_select.value) if device_select.value else "CUDA:0"
@@ -310,6 +359,37 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
                 "#profile-chat-template-kwargs", Input
             ).value.strip(),
             device=device_val,
+            bind_address=self.query_one("#profile-bind-address", Input).value.strip()
+            or "127.0.0.1",
+            tensor_split=self.query_one("#profile-tensor-split", Input).value.strip(),
+            reasoning_mode=str(self.query_one("#profile-reasoning-mode", Select).value or "auto"),
+            reasoning_format=str(
+                self.query_one("#profile-reasoning-format", Select).value or "none"
+            ),
+            reasoning_budget=self.query_one("#profile-reasoning-budget", Input).value.strip(),
+            use_jinja=self.query_one("#profile-use-jinja", Checkbox).value,
+            cache_type_k=str(self.query_one("#profile-cache-type-k", Select).value or "q8_0"),
+            cache_type_v=str(self.query_one("#profile-cache-type-v", Select).value or "q8_0"),
+            main_gpu=self._parse_int("profile-main-gpu", 0),
+            batch_size=self._parse_int("profile-batch-size", 2048),
+            poll_ms=self._parse_int("profile-poll-ms", 50),
+            n_predict=self._parse_int("profile-n-predict", 32768),
+            parallel=self._parse_int("profile-parallel", 4),
+            threads_batch=self._parse_int("profile-threads-batch", 0),
+            mmproj=self.query_one("#profile-mmproj", Input).value.strip(),
+            spec_type=str(self.query_one("#profile-spec-type", Select).value or ""),
+            spec_ngram_size_n=self._parse_int("profile-spec-ngram-size-n", 0),
+            draft_min=self._parse_int("profile-draft-min", 0),
+            draft_max=self._parse_int("profile-draft-max", 0),
+            spec_draft_n_max=self._parse_int("profile-spec-draft-n-max", 0),
+            spec_draft_p_min=self._parse_float("profile-spec-draft-p-min", 0.0),
+            spec_draft_cache_type_k=str(
+                self.query_one("#profile-spec-draft-cache-type-k", Select).value or ""
+            ),
+            spec_draft_cache_type_v=str(
+                self.query_one("#profile-spec-draft-cache-type-v", Select).value or ""
+            ),
+            spec_draft_device=self.query_one("#profile-spec-draft-device", Input).value.strip(),
             save_and_add_slot=save_and_add_slot,
             original_profile_id=(self._profile.profile_id if self._profile else ""),
         )
@@ -324,6 +404,16 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
         except ValueError:
             return default
 
+    def _parse_float(self, field_id: str, default: float) -> float:
+        """Parse a float from an Input widget, falling back to *default*."""
+        raw = self.query_one(f"#{field_id}", Input).value.strip()
+        if not raw:
+            return default
+        try:
+            return float(raw)
+        except ValueError:
+            return default
+
 
 def _build_form_fields(
     prefill: dict[str, str] | None = None,
@@ -332,26 +422,14 @@ def _build_form_fields(
     """Build the scrollable form body for the profile modal."""
     p = prefill or {}
     return Container(
-        _field_row("Profile ID", "profile-id", p.get("profile-id", "")),
-        _field_row("Display Label", "label", p.get("label", "")),
+        field_row("Profile ID", "profile-id", p.get("profile-id", "")),
+        field_row("Display Label", "label", p.get("label", "")),
         _model_row(model_index or [], p.get("model", "")),
-        _field_row("Server Binary (optional)", "server-bin", p.get("server-bin", "")),
         _device_row(p.get("device", "CUDA:0")),
-        _field_row("Port", "port", p.get("port", ""), type="number"),
-        _field_row("Context Size", "ctx-size", p.get("ctx-size", ""), type="number"),
-        _field_row(
-            "Ubatch Size",
-            "ubatch-size",
-            p.get("ubatch-size", ""),
-            type="number",
-        ),
-        _field_row(
-            "GPU Layers (int or 'all')",
-            "n-gpu-layers",
-            p.get("n-gpu-layers", "all"),
-        ),
-        _field_row("Threads", "threads", p.get("threads", ""), type="number"),
-        _field_row(
+        field_row("Context Size", "ctx-size", p.get("ctx-size", ""), type="number"),
+        _build_advanced_fields(p),
+        _build_speculative_fields(p),
+        field_row(
             "Chat Template Kwargs (JSON, optional)",
             "chat-template-kwargs",
             p.get("chat-template-kwargs", "{}"),
@@ -360,23 +438,96 @@ def _build_form_fields(
     )
 
 
-def _field_row(
-    label: str,
-    field_id: str,
-    value: str = "",
-    *,
-    type: Literal["text", "number", "integer"] = "text",
-) -> Horizontal:
-    """Build a labelled input row for one profile field."""
-    return Horizontal(
-        Label(f"{label}:", classes="form-label profile-field-label"),
-        Input(
-            value=value,
-            id=f"profile-{field_id}",
-            type=type,
-            classes="form-input profile-input",
+def _build_advanced_fields(prefill: dict[str, str]) -> Collapsible:
+    """Build the collapsed advanced section for optional profile tuning fields."""
+    use_jinja = prefill.get("use-jinja", "false").lower() in ("1", "true", "yes", "on")
+    return Collapsible(
+        field_row("Server Binary (optional)", "server-bin", prefill.get("server-bin", "")),
+        field_row("Port", "port", prefill.get("port", ""), type="number"),
+        field_row("Ubatch Size", "ubatch-size", prefill.get("ubatch-size", ""), type="number"),
+        field_row(
+            "GPU Layers (int or 'all')",
+            "n-gpu-layers",
+            prefill.get("n-gpu-layers", "all"),
         ),
-        classes="form-row profile-row",
+        field_row("Threads", "threads", prefill.get("threads", ""), type="number"),
+        field_row("Bind Address", "bind-address", prefill.get("bind-address", "127.0.0.1")),
+        field_row("Tensor Split", "tensor-split", prefill.get("tensor-split", "")),
+        field_row("Main GPU", "main-gpu", prefill.get("main-gpu", "0"), type="number"),
+        field_row("Batch Size", "batch-size", prefill.get("batch-size", ""), type="number"),
+        field_row("Poll (ms)", "poll-ms", prefill.get("poll-ms", ""), type="number"),
+        field_row("N Predict", "n-predict", prefill.get("n-predict", ""), type="number"),
+        field_row(
+            "Parallel (-1=unlimited)",
+            "parallel",
+            prefill.get("parallel", ""),
+            type="number",
+        ),
+        field_row(
+            "Threads Batch (0=omit)",
+            "threads-batch",
+            prefill.get("threads-batch", ""),
+            type="number",
+        ),
+        cache_type_row("Cache Type K", "cache-type-k", prefill.get("cache-type-k", "q8_0")),
+        cache_type_row("Cache Type V", "cache-type-v", prefill.get("cache-type-v", "q8_0")),
+        select_row(
+            "Reasoning Mode",
+            "reasoning-mode",
+            REASONING_MODE_CHOICES,
+            prefill.get("reasoning-mode", "auto"),
+        ),
+        select_row(
+            "Reasoning Format",
+            "reasoning-format",
+            REASONING_FORMAT_CHOICES,
+            prefill.get("reasoning-format", "none"),
+        ),
+        field_row("Reasoning Budget", "reasoning-budget", prefill.get("reasoning-budget", "")),
+        checkbox_row("Use Jinja", "use-jinja", use_jinja),
+        field_row("MMProj (optional)", "mmproj", prefill.get("mmproj", "")),
+        title="Advanced",
+        collapsed=True,
+        id="profile-advanced-collapsible",
+        classes="profile-advanced-options",
+    )
+
+
+def _build_speculative_fields(prefill: dict[str, str]) -> Collapsible:
+    """Build the collapsed speculative decoding section."""
+    return Collapsible(
+        select_row("Spec Type", "spec-type", SPEC_TYPE_CHOICES, prefill.get("spec-type", "")),
+        field_row(
+            "Ngram Size N",
+            "spec-ngram-size-n",
+            prefill.get("spec-ngram-size-n", "0"),
+            type="number",
+        ),
+        field_row("Draft Min", "draft-min", prefill.get("draft-min", "0"), type="number"),
+        field_row("Draft Max", "draft-max", prefill.get("draft-max", "0"), type="number"),
+        field_row(
+            "Draft N Max (MTP)",
+            "spec-draft-n-max",
+            prefill.get("spec-draft-n-max", "0"),
+            type="number",
+        ),
+        field_row("Draft P Min (MTP)", "spec-draft-p-min", prefill.get("spec-draft-p-min", "0")),
+        cache_type_row(
+            "Draft Cache K",
+            "spec-draft-cache-type-k",
+            prefill.get("spec-draft-cache-type-k", ""),
+            allow_empty=True,
+        ),
+        cache_type_row(
+            "Draft Cache V",
+            "spec-draft-cache-type-v",
+            prefill.get("spec-draft-cache-type-v", ""),
+            allow_empty=True,
+        ),
+        field_row("Draft Device", "spec-draft-device", prefill.get("spec-draft-device", "")),
+        title="Speculative decoding",
+        collapsed=True,
+        classes="profile-advanced-options profile-speculative-options",
     )
 
 
@@ -396,10 +547,9 @@ def _device_row(current_value: str = "CUDA:0") -> Horizontal:
                 ("SYCL0 — Intel Arc GPU", "SYCL0"),
             ],
             id="profile-device",
-            classes="form-input profile-input",
+            classes=SELECT_CLASSES,
         ),
-        Label(_device_label(current_value), id="profile-device-summary"),
-        classes="form-row profile-row",
+        classes=ROW_SELECT_CLASSES,
     )
 
 
@@ -449,17 +599,6 @@ def _selected_model_text(path: str) -> str:
     return f"Selected: {Path(path).name}"
 
 
-def _device_label(value: str) -> str:
-    """Format device value for a visible summary label."""
-    labels = {
-        "CUDA:0": "CUDA:0 NVIDIA",
-        "CUDA:0,1": "CUDA:0,1 NVIDIA",
-        "CUDA:1": "CUDA:1 NVIDIA",
-        "SYCL0": "SYCL0 Intel Arc",
-    }
-    return labels.get(value, value or "CUDA:0 NVIDIA")
-
-
 def _model_detail_parts(entry: ModelIndexEntry) -> list[str]:
     """Return compact model metadata parts for the modal details label."""
     parts = []
@@ -483,3 +622,48 @@ def _short_parse_error(error: str) -> str:
     if "timed out after" in error:
         return "parse timed out; using filename/cache fallback"
     return error.split(" for ", maxsplit=1)[0]
+
+
+def payload_to_run_profile_spec(profile_id: str, payload: RunProfilePayload) -> RunProfileSpec:
+    """Build a ``RunProfileSpec`` from modal form payload."""
+    ngl = payload.n_gpu_layers
+    ctk = payload.chat_template_kwargs
+    return RunProfileSpec(
+        profile_id=profile_id,
+        alias=payload.label or profile_id,
+        device=payload.device,
+        model=payload.model,
+        port=payload.port,
+        ctx_size=payload.ctx_size,
+        ubatch_size=payload.ubatch_size,
+        threads=payload.threads,
+        description=payload.label or "",
+        bind_address=payload.bind_address,
+        tensor_split=payload.tensor_split,
+        reasoning_mode=payload.reasoning_mode,
+        reasoning_format=payload.reasoning_format,
+        chat_template_kwargs=ctk if isinstance(ctk, str) else "",
+        reasoning_budget=payload.reasoning_budget,
+        use_jinja=payload.use_jinja,
+        cache_type_k=payload.cache_type_k,
+        cache_type_v=payload.cache_type_v,
+        n_gpu_layers=ngl if ngl == "all" else int(ngl),
+        main_gpu=payload.main_gpu,
+        server_bin=payload.server_bin,
+        backend="llama_cpp",
+        batch_size=payload.batch_size,
+        poll_ms=payload.poll_ms,
+        n_predict=payload.n_predict,
+        parallel=payload.parallel,
+        threads_batch=payload.threads_batch,
+        mmproj=payload.mmproj,
+        spec_type=payload.spec_type,
+        spec_ngram_size_n=payload.spec_ngram_size_n,
+        draft_min=payload.draft_min,
+        draft_max=payload.draft_max,
+        spec_draft_n_max=payload.spec_draft_n_max,
+        spec_draft_p_min=payload.spec_draft_p_min,
+        spec_draft_cache_type_k=payload.spec_draft_cache_type_k,
+        spec_draft_cache_type_v=payload.spec_draft_cache_type_v,
+        spec_draft_device=payload.spec_draft_device,
+    )
