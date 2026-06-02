@@ -157,3 +157,60 @@ class TestApplyConfigUpdates:
         assert cfg.default_parallel == 4
         assert cfg.default_use_jinja is True
         assert cfg.default_spec_draft_p_min == 0.25
+
+    def test_invalid_float_field_errors(self) -> None:
+        """Invalid float fields should produce errors."""
+        cfg = Config()
+        original = cfg.default_spec_draft_p_min
+
+        result = apply_config_updates(
+            cfg,
+            {"default_spec_draft_p_min": "not-a-float"},
+            persist=False,
+        )
+
+        assert result.success is False
+        assert len(result.errors) > 0
+        assert "Invalid value" in result.errors[0]
+        assert cfg.default_spec_draft_p_min == original
+
+    def test_bool_field_from_string(self) -> None:
+        """Bool fields should coerce common truthy strings."""
+        cfg = Config()
+
+        result = apply_config_updates(
+            cfg,
+            {"default_use_jinja": "yes"},
+            persist=False,
+        )
+
+        assert result.success is True
+        assert cfg.default_use_jinja is True
+
+    def test_bool_field_from_non_string(self) -> None:
+        """Bool fields should coerce non-string truthy values."""
+        cfg = Config()
+
+        result = apply_config_updates(
+            cfg,
+            {"default_use_jinja": 1},
+            persist=False,
+        )
+
+        assert result.success is True
+        assert cfg.default_use_jinja is True
+
+    def test_persist_oserror_appends_error(self, tmp_path: Path) -> None:
+        """OSError during persist should append an error message."""
+        cfg = Config()
+
+        with patch("llama_manager.config.persistence.config_file_path") as mock_path:
+            mock_path.return_value = tmp_path / "config.toml"
+            with patch(
+                "llama_manager.config.persistence.save_config_to_file",
+                side_effect=OSError("disk full"),
+            ):
+                result = apply_config_updates(cfg, {"host": "0.0.0.0"}, persist=True)
+
+        assert result.success is False
+        assert any("Config save failed" in err for err in result.errors)

@@ -193,6 +193,7 @@ def _append_speculative_flags(cmd: list[str], cfg: ServerConfig) -> None:
     cmd.extend(["--spec-type", "draft-mtp", "--spec-draft-n-max", str(cfg.spec_draft_n_max)])
     if cfg.spec_draft_p_min > 0:
         cmd.extend(["--spec-draft-p-min", str(cfg.spec_draft_p_min)])
+    # llama-server flags omit "cache" (--spec-draft-type-k/v), unlike field names.
     if cfg.spec_draft_cache_type_k:
         cmd.extend(["--spec-draft-type-k", cfg.spec_draft_cache_type_k])
     if cfg.spec_draft_cache_type_v:

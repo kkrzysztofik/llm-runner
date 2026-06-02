@@ -21,7 +21,6 @@ from llama_manager import (
     ServerConfig,
     ServerManager,
     SlotState,
-    add_slot_from_form,
     compute_slot_transition,
     get_gpu_identifier,
     launch_orchestrate,
@@ -365,13 +364,24 @@ class DashboardController:
 
         return create_tui_profile_registry(self.config)
 
-    def add_slot_from_form(self, values: dict[str, str]) -> bool:
-        """Create or replace a slot from modal profile selection."""
-        logger.debug(
-            "add_slot_from_form: enter values=%r configs_before=%r",
-            values,
-            [c.alias for c in self.configs],
-        )
+    def compute_add_slot_from_form(
+        self,
+        values: dict[str, str],
+    ) -> tuple[bool, list[str], str, ServerConfig | None]:
+        """Validate form values and resolve profile config without mutating TUI state."""
+        from llama_manager.slot_manager import compute_add_slot_from_form
+
+        registry = self._build_tui_registry()
+        return compute_add_slot_from_form(values, self.config, registry=registry)
+
+    def apply_add_slot_from_form(
+        self,
+        new_cfg: ServerConfig,
+        profile_id: str,
+    ) -> tuple[bool, list[str]]:
+        """Apply a resolved profile config to dashboard runtime state."""
+        from llama_manager.slot_manager import upsert_profile_slot
+
         state = {
             "log_buffers": self.log_buffers,
             "server_processes": self.server_processes,
@@ -379,23 +389,15 @@ class DashboardController:
             "unsaved_slots": self.unsaved_slots,
             "slots": self.slots,
         }
-        registry = self._build_tui_registry()
-        success, messages, _updated_state = add_slot_from_form(
-            values,
-            self.config,
+        success, messages, _updated_state = upsert_profile_slot(
+            new_cfg,
+            profile_id,
             self.configs,
             self.gpu_indices,
             self.gpu_stats,
             self.server_manager,
             state,
             self._make_collector,
-            registry=registry,
-        )
-        logger.debug(
-            "add_slot_from_form: result success=%s messages=%r configs_after=%r",
-            success,
-            messages,
-            [c.alias for c in self.configs],
         )
         for msg in messages:
             self._push_status_message(msg)
@@ -405,7 +407,34 @@ class DashboardController:
             for alias, warning in self.model.stale_warnings.items()
             if alias in active_aliases
         }
-        return success
+        return success, messages
+
+    def add_slot_from_form(self, values: dict[str, str]) -> bool:
+        """Create or replace a slot from modal profile selection."""
+        logger.debug(
+            "add_slot_from_form: enter values=%r configs_before=%r",
+            values,
+            [c.alias for c in self.configs],
+        )
+        success, messages, profile_id, new_cfg = self.compute_add_slot_from_form(values)
+        for msg in messages:
+            self._push_status_message(msg)
+        if not success or new_cfg is None:
+            logger.debug(
+                "add_slot_from_form: compute failed success=%s messages=%r",
+                success,
+                messages,
+            )
+            return False
+
+        apply_success, apply_messages = self.apply_add_slot_from_form(new_cfg, profile_id)
+        logger.debug(
+            "add_slot_from_form: result success=%s messages=%r configs_after=%r",
+            apply_success,
+            messages + apply_messages,
+            [c.alias for c in self.configs],
+        )
+        return apply_success
 
     def cancel_add_slot_form(self) -> None:
         """Emit a status message when the add-slot modal is cancelled."""

@@ -669,30 +669,7 @@ def merge_config_overrides(
         override_config=override_config,
     )
 
-    # Convert dict back to ServerConfig
-    return ServerConfig(
-        model=merged["model"],
-        alias=merged["alias"],
-        device=merged["device"],
-        port=merged["port"],
-        bind_address=merged.get("bind_address", "127.0.0.1"),
-        ctx_size=merged["ctx_size"],
-        ubatch_size=merged["ubatch_size"],
-        threads=merged["threads"],
-        tensor_split=merged.get("tensor_split", ""),
-        reasoning_mode=merged["reasoning_mode"],
-        reasoning_format=merged["reasoning_format"],
-        chat_template_kwargs=merged["chat_template_kwargs"],
-        reasoning_budget=merged.get("reasoning_budget", ""),
-        use_jinja=merged["use_jinja"],
-        cache_type_k=merged["cache_type_k"],
-        cache_type_v=merged["cache_type_v"],
-        n_gpu_layers=merged["n_gpu_layers"],
-        main_gpu=merged.get("main_gpu", 0),
-        server_bin=merged["server_bin"],
-        backend=merged["backend"],
-        risky_acknowledged=merged["risky_acknowledged"],
-    )
+    return _config_data_to_server_config(merged)
 
 
 def apply_profile_overrides(

@@ -83,6 +83,36 @@ class ServerConfig:
         if not isinstance(self.main_gpu, int) or self.main_gpu < 0:
             sys.stderr.write("main_gpu must be a non-negative integer\n")
             sys.exit(1)
+        if self.batch_size <= 0:
+            sys.stderr.write("batch_size must be greater than 0\n")
+            sys.exit(1)
+        if self.n_predict <= 0:
+            sys.stderr.write("n_predict must be greater than 0\n")
+            sys.exit(1)
+        if self.parallel <= 0:
+            sys.stderr.write("parallel must be greater than 0\n")
+            sys.exit(1)
+        if self.poll_ms < 0:
+            sys.stderr.write("poll_ms must be non-negative\n")
+            sys.exit(1)
+        if self.threads_batch < 0:
+            sys.stderr.write("threads_batch must be non-negative\n")
+            sys.exit(1)
+        if self.spec_ngram_size_n < 0:
+            sys.stderr.write("spec_ngram_size_n must be non-negative\n")
+            sys.exit(1)
+        if self.draft_min < 0:
+            sys.stderr.write("draft_min must be non-negative\n")
+            sys.exit(1)
+        if self.draft_max < 0:
+            sys.stderr.write("draft_max must be non-negative\n")
+            sys.exit(1)
+        if self.spec_draft_n_max < 0:
+            sys.stderr.write("spec_draft_n_max must be non-negative\n")
+            sys.exit(1)
+        if self.spec_draft_p_min < 0.0 or self.spec_draft_p_min > 1.0:
+            sys.stderr.write("spec_draft_p_min must be between 0.0 and 1.0\n")
+            sys.exit(1)
 
 
 @dataclass

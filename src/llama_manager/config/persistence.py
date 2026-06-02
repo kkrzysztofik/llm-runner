@@ -205,9 +205,20 @@ def _coerce_config_field_value(
     if field_name in _BOOL_FIELDS:
         if isinstance(raw_value, bool):
             return raw_value, None
+        if isinstance(raw_value, int):
+            if raw_value == 1:
+                return True, None
+            if raw_value == 0:
+                return False, None
+            return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
         if isinstance(raw_value, str):
-            return raw_value.strip().lower() in ("1", "true", "yes", "on"), None
-        return bool(raw_value), None
+            token = raw_value.strip().lower()
+            if token in ("1", "true", "yes", "on"):
+                return True, None
+            if token in ("0", "false", "no", "off"):
+                return False, None
+            return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
+        return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
     return raw_value, None
 
 

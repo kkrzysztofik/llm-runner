@@ -201,6 +201,40 @@ def upsert_profile_slot(
     return True, messages, state
 
 
+def compute_add_slot_from_form(
+    values: dict[str, str],
+    config: Config,
+    registry: RunProfileRegistry | None = None,
+) -> tuple[bool, list[str], str, ServerConfig | None]:
+    """Validate form values and resolve a profile config without mutating runtime state."""
+    messages: list[str] = []
+
+    profile_id = values.get("profile", "").strip()
+    if not profile_id:
+        messages.append("Profile is required")
+        return False, messages, profile_id, None
+
+    if registry is None:
+        registry = create_default_profile_registry(config)
+
+    override_config: dict[str, int] | None = None
+    port_value = values.get("port", "").strip()
+    if port_value:
+        port, warning = normalize_slot_port(port_value)
+        if warning is not None:
+            messages.append(warning)
+        override_config = {"port": port}
+
+    try:
+        new_cfg = resolve_profile_config(registry, profile_id, override_config=override_config)
+    except RunProfileError:
+        allowed = ", ".join(registry.profile_ids)
+        messages.append(f"Unknown profile '{profile_id}'. Choose one of: {allowed}")
+        return False, messages, profile_id, None
+
+    return True, messages, profile_id, new_cfg
+
+
 def add_slot_from_form(
     values: dict[str, str],
     config: Config,
@@ -230,29 +264,12 @@ def add_slot_from_form(
     Returns:
         ``(success, messages, updated_state)``.
     """
-    messages: list[str] = []
-
-    profile_id = values.get("profile", "").strip()
-    if not profile_id:
-        messages.append("Profile is required")
-        return False, messages, state
-
-    if registry is None:
-        registry = create_default_profile_registry(config)
-
-    override_config: dict[str, int] | None = None
-    port_value = values.get("port", "").strip()
-    if port_value:
-        port, warning = normalize_slot_port(port_value)
-        if warning is not None:
-            messages.append(warning)
-        override_config = {"port": port}
-
-    try:
-        new_cfg = resolve_profile_config(registry, profile_id, override_config=override_config)
-    except RunProfileError:
-        allowed = ", ".join(registry.profile_ids)
-        messages.append(f"Unknown profile '{profile_id}'. Choose one of: {allowed}")
+    success, messages, profile_id, new_cfg = compute_add_slot_from_form(
+        values,
+        config,
+        registry=registry,
+    )
+    if not success or new_cfg is None:
         return False, messages, state
 
     success, upsert_messages, state = upsert_profile_slot(

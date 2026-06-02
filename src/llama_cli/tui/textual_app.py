@@ -19,6 +19,8 @@ from textual.widgets import Footer
 if TYPE_CHECKING:
     from .controller import DashboardController
 
+from llama_manager.config import ServerConfig
+
 from .components.about_modal import AboutModal
 from .components.build import BuildModalScreen
 from .components.config_modal import ConfigModal, ConfigPayload
@@ -418,23 +420,60 @@ class DashboardApp(App[None]):
 
     @work(thread=True)
     def _run_add_slot(self, slot_form: dict[str, str], notify_message: str = "") -> None:
-        """Run add_slot_from_form on a background thread to keep the UI responsive."""
+        """Resolve add-slot form values on a worker; apply mutations on the UI thread."""
         logger.debug("_run_add_slot: starting, slot_form=%r", slot_form)
         error: str | None = None
+        success: bool | None = None
+        messages: list[str] = []
+        profile_id = ""
+        new_cfg = None
         try:
-            success = self.controller.add_slot_from_form(slot_form)
+            success, messages, profile_id, new_cfg = self.controller.compute_add_slot_from_form(
+                slot_form
+            )
             logger.debug(
-                "_run_add_slot: add_slot_from_form returned success=%s, configs=%r",
+                "_run_add_slot: compute_add_slot_from_form returned success=%s profile_id=%r",
                 success,
-                [c.alias for c in self.controller.configs],
+                profile_id,
             )
         except Exception as exc:
             logger.exception("_run_add_slot: unhandled exception")
             error = f"Add slot failed: {exc}"
-        self.call_from_thread(self._finish_add_slot, notify_message, error)
+            success = False
+        self.call_from_thread(
+            self._finish_add_slot,
+            notify_message,
+            error,
+            success,
+            messages,
+            profile_id,
+            new_cfg,
+        )
 
-    async def _finish_add_slot(self, notify_message: str = "", error: str | None = None) -> None:
-        """Called on the UI thread after the background add-slot work completes."""
+    async def _finish_add_slot(
+        self,
+        notify_message: str = "",
+        error: str | None = None,
+        success: bool | None = None,
+        messages: list[str] | None = None,
+        profile_id: str = "",
+        new_cfg: ServerConfig | None = None,
+    ) -> None:
+        """Called on the UI thread after background add-slot validation completes."""
+        slot_messages = list(messages or [])
+        apply_success = success
+        if error is None and success and new_cfg is not None:
+            for msg in slot_messages:
+                self.controller._push_status_message(msg)
+            apply_success, apply_messages = self.controller.apply_add_slot_from_form(
+                new_cfg,
+                profile_id,
+            )
+            slot_messages.extend(apply_messages)
+        elif error is None and not success:
+            for msg in slot_messages:
+                self.controller._push_status_message(msg)
+
         configs_aliases = [c.alias for c in self.controller.configs]
         try:
             container = self.query_one(_CONTENT_CONTAINER_ID)
@@ -449,7 +488,8 @@ class DashboardApp(App[None]):
         )
         if error:
             self.notify(error, title="Add Slot", severity="error")
-        elif notify_message:
+        elif apply_success and notify_message:
+            logger.debug("_finish_add_slot: success=%s notify=%r", apply_success, notify_message)
             self.notify(notify_message, severity="information")
         reconcile_start = time.perf_counter()
         logger.debug("_finish_add_slot: reconcile panels start")

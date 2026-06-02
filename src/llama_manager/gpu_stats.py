@@ -3,6 +3,7 @@
 import json
 import logging
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -51,6 +52,7 @@ class GPUStats:
     ) -> None:
         self.device_index = device_index
         self.stats: dict[str, Any] = {}
+        self._stats_lock = threading.Lock()
         self.last_update: float = 0.0
         self.update_interval: float = 0.5
         self._prev_gpu_util: float | None = None
@@ -65,11 +67,14 @@ class GPUStats:
         if current_time - self.last_update < self.update_interval:
             return
 
-        self.stats = self._collector()
+        new_stats = self._collector()
+        with self._stats_lock:
+            self.stats = new_stats
+            snapshot = dict(self.stats)
         self.last_update = current_time
 
         # Change-triggered poll logging: log when GPU util changes >5%
-        new_util = self.stats.get("gpu_util")
+        new_util = snapshot.get("gpu_util")
         if isinstance(new_util, str) and "%" in new_util:
             try:
                 current_pct = float(new_util.replace("%", ""))
@@ -95,7 +100,8 @@ class GPUStats:
     def get_stats_snapshot(self) -> dict[str, Any]:
         """Get current GPU stats as pure data."""
         self.update()
-        return dict(self.stats)
+        with self._stats_lock:
+            return dict(self.stats)
 
     def format_stats_text(self) -> str:
         """Get plain-text representation of current GPU stats."""
@@ -125,7 +131,8 @@ class GPUStats:
         Triggers a stats update if the last sample is stale.
         """
         self.update()
-        return self.stats.get("gpu_util", "N/A")
+        with self._stats_lock:
+            return self.stats.get("gpu_util", "N/A")
 
     @property
     def memory_util(self) -> str:
@@ -134,7 +141,8 @@ class GPUStats:
         Triggers a stats update if the last sample is stale.
         """
         self.update()
-        return self.stats.get("mem_util", "N/A")
+        with self._stats_lock:
+            return self.stats.get("mem_util", "N/A")
 
 
 def get_gpu_identifier(

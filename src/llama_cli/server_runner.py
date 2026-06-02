@@ -377,7 +377,7 @@ def cli_main() -> None:
     # diagnostic output cannot corrupt Textual's alternate screen.
     stderr_level = os.environ.get("LLM_RUNNER_LOG_LEVEL", cfg.log_stderr_level).upper()
     file_level = os.environ.get("LLM_RUNNER_LOG_FILE_LEVEL", cfg.log_file_level).upper()
-    argv = sys.argv[1:]
+    argv = _normalize_main_args(sys.argv[1:])
     launches_tui = not argv or argv[0] == "tui"
     stderr_sink_level = None if launches_tui else stderr_level
 

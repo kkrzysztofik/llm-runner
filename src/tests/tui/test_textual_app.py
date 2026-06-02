@@ -392,3 +392,19 @@ class TestDashboardAppCheckAction:
         app = self._make_app(risk_prompt=risk)
 
         assert app.check_action("quit_dashboard", ()) is False
+
+    def test_build_request_hides_about_action(self) -> None:
+        """During build_request the 'about' binding is hidden."""
+        app = self._make_app(build_request=True)
+
+        assert app.check_action("about", ()) is False
+
+    @pytest.mark.anyio
+    async def test_action_about_pushes_about_modal(self) -> None:
+        from llama_cli.tui.components.about_modal import AboutModal
+
+        app = self._make_app()
+        async with app.run_test() as pilot:
+            app.action_about()
+            await pilot.pause()
+            assert isinstance(app.screen, AboutModal)

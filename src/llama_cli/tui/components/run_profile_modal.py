@@ -488,6 +488,7 @@ def _build_advanced_fields(prefill: dict[str, str]) -> Collapsible:
         field_row("MMProj (optional)", "mmproj", prefill.get("mmproj", "")),
         title="Advanced",
         collapsed=True,
+        id="profile-advanced-collapsible",
         classes="profile-advanced-options",
     )
 

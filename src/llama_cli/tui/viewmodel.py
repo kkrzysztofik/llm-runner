@@ -149,7 +149,7 @@ class DashboardViewModel:
             self.model.gpu_stats[slot_index] if slot_index < len(self.model.gpu_stats) else None
         )
         status = self._resolve_slot_status(cfg.alias)
-        gpu_stats = dict(gpu.stats) if gpu is not None else None
+        gpu_stats = gpu.get_stats_snapshot() if gpu is not None else None
         state = ServerColumnState(
             alias=cfg.alias,
             status=status,

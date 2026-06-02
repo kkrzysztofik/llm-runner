@@ -8,11 +8,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from textual.app import App
-from textual.widgets import Checkbox, Collapsible, Input, ListView, Select
+from textual.widgets import Button, Checkbox, Collapsible, Input, ListView, Select
 
 from llama_cli.tui.components.run_profile_modal import (
     RunProfileModal,
     RunProfilePayload,
+    _parse_n_gpu_layers,
 )
 from llama_manager.config import Config
 from llama_manager.config.profiles import RunProfileSpec
@@ -73,6 +74,54 @@ def test_payload_ngpu_layers_all() -> None:
     """RunProfilePayload should accept 'all' as n_gpu_layers."""
     payload = RunProfilePayload(n_gpu_layers="all")
     assert payload.n_gpu_layers == "all"
+
+
+def test_parse_n_gpu_layers_all() -> None:
+    assert _parse_n_gpu_layers("all") == "all"
+    assert _parse_n_gpu_layers("ALL") == "all"
+
+
+def test_parse_n_gpu_layers_empty() -> None:
+    assert _parse_n_gpu_layers("") == 0
+
+
+def test_parse_n_gpu_layers_integer() -> None:
+    assert _parse_n_gpu_layers("42") == 42
+
+
+def test_parse_n_gpu_layers_invalid() -> None:
+    assert _parse_n_gpu_layers("not-a-number") == 0
+
+
+def test_compose_prefill_from_profile() -> None:
+    spec = RunProfileSpec(
+        profile_id="my-profile",
+        model="/models/custom.gguf",
+        alias="My Profile",
+        device="CUDA:0",
+        port=9090,
+        ctx_size=8192,
+        ubatch_size=1024,
+        threads=16,
+        backend="llama_cpp",
+    )
+    modal = RunProfileModal(profile=spec)
+    prefill = modal._compose_prefill()
+    assert prefill["profile-id"] == "my-profile"
+    assert prefill["model"] == "/models/custom.gguf"
+
+
+def test_compose_prefill_from_config() -> None:
+    config = Config(default_batch_size=1024, default_poll_ms=0)
+    modal = RunProfileModal(config=config)
+    prefill = modal._compose_prefill()
+    assert prefill["batch-size"] == "1024"
+    assert prefill["poll-ms"] == "0"
+
+
+def test_compose_prefill_empty() -> None:
+    modal = RunProfileModal()
+    assert modal._compose_prefill() == {}
 
 
 # ---------------------------------------------------------------------------
@@ -584,7 +633,7 @@ async def test_modal_advanced_section_collapsed_by_default() -> None:
         await app.push_screen(modal)
         await pilot.pause()
 
-        advanced = modal.query_one(".profile-advanced-options", Collapsible)
+        advanced = modal.query_one("#profile-advanced-collapsible", Collapsible)
         assert advanced.title == "Advanced"
         assert advanced.collapsed is True
 
@@ -693,9 +742,8 @@ async def test_create_modal_prefills_from_config() -> None:
 
 @pytest.mark.anyio
 async def test_select_displays_current_value_in_control() -> None:
-    """Select widgets should render the chosen option inside SelectCurrent."""
+    """Select widgets should render the chosen option inside the control."""
     from textual.widgets import Static
-    from textual.widgets._select import SelectCurrent
 
     config = Config(default_profile_cache_type_k="f16", default_reasoning_mode="off")
     modal = RunProfileModal(config=config)
@@ -707,13 +755,95 @@ async def test_select_displays_current_value_in_control() -> None:
 
         cache_k = modal.query_one("#profile-cache-type-k", Select)
         assert cache_k.value == "f16"
-        cache_label = cache_k.query_one(SelectCurrent).query_one("#label", Static)
+        cache_label = cache_k.query_one("#label", Static)
         assert "f16" in str(cache_label.content)
 
         reasoning = modal.query_one("#profile-reasoning-mode", Select)
         assert reasoning.value == "off"
-        reasoning_label = reasoning.query_one(SelectCurrent).query_one("#label", Static)
+        reasoning_label = reasoning.query_one("#label", Static)
         assert "off" in str(reasoning_label.content)
+
+
+@pytest.mark.anyio
+async def test_modal_cancel_button_dismisses_none() -> None:
+    modal = RunProfileModal()
+    result_holder: list[object] = []
+
+    def on_result(result: object) -> None:
+        result_holder.append(result)
+
+    app = App[None]()
+    async with app.run_test() as pilot:
+        await app.push_screen(modal, on_result)
+        await pilot.pause()
+        await pilot.click(modal.query_one("#cancel-profile", Button))
+        await pilot.pause()
+
+    assert result_holder == [None]
+
+
+@pytest.mark.anyio
+async def test_modal_save_button_returns_payload() -> None:
+    modal = RunProfileModal()
+    result_holder: list[object] = []
+
+    def on_result(result: object) -> None:
+        result_holder.append(result)
+
+    app = App[None]()
+    async with app.run_test() as pilot:
+        await app.push_screen(modal, on_result)
+        await pilot.pause()
+        modal.query_one("#profile-profile-id", Input).value = "saved-profile"
+        await pilot.click(modal.query_one("#save-profile", Button))
+        await pilot.pause()
+
+    assert len(result_holder) == 1
+    payload = result_holder[0]
+    assert isinstance(payload, RunProfilePayload)
+    assert payload.profile_id == "saved-profile"
+    assert payload.save_and_add_slot is False
+
+
+@pytest.mark.anyio
+async def test_modal_save_and_add_slot_sets_flag() -> None:
+    modal = RunProfileModal()
+    result_holder: list[object] = []
+
+    def on_result(result: object) -> None:
+        result_holder.append(result)
+
+    app = App[None]()
+    async with app.run_test() as pilot:
+        await app.push_screen(modal, on_result)
+        await pilot.pause()
+        await pilot.click(modal.query_one("#save-add-profile", Button))
+        await pilot.pause()
+
+    assert len(result_holder) == 1
+    payload = result_holder[0]
+    assert isinstance(payload, RunProfilePayload)
+    assert payload.save_and_add_slot is True
+
+
+@pytest.mark.anyio
+async def test_modal_action_cancel_dismisses_none() -> None:
+    modal = RunProfileModal()
+    dismissed: list[object | None] = []
+    modal.dismiss = lambda value=None: dismissed.append(value)  # type: ignore[method-assign]
+    modal.action_cancel()
+    assert dismissed == [None]
+
+
+@pytest.mark.anyio
+async def test_parse_float_falls_back_for_invalid_input() -> None:
+    modal = RunProfileModal()
+    app = App[None]()
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+        modal.query_one("#profile-spec-draft-p-min", Input).value = "not-a-float"
+        assert modal._parse_float("profile-spec-draft-p-min", 0.25) == 0.25
 
 
 # ---------------------------------------------------------------------------

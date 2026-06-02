@@ -953,12 +953,12 @@ dry_run() {
       echo "  Tensor Split: $DEFAULT_TENSOR_SPLIT_QWEN27B"
       echo "  Reasoning: on"
       echo "  Reasoning Format: deepseek"
-      echo "  Chat Template Kwargs: {\"enable_thinking\":true}"
+      echo "  Chat Template Kwargs: {\"preserve_thinking\":true}"
       echo "  Poll: $DEFAULT_POLL_MS_QWEN27B"
       echo "  Speculative: $DEFAULT_SPEC_TYPE_QWEN_MTP (draft-n-max=$DEFAULT_SPEC_DRAFT_N_MAX_QWEN35_MTP, draft-p-min=$DEFAULT_SPEC_DRAFT_P_MIN_QWEN35_MTP, draft-kv=$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_K/$DEFAULT_SPEC_DRAFT_CACHE_TYPE_QWEN35_V, draft-device=$DEFAULT_SPEC_DRAFT_DEVICE_QWEN35)"
       build_server_cmd tmp_cmd "$MODEL_QWEN27B_MTP" "qwen27b-coding" "" "$qwen27b_port_single" \
         "$DEFAULT_CTX_SIZE_QWEN27B" "$DEFAULT_UBATCH_SIZE_QWEN27B" "$DEFAULT_THREADS_QWEN27B" \
-        "$DEFAULT_TENSOR_SPLIT_QWEN27B" on deepseek '{"enable_thinking":true}' "" "false" \
+        "$DEFAULT_TENSOR_SPLIT_QWEN27B" on deepseek '{"preserve_thinking":true}' "" "false" \
         "$DEFAULT_CACHE_TYPE_QWEN27B_K" "$DEFAULT_CACHE_TYPE_QWEN27B_V" "$DEFAULT_N_GPU_LAYERS_QWEN27B" "$LLAMA_SERVER_BIN_NVIDIA" "" "$DEFAULT_POLL_MS_QWEN27B" "$DEFAULT_BATCH_SIZE_QWEN27B"
       tmp_cmd+=(--temperature 0.6 --top-p 0.95 --top-k 20 --min-p 0.0)
       tmp_cmd+=(--presence-penalty 0.0 --repeat-penalty 1.0)

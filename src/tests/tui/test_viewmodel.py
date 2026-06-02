@@ -478,7 +478,7 @@ def test_column_valid() -> None:
     log_buf = MagicMock()
     log_buf.get_text.return_value = "server log output"
     gpu_mock = MagicMock()
-    gpu_mock.stats = {"gpu_util": "45%"}
+    gpu_mock.get_stats_snapshot.return_value = {"gpu_util": "45%"}
     proc = MagicMock()
     proc.poll.return_value = None  # process is alive
 
@@ -500,7 +500,7 @@ def test_column_valid() -> None:
     assert result.config_summary == "Device: SYCL0 | Ctx: 8192 | Threads: 4"
     assert result.logs_text == "server log output"
     assert result.gpu_stats == {"gpu_util": "45%"}
-    gpu_mock.get_stats_snapshot.assert_not_called()
+    gpu_mock.get_stats_snapshot.assert_called_once()
     assert result.stale_warning is None
     assert result.is_unsaved is False
 

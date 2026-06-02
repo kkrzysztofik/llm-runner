@@ -353,6 +353,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_select,
+            row_classes=cfg_row_select,
         ),
         field_row(
             "Threads batch",
@@ -371,6 +372,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_select,
+            row_classes=cfg_row_select,
         ),
         cache_type_row(
             "Cache V",
@@ -379,6 +381,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_select,
+            row_classes=cfg_row_select,
         ),
         select_row(
             "Reasoning mode",
@@ -388,6 +391,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_select,
+            row_classes=cfg_row_select,
         ),
         select_row(
             "Reasoning format",
@@ -397,6 +401,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_select,
+            row_classes=cfg_row_select,
         ),
         field_row(
             "Reasoning budget",
@@ -412,6 +417,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             "default_use_jinja",
             config.default_use_jinja,
             id_prefix=prefix,
+            label_classes=cfg_label,
             row_classes=cfg_row,
         ),
         field_row(
@@ -440,6 +446,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_select,
+            row_classes=cfg_row_select,
         ),
         speculative,
         title="Profile / server defaults",
@@ -454,11 +461,12 @@ def checkbox_row(
     value: bool,
     *,
     id_prefix: str = "profile",
+    label_classes: str = LABEL_CLASSES,
     row_classes: str = ROW_CLASSES,
 ) -> Horizontal:
     """Build a labelled checkbox row."""
     return Horizontal(
-        Label(f"{label}:", classes=LABEL_CLASSES),
+        Label(f"{label}:", classes=label_classes),
         Checkbox("Enabled", value=value, id=f"{id_prefix}-{field_id}"),
         classes=row_classes,
     )

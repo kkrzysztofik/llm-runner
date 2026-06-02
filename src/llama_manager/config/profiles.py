@@ -78,8 +78,12 @@ class RunProfileSpec:
             value = getattr(self, name)
             if value < 0:
                 raise RunProfileError(f"{name} must be non-negative")
+        if self.draft_min > self.draft_max:
+            raise RunProfileError("draft_min must be <= draft_max")
         if self.spec_draft_p_min < 0:
             raise RunProfileError("spec_draft_p_min must be non-negative")
+        if self.spec_draft_p_min > 1.0:
+            raise RunProfileError("spec_draft_p_min must be <= 1.0")
         if self.spec_type not in ("", "ngram-mod", "draft-mtp"):
             raise RunProfileError("spec_type must be '', 'ngram-mod', or 'draft-mtp'")
         if not isinstance(self.main_gpu, int) or self.main_gpu < 0:
