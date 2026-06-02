@@ -200,6 +200,20 @@ class TestApplyConfigUpdates:
         assert result.success is True
         assert cfg.default_use_jinja is True
 
+    def test_bool_field_rejects_invalid_token(self) -> None:
+        """Bool fields should reject unrecognized string tokens."""
+        cfg = Config()
+
+        result = apply_config_updates(
+            cfg,
+            {"default_use_jinja": "tru"},
+            persist=False,
+        )
+
+        assert result.success is False
+        assert any("default_use_jinja" in err for err in result.errors)
+        assert cfg.default_use_jinja is False
+
     def test_persist_oserror_appends_error(self, tmp_path: Path) -> None:
         """OSError during persist should append an error message."""
         cfg = Config()

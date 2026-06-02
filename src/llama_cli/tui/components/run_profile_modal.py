@@ -80,7 +80,7 @@ def _parse_n_gpu_layers(raw: str) -> int | str:
     try:
         return int(raw)
     except ValueError:
-        return 0
+        return raw
 
 
 class RunProfileModal(ModalScreen[RunProfilePayload | None]):

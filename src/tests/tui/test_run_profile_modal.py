@@ -90,7 +90,7 @@ def test_parse_n_gpu_layers_integer() -> None:
 
 
 def test_parse_n_gpu_layers_invalid() -> None:
-    assert _parse_n_gpu_layers("not-a-number") == 0
+    assert _parse_n_gpu_layers("not-a-number") == "not-a-number"
 
 
 def test_compose_prefill_from_profile() -> None:
