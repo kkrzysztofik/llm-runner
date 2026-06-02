@@ -187,6 +187,30 @@ class ConfigUpdateResult:
     errors: list[str]
 
 
+def _coerce_config_field_value(
+    field_name: str,
+    raw_value: object,
+) -> tuple[object | None, str | None]:
+    """Return (coerced_value, error). value is None when coercion fails."""
+    if field_name in _INT_FIELDS:
+        try:
+            return int(raw_value), None  # type: ignore[arg-type]
+        except ValueError, TypeError:
+            return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
+    if field_name in _FLOAT_FIELDS:
+        try:
+            return float(raw_value), None  # type: ignore[arg-type]
+        except ValueError, TypeError:
+            return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
+    if field_name in _BOOL_FIELDS:
+        if isinstance(raw_value, bool):
+            return raw_value, None
+        if isinstance(raw_value, str):
+            return raw_value.strip().lower() in ("1", "true", "yes", "on"), None
+        return bool(raw_value), None
+    return raw_value, None
+
+
 def apply_config_updates(
     config: Config,
     updates: Mapping[str, object],
@@ -216,27 +240,10 @@ def apply_config_updates(
         if field_name not in config_fields:
             continue
 
-        if field_name in _INT_FIELDS:
-            try:
-                value = int(raw_value)  # type: ignore[arg-type]
-            except ValueError, TypeError:
-                errors.append(f"Invalid value '{raw_value}' for {field_name} — config not saved.")
-                continue
-        elif field_name in _FLOAT_FIELDS:
-            try:
-                value = float(raw_value)  # type: ignore[arg-type]
-            except ValueError, TypeError:
-                errors.append(f"Invalid value '{raw_value}' for {field_name} — config not saved.")
-                continue
-        elif field_name in _BOOL_FIELDS:
-            if isinstance(raw_value, bool):
-                value = raw_value
-            elif isinstance(raw_value, str):
-                value = raw_value.strip().lower() in ("1", "true", "yes", "on")
-            else:
-                value = bool(raw_value)
-        else:
-            value = raw_value
+        value, error = _coerce_config_field_value(field_name, raw_value)
+        if error is not None:
+            errors.append(error)
+            continue
 
         setattr(config, field_name, value)
         updated_fields.append(field_name)

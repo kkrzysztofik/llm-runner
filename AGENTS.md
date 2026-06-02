@@ -426,6 +426,7 @@ specs/001-m4-op-hardening/plan.md
 - TUI header logo: R2-D2-inspired mascot, horizontal rainbow on the LLM wordmark, no separate "runner" label under the robot; robot height should match the wordmark block.
 - Run profile create/edit: keep port, ubatch size, GPU layers, threads, and server binary in a collapsed **Advanced** section by default.
 - When adding profile/server fields, align with `run_opencode_models.sh`; expose global defaults in the Config modal; use Select/Checkbox for enumerated values and Input for freeform or wide numeric ranges.
+- Textual `Select` in profile/config modals: style `SelectCurrent` via `profile-select`/`config-select` so the chosen value renders inside the control at Input height; do not add summary-label workarounds beside Select widgets.
 
 ## Learned Workspace Facts
 

@@ -72,6 +72,17 @@ class RunProfilePayload:
     original_profile_id: str = ""  # filled for edits
 
 
+def _parse_n_gpu_layers(raw: str) -> int | str:
+    if raw.lower() == "all":
+        return "all"
+    if not raw:
+        return 0
+    try:
+        return int(raw)
+    except ValueError:
+        return 0
+
+
 class RunProfileModal(ModalScreen[RunProfilePayload | None]):
     """Modal for creating or editing a run profile.
 
@@ -188,13 +199,7 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
                 classes="modal-title profile-title",
             ),
             _build_form_fields(
-                prefill=(
-                    self._profile_to_prefill(self._profile)
-                    if self._profile
-                    else config_profile_prefill(self._config)
-                    if self._config
-                    else {}
-                ),
+                prefill=self._compose_prefill(),
                 model_index=self._model_index,
             ),
             Horizontal(
@@ -270,6 +275,13 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
         details.update("  |  ".join(parts))
         details.styles.display = "block" if parts else "none"
 
+    def _compose_prefill(self) -> dict[str, str]:
+        if self._profile:
+            return self._profile_to_prefill(self._profile)
+        if self._config:
+            return config_profile_prefill(self._config)
+        return {}
+
     def _profile_to_prefill(self, spec: RunProfileSpec) -> dict[str, str]:
         """Convert RunProfileSpec to prefill dict for form fields."""
         return {
@@ -328,13 +340,7 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
     def _collect_values(self, *, save_and_add_slot: bool = False) -> RunProfilePayload:
         """Read all Input widgets and return a typed payload."""
         ngl_raw = self.query_one("#profile-n-gpu-layers", Input).value.strip()
-        if ngl_raw.lower() == "all":
-            ngl_val: int | str = "all"
-        else:
-            try:
-                ngl_val = int(ngl_raw) if ngl_raw else 0
-            except ValueError:
-                ngl_val = 0
+        ngl_val = _parse_n_gpu_layers(ngl_raw)
 
         device_select = self.query_one("#profile-device", Select)
         device_val = str(device_select.value) if device_select.value else "CUDA:0"

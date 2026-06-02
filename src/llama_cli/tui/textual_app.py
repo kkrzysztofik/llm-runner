@@ -34,6 +34,8 @@ from .components.system_health import (
 from .components.system_status import SystemStatusWidget
 from .types import BuildWizardResult
 
+_CONTENT_CONTAINER_ID = "#content"
+
 # ---------------------------------------------------------------------------
 # Extracted pure helper: profile options caching
 # ---------------------------------------------------------------------------
@@ -163,7 +165,7 @@ class DashboardApp(App[None]):
                     getattr(gpu, "device_index", "unknown"),
                     (time.perf_counter() - gpu_start) * 1000,
                 )
-        except BaseException:
+        except Exception:
             logger.exception("_refresh_gpu_stats_worker: unhandled exception")
         finally:
             logger.debug(
@@ -426,7 +428,7 @@ class DashboardApp(App[None]):
                 success,
                 [c.alias for c in self.controller.configs],
             )
-        except BaseException as exc:
+        except Exception as exc:
             logger.exception("_run_add_slot: unhandled exception")
             error = f"Add slot failed: {exc}"
         self.call_from_thread(self._finish_add_slot, notify_message, error)
@@ -435,7 +437,7 @@ class DashboardApp(App[None]):
         """Called on the UI thread after the background add-slot work completes."""
         configs_aliases = [c.alias for c in self.controller.configs]
         try:
-            container = self.query_one("#content")
+            container = self.query_one(_CONTENT_CONTAINER_ID)
             panel_count_before = len(list(container.query(ServerLogPanel)))
         except NoMatches:
             panel_count_before = -1
@@ -457,7 +459,7 @@ class DashboardApp(App[None]):
             (time.perf_counter() - reconcile_start) * 1000,
         )
         try:
-            container = self.query_one("#content")
+            container = self.query_one(_CONTENT_CONTAINER_ID)
             panel_count_after = len(list(container.query(ServerLogPanel)))
         except NoMatches:
             panel_count_after = -1
@@ -491,7 +493,7 @@ class DashboardApp(App[None]):
     async def _reconcile_server_log_panels(self) -> None:
         """Ensure ServerLogPanel widgets match the current slot count."""
         start = time.perf_counter()
-        container = self.query_one("#content", Container)
+        container = self.query_one(_CONTENT_CONTAINER_ID, Container)
         current_panels = list(container.query(ServerLogPanel))
         needed = self.view_model.server_column_count()
         logger.debug(

@@ -636,13 +636,11 @@ class DashboardController:
                 self._push_status_message("chat_template_kwargs must be valid JSON")
                 return False
 
-        from llama_manager.config.profiles import RunProfileError
-
         from .components.run_profile_modal import payload_to_run_profile_spec
 
         try:
             spec = payload_to_run_profile_spec(profile_id, payload)
-        except (ValueError, RunProfileError) as exc:
+        except ValueError as exc:
             self._push_status_message(str(exc))
             return False
 
@@ -745,13 +743,11 @@ class DashboardController:
             self._push_status_message("Device is required")
             return False
 
-        from llama_manager.config.profiles import RunProfileError
-
         from .components.run_profile_modal import payload_to_run_profile_spec
 
         try:
             spec = payload_to_run_profile_spec(profile_id, payload)
-        except (ValueError, RunProfileError) as exc:
+        except ValueError as exc:
             self._push_status_message(str(exc))
             return False
 
