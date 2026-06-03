@@ -365,7 +365,7 @@ def _collect_level_zero_engine_util(lib: ctypes.CDLL, device: _LevelZeroDevice) 
         values.append(max(0.0, min(100.0, 100.0 * active_delta / timestamp_delta)))
     if not values:
         return None
-    return sum(values) / len(values)
+    return max(values)
 
 
 def _read_power_counters(

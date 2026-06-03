@@ -99,12 +99,14 @@ def collect_xpu_smi_stats(selector: GpuTelemetrySelector) -> dict[str, Any] | No
     }
     mem_pct = parse_float(metrics.get("XPUM_STATS_MEMORY_UTILIZATION"))
     mem_used_mib = parse_float(metrics.get("XPUM_STATS_MEMORY_USED"))
+    gpu_util_raw = parse_float(metrics.get("XPUM_STATS_GPU_UTILIZATION"))
+    temp_raw = parse_float(metrics.get("XPUM_STATS_TEMPERATURE"))
     stats = {
         "device": f"Intel GPU {selector.ordinal}",
-        "gpu_util": "N/A",
+        "gpu_util": format_percent(gpu_util_raw),
         "mem_util": format_percent(mem_pct),
         "vram": f"{mem_used_mib / 1024:.1f}G" if mem_used_mib is not None else "N/A",
-        "temp": "N/A",
+        "temp": format_temp(temp_raw),
         "power": format_power(parse_float(metrics.get("XPUM_STATS_POWER"))),
         "source": "xpu-smi",
     }
