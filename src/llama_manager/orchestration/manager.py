@@ -31,7 +31,7 @@ from ..config import (
     SlotState,
     apply_profile_overrides,
 )
-from ..gpu_stats import GPUStats
+from ..gpu_telemetry import GPUStats
 from ..log_buffer import LogBuffer
 from .launcher import ProcessHandle, ProcessLauncher, ProcessTimeoutError
 

@@ -11,7 +11,12 @@ from typing import Any
 from .config import Config, ModelSlot, ServerConfig, SlotState
 from .config.builder import create_default_profile_registry, resolve_profile_config
 from .config.profiles import RunProfileError, RunProfileRegistry
-from .gpu_stats import GPUStats
+from .gpu_telemetry import (
+    GPUStats,
+    collector_for_config,
+    parse_gpu_telemetry_selector,
+    selector_for_config,
+)
 from .log_buffer import LogBuffer
 from .orchestration import ServerManager
 from .slot_state import compute_slot_transition
@@ -55,18 +60,20 @@ def gpu_index_for_config(
     cfg: ServerConfig,
     device_mapping: dict[str, int] | None = None,
 ) -> int:
-    """Return dashboard GPU index for a configuration.
+    """Return telemetry ordinal for a configuration.
 
     Args:
         cfg: Server configuration.
         device_mapping: Optional override mapping from device class to GPU
-            index.  Defaults to ``{"sycl": 1, "cuda": 0}``.
+            ordinal. Retained for compatibility.
 
     Returns:
-        GPU index for the device's dashboard panel.
+        GPU ordinal for the device's dashboard panel.
     """
-    mapping = device_mapping or {"sycl": 1, "cuda": 0}
-    return mapping.get(device_class_for_config(cfg), 0)
+    device_class = device_class_for_config(cfg)
+    if device_mapping is not None:
+        return device_mapping.get(device_class, 0)
+    return parse_gpu_telemetry_selector(cfg.device, cfg.main_gpu).ordinal
 
 
 def remove_slot_runtime_state(alias: str, state: dict[str, Any]) -> None:
@@ -170,7 +177,11 @@ def upsert_profile_slot(
         configs.append(cfg)
         gpu_idx = gpu_index_for_config(cfg)
         gpu_indices.append(gpu_idx)
-        gpu_stats.append(GPUStats(gpu_idx, collector=make_collector(gpu_idx)))
+        gpu_stats.append(
+            GPUStats(
+                gpu_idx, collector=collector_for_config(cfg), selector=selector_for_config(cfg)
+            )
+        )
         state, slot_messages = register_and_start_slot(cfg, server_manager, state)
         messages.extend(slot_messages)
         messages.append(
@@ -190,7 +201,9 @@ def upsert_profile_slot(
     configs[existing_index] = cfg
     gpu_idx = gpu_index_for_config(cfg)
     gpu_indices[existing_index] = gpu_idx
-    gpu_stats[existing_index] = GPUStats(gpu_idx, collector=make_collector(gpu_idx))
+    gpu_stats[existing_index] = GPUStats(
+        gpu_idx, collector=collector_for_config(cfg), selector=selector_for_config(cfg)
+    )
 
     state, slot_messages = register_and_start_slot(cfg, server_manager, state)
     messages.extend(slot_messages)

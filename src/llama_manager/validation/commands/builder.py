@@ -321,17 +321,30 @@ def _build_hardware_notes(cfg: ServerConfig) -> dict[str, str | None]:
 
 
 def _parse_device_details(device: str) -> tuple[str | None, str]:
-    if device == "auto":
+    normalized = device.strip()
+    lower = normalized.lower()
+    upper = normalized.upper()
+    if lower == "auto":
         return (None, device)
 
-    if device.startswith("cuda:"):
-        parts = device.split(":", maxsplit=1)
+    if lower.startswith("cuda:"):
+        parts = normalized.split(":", maxsplit=1)
         if len(parts) == 2 and parts[1]:
             return (parts[1], "NVIDIA GPU")
         return (None, device)
 
-    if device.startswith("sycl:"):
-        parts = device.split(":")
+    if upper.startswith("SYCL"):
+        if ":" in normalized:
+            parts = normalized.split(":")
+            if len(parts) >= 3:
+                return (f"{parts[1]}:{parts[2]}", f"SYCL Device {parts[1]}")
+            if len(parts) > 1:
+                return (":".join(parts[1:]), device)
+        ordinal = normalized[4:]
+        return (ordinal or "0", "Intel SYCL GPU")
+
+    if lower.startswith("sycl:"):
+        parts = normalized.split(":")
         if len(parts) >= 3:
             return (f"{parts[1]}:{parts[2]}", f"SYCL Device {parts[1]}")
         if len(parts) > 1:

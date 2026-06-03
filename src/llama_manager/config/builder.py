@@ -8,7 +8,7 @@ from typing import Any
 
 from loguru import logger
 
-from ..gpu_stats import get_gpu_identifier
+from ..gpu_telemetry import get_gpu_identifier
 from .defaults import Config, SmokeProbeConfiguration
 from .profile_cache import (
     PROFILE_OVERRIDE_FIELDS,

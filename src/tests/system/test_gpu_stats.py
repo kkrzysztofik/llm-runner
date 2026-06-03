@@ -3,7 +3,7 @@
 import json
 from unittest.mock import MagicMock, patch
 
-from llama_manager.gpu_stats import collect_nvtop_stats
+from llama_manager.gpu_telemetry import collect_nvtop_stats
 
 
 class TestCollectNvtopStats:

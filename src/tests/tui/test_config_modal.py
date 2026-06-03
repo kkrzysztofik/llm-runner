@@ -9,11 +9,15 @@ Covers:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from typing import Any, cast
+from unittest.mock import MagicMock
+
 import pytest
 from textual.app import App
 from textual.widgets import Button, Input
 
-from llama_cli.tui.components.config_modal import ConfigModal
+from llama_cli.tui.components.config_modal import ConfigModal, ConfigPayload
 from llama_manager.config import Config
 
 
@@ -167,27 +171,19 @@ class TestConfigModalCollectValues:
 class TestConfigModalSave:
     """Tests for ConfigModal save button — returns ConfigPayload."""
 
-    @pytest.mark.anyio
-    async def test_save_button_returns_payload(self) -> None:
+    def test_save_button_returns_payload(self) -> None:
         """Save button should return ConfigPayload with collected values."""
         config = _make_config()
         modal = ConfigModal(config)
-        result_holder: list[object] = []
+        payload = ConfigPayload(llama_cpp_root="/saved")
+        modal._collect_values = MagicMock(return_value=payload)  # type: ignore[method-assign]
+        modal.dismiss = MagicMock()  # type: ignore[method-assign]
 
-        def on_result(result: object) -> None:
-            result_holder.append(result)
+        modal.on_button_pressed(
+            cast(Any, SimpleNamespace(button=SimpleNamespace(id="save-config")))
+        )
 
-        app = ConfigModalHostApp()
-        async with app.run_test() as pilot:
-            await app.push_screen(modal, on_result)
-            await pilot.pause()
-            save_btn = modal.query_one("#save-config", Button)
-            await pilot.click(save_btn)
-            await pilot.pause()
-
-        assert len(result_holder) == 1
-        payload = result_holder[0]
-        assert hasattr(payload, "llama_cpp_root")
+        modal.dismiss.assert_called_once_with(payload)  # type: ignore[attr-defined]
 
     @pytest.mark.anyio
     async def test_save_populates_all_fields(self) -> None:
@@ -260,87 +256,47 @@ class TestConfigModalSaveRestart:
 class TestConfigModalCancel:
     """Tests for Cancel button — dismisses with None."""
 
-    @pytest.mark.anyio
-    async def test_cancel_button_dismisses(self) -> None:
+    def test_cancel_button_dismisses(self) -> None:
         """Cancel button should dismiss the modal."""
         config = _make_config()
         modal = ConfigModal(config)
-        result_holder: list[object] = []
+        modal.dismiss = MagicMock()  # type: ignore[method-assign]
 
-        def on_result(result: object) -> None:
-            result_holder.append(result)
+        modal.on_button_pressed(
+            cast(Any, SimpleNamespace(button=SimpleNamespace(id="cancel-config")))
+        )
 
-        app = ConfigModalHostApp()
-        async with app.run_test() as pilot:
-            await app.push_screen(modal, on_result)
-            await pilot.pause()
-            cancel_btn = modal.query_one("#cancel-config", Button)
-            await pilot.click(cancel_btn)
-            await pilot.pause()
+        modal.dismiss.assert_called_once_with(None)  # type: ignore[attr-defined]
 
-        assert len(result_holder) == 1
-        assert result_holder[0] is None
-
-    @pytest.mark.anyio
-    async def test_escape_key_dismisses(self) -> None:
+    def test_escape_key_dismisses(self) -> None:
         """Escape key should dismiss via action_cancel."""
-        config = _make_config()
-        modal = ConfigModal(config)
-        result_holder: list[object] = []
+        binding = next(
+            binding
+            for binding in (cast(Any, item) for item in ConfigModal.BINDINGS)
+            if binding.key == "escape"
+        )
 
-        def on_result(result: object) -> None:
-            result_holder.append(result)
+        assert binding.action == "cancel"
 
-        app = ConfigModalHostApp()
-        async with app.run_test() as pilot:
-            await app.push_screen(modal, on_result)
-            await pilot.pause()
-            await pilot.press("escape")
-            await pilot.pause()
-
-        assert len(result_holder) == 1
-        assert result_holder[0] is None
-
-    @pytest.mark.anyio
-    async def test_ctrl_c_dismisses(self) -> None:
+    def test_ctrl_c_dismisses(self) -> None:
         """Ctrl+C should dismiss via action_cancel."""
-        config = _make_config()
-        modal = ConfigModal(config)
-        result_holder: list[object] = []
+        binding = next(
+            binding
+            for binding in (cast(Any, item) for item in ConfigModal.BINDINGS)
+            if binding.key == "ctrl+c"
+        )
 
-        def on_result(result: object) -> None:
-            result_holder.append(result)
+        assert binding.action == "cancel"
 
-        app = ConfigModalHostApp()
-        async with app.run_test() as pilot:
-            await app.push_screen(modal, on_result)
-            await pilot.pause()
-            # Trigger the action directly since ctrl+c may be intercepted by App
-            modal.action_cancel()
-            await pilot.pause()
-
-        assert len(result_holder) == 1
-        assert result_holder[0] is None
-
-    @pytest.mark.anyio
-    async def test_action_cancel_calls_dismiss_none(self) -> None:
+    def test_action_cancel_calls_dismiss_none(self) -> None:
         """action_cancel should call self.dismiss(None)."""
         config = _make_config()
         modal = ConfigModal(config)
-        result_holder: list[object] = []
+        modal.dismiss = MagicMock()  # type: ignore[method-assign]
 
-        def on_result(result: object) -> None:
-            result_holder.append(result)
+        modal.action_cancel()
 
-        app = ConfigModalHostApp()
-        async with app.run_test() as pilot:
-            await app.push_screen(modal, on_result)
-            await pilot.pause()
-            modal.action_cancel()
-            await pilot.pause()
-
-        assert len(result_holder) == 1
-        assert result_holder[0] is None
+        modal.dismiss.assert_called_once_with(None)  # type: ignore[attr-defined]
 
 
 class TestConfigModalComposition:

@@ -963,7 +963,7 @@ class TestSlotRuntime:
     def test_construction_with_all_fields(self) -> None:
         """SlotRuntime should accept all expected fields."""
         from llama_manager.config import SlotState
-        from llama_manager.gpu_stats import GPUStats
+        from llama_manager.gpu_telemetry import GPUStats
         from llama_manager.log_buffer import LogBuffer
 
         try:
@@ -1048,7 +1048,7 @@ class TestSlotRuntime:
     def test_to_dict_includes_gpu_stats(self) -> None:
         """SlotRuntime.to_dict() should include gpu_stats info when present."""
         from llama_manager.config import SlotState
-        from llama_manager.gpu_stats import GPUStats
+        from llama_manager.gpu_telemetry import GPUStats
         from llama_manager.log_buffer import LogBuffer
 
         try:

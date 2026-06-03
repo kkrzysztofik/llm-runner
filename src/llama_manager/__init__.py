@@ -93,7 +93,20 @@ from .config.profile_cache import (
     write_profile,
 )
 from .dry_run import DryRunResult, run_dry_run, write_dry_run_artifact
-from .gpu_stats import GPUStats, collect_nvtop_stats, get_gpu_identifier
+from .gpu_telemetry import (
+    GPUStats,
+    GpuTelemetrySelector,
+    collect_gpu_stats,
+    collect_level_zero_stats,
+    collect_nvidia_smi_stats,
+    collect_nvtop_stats,
+    collect_xpu_smi_stats,
+    collector_for_config,
+    get_gpu_identifier,
+    make_gpu_collector,
+    parse_gpu_telemetry_selector,
+    selector_for_config,
+)
 from .log_buffer import LogBuffer
 from .metadata import (
     GGUFMetadataRecord,
@@ -355,8 +368,17 @@ __all__ = [
     # Components
     "LogBuffer",
     "GPUStats",
+    "GpuTelemetrySelector",
+    "collect_gpu_stats",
+    "collect_level_zero_stats",
     "collect_nvtop_stats",
+    "collect_nvidia_smi_stats",
+    "collect_xpu_smi_stats",
+    "collector_for_config",
     "get_gpu_identifier",
+    "make_gpu_collector",
+    "parse_gpu_telemetry_selector",
+    "selector_for_config",
     # System stats
     "collect_cpu_percentages",
     "collect_memory_usage",

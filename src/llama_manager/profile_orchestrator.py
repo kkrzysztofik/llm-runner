@@ -32,7 +32,7 @@ from .config import (
     resolve_profile_id,
 )
 from .config.profile_cache import compute_driver_version_hash, write_profile
-from .gpu_stats import get_gpu_identifier
+from .gpu_telemetry import get_gpu_identifier
 
 # ---------------------------------------------------------------------------
 # Module-level constants

@@ -1,7 +1,7 @@
 """GPU statistics collectors for llm-runner TUI.
 
-DEPRECATED: This module re-exports from llama_manager.gpu_stats.
-The nvtop collector logic has been moved to the pure library.
+DEPRECATED: This module re-exports from llama_manager.gpu_telemetry.
+The nvtop collector logic lives in the pure library.
 """
 
 import psutil
@@ -23,6 +23,6 @@ def _get_memory_percent() -> float:
         return 0.0
 
 
-from llama_manager.gpu_stats import collect_nvtop_stats
+from llama_manager.gpu_telemetry import collect_nvtop_stats
 
 __all__ = ["collect_nvtop_stats", "_get_cpu_percent", "_get_memory_percent"]
