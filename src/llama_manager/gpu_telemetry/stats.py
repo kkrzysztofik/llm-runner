@@ -147,11 +147,18 @@ def get_gpu_identifier(
     return compute_gpu_identifier(backend, gpu_name, device_index)
 
 
-def collect_gpu_stats(selector: GpuTelemetrySelector) -> dict[str, Any]:
-    """Collect GPU stats by merging results from all available collectors.
+def _is_real_value(value: Any) -> bool:
+    """Check if a metric value is real (not missing/unknown)."""
+    return value not in (None, "N/A", "")
 
-    Each collector fills whatever metrics it can provide. The first non-None
-    value for each key wins, so more complete collectors take precedence.
+
+def collect_gpu_stats(selector: GpuTelemetrySelector) -> dict[str, Any]:
+    """Collect GPU stats by merging results from available collectors.
+
+    Collectors run in order — L0 → nvtop → xpu-smi for SYCL, nvidia-smi → nvtop
+    for CUDA — and each fills whichever metrics it can provide. The first
+    non-None value for each key wins. Collection stops once ``gpu_util`` has a
+    real value, avoiding unnecessary subprocess calls.
     """
     collectors: tuple[Callable[[GpuTelemetrySelector], dict[str, Any] | None], ...]
     if selector.backend == "sycl":
@@ -168,8 +175,10 @@ def collect_gpu_stats(selector: GpuTelemetrySelector) -> dict[str, Any]:
         if stats is None:
             continue
         for key, value in stats.items():
-            if key not in merged or merged.get(key) in (None, "N/A", ""):
+            if key not in merged or not _is_real_value(merged.get(key)):
                 merged[key] = value
+        if _is_real_value(merged.get("gpu_util")):
+            break
     if merged:
         return merged
     return psutil_only_collector(selector.ordinal)
