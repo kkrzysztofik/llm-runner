@@ -2,6 +2,7 @@
 
 import ctypes
 import logging
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -413,6 +414,51 @@ def _collect_level_zero_temp(lib: ctypes.CDLL, device: _LevelZeroDevice) -> floa
     return max(temps)
 
 
+def _collect_sysfs_temp(device: _LevelZeroDevice) -> float | None:
+    """Fallback: read GPU temperature from sysfs hwmon when L0 Sysman fails."""
+    if not device.pci_bdf:
+        return None
+    hwmon_root = f"/sys/bus/pci/devices/{device.pci_bdf}/hwmon"
+    if not os.path.isdir(hwmon_root):
+        return None
+    for entry in os.listdir(hwmon_root):
+        hwmon_path = os.path.join(hwmon_root, entry)
+        name_path = os.path.join(hwmon_path, "name")
+        if not os.path.isfile(name_path):
+            continue
+        try:
+            with open(name_path) as f:
+                if f.read().strip() != "xe":
+                    continue
+        except OSError:
+            continue
+        sensors: dict[str, list[int]] = {}
+        for fname in os.listdir(hwmon_path):
+            if not fname.startswith("temp") or not fname.endswith("_input"):
+                continue
+            prefix = fname.rsplit("_", 1)[0]
+            fidx = prefix.replace("temp", "")
+            try:
+                with open(os.path.join(hwmon_path, fname)) as f:
+                    sensors.setdefault(fidx, []).append(int(f.read().strip()))
+            except OSError:
+                continue
+        if not sensors:
+            return None
+        for fidx, values in sensors.items():
+            label_file = os.path.join(hwmon_path, f"temp{fidx}_label")
+            try:
+                with open(label_file) as f:
+                    label = f.read().strip()
+            except OSError:
+                label = ""
+            if label == "pkg":
+                return values[0] / 1000.0
+        best = max(vs[0] for vs in sensors.values())
+        return best / 1000.0
+    return None
+
+
 def collect_level_zero_stats(selector: GpuTelemetrySelector) -> dict[str, Any] | None:
     """Collect Intel GPU stats using Level Zero Sysman."""
     global _level_zero_fallback_logged  # noqa: PLW0603
@@ -433,12 +479,15 @@ def collect_level_zero_stats(selector: GpuTelemetrySelector) -> dict[str, Any] |
             if used_bytes is not None and total_bytes is not None and total_bytes > 0
             else None
         )
+        temp = _collect_level_zero_temp(lib, device)
+        if temp is None:
+            temp = _collect_sysfs_temp(device)
         stats = {
             "device": device.name,
             "gpu_util": format_percent(_collect_level_zero_engine_util(lib, device)),
             "mem_util": format_percent(mem_pct),
             "vram": format_memory_used(used_bytes, total_bytes),
-            "temp": format_temp(_collect_level_zero_temp(lib, device)),
+            "temp": format_temp(temp),
             "power": format_power(_collect_level_zero_power(lib, device)),
             "source": "level-zero",
             "pci_bdf": device.pci_bdf or "N/A",

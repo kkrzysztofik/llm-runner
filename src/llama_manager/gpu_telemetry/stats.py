@@ -148,20 +148,30 @@ def get_gpu_identifier(
 
 
 def collect_gpu_stats(selector: GpuTelemetrySelector) -> dict[str, Any]:
-    """Collect GPU stats using vendor-native telemetry and stable selector matching."""
+    """Collect GPU stats by merging results from all available collectors.
+
+    Each collector fills whatever metrics it can provide. The first non-None
+    value for each key wins, so more complete collectors take precedence.
+    """
     collectors: tuple[Callable[[GpuTelemetrySelector], dict[str, Any] | None], ...]
     if selector.backend == "sycl":
         collectors = (
             collect_level_zero_stats,
-            collect_xpu_smi_stats,
             collect_nvtop_stats_for_selector,
+            collect_xpu_smi_stats,
         )
     else:
         collectors = (collect_nvidia_smi_stats, collect_nvtop_stats_for_selector)
+    merged: dict[str, Any] = {}
     for collector in collectors:
         stats = collector(selector)
-        if stats is not None:
-            return stats
+        if stats is None:
+            continue
+        for key, value in stats.items():
+            if key not in merged or merged.get(key) in (None, "N/A", ""):
+                merged[key] = value
+    if merged:
+        return merged
     return psutil_only_collector(selector.ordinal)
 
 
