@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 
 from ..common.validators import validate_port_range
-from .errors import ErrorCode, ErrorDetail, ValidationResult
+from .errors import ErrorCode, ErrorDetail
 from .spec_decode import SpeculativeDecodingConfig
 
 # Regex pattern for slot ID normalization: strip, lowercase, allow only a-z0-9_-
@@ -297,7 +297,7 @@ def validate_slot_id(slot_id: str) -> ErrorDetail:
     """
     try:
         normalized = normalize_slot_id(slot_id)
-        return ValidationResult(
+        return ErrorDetail(
             slot_id=normalized,
             passed=True,
         )
@@ -331,7 +331,7 @@ def validate_slot_port(port: int, slot_id: str) -> ErrorDetail:
             how_to_fix="use a TCP port between 1024 and 65535",
             slot_id=slot_id,
         )
-    return ValidationResult(
+    return ErrorDetail(
         slot_id=slot_id,
         passed=True,
     )

@@ -7,9 +7,22 @@ Exports:
     DefaultProcessLauncher – concrete launcher backed by subprocess.Popen
 """
 
+import contextlib
+import logging
+import os
+import signal
 import subprocess
+import time
+import traceback
+from collections.abc import Callable
 from io import TextIOWrapper
-from typing import Protocol
+from typing import Protocol, TextIO
+
+import psutil
+
+from ..common.security import redact_text
+
+logger = logging.getLogger(__name__)
 
 
 class ProcessTimeoutError(Exception):
@@ -90,3 +103,91 @@ class _SubprocessHandle:
             raise ProcessTimeoutError(
                 f"process {self.pid} did not exit within {timeout}s",
             ) from None
+
+
+# ---------------------------------------------------------------------------
+# Process I/O and cleanup utilities (extracted from ServerManager)
+# ---------------------------------------------------------------------------
+
+
+def format_output(server_name: str, line: str) -> str:
+    """Format output line with timestamp."""
+    timestamp = time.strftime("%H:%M:%S")
+    return f"[{timestamp}][{server_name}] {line}"
+
+
+def stream_pipe(
+    pipe: TextIO | None,
+    server_name: str,
+    is_stderr: bool = False,
+    log_handler: Callable[[str], None] | None = None,
+) -> None:
+    """Stream pipe output to the main log and optionally to a UI log handler."""
+    if pipe is None:
+        return
+    try:
+        for line in iter(pipe.readline, ""):
+            redacted = redact_text(line.rstrip("\n"))
+            formatted = format_output(server_name, redacted)
+            if log_handler is not None:
+                log_handler(formatted)
+            if is_stderr:
+                logger.warning("%s", formatted)
+            else:
+                logger.info("%s", formatted)
+    finally:
+        pipe.close()
+
+
+def wait_for_processes(
+    servers: list[ProcessHandle],
+    lifecycle_audit: list[dict],
+) -> None:
+    """Wait for all managed server processes to exit."""
+    for proc in servers:
+        try:
+            proc.wait(timeout=5)
+        except ProcessTimeoutError:
+            pass
+        except Exception as e:
+            pid = proc.pid
+            tb_str = traceback.format_exc()
+            lifecycle_audit.append(
+                {
+                    "event": "wait_failed",
+                    "pid": pid,
+                    "details": f"{type(e).__name__}: {e}",
+                    "traceback": tb_str,
+                }
+            )
+
+
+def send_signals_to_pids(
+    pids: list[int],
+    signal_type: signal.Signals,
+    label: str,
+    record_event: Callable[..., None],
+) -> None:
+    """Send a signal to a list of PIDs with lifecycle logging."""
+    for pid in pids:
+        with contextlib.suppress(OSError):
+            os.kill(pid, signal_type)
+            record_event("kill", pid=pid, details=label)
+
+
+def filter_owned_running_pids(
+    pids: list[int],
+    verify_ownership: Callable[[int], bool],
+    record_event: Callable[..., None],
+) -> list[int]:
+    """Filter PIDs to only those that exist and are owned by us."""
+    owned: list[int] = []
+    for pid in pids:
+        if not psutil.pid_exists(pid):
+            record_event("skip", pid=pid, details="exited")
+            continue
+        if verify_ownership(pid):
+            owned.append(pid)
+        else:
+            record_event("skip", pid=pid, details="ownership_failed")
+    return owned

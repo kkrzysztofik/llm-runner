@@ -25,8 +25,6 @@ from .validators import (
     validate_threads,
 )
 
-ValidationResults = DryRunValidationSummary
-
 __all__ = [
     # Validators
     "validate_port",
@@ -45,7 +43,6 @@ __all__ = [
     "DryRunSlotPayload",
     "VllmEligibility",
     "DryRunValidationSummary",
-    "ValidationResults",
     # Doctor diagnostics
     "DoctorCheckResult",
     "DoctorReport",

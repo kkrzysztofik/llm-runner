@@ -353,7 +353,7 @@ class TestLaunchOrchestrate:
         )
 
         with patch(
-            "llama_manager.orchestration.manager.apply_profile_overrides",
+            "llama_manager.orchestration.launch.apply_profile_overrides",
             return_value=([], ["No profile found"]),
         ):
             mock_sm = Mock()
@@ -390,7 +390,7 @@ class TestLaunchOrchestrate:
 
         with (
             patch(
-                "llama_manager.orchestration.manager.apply_profile_overrides",
+                "llama_manager.orchestration.launch.apply_profile_overrides",
                 return_value=([cfg], ["Applied profile"]),
             ),
             patch(
@@ -432,7 +432,7 @@ class TestLaunchOrchestrate:
 
         with (
             patch(
-                "llama_manager.orchestration.manager.apply_profile_overrides",
+                "llama_manager.orchestration.launch.apply_profile_overrides",
                 return_value=([cfg], []),
             ),
             patch(
@@ -479,7 +479,7 @@ class TestLaunchOrchestrate:
 
         with (
             patch(
-                "llama_manager.orchestration.manager.apply_profile_overrides",
+                "llama_manager.orchestration.launch.apply_profile_overrides",
                 return_value=([cfg1, cfg2], []),
             ),
             patch(
@@ -531,7 +531,7 @@ class TestLaunchOrchestrate:
 
         with (
             patch(
-                "llama_manager.orchestration.manager.apply_profile_overrides",
+                "llama_manager.orchestration.launch.apply_profile_overrides",
                 return_value=([cfg], []),
             ),
             patch(

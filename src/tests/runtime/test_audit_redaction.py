@@ -152,7 +152,7 @@ class TestPipeStreaming:
         mock_pipe = MagicMock()
         mock_pipe.readline.side_effect = ["line1\n", "line2\n", "line3\n", ""]
 
-        with patch("llama_manager.orchestration.manager.logger") as mock_logger:
+        with patch("llama_manager.orchestration.launcher.logger") as mock_logger:
             manager._stream_pipe(mock_pipe, "test_server", False, buffer.add_line)
 
         # Verify buffer received lines
@@ -176,7 +176,7 @@ class TestPipeStreaming:
         mock_pipe = MagicMock()
         mock_pipe.readline.side_effect = ["error1\n", "error2\n", ""]
 
-        with patch("llama_manager.orchestration.manager.logger") as mock_logger:
+        with patch("llama_manager.orchestration.launcher.logger") as mock_logger:
             manager._stream_pipe(mock_pipe, "test_server", True, buffer.add_line)
 
         assert buffer.line_count == 2
@@ -207,7 +207,7 @@ class TestPipeStreaming:
         mock_pipe = MagicMock()
         mock_pipe.readline.side_effect = ["stdout_line\n", ""]
 
-        with patch("llama_manager.orchestration.manager.logger") as mock_logger:
+        with patch("llama_manager.orchestration.launcher.logger") as mock_logger:
             manager._stream_pipe(mock_pipe, "test_server", False, None)
             mock_logger.info.assert_called_once()
             call_args = mock_logger.info.call_args[0][1]
@@ -404,8 +404,8 @@ class TestCleanupServersIdempotency:
         manager = self._make_manager_with_pids([12345])
 
         with (
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch("os.kill"),
         ):
             mock_proc_obj = mock_psutil.return_value
@@ -428,8 +428,8 @@ class TestCleanupServersIdempotency:
             signals_sent.append(sig)
 
         with (
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
         ):
             mock_proc_obj = mock_psutil.return_value
@@ -462,8 +462,8 @@ class TestCleanupServersIdempotency:
             signals_sent.append((pid, sig))
 
         with (
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
         ):
             mock_proc_obj = mock_psutil.return_value
@@ -491,8 +491,8 @@ class TestCleanupServersIdempotency:
             signals_sent.append(sig)
 
         with (
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
         ):
             mock_proc_obj = mock_psutil.return_value
@@ -531,10 +531,10 @@ class TestCleanupServersIdempotency:
 
         with (
             patch(
-                "llama_manager.orchestration.manager.psutil.pid_exists",
+                "llama_manager.orchestration.lockfile.psutil.pid_exists",
                 side_effect=selective_pid_exists,
             ),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
         ):
             mock_proc_obj = mock_psutil.return_value
@@ -557,7 +557,7 @@ class TestCleanupServersIdempotency:
         manager = self._make_manager_with_pids([12345])
 
         with (
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
             patch("os.kill"),
         ):
             manager.cleanup_servers()
@@ -586,7 +586,7 @@ class TestCleanupServersIdempotency:
         manager.shutting_down = True
 
         with (
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
             patch("os.kill"),
         ):
             manager.cleanup_servers()
@@ -1188,10 +1188,10 @@ class TestFullLifecycleAndShutdown:
             patch(
                 "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
             ),
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", side_effect=pid_exists),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", side_effect=pid_exists),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.orchestration.manager.psutil.net_connections",
+                "llama_manager.orchestration.lockfile.psutil.net_connections",
                 return_value=[mock_net_conn],
             ),
             patch("os.kill", side_effect=track_kill),
@@ -1220,8 +1220,8 @@ class TestFullLifecycleAndShutdown:
             cleanup_signals.append(sig)
 
         with (
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_cleanup_kill),
             patch("time.sleep", lambda x: None),
         ):
@@ -1260,8 +1260,8 @@ class TestFullLifecycleAndShutdown:
             patch(
                 "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
             ),
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
@@ -1292,8 +1292,8 @@ class TestFullLifecycleAndShutdown:
             patch(
                 "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
             ),
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
@@ -1334,10 +1334,10 @@ class TestFullLifecycleAndShutdown:
             patch(
                 "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
             ),
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", side_effect=pid_exists),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", side_effect=pid_exists),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.orchestration.manager.psutil.net_connections",
+                "llama_manager.orchestration.lockfile.psutil.net_connections",
                 return_value=[mock_net_conn],
             ),
             patch("os.kill", side_effect=track_kill),
@@ -1369,10 +1369,10 @@ class TestFullLifecycleAndShutdown:
             patch(
                 "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
             ),
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.orchestration.manager.psutil.net_connections",
+                "llama_manager.orchestration.lockfile.psutil.net_connections",
                 return_value=[MagicMock(laddr=MagicMock(port=4444), pid=99999)],
             ),
             patch("os.kill", side_effect=track_kill),
@@ -1404,10 +1404,10 @@ class TestFullLifecycleAndShutdown:
             patch(
                 "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
             ),
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.orchestration.manager.psutil.net_connections",
+                "llama_manager.orchestration.lockfile.psutil.net_connections",
                 return_value=[MagicMock(laddr=MagicMock(port=8080), pid=99999)],
             ),
             patch("os.kill", side_effect=track_kill),
@@ -1438,8 +1438,8 @@ class TestFullLifecycleAndShutdown:
             patch(
                 "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
             ),
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
@@ -1467,8 +1467,8 @@ class TestFullLifecycleAndShutdown:
             patch(
                 "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
             ),
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
@@ -1508,10 +1508,10 @@ class TestFullLifecycleAndShutdown:
             patch(
                 "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
             ),
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", side_effect=pid_exists),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", side_effect=pid_exists),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.orchestration.manager.psutil.net_connections",
+                "llama_manager.orchestration.lockfile.psutil.net_connections",
                 return_value=[mock_net_conn],
             ),
             patch("os.kill", side_effect=track_kill),
@@ -1536,20 +1536,20 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_pid_does_not_exist(self) -> None:
         """_verify_shutdown_ownership should return False when PID doesn't exist."""
-        from llama_manager.orchestration.manager import _verify_shutdown_ownership
+        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
 
-        with patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=False):
+        with patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=False):
             result = _verify_shutdown_ownership(99999, 8080)
 
         assert result is False
 
     def test_verify_returns_false_when_process_creation_fails(self) -> None:
         """_verify_shutdown_ownership should return False on NoSuchProcess."""
-        from llama_manager.orchestration.manager import _verify_shutdown_ownership
+        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
 
         with (
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_proc,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_proc,
         ):
             mock_proc.side_effect = psutil.NoSuchProcess(pid=99999)
             result = _verify_shutdown_ownership(99999, 8080)
@@ -1558,11 +1558,11 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_on_access_denied(self) -> None:
         """_verify_shutdown_ownership should return False on AccessDenied."""
-        from llama_manager.orchestration.manager import _verify_shutdown_ownership
+        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
 
         with (
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_proc,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_proc,
         ):
             mock_proc.side_effect = psutil.AccessDenied(pid=99999)
             result = _verify_shutdown_ownership(99999, 8080)
@@ -1571,16 +1571,16 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_port_mismatch(self) -> None:
         """_verify_shutdown_ownership should return False when port doesn't match."""
-        from llama_manager.orchestration.manager import _verify_shutdown_ownership
+        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 4444  # Not 8080
         mock_conn.pid = 99999
 
         with (
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
             patch(
-                "llama_manager.orchestration.manager.psutil.net_connections",
+                "llama_manager.orchestration.lockfile.psutil.net_connections",
                 return_value=[mock_conn],
             ),
         ):
@@ -1590,7 +1590,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_uid_mismatch(self) -> None:
         """_verify_shutdown_ownership should return False when UID doesn't match."""
-        from llama_manager.orchestration.manager import _verify_shutdown_ownership
+        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 8080
@@ -1599,10 +1599,10 @@ class TestVerifyShutdownOwnership:
         mock_uids.real = 9999  # Different from current process
 
         with (
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_proc,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_proc,
             patch(
-                "llama_manager.orchestration.manager.psutil.net_connections",
+                "llama_manager.orchestration.lockfile.psutil.net_connections",
                 return_value=[mock_conn],
             ),
         ):
@@ -1613,7 +1613,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_true_when_port_and_uid_match(self) -> None:
         """_verify_shutdown_ownership should return True when port + UID match."""
-        from llama_manager.orchestration.manager import _verify_shutdown_ownership
+        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 8080
@@ -1622,10 +1622,10 @@ class TestVerifyShutdownOwnership:
         mock_uids.real = os.getuid()
 
         with (
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_proc,
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_proc,
             patch(
-                "llama_manager.orchestration.manager.psutil.net_connections",
+                "llama_manager.orchestration.lockfile.psutil.net_connections",
                 return_value=[mock_conn],
             ),
         ):
@@ -1636,12 +1636,12 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_net_connections_access_denied_returns_false(self) -> None:
         """_verify_shutdown_ownership returns False on net_connections AccessDenied."""
-        from llama_manager.orchestration.manager import _verify_shutdown_ownership
+        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
 
         with (
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
             patch(
-                "llama_manager.orchestration.manager.psutil.net_connections",
+                "llama_manager.orchestration.lockfile.psutil.net_connections",
                 side_effect=psutil.AccessDenied(pid=99999),
             ),
         ):

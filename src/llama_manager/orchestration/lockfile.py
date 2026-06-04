@@ -322,3 +322,72 @@ def _verify_lock_owner(
         return _build_indeterminate_owner_error(why_blocked=f"indeterminate_owner: {e}")
 
     return None
+
+
+def verify_shutdown_ownership(pid: int, port: int) -> bool:
+    """Verify that *pid* owns the slot by checking port binding and UID."""
+    if not psutil.pid_exists(pid):
+        return False
+
+    try:
+        proc = psutil.Process(pid)
+    except psutil.NoSuchProcess, psutil.AccessDenied:
+        return False
+
+    try:
+        connections: list = psutil.net_connections(kind="inet")  # type: ignore[assignment]
+        if not any(
+            conn.laddr.port == port and conn.pid == pid
+            for conn in connections
+            if conn.pid is not None
+        ):
+            return False
+    except psutil.AccessDenied, OSError:
+        return False
+
+    try:
+        current_uid = os.getuid()
+        proc_uid = proc.uids().real
+        if proc_uid != current_uid:
+            return False
+    except psutil.AccessDenied, psutil.NoSuchProcess, AttributeError, TypeError, OSError:
+        return False
+
+    return True
+
+
+# Backward-compatible alias for tests importing the private name.
+_verify_shutdown_ownership = verify_shutdown_ownership
+
+
+def verify_process_ownership(pid: int, pid_metadata: dict[int, float]) -> bool:
+    """Verify process ownership using creation time metadata and UID."""
+    if pid in pid_metadata:
+        try:
+            proc = psutil.Process(pid)
+            current_create_time = proc.create_time()
+            recorded_create_time = pid_metadata[pid]
+
+            if abs(current_create_time - recorded_create_time) > 0.1:
+                return False
+
+            try:
+                current_uid = os.getuid()
+                if hasattr(proc, "uids"):
+                    proc_uid = proc.uids().real
+                    if proc_uid != current_uid:
+                        return False
+            except psutil.AccessDenied, AttributeError, TypeError:
+                pass
+
+            return True
+        except psutil.NoSuchProcess:
+            return False
+        except psutil.AccessDenied:
+            pass
+
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False

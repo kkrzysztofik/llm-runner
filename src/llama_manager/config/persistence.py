@@ -15,6 +15,7 @@ from typing import Any
 from .defaults import (
     BuildPipelineConfig,
     Config,
+    DeploymentConfig,
     PathsConfig,
     ServerDefaultsConfig,
     SmokeConfig,
@@ -86,6 +87,21 @@ _SERVER_DEFAULTS_FIELDS: frozenset[str] = frozenset(
     }
 )
 
+_DEPLOYMENT_FIELDS: frozenset[str] = frozenset(
+    {
+        "model_summary_balanced",
+        "model_summary_fast",
+        "model_qwen35",
+        "model_qwen35_both",
+        "host",
+        "summary_balanced_port",
+        "summary_fast_port",
+        "qwen35_port",
+        "summary_balanced_chat_template_kwargs",
+        "summary_fast_chat_template_kwargs",
+    }
+)
+
 # Mapping from legacy flat field name -> (sub-dataclass field, attr name)
 _LEGACY_FIELD_MAP: dict[str, tuple[str, str]] = {}
 for _f in _PATHS_FIELDS:
@@ -99,6 +115,8 @@ for _f in _SERVER_DEFAULTS_FIELDS:
         "server_defaults",
         _f.removeprefix("default_profile_").removeprefix("default_") or _f,
     )
+for _f in _DEPLOYMENT_FIELDS:
+    _LEGACY_FIELD_MAP[_f] = ("deployment", _f)
 
 # Explicit mapping for fields where auto-stripping doesn't produce the right attr
 _LEGACY_FIELD_MAP.update(
@@ -130,7 +148,7 @@ _LEGACY_FIELD_MAP.update(
 
 # All legacy field names (union of all groups, including spec-decode fields)
 _ALL_LEGACY_FIELDS: frozenset[str] = frozenset(
-    _LEGACY_FIELD_MAP.keys() | _DEFAULT_SPEC_FIELD_MAP.keys()
+    _LEGACY_FIELD_MAP.keys() | _DEFAULT_SPEC_FIELD_MAP.keys() | _DEPLOYMENT_FIELDS
 )
 
 
@@ -145,6 +163,7 @@ def _build_sub_dataclasses(kwargs: dict[str, Any]) -> dict[str, Any]:
     build_kwargs: dict[str, Any] = {}
     smoke_kwargs: dict[str, Any] = {}
     sd_kwargs: dict[str, Any] = {}
+    deploy_kwargs: dict[str, Any] = {}
 
     for field_name in list(kwargs):
         target = _LEGACY_FIELD_MAP.get(field_name)
@@ -160,6 +179,8 @@ def _build_sub_dataclasses(kwargs: dict[str, Any]) -> dict[str, Any]:
             smoke_kwargs[attr_name] = val
         elif sub_field == "server_defaults":
             sd_kwargs[attr_name] = val
+        elif sub_field == "deployment":
+            deploy_kwargs[attr_name] = val
 
     # Handle pre-built SpeculativeDecodingConfig from load_config_overrides
     if "default_spec_decode" in kwargs:
@@ -177,6 +198,8 @@ def _build_sub_dataclasses(kwargs: dict[str, Any]) -> dict[str, Any]:
         result["smoke"] = SmokeConfig(**smoke_kwargs)
     if sd_kwargs:
         result["server_defaults"] = ServerDefaultsConfig(**sd_kwargs)
+    if deploy_kwargs:
+        result["deployment"] = DeploymentConfig(**deploy_kwargs)
 
     return result
 
@@ -359,6 +382,9 @@ _INT_FIELDS: frozenset[str] = frozenset(
         "default_draft_min",
         "default_draft_max",
         "default_spec_draft_n_max",
+        "summary_balanced_port",
+        "summary_fast_port",
+        "qwen35_port",
     }
 )
 

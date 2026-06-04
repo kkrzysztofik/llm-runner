@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from llama_manager.config import ErrorCode, ServerConfig, ValidationResult
+from llama_manager.config import ErrorCode, ErrorDetail, ServerConfig
 from llama_manager.validation import (
     build_server_cmd,
     sort_validation_errors,
@@ -265,9 +265,9 @@ class TestSortValidationErrors:
         passed: bool,
         failed_check: str = "",
         error_code: ErrorCode | None = None,
-    ) -> ValidationResult:
-        """Helper to create ValidationResult."""
-        return ValidationResult(
+    ) -> ErrorDetail:
+        """Helper to create ErrorDetail."""
+        return ErrorDetail(
             slot_id=slot_id,
             passed=passed,
             failed_check=failed_check,
@@ -670,7 +670,6 @@ Contract:
 
 
 from llama_manager.config import (
-    ErrorDetail,
     MultiValidationError,
 )
 

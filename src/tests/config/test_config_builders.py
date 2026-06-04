@@ -12,9 +12,9 @@ import pytest
 from llama_manager.config import (
     Config,
     ErrorCode,
+    ErrorDetail,
     ModelSlot,
     ServerConfig,
-    ValidationResult,
     create_default_profile_registry,
     create_qwen35_cfg,
     create_server_config_from_profile,
@@ -332,12 +332,12 @@ class TestErrorCode:
         assert len(codes) == 23  # All error codes defined (13 original + 10 M2)
 
 
-class TestValidationResult:
-    """Tests for ValidationResult scaffolding."""
+class TestErrorDetail:
+    """Tests for ErrorDetail as unified validation result."""
 
-    def test_validation_result_passed(self) -> None:
-        """ValidationResult should indicate success when passed=True."""
-        result = ValidationResult(
+    def test_error_detail_passed(self) -> None:
+        """ErrorDetail should indicate success when passed=True."""
+        result = ErrorDetail(
             slot_id="slot1",
             passed=True,
         )
@@ -346,23 +346,23 @@ class TestValidationResult:
         assert result.error_code is None
         assert result.error_message == ""
 
-    def test_validation_result_failed(self) -> None:
-        """ValidationResult should capture failure details."""
-        result = ValidationResult(
+    def test_error_detail_failed(self) -> None:
+        """ErrorDetail should capture failure details."""
+        result = ErrorDetail(
             slot_id="slot2",
             passed=False,
             failed_check="model_not_found",
             error_code=ErrorCode.FILE_NOT_FOUND,
-            error_message="Model file does not exist",
+            why_blocked="Model file does not exist",
         )
         assert result.passed is False
         assert result.failed_check == "model_not_found"
         assert result.error_code == ErrorCode.FILE_NOT_FOUND
         assert result.error_message == "Model file does not exist"
 
-    def test_validation_result_minimal_fields(self) -> None:
-        """ValidationResult should work with minimal required fields."""
-        result = ValidationResult(slot_id="test", passed=True)
+    def test_error_detail_minimal_fields(self) -> None:
+        """ErrorDetail should work with minimal required fields."""
+        result = ErrorDetail(slot_id="test", passed=True)
         assert result.slot_id == "test"
         assert result.passed is True
 
@@ -466,8 +466,8 @@ class TestProcessOwnershipVerification:
 
         with (
             patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen,
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.launcher.psutil.pid_exists", return_value=True),
             patch("os.kill") as mock_kill,
         ):
             mock_proc = mock_popen.return_value
@@ -501,7 +501,7 @@ class TestProcessOwnershipVerification:
             mock_proc.stderr = None
             mock_proc.wait.return_value = 0
 
-            with patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil:
+            with patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil:
                 mock_proc_obj = mock_psutil.return_value
                 mock_proc_obj.create_time.return_value = 1234567890.05  # matches
 
@@ -791,7 +791,7 @@ class TestLifecycleAuditTrail:
             mock_proc.stderr = None
             mock_proc.wait.return_value = 0
 
-            with patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil:
+            with patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil:
                 mock_proc_obj = mock_psutil.return_value
                 mock_proc_obj.create_time.return_value = 1234567890.05
 
@@ -815,8 +815,8 @@ class TestLifecycleAuditTrail:
 
         with (
             patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen,
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.launcher.psutil.pid_exists", return_value=True),
             patch("os.kill") as mock_kill,
         ):
             mock_proc = mock_popen.return_value
@@ -851,8 +851,8 @@ class TestLifecycleAuditTrail:
 
         with (
             patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen,
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.launcher.psutil.pid_exists", return_value=True),
             patch("os.kill") as mock_kill,
         ):
             mock_proc = mock_popen.return_value

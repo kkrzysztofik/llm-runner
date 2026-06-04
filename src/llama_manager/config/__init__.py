@@ -15,6 +15,7 @@ from .builder import (
 from .defaults import (
     BuildPipelineConfig,
     Config,
+    DeploymentConfig,
     PathsConfig,
     ServerDefaultsConfig,
     SmokeConfig,
@@ -30,7 +31,7 @@ from .enums import (
     SmokeProbeStatus,
     VRamRecommendation,
 )
-from .errors import ErrorDetail, MultiValidationError, ValidationException, ValidationResult
+from .errors import ErrorDetail, MultiValidationError, ValidationException
 from .persistence import (
     ConfigUpdateResult,
     apply_config_updates,
@@ -88,7 +89,6 @@ __all__ = [
     "ErrorDetail",
     "MultiValidationError",
     "ValidationException",
-    "ValidationResult",
     # server
     "ModelSlot",
     "ServerConfig",
@@ -106,6 +106,7 @@ __all__ = [
     # defaults
     "BuildPipelineConfig",
     "Config",
+    "DeploymentConfig",
     "PathsConfig",
     "ServerDefaultsConfig",
     "SmokeConfig",

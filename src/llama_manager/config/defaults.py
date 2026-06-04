@@ -171,6 +171,45 @@ class ServerDefaultsConfig:
 
 
 # ---------------------------------------------------------------------------
+# DeploymentConfig — model paths, network, and per-model chat templates
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DeploymentConfig:
+    """Model paths, network ports, and per-model chat template overrides."""
+
+    model_summary_balanced: str = field(
+        default_factory=lambda: os.environ.get(
+            "MODEL_SUMMARY_BALANCED", "models/unsloth/Qwen3.5-2B-GGUF/Qwen3.5-2B-IQ4_XS.gguf"
+        )
+    )
+    model_summary_fast: str = field(
+        default_factory=lambda: os.environ.get(
+            "MODEL_SUMMARY_FAST",
+            "models/unsloth/unsloth/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q4_K_M.gguf",
+        )
+    )
+    model_qwen35: str = field(
+        default_factory=lambda: os.environ.get(
+            "MODEL_QWEN35", "models/unsloth/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-IQ4_XS.gguf"
+        )
+    )
+    model_qwen35_both: str = field(
+        default_factory=lambda: os.environ.get(
+            "MODEL_QWEN35_BOTH",
+            "models/unsloth/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-IQ4_XS.gguf",
+        )
+    )
+    host: str = "127.0.0.1"
+    summary_balanced_port: int = 8080
+    summary_fast_port: int = 8082
+    qwen35_port: int = 8081
+    summary_balanced_chat_template_kwargs: str = '{"enable_thinking":false}'
+    summary_fast_chat_template_kwargs: str = '{"enable_thinking":false}'
+
+
+# ---------------------------------------------------------------------------
 # Main Config — composes sub-dataclasses + keeps frequently-accessed fields
 # ---------------------------------------------------------------------------
 
@@ -223,6 +262,19 @@ _CONFIG_LEGACY_ROUTE: dict[str, tuple[str, str]] = {
     "default_reasoning_mode": ("server_defaults", "reasoning_mode"),
     "default_reasoning_format": ("server_defaults", "reasoning_format"),
     "default_reasoning_budget": ("server_defaults", "reasoning_budget"),
+    "model_summary_balanced": ("deployment", "model_summary_balanced"),
+    "model_summary_fast": ("deployment", "model_summary_fast"),
+    "model_qwen35": ("deployment", "model_qwen35"),
+    "model_qwen35_both": ("deployment", "model_qwen35_both"),
+    "host": ("deployment", "host"),
+    "summary_balanced_port": ("deployment", "summary_balanced_port"),
+    "summary_fast_port": ("deployment", "summary_fast_port"),
+    "qwen35_port": ("deployment", "qwen35_port"),
+    "summary_balanced_chat_template_kwargs": (
+        "deployment",
+        "summary_balanced_chat_template_kwargs",
+    ),
+    "summary_fast_chat_template_kwargs": ("deployment", "summary_fast_chat_template_kwargs"),
 }
 
 
@@ -235,9 +287,9 @@ class Config:
     - ``build``: llama.cpp build pipeline settings
     - ``smoke``: smoke probe parameters
     - ``server_defaults``: template defaults for new profiles
+    - ``deployment``: model paths, network ports, and chat template overrides
 
-    Top-level fields are kept for model paths, network, and misc settings
-    that are frequently accessed across the codebase.
+    Top-level fields are kept for misc settings that don't fit a domain.
 
     For backward compatibility, the old flat field names are accepted as
     optional kwargs and routed to the appropriate sub-dataclass.
@@ -248,40 +300,7 @@ class Config:
     build: BuildPipelineConfig = field(default_factory=BuildPipelineConfig)
     smoke: SmokeConfig = field(default_factory=SmokeConfig)
     server_defaults: ServerDefaultsConfig = field(default_factory=ServerDefaultsConfig)
-
-    # -- Top-level: model paths --
-    model_summary_balanced: str = field(
-        default_factory=lambda: os.environ.get(
-            "MODEL_SUMMARY_BALANCED", "models/unsloth/Qwen3.5-2B-GGUF/Qwen3.5-2B-IQ4_XS.gguf"
-        )
-    )
-    model_summary_fast: str = field(
-        default_factory=lambda: os.environ.get(
-            "MODEL_SUMMARY_FAST",
-            "models/unsloth/unsloth/Qwen3.5-0.8B-GGUF/Qwen3.5-0.8B-Q4_K_M.gguf",
-        )
-    )
-    model_qwen35: str = field(
-        default_factory=lambda: os.environ.get(
-            "MODEL_QWEN35", "models/unsloth/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-IQ4_XS.gguf"
-        )
-    )
-    model_qwen35_both: str = field(
-        default_factory=lambda: os.environ.get(
-            "MODEL_QWEN35_BOTH",
-            "models/unsloth/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-UD-IQ4_XS.gguf",
-        )
-    )
-
-    # -- Top-level: network --
-    host: str = "127.0.0.1"
-    summary_balanced_port: int = 8080
-    summary_fast_port: int = 8082
-    qwen35_port: int = 8081
-
-    # -- Top-level: model-specific defaults --
-    summary_balanced_chat_template_kwargs: str = '{"enable_thinking":false}'
-    summary_fast_chat_template_kwargs: str = '{"enable_thinking":false}'
+    deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
 
     # -- Top-level: misc --
     profile_staleness_days: int = 30
@@ -311,6 +330,7 @@ class Config:
         build_kw: dict[str, Any] = {}
         smoke_kw: dict[str, Any] = {}
         sd_kw: dict[str, Any] = {}
+        deploy_kw: dict[str, Any] = {}
 
         for key in list(kwargs):
             route = _CONFIG_LEGACY_ROUTE.get(key)
@@ -326,6 +346,8 @@ class Config:
                 smoke_kw[attr] = val
             elif sub_field == "server_defaults":
                 sd_kw[attr] = val
+            elif sub_field == "deployment":
+                deploy_kw[attr] = val
 
         # Build sub-dataclass instances from legacy kwargs
         if "paths" not in kwargs and paths_kw:
@@ -336,6 +358,8 @@ class Config:
             kwargs["smoke"] = SmokeConfig(**smoke_kw)
         if "server_defaults" not in kwargs and sd_kw:
             kwargs["server_defaults"] = ServerDefaultsConfig(**sd_kw)
+        if "deployment" not in kwargs and deploy_kw:
+            kwargs["deployment"] = DeploymentConfig(**deploy_kw)
 
         # Handle default_spec_decode (SpeculativeDecodingConfig from persistence)
         if "default_spec_decode" in kwargs:
@@ -576,6 +600,87 @@ class Config:
     @smoke_total_chat_timeout_s.setter
     def smoke_total_chat_timeout_s(self, value: int) -> None:
         self.smoke.total_chat_timeout_s = value
+
+    # DeploymentConfig
+    @property
+    def model_summary_balanced(self) -> str:
+        return self.deployment.model_summary_balanced
+
+    @model_summary_balanced.setter
+    def model_summary_balanced(self, value: str) -> None:
+        self.deployment.model_summary_balanced = value
+
+    @property
+    def model_summary_fast(self) -> str:
+        return self.deployment.model_summary_fast
+
+    @model_summary_fast.setter
+    def model_summary_fast(self, value: str) -> None:
+        self.deployment.model_summary_fast = value
+
+    @property
+    def model_qwen35(self) -> str:
+        return self.deployment.model_qwen35
+
+    @model_qwen35.setter
+    def model_qwen35(self, value: str) -> None:
+        self.deployment.model_qwen35 = value
+
+    @property
+    def model_qwen35_both(self) -> str:
+        return self.deployment.model_qwen35_both
+
+    @model_qwen35_both.setter
+    def model_qwen35_both(self, value: str) -> None:
+        self.deployment.model_qwen35_both = value
+
+    @property
+    def host(self) -> str:
+        return self.deployment.host
+
+    @host.setter
+    def host(self, value: str) -> None:
+        self.deployment.host = value
+
+    @property
+    def summary_balanced_port(self) -> int:
+        return self.deployment.summary_balanced_port
+
+    @summary_balanced_port.setter
+    def summary_balanced_port(self, value: int) -> None:
+        self.deployment.summary_balanced_port = value
+
+    @property
+    def summary_fast_port(self) -> int:
+        return self.deployment.summary_fast_port
+
+    @summary_fast_port.setter
+    def summary_fast_port(self, value: int) -> None:
+        self.deployment.summary_fast_port = value
+
+    @property
+    def qwen35_port(self) -> int:
+        return self.deployment.qwen35_port
+
+    @qwen35_port.setter
+    def qwen35_port(self, value: int) -> None:
+        self.deployment.qwen35_port = value
+
+    @property
+    def summary_balanced_chat_template_kwargs(self) -> str:
+        return self.deployment.summary_balanced_chat_template_kwargs
+
+    @summary_balanced_chat_template_kwargs.setter
+    def summary_balanced_chat_template_kwargs(self, value: str) -> None:
+        self.deployment.summary_balanced_chat_template_kwargs = value
+
+    @property
+    def summary_fast_chat_template_kwargs(self) -> str:
+        return self.deployment.summary_fast_chat_template_kwargs
+
+    @summary_fast_chat_template_kwargs.setter
+    def summary_fast_chat_template_kwargs(self, value: str) -> None:
+        self.deployment.summary_fast_chat_template_kwargs = value
 
     # ServerDefaultsConfig
     @property

@@ -28,7 +28,7 @@ from llama_manager.orchestration import (
     write_artifact,
 )
 from llama_manager.validation import (
-    ValidationResults,
+    DryRunValidationSummary,
     build_dry_run_slot_payload,
 )
 from tests.support.helpers import valid_artifact_data
@@ -89,7 +89,7 @@ class TestFR007ArtifactRequiredFields:
         payload = build_dry_run_slot_payload(
             sc,
             slot_id="summary-balanced",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
 
