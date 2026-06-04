@@ -161,34 +161,11 @@ class TestBuildTargetConfigs:
         assert len(configs) == 1
         assert configs[0].alias == "summary-fast"
 
-    def test_build_configs_uses_registry_defined_run_group(self) -> None:
-        """_build_target_configs should resolve groups from registry data, not hardcoded modes."""
-        from llama_manager.config import RunGroupSpec, RunProfileRegistry, RunProfileSpec
-
+    def test_build_configs_rejects_custom_slot_profile_as_mode(self) -> None:
+        """_build_target_configs should only accept fixed launch modes."""
         cfg = Config()
-        profile = RunProfileSpec(
-            profile_id="custom",
-            model="/models/custom.gguf",
-            alias="custom-alias",
-            device="SYCL0",
-            port=8090,
-            ctx_size=4096,
-            ubatch_size=512,
-            threads=4,
-        )
-        registry = RunProfileRegistry(
-            profiles=(profile,),
-            run_groups=(RunGroupSpec(group_id="custom-group", profile_ids=("custom",)),),
-        )
-
-        with patch(
-            "llama_cli.server_runner.create_default_profile_registry", return_value=registry
-        ):
-            configs = _build_target_configs("custom-group", [9090], cfg)
-
-        assert len(configs) == 1
-        assert configs[0].alias == "custom-alias"
-        assert configs[0].port == 9090
+        configs = _build_target_configs("custom-group", [9090], cfg)
+        assert configs == []
 
 
 # =============================================================================
@@ -738,10 +715,10 @@ class TestCliMain:
 
 
 class TestBuildTuiModeConfigs:
-    """Tests for _build_tui_mode_configs registry-driven behavior."""
+    """Tests for _build_tui_mode_configs fixed mode behavior."""
 
-    def test_build_tui_mode_configs_returns_all_enabled_groups(self) -> None:
-        """_build_tui_mode_configs should return configs for all tui_enabled groups."""
+    def test_build_tui_mode_configs_returns_all_modes(self) -> None:
+        """_build_tui_mode_configs should return configs for all fixed modes."""
         from llama_cli.server_runner import _build_tui_mode_configs
         from llama_manager.config import Config
 
@@ -753,43 +730,6 @@ class TestBuildTuiModeConfigs:
         # Should have entries for summary-balanced, summary-fast, qwen35, both
         assert "summary-balanced" in result
         assert "both" in result
-
-    def test_build_tui_mode_configs_skips_disabled_groups(self) -> None:
-        """_build_tui_mode_configs should skip groups with tui_enabled=False."""
-        from llama_cli.server_runner import _build_tui_mode_configs
-        from llama_manager.config import Config, RunGroupSpec, RunProfileRegistry, RunProfileSpec
-
-        cfg = Config()
-        profile = RunProfileSpec(
-            profile_id="enabled",
-            model="/models/enabled.gguf",
-            alias="enabled-alias",
-            device="SYCL0",
-            port=8090,
-            ctx_size=4096,
-            ubatch_size=512,
-            threads=4,
-        )
-        registry = RunProfileRegistry(
-            profiles=(profile,),
-            run_groups=(
-                RunGroupSpec(group_id="enabled-group", profile_ids=("enabled",), tui_enabled=True),
-                RunGroupSpec(
-                    group_id="disabled-group", profile_ids=("enabled",), tui_enabled=False
-                ),
-            ),
-        )
-        parsed = argparse.Namespace(mode="enabled-group", port=None, port2=None)
-
-        with patch(
-            "llama_cli.server_runner.create_default_profile_registry", return_value=registry
-        ):
-            result = _build_tui_mode_configs(cfg, parsed)
-
-        # Groups with tui_enabled=False must be excluded
-        assert "disabled-group" not in result
-        # Groups with tui_enabled=True must be included
-        assert "enabled-group" in result
 
     def test_build_tui_mode_configs_with_port_overrides(self) -> None:
         """_build_tui_mode_configs should apply port overrides from parsed args."""
@@ -809,59 +749,59 @@ class TestBuildTuiModeConfigs:
         assert configs[1].port == 9091
 
 
-class TestResolveTuiGroupConfigs:
-    """Tests for _resolve_tui_group_configs port override behavior."""
+class TestResolveTuiModeConfigs:
+    """Tests for _resolve_tui_mode_configs port override behavior."""
 
-    def test_resolve_group_configs_no_overrides(self) -> None:
-        """_resolve_tui_group_configs should return default configs when no overrides."""
-        from llama_cli.server_runner import _resolve_tui_group_configs
+    def test_resolve_mode_configs_no_overrides(self) -> None:
+        """_resolve_tui_mode_configs should return default configs when no overrides."""
+        from llama_cli.server_runner import _resolve_tui_mode_configs
         from llama_manager.config import Config
 
         cfg = Config()
         parsed = argparse.Namespace(mode="summary-balanced", port=None, port2=None)
 
-        configs = _resolve_tui_group_configs("summary-balanced", cfg, parsed)
+        configs = _resolve_tui_mode_configs("summary-balanced", cfg, parsed)
 
         assert len(configs) == 1
         assert configs[0].alias == "summary-balanced"
         assert configs[0].port == cfg.summary_balanced_port
 
-    def test_resolve_group_configs_single_port_override(self) -> None:
-        """_resolve_tui_group_configs should apply single port override."""
-        from llama_cli.server_runner import _resolve_tui_group_configs
+    def test_resolve_mode_configs_single_port_override(self) -> None:
+        """_resolve_tui_mode_configs should apply single port override."""
+        from llama_cli.server_runner import _resolve_tui_mode_configs
         from llama_manager.config import Config
 
         cfg = Config()
         parsed = argparse.Namespace(mode="summary-balanced", port=9999, port2=None)
 
-        configs = _resolve_tui_group_configs("summary-balanced", cfg, parsed)
+        configs = _resolve_tui_mode_configs("summary-balanced", cfg, parsed)
 
         assert len(configs) == 1
         assert configs[0].port == 9999
 
-    def test_resolve_group_configs_both_ports_for_multi_profile_group(self) -> None:
-        """_resolve_tui_group_configs should apply both ports for multi-profile groups."""
-        from llama_cli.server_runner import _resolve_tui_group_configs
+    def test_resolve_mode_configs_both_ports_for_multi_profile_mode(self) -> None:
+        """_resolve_tui_mode_configs should apply both ports for multi-profile modes."""
+        from llama_cli.server_runner import _resolve_tui_mode_configs
         from llama_manager.config import Config
 
         cfg = Config()
         parsed = argparse.Namespace(mode="both", port=8080, port2=8081)
 
-        configs = _resolve_tui_group_configs("both", cfg, parsed)
+        configs = _resolve_tui_mode_configs("both", cfg, parsed)
 
         assert len(configs) == 2
         assert configs[0].port == 8080
         assert configs[1].port == 8081
 
-    def test_resolve_group_configs_port2_only_preserves_first_default(self) -> None:
-        """_resolve_tui_group_configs should preserve first port default when only port2 given."""
-        from llama_cli.server_runner import _resolve_tui_group_configs
+    def test_resolve_mode_configs_port2_only_preserves_first_default(self) -> None:
+        """_resolve_tui_mode_configs should preserve first port default when only port2 given."""
+        from llama_cli.server_runner import _resolve_tui_mode_configs
         from llama_manager.config import Config
 
         cfg = Config()
         parsed = argparse.Namespace(mode="both", port=None, port2=8081)
 
-        configs = _resolve_tui_group_configs("both", cfg, parsed)
+        configs = _resolve_tui_mode_configs("both", cfg, parsed)
 
         assert len(configs) == 2
         assert configs[0].port == cfg.summary_balanced_port  # First port stays default

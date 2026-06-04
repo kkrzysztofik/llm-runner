@@ -463,9 +463,9 @@ class TestAddSlotFromForm:
     def test_rejects_unknown_profile(
         self, mock_registry_cls: MagicMock, mock_resolve: MagicMock
     ) -> None:
-        from llama_manager.config.profiles import RunProfileError
+        from llama_manager.config.profiles import SlotProfileError
 
-        mock_resolve.side_effect = RunProfileError("unknown")
+        mock_resolve.side_effect = SlotProfileError("unknown")
         registry = MagicMock()
         registry.profile_ids = ["summary-fast", "summary-balanced"]
         mock_registry_cls.return_value = registry

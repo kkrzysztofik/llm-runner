@@ -10,7 +10,6 @@ import sys
 
 from llama_cli.commands.smoke import _parse_smoke_args
 from llama_cli.ui_output import emit_error
-from llama_manager.config import create_default_profile_registry
 
 COMMAND_MODES = (
     "build",
@@ -18,14 +17,15 @@ COMMAND_MODES = (
     "doctor",
 )
 
+RUNNABLE_TUI_MODES = ("summary-balanced", "summary-fast", "qwen35", "both")
+
 
 def get_runnable_tui_modes() -> tuple[str, ...]:
-    """Return registry-backed modes that can launch model servers."""
-    return create_default_profile_registry().run_group_ids
+    """Return modes that can launch model servers."""
+    return RUNNABLE_TUI_MODES
 
 
 # Modes that can be run via "llm-runner tui".
-RUNNABLE_TUI_MODES = get_runnable_tui_modes()
 VALID_MODES = (*RUNNABLE_TUI_MODES, *COMMAND_MODES)
 
 BUILD_BACKENDS = ("sycl", "cuda", "both")
@@ -475,7 +475,7 @@ def _handle_smoke_case(args: list[str]) -> argparse.Namespace | None:
 
 
 def _default_tui_namespace() -> argparse.Namespace:
-    """Namespace for launching the TUI in standalone mode (no run group)."""
+    """Namespace for launching the TUI in standalone mode."""
     return argparse.Namespace(
         mode="tui",
         tui_mode=None,

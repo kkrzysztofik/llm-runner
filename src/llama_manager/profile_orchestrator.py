@@ -25,8 +25,8 @@ from .config import (
     ProfileFlavor,
     ProfileMetrics,
     ProfileRecord,
-    RunProfileRegistry,
     ServerConfig,
+    SlotProfileRegistry,
     create_default_profile_registry,
     resolve_profile_config,
     resolve_profile_id,
@@ -83,7 +83,7 @@ class BenchmarkConfig:
 def resolve_profile_slot(
     slot_id: str,
     config: Config,
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> ServerConfig:
     """Resolve a slot_id to a ServerConfig.
 
@@ -367,7 +367,7 @@ def run_profile(
     flavor: str,
     driver_provider: DriverVersionProvider | None = None,
     runner: BenchmarkRunner | None = None,
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> ProfileRecord | None:
     """Run a full profile: resolve config, detect backend, run benchmark, record result.
 

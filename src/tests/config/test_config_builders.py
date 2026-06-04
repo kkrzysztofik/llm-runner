@@ -13,10 +13,6 @@ from llama_manager.config import (
     Config,
     ErrorCode,
     ModelSlot,
-    RunGroupSpec,
-    RunProfileError,
-    RunProfileRegistry,
-    RunProfileSpec,
     ServerConfig,
     ValidationResult,
     create_default_profile_registry,
@@ -27,9 +23,17 @@ from llama_manager.config import (
     resolve_backend_from_profile,
     resolve_profile_config,
     resolve_profile_id,
-    resolve_run_group_configs,
     validate_slot_id,
     validate_slot_port,
+)
+from llama_manager.config import (
+    SlotProfileError as RunProfileError,
+)
+from llama_manager.config import (
+    SlotProfileRegistry as RunProfileRegistry,
+)
+from llama_manager.config import (
+    SlotProfileSpec as RunProfileSpec,
 )
 from llama_manager.config.profiles import (
     _derive_tensor_split_from_device,
@@ -1460,47 +1464,6 @@ class TestRunProfileSpec:
             )
 
 
-# =============================================================================
-# RunGroupSpec validation
-# =============================================================================
-
-
-class TestRunGroupSpec:
-    """Tests for RunGroupSpec dataclass validation."""
-
-    def test_valid_group(self) -> None:
-        """Valid RunGroupSpec should be created without error."""
-        group = RunGroupSpec(
-            group_id="test-group",
-            profile_ids=("profile-a", "profile-b"),
-            description="Test group",
-            tui_enabled=True,
-        )
-        assert group.group_id == "test-group"
-        assert len(group.profile_ids) == 2
-
-    def test_empty_group_id_raises(self) -> None:
-        """Empty group_id should raise RunProfileError."""
-        with pytest.raises(RunProfileError):
-            RunGroupSpec(
-                group_id="",
-                profile_ids=("profile-a",),
-            )
-
-    def test_empty_profile_ids_raises(self) -> None:
-        """Empty profile_ids tuple should raise RunProfileError."""
-        with pytest.raises(RunProfileError):
-            RunGroupSpec(
-                group_id="test-group",
-                profile_ids=(),
-            )
-
-
-# =============================================================================
-# RunProfileRegistry validation
-# =============================================================================
-
-
 class TestRunProfileRegistry:
     """Tests for RunProfileRegistry validation and accessors."""
 
@@ -1521,76 +1484,26 @@ class TestRunProfileRegistry:
         )
 
     def test_valid_registry(self) -> None:
-        """Valid registry with profiles and groups should be created."""
-        registry = RunProfileRegistry(
-            profiles=(self._make_spec("a"),),
-            run_groups=(RunGroupSpec(group_id="g1", profile_ids=("a",)),),
-        )
+        """Valid registry with profiles should be created."""
+        registry = RunProfileRegistry(profiles=(self._make_spec("a"),))
         assert registry.profile_ids == ("a",)
-        assert registry.run_group_ids == ("g1",)
 
     def test_duplicate_profile_ids_raises(self) -> None:
         """Duplicate profile_id should raise RunProfileError."""
         with pytest.raises(RunProfileError):
-            RunProfileRegistry(
-                profiles=(self._make_spec("a"), self._make_spec("a")),
-                run_groups=(),
-            )
-
-    def test_duplicate_group_ids_raises(self) -> None:
-        """Duplicate group_id should raise RunProfileError."""
-        with pytest.raises(RunProfileError):
-            RunProfileRegistry(
-                profiles=(self._make_spec("a"),),
-                run_groups=(
-                    RunGroupSpec(group_id="g1", profile_ids=("a",)),
-                    RunGroupSpec(group_id="g1", profile_ids=("a",)),
-                ),
-            )
-
-    def test_unknown_profile_reference_raises(self) -> None:
-        """Group referencing unknown profile should raise RunProfileError."""
-        with pytest.raises(RunProfileError):
-            RunProfileRegistry(
-                profiles=(self._make_spec("a"),),
-                run_groups=(RunGroupSpec(group_id="g1", profile_ids=("a", "unknown")),),
-            )
+            RunProfileRegistry(profiles=(self._make_spec("a"), self._make_spec("a")))
 
     def test_get_profile_returns_spec(self) -> None:
         """get_profile should return the RunProfileSpec for a known id."""
-        registry = RunProfileRegistry(
-            profiles=(self._make_spec("a"),),
-            run_groups=(),
-        )
+        registry = RunProfileRegistry(profiles=(self._make_spec("a"),))
         spec = registry.get_profile("a")
         assert spec.profile_id == "a"
 
     def test_get_profile_unknown_raises(self) -> None:
         """get_profile for unknown id should raise RunProfileError."""
-        registry = RunProfileRegistry(
-            profiles=(self._make_spec("a"),),
-            run_groups=(),
-        )
+        registry = RunProfileRegistry(profiles=(self._make_spec("a"),))
         with pytest.raises(RunProfileError):
             registry.get_profile("unknown")
-
-    def test_get_run_group_returns_spec(self) -> None:
-        """get_run_group should return the RunGroupSpec for a known id."""
-        registry = RunProfileRegistry(
-            profiles=(self._make_spec("a"),),
-            run_groups=(RunGroupSpec(group_id="g1", profile_ids=("a",)),),
-        )
-        group = registry.get_run_group("g1")
-        assert group.group_id == "g1"
-
-    def test_get_run_group_unknown_raises(self) -> None:
-        """get_run_group for unknown id should raise RunProfileError."""
-        registry = RunProfileRegistry(
-            profiles=(self._make_spec("a"),),
-            run_groups=(),
-        )
-        with pytest.raises(RunProfileError):
-            registry.get_run_group("unknown")
 
 
 # =============================================================================
@@ -1606,25 +1519,6 @@ class TestDefaultRegistry:
         registry = create_default_profile_registry()
         expected = {"summary-balanced", "summary-fast", "qwen35"}
         assert set(registry.profile_ids) == expected
-
-    def test_registry_has_expected_groups(self) -> None:
-        """Default registry should contain summary-balanced, summary-fast, qwen35, both."""
-        registry = create_default_profile_registry()
-        expected = {"summary-balanced", "summary-fast", "qwen35", "both"}
-        assert set(registry.run_group_ids) == expected
-
-    def test_both_group_has_two_profiles(self) -> None:
-        """The 'both' run group should reference summary-balanced and qwen35."""
-        registry = create_default_profile_registry()
-        group = registry.get_run_group("both")
-        assert set(group.profile_ids) == {"summary-balanced", "qwen35"}
-
-    def test_all_groups_tui_enabled(self) -> None:
-        """All default run groups should be TUI-enabled."""
-        registry = create_default_profile_registry()
-        for gid in registry.run_group_ids:
-            group = registry.get_run_group(gid)
-            assert group.tui_enabled is True, f"Group {gid} should be TUI-enabled"
 
     def test_profile_ports_are_distinct(self) -> None:
         """Default profiles should have distinct ports."""
@@ -1691,57 +1585,6 @@ class TestServerConfigResolution:
         registry = create_default_profile_registry()
         cfg = resolve_profile_config(registry, "summary-fast", {"port": 7777})
         assert cfg.port == 7777
-
-
-# =============================================================================
-# resolve_run_group_configs
-# =============================================================================
-
-
-class TestResolveRunGroupConfigs:
-    """Tests for resolve_run_group_configs."""
-
-    def test_resolve_both_group(self) -> None:
-        """Resolving 'both' should return two ServerConfigs."""
-        registry = create_default_profile_registry()
-        configs = resolve_run_group_configs(registry, "both")
-        assert len(configs) == 2
-        assert configs[0].alias == "summary-balanced"
-        assert configs[1].alias == "qwen35-coding"
-
-    def test_resolve_group_with_port_overrides(self) -> None:
-        """Port overrides should be applied positionally to group profiles."""
-        registry = create_default_profile_registry()
-        configs = resolve_run_group_configs(registry, "both", (9090, 9091))
-        assert configs[0].port == 9090
-        assert configs[1].port == 9091
-
-    def test_resolve_group_partial_port_override(self) -> None:
-        """Single port override should only affect first profile in group."""
-        registry = create_default_profile_registry()
-        default_qwen35_port = registry.get_profile("qwen35").port
-        configs = resolve_run_group_configs(registry, "both", (9090,))
-        assert configs[0].port == 9090
-        assert configs[1].port == default_qwen35_port
-
-    def test_resolve_group_too_many_port_overrides_raises(self) -> None:
-        """More port overrides than group profiles should raise RunProfileError."""
-        registry = create_default_profile_registry()
-        with pytest.raises(RunProfileError):
-            resolve_run_group_configs(registry, "summary-balanced", (8080, 8081, 8082))
-
-    def test_resolve_group_unknown_raises(self) -> None:
-        """Unknown group id should raise RunProfileError."""
-        registry = create_default_profile_registry()
-        with pytest.raises(RunProfileError):
-            resolve_run_group_configs(registry, "nonexistent-group")
-
-    def test_resolve_single_profile_group(self) -> None:
-        """Single-profile group should return one ServerConfig."""
-        registry = create_default_profile_registry()
-        configs = resolve_run_group_configs(registry, "summary-fast")
-        assert len(configs) == 1
-        assert configs[0].alias == "summary-fast"
 
 
 # =============================================================================
@@ -1832,11 +1675,6 @@ class TestResolveProfileId:
                     backend="llama_cpp",
                     risky_acknowledged=(),
                 ),
-            ),
-            run_groups=(
-                RunGroupSpec(group_id="summary-balanced", profile_ids=("summary-balanced",)),
-                RunGroupSpec(group_id="summary-fast", profile_ids=("summary-fast",)),
-                RunGroupSpec(group_id="qwen35", profile_ids=("qwen35",)),
             ),
         )
 
@@ -2109,7 +1947,6 @@ class TestResolveAliasToProfileId:
                     risky_acknowledged=(),
                 ),
             ),
-            run_groups=(),
         )
 
     def test_unknown_alias_returns_none(self) -> None:
@@ -2177,7 +2014,6 @@ class TestResolveProfileIdEdgeCases:
                     risky_acknowledged=(),
                 ),
             ),
-            run_groups=(),
         )
 
     def test_empty_slot_id_returns_none(self) -> None:

@@ -25,12 +25,18 @@ from llama_manager import (
     validate_port,
     validate_ports,
 )
-from llama_manager.config import create_default_profile_registry, resolve_run_group_configs
-from llama_manager.config.profiles import RunProfileRegistry
+from llama_manager.config import create_default_profile_registry, resolve_profile_config
+from llama_manager.config.profiles import SlotProfileRegistry
 
 # Server backend display names
 INTEL_SERVER_NAME = "Intel llama-server"
 NVIDIA_SERVER_NAME = "NVIDIA llama-server"
+TUI_MODE_PROFILE_IDS: Final[dict[str, tuple[str, ...]]] = {
+    "summary-balanced": ("summary-balanced",),
+    "summary-fast": ("summary-fast",),
+    "qwen35": ("qwen35",),
+    "both": ("summary-balanced", "qwen35"),
+}
 
 
 def usage() -> None:
@@ -140,11 +146,9 @@ def _build_tui_mode_configs(
     """Build the mode configuration dict for TUI launch."""
     registry = create_default_profile_registry(cfg)
     mode_configs: dict[str, tuple[list[str], list[str], list[ServerConfig], list[int]]] = {}
-    for group in registry.run_groups:
-        if not group.tui_enabled:
-            continue
-        configs = _resolve_tui_group_configs(group.group_id, cfg, parsed, registry)
-        mode_configs[group.group_id] = (
+    for mode_id in TUI_MODE_PROFILE_IDS:
+        configs = _resolve_tui_mode_configs(mode_id, cfg, parsed, registry)
+        mode_configs[mode_id] = (
             [server_cfg.server_bin for server_cfg in configs],
             [_server_name_for_config(server_cfg) for server_cfg in configs],
             configs,
@@ -153,17 +157,21 @@ def _build_tui_mode_configs(
     return mode_configs
 
 
-def _resolve_tui_group_configs(
-    group_id: str,
+def _resolve_tui_mode_configs(
+    mode_id: str,
     cfg: Config,
     parsed: argparse.Namespace,
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> list[ServerConfig]:
     """Resolve TUI configs while preserving positional port override semantics."""
     if registry is None:
         registry = create_default_profile_registry(cfg)
-    default_configs = resolve_run_group_configs(registry, group_id)
-    port_overrides: list[int] = []
+    profile_ids = TUI_MODE_PROFILE_IDS.get(mode_id)
+    if profile_ids is None:
+        return []
+
+    default_configs = [resolve_profile_config(registry, profile_id) for profile_id in profile_ids]
+    port_overrides: list[int | None] = []
 
     if parsed.port is not None:
         port_overrides.append(parsed.port)
@@ -175,7 +183,16 @@ def _resolve_tui_group_configs(
 
     if not port_overrides:
         return default_configs
-    return resolve_run_group_configs(registry, group_id, tuple(port_overrides))
+    return [
+        resolve_profile_config(
+            registry,
+            profile_id,
+            {"port": port_overrides[index]}
+            if index < len(port_overrides) and port_overrides[index] is not None
+            else None,
+        )
+        for index, profile_id in enumerate(profile_ids)
+    ]
 
 
 def _server_name_for_config(server_cfg: ServerConfig) -> str:
@@ -273,9 +290,19 @@ def _normalize_main_args(args: list[str] | None) -> list[str]:
 
 def _build_target_configs(parsed_mode: str, ports: list[int], cfg: Config) -> list[ServerConfig]:
     registry = create_default_profile_registry(cfg)
-    if parsed_mode not in registry.run_group_ids:
+    profile_ids = TUI_MODE_PROFILE_IDS.get(parsed_mode)
+    if profile_ids is None:
         return []
-    return resolve_run_group_configs(registry, parsed_mode, tuple(ports))
+    if len(ports) > len(profile_ids):
+        return []
+    return [
+        resolve_profile_config(
+            registry,
+            profile_id,
+            {"port": ports[index]} if index < len(ports) else None,
+        )
+        for index, profile_id in enumerate(profile_ids)
+    ]
 
 
 def _build_smoke_args(parsed: argparse.Namespace) -> list[str]:

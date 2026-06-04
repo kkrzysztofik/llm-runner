@@ -10,7 +10,7 @@ from typing import Any
 
 from .config import Config, ModelSlot, ServerConfig, SlotState
 from .config.builder import create_default_profile_registry, resolve_profile_config
-from .config.profiles import RunProfileError, RunProfileRegistry
+from .config.profiles import SlotProfileError, SlotProfileRegistry
 from .gpu_telemetry import (
     GPUStats,
     collector_for_config,
@@ -217,7 +217,7 @@ def upsert_profile_slot(
 def compute_add_slot_from_form(
     values: dict[str, str],
     config: Config,
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> tuple[bool, list[str], str, ServerConfig | None]:
     """Validate form values and resolve a profile config without mutating runtime state."""
     messages: list[str] = []
@@ -240,7 +240,7 @@ def compute_add_slot_from_form(
 
     try:
         new_cfg = resolve_profile_config(registry, profile_id, override_config=override_config)
-    except RunProfileError:
+    except SlotProfileError:
         allowed = ", ".join(registry.profile_ids)
         messages.append(f"Unknown profile '{profile_id}'. Choose one of: {allowed}")
         return False, messages, profile_id, None
@@ -257,7 +257,7 @@ def add_slot_from_form(
     server_manager: ServerManager,
     state: dict[str, Any],
     make_collector: Callable[[int], Callable[[], dict[str, Any]]],
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> tuple[bool, list[str], dict[str, Any]]:
     """Create or replace a slot from modal form values.
 
@@ -271,7 +271,7 @@ def add_slot_from_form(
         state: Mutable runtime-state dictionary.
         make_collector: Factory that returns a GPU collector callable for a
             given device index.
-        registry: Optional pre-built ``RunProfileRegistry``. When omitted,
+        registry: Optional pre-built ``SlotProfileRegistry``. When omitted,
             a fresh registry is created via ``create_default_profile_registry``.
 
     Returns:

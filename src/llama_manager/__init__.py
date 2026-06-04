@@ -40,11 +40,10 @@ from .config import (
     GgufParseError,
     ModelSlot,
     MultiValidationError,
-    RunGroupSpec,
-    RunProfileError,
-    RunProfileRegistry,
-    RunProfileSpec,
     ServerConfig,
+    SlotProfileError,
+    SlotProfileRegistry,
+    SlotProfileSpec,
     SlotState,
     SmokeFailurePhase,
     SmokePhase,
@@ -54,8 +53,7 @@ from .config import (
     apply_config_updates,
     build_config,
     create_default_profile_registry,
-    create_default_run_groups,
-    create_default_run_profiles,
+    create_default_slot_profiles,
     create_qwen35_cfg,
     create_server_config_from_profile,
     create_smoke_config,
@@ -67,7 +65,6 @@ from .config import (
     resolve_backend_from_profile,
     resolve_profile_config,
     resolve_profile_id,
-    resolve_run_group_configs,
     validate_slot_id,
     validate_slot_port,
 )
@@ -174,15 +171,6 @@ from .risk_ack import (
     evaluate_risks,
     resolve_risk_action,
 )
-from .run_profile_store import (
-    custom_profile_exists,
-    delete_custom_run_profile,
-    load_custom_run_profiles,
-    load_hidden_builtin_profile_ids,
-    run_profiles_file_path,
-    save_custom_run_profile,
-    upsert_custom_run_profile,
-)
 from .setup_venv import (
     VenvResult,
     check_venv_integrity,
@@ -198,6 +186,15 @@ from .slot_manager import (
     register_and_start_slot,
     remove_slot_runtime_state,
     upsert_profile_slot,
+)
+from .slot_profile_store import (
+    custom_slot_profile_exists,
+    delete_custom_slot_profile,
+    load_custom_slot_profiles,
+    load_hidden_builtin_profile_ids,
+    save_custom_slot_profile,
+    slot_profiles_file_path,
+    upsert_custom_slot_profile,
 )
 from .slot_state import compute_slot_transition, resolve_slot_runtime_status
 from .smoke import (
@@ -314,29 +311,26 @@ __all__ = [
     "create_summary_balanced_cfg",
     "create_summary_fast_cfg",
     "create_qwen35_cfg",
-    # Profile registry
-    "RunProfileSpec",
-    "RunProfileError",
-    "RunGroupSpec",
-    "RunProfileRegistry",
+    # Slot profile registry
+    "SlotProfileSpec",
+    "SlotProfileError",
+    "SlotProfileRegistry",
     "create_default_profile_registry",
-    "create_default_run_profiles",
-    "create_default_run_groups",
+    "create_default_slot_profiles",
     "create_tui_profile_registry",
     "create_server_config_from_profile",
     "merge_config_overrides",
     "resolve_profile_config",
-    "resolve_run_group_configs",
     "resolve_profile_id",
     "resolve_backend_from_profile",
-    # Run profile persistence
-    "load_custom_run_profiles",
-    "save_custom_run_profile",
-    "run_profiles_file_path",
-    "upsert_custom_run_profile",
-    "delete_custom_run_profile",
+    # Slot profile persistence
+    "load_custom_slot_profiles",
+    "save_custom_slot_profile",
+    "slot_profiles_file_path",
+    "upsert_custom_slot_profile",
+    "delete_custom_slot_profile",
     "load_hidden_builtin_profile_ids",
-    "custom_profile_exists",
+    "custom_slot_profile_exists",
     # Reports
     "FailureReport",
     "MutatingActionLogEntry",

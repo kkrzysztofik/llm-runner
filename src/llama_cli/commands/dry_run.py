@@ -136,7 +136,7 @@ def _print_dry_run_header(mode: str, cfg: Config, registry: Any) -> None:
 
 
 def _parse_port_overrides(primary_port: str | None, secondary_port: str | None) -> dict[str, int]:
-    """Return positional port overrides for a dry-run group."""
+    """Return positional port overrides for a dry-run mode."""
     overrides: dict[str, int] = {}
     for name, raw in (("primary", primary_port), ("secondary", secondary_port)):
         if raw:

@@ -18,10 +18,8 @@ from .profile_cache import (
     profile_to_override_dict,
 )
 from .profiles import (
-    RunGroupSpec,
-    RunProfileError,
-    RunProfileRegistry,
-    RunProfileSpec,
+    SlotProfileRegistry,
+    SlotProfileSpec,
     _derive_tensor_split_from_device,
     _parse_main_gpu_from_device,
 )
@@ -89,17 +87,6 @@ def _without_none(values: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
 
 
-def _validate_port_override_count(
-    group: RunGroupSpec, port_overrides: tuple[int | None, ...]
-) -> None:
-    """Ensure port overrides do not exceed the number of profiles in the group."""
-    if len(port_overrides) > len(group.profile_ids):
-        raise RunProfileError(
-            f"run group {group.group_id} accepts at most {len(group.profile_ids)} port override(s), "
-            f"got {len(port_overrides)}"
-        )
-
-
 def _validate_resolved_profile_data(data: dict[str, Any]) -> None:
     """Validate required fields and value ranges in resolved profile data."""
     port = data.get("port")
@@ -116,8 +103,8 @@ def _validate_resolved_profile_data(data: dict[str, Any]) -> None:
             raise ValueError(f"{key} must be a non-empty string")
 
 
-def _profile_to_config_data(profile: RunProfileSpec) -> dict[str, Any]:
-    """Convert profile data to a complete ServerConfig-compatible mapping."""
+def _profile_to_config_data(profile: SlotProfileSpec) -> dict[str, Any]:
+    """Convert slot profile data to a complete ServerConfig-compatible mapping."""
     # Auto-derive tensor_split and main_gpu from device if not explicitly set
     tensor_split = profile.tensor_split or _derive_tensor_split_from_device(profile.device)
     main_gpu = (
@@ -206,10 +193,10 @@ def _config_data_to_server_config(data: dict[str, Any]) -> ServerConfig:
 
 
 def create_server_config_from_profile(
-    profile: RunProfileSpec,
+    profile: SlotProfileSpec,
     override_config: dict[str, Any] | None = None,
 ) -> ServerConfig:
-    """Resolve any run profile definition into a ServerConfig.
+    """Resolve any slot profile definition into a ServerConfig.
 
     Args:
         profile: Typed profile data to convert.
@@ -232,53 +219,21 @@ def create_server_config_from_profile(
 
 
 def resolve_profile_config(
-    registry: RunProfileRegistry,
+    registry: SlotProfileRegistry,
     profile_id: str,
     override_config: dict[str, Any] | None = None,
 ) -> ServerConfig:
-    """Resolve one registered profile into ServerConfig.
+    """Resolve one registered slot profile into ServerConfig.
 
     Args:
-        registry: Profile registry containing profile definitions.
-        profile_id: Profile identifier to resolve.
-        override_config: Optional explicit profile overrides.
+        registry: Slot profile registry containing profile definitions.
+        profile_id: Slot profile identifier to resolve.
+        override_config: Optional explicit slot profile overrides.
 
     Returns:
         ServerConfig for the requested profile.
     """
     return create_server_config_from_profile(registry.get_profile(profile_id), override_config)
-
-
-def resolve_run_group_configs(
-    registry: RunProfileRegistry,
-    group_id: str,
-    port_overrides: tuple[int | None, ...] = (),
-) -> list[ServerConfig]:
-    """Resolve a registered run group into ordered ServerConfig objects.
-
-    Args:
-        registry: Profile registry containing group and profile definitions.
-        group_id: Run group identifier to resolve.
-        port_overrides: Optional positional port overrides for group members.
-            ``None`` entries are skipped (profile default port is used).
-
-    Returns:
-        ServerConfig objects in run-group profile order.
-
-    Raises:
-        RunProfileError: If too many port overrides are provided.
-    """
-    group = registry.get_run_group(group_id)
-    _validate_port_override_count(group, port_overrides)
-
-    configs: list[ServerConfig] = []
-    for index, profile_id in enumerate(group.profile_ids):
-        if index < len(port_overrides) and port_overrides[index] is not None:
-            override_config = {"port": port_overrides[index]}
-        else:
-            override_config = None
-        configs.append(resolve_profile_config(registry, profile_id, override_config))
-    return configs
 
 
 def create_summary_balanced_cfg(
@@ -288,7 +243,7 @@ def create_summary_balanced_cfg(
     threads: int | None = None,
     cache_k: str | None = None,
     cache_v: str | None = None,
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> ServerConfig:
     """Create a ServerConfig for the summary-balanced model profile.
 
@@ -332,7 +287,7 @@ def create_summary_fast_cfg(
     threads: int | None = None,
     cache_k: str | None = None,
     cache_v: str | None = None,
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> ServerConfig:
     """Create a ServerConfig for the summary-fast model profile.
 
@@ -380,7 +335,7 @@ def create_qwen35_cfg(
     model: str | None = None,
     server_bin: str = "",
     backend: str = "llama_cpp",
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> ServerConfig:
     """Create a ServerConfig for the qwen35-coding model profile.
 
@@ -425,19 +380,19 @@ def create_qwen35_cfg(
     )
 
 
-def create_default_run_profiles(config: Config | None = None) -> tuple[RunProfileSpec, ...]:
-    """Create built-in run profiles as typed data entries.
+def create_default_slot_profiles(config: Config | None = None) -> tuple[SlotProfileSpec, ...]:
+    """Create built-in slot profiles as typed data entries.
 
     Args:
         config: Optional base configuration. When omitted, environment-aware
             defaults are loaded from ``Config``.
 
     Returns:
-        Built-in single-server profile definitions in stable CLI order.
+        Built-in single-server slot profile definitions in stable CLI order.
     """
     cfg = config or Config()
     return (
-        RunProfileSpec(
+        SlotProfileSpec(
             profile_id="summary-balanced",
             description="Run summary-balanced model on Intel SYCL.",
             model=cfg.model_summary_balanced,
@@ -456,7 +411,7 @@ def create_default_run_profiles(config: Config | None = None) -> tuple[RunProfil
             parallel=4,
             backend="llama_cpp",
         ),
-        RunProfileSpec(
+        SlotProfileSpec(
             profile_id="summary-fast",
             description="Run summary-fast model on Intel SYCL.",
             model=cfg.model_summary_fast,
@@ -475,7 +430,7 @@ def create_default_run_profiles(config: Config | None = None) -> tuple[RunProfil
             parallel=4,
             backend="llama_cpp",
         ),
-        RunProfileSpec(
+        SlotProfileSpec(
             profile_id="qwen35",
             description="Run qwen35-coding model on NVIDIA CUDA.",
             model=cfg.model_qwen35,
@@ -497,52 +452,17 @@ def create_default_run_profiles(config: Config | None = None) -> tuple[RunProfil
     )
 
 
-def create_default_run_groups() -> tuple[RunGroupSpec, ...]:
-    """Create built-in launch modes as typed run-group data entries.
-
-    Returns:
-        Built-in run groups in stable CLI order. Single-profile modes are
-        represented as one-member groups so launch surfaces can resolve every
-        mode through the same data shape.
-    """
-    return (
-        RunGroupSpec(
-            group_id="summary-balanced",
-            profile_ids=("summary-balanced",),
-            description="Launch the summary-balanced profile.",
-        ),
-        RunGroupSpec(
-            group_id="summary-fast",
-            profile_ids=("summary-fast",),
-            description="Launch the summary-fast profile.",
-        ),
-        RunGroupSpec(
-            group_id="qwen35",
-            profile_ids=("qwen35",),
-            description="Launch the qwen35 profile.",
-        ),
-        RunGroupSpec(
-            group_id="both",
-            profile_ids=("summary-balanced", "qwen35"),
-            description="Launch summary-balanced and qwen35 profiles together.",
-        ),
-    )
-
-
-def create_default_profile_registry(config: Config | None = None) -> RunProfileRegistry:
-    """Create the built-in dynamic profile registry.
+def create_default_profile_registry(config: Config | None = None) -> SlotProfileRegistry:
+    """Create the built-in dynamic slot profile registry.
 
     Args:
         config: Optional base configuration used to resolve environment-aware
             model paths, ports, binaries, and tuning defaults.
 
     Returns:
-        Validated registry containing built-in profiles and run groups.
+        Validated registry containing built-in slot profiles.
     """
-    return RunProfileRegistry(
-        profiles=create_default_run_profiles(config),
-        run_groups=create_default_run_groups(),
-    )
+    return SlotProfileRegistry(profiles=create_default_slot_profiles(config))
 
 
 def merge_config_overrides(
@@ -803,41 +723,32 @@ def create_smoke_config(
     )
 
 
-def create_tui_profile_registry(config: Config) -> RunProfileRegistry:
-    """Create a profile registry for TUI use: built-in + custom profiles from disk.
+def create_tui_profile_registry(config: Config) -> SlotProfileRegistry:
+    """Create a slot profile registry for TUI use: built-in + custom profiles from disk.
 
-    Custom profiles are loaded from ``run_profiles.toml``. Duplicate
+    Custom profiles are loaded from ``slot_profiles.toml``. Duplicate
     ``profile_id`` between built-in and custom is resolved by preferring
-    the custom profile. Hidden built-in profiles (from
-    ``hidden_builtin_profiles`` in the TOML) are excluded.
+    the custom profile. Hidden built-in profiles are excluded.
 
     Args:
         config: Base configuration used to resolve built-in profiles.
 
     Returns:
-        Merged ``RunProfileRegistry`` with built-in and custom profiles.
+        Merged ``SlotProfileRegistry`` with built-in and custom profiles.
     """
-    from ..run_profile_store import load_custom_run_profiles, load_hidden_builtin_profile_ids
+    from ..slot_profile_store import load_custom_slot_profiles, load_hidden_builtin_profile_ids
 
     hidden = load_hidden_builtin_profile_ids()
 
     builtins = create_default_profile_registry(config)
-    custom = load_custom_run_profiles()
+    custom = load_custom_slot_profiles()
 
     # Merge: skip hidden built-ins, custom profiles override built-ins with same profile_id
-    all_profiles: dict[str, RunProfileSpec] = {}
+    all_profiles: dict[str, SlotProfileSpec] = {}
     for p in builtins.profiles:
         if p.profile_id not in hidden:
             all_profiles[p.profile_id] = p
     for p in custom:
         all_profiles[p.profile_id] = p
 
-    # Filter run groups to only include those whose profiles are all present
-    filtered_groups: tuple[RunGroupSpec, ...] = tuple(
-        g for g in builtins.run_groups if all(pid in all_profiles for pid in g.profile_ids)
-    )
-
-    return RunProfileRegistry(
-        profiles=tuple(all_profiles.values()),
-        run_groups=filtered_groups,
-    )
+    return SlotProfileRegistry(profiles=tuple(all_profiles.values()))

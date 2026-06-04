@@ -9,7 +9,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Button, Label
 
 from llama_cli.tui.components.profiles_screen import ProfilesScreen
-from llama_manager.config.profiles import RunProfileSpec
+from llama_manager.config.profiles import SlotProfileSpec as RunProfileSpec
 from llama_manager.model_index import ModelIndexEntry
 
 
@@ -240,7 +240,7 @@ async def test_profiles_screen_shows_profiles(
         labels = list(app.query(Label))
         label_texts = [getattr(lbl, "_Static__content", "") for lbl in labels]
 
-        assert any("Run Profiles" in t for t in label_texts)
+        assert any("Slot Profiles" in t for t in label_texts)
         assert any("summary-balanced" in t for t in label_texts)
         assert any("my-custom" in t for t in label_texts)
 

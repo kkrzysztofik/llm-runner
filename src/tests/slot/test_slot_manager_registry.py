@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from llama_manager.config import Config, RunProfileRegistry, RunProfileSpec
+from llama_manager.config import Config, SlotProfileRegistry, SlotProfileSpec
 from llama_manager.config.builder import create_default_profile_registry
 from llama_manager.orchestration import ServerManager
 from llama_manager.slot_manager import add_slot_from_form
@@ -23,7 +23,7 @@ def config() -> Config:
 
 
 @pytest.fixture()
-def default_registry(config: Config) -> RunProfileRegistry:
+def default_registry(config: Config) -> SlotProfileRegistry:
     return create_default_profile_registry(config)
 
 
@@ -75,9 +75,9 @@ def test_add_slot_with_custom_registry(
     config: Config,
 ) -> None:
     """add_slot_from_form should use the provided custom registry."""
-    custom_registry = RunProfileRegistry(
+    custom_registry = SlotProfileRegistry(
         profiles=(
-            RunProfileSpec(
+            SlotProfileSpec(
                 profile_id="custom-profile",
                 model="/models/custom.gguf",
                 alias="custom",
@@ -89,7 +89,6 @@ def test_add_slot_with_custom_registry(
                 backend="llama_cpp",
             ),
         ),
-        run_groups=(),
     )
 
     values = {"profile": "custom-profile", "port": ""}
@@ -117,9 +116,9 @@ def test_add_slot_with_custom_registry_rejects_unknown_profile(
     config: Config,
 ) -> None:
     """add_slot_from_form should reject profile IDs not in the custom registry."""
-    custom_registry = RunProfileRegistry(
+    custom_registry = SlotProfileRegistry(
         profiles=(
-            RunProfileSpec(
+            SlotProfileSpec(
                 profile_id="only-this-one",
                 model="/models/only.gguf",
                 alias="only",
@@ -131,7 +130,6 @@ def test_add_slot_with_custom_registry_rejects_unknown_profile(
                 backend="llama_cpp",
             ),
         ),
-        run_groups=(),
     )
 
     values = {"profile": "unknown-profile", "port": ""}
@@ -158,9 +156,9 @@ def test_add_slot_with_custom_registry_port_override(
     config: Config,
 ) -> None:
     """add_slot_from_form should apply port override when provided."""
-    custom_registry = RunProfileRegistry(
+    custom_registry = SlotProfileRegistry(
         profiles=(
-            RunProfileSpec(
+            SlotProfileSpec(
                 profile_id="custom-profile",
                 model="/models/custom.gguf",
                 alias="custom",
@@ -172,7 +170,6 @@ def test_add_slot_with_custom_registry_port_override(
                 backend="llama_cpp",
             ),
         ),
-        run_groups=(),
     )
 
     values = {"profile": "custom-profile", "port": "9999"}

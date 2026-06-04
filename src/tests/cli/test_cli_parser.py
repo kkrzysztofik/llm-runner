@@ -67,33 +67,16 @@ class TestParseArgsValidModes:
         assert args.mode == "dry-run"
         assert args.dry_run_mode == mode
 
-    def test_modes_are_loaded_from_profile_registry(self) -> None:
-        """dry-run mode choices should come from the dynamic profile registry."""
-        from llama_cli import cli_parser
-        from llama_manager.config import RunGroupSpec, RunProfileRegistry, RunProfileSpec
+    def test_modes_are_fixed_launch_modes(self) -> None:
+        """dry-run mode choices should come from fixed launch modes."""
+        from llama_cli.cli_parser import get_runnable_tui_modes
 
-        profile = RunProfileSpec(
-            profile_id="custom",
-            model="/models/custom.gguf",
-            alias="custom",
-            device="SYCL0",
-            port=8090,
-            ctx_size=4096,
-            ubatch_size=512,
-            threads=4,
-        )
-        registry = RunProfileRegistry(
-            profiles=(profile,),
-            run_groups=(RunGroupSpec(group_id="custom-group", profile_ids=("custom",)),),
-        )
+        modes = get_runnable_tui_modes()
 
-        with patch.object(
-            cli_parser, "VALID_MODES", (*registry.run_group_ids, *cli_parser.COMMAND_MODES)
-        ):
-            args = parse_args(["dry-run", "custom-group"])
-
+        assert modes == ("summary-balanced", "summary-fast", "qwen35", "both")
+        args = parse_args(["dry-run", "both"])
         assert args.mode == "dry-run"
-        assert args.dry_run_mode == "custom-group"
+        assert args.dry_run_mode == "both"
 
 
 class TestParseArgsInvalidModes:
@@ -587,22 +570,19 @@ class TestParseArgsProfile:
         assert args.sub_argv == ["slot1", "balanced", "--json"]
 
 
-class TestCliParserDynamicRegistryIntegration:
-    """Tests for CLI parser integration with dynamic profile registry.
+class TestCliParserLaunchModeIntegration:
+    """Tests for CLI parser integration with fixed launch modes.
 
-    These tests verify that CLI mode choices derive from the profile registry
-    and that adding/removing profiles affects available CLI modes.
+    These tests verify that CLI mode choices stay separate from slot profiles.
     """
 
-    def test_get_runnable_tui_modes_returns_registry_groups(self) -> None:
-        """get_runnable_tui_modes should return run_group_ids from default registry."""
+    def test_get_runnable_tui_modes_returns_fixed_modes(self) -> None:
+        """get_runnable_tui_modes should return fixed launch modes."""
         from llama_cli.cli_parser import get_runnable_tui_modes
-        from llama_manager.config import create_default_profile_registry
 
-        registry = create_default_profile_registry()
         modes = get_runnable_tui_modes()
 
-        assert modes == registry.run_group_ids
+        assert modes == ("summary-balanced", "summary-fast", "qwen35", "both")
         assert "summary-balanced" in modes
         assert "summary-fast" in modes
         assert "qwen35" in modes
@@ -620,38 +600,11 @@ class TestCliParserDynamicRegistryIntegration:
         assert "setup" in VALID_MODES
         assert "doctor" in VALID_MODES
 
-    def test_custom_run_group_parseable_through_cli(self) -> None:
-        """CLI should accept custom run group when registry is patched."""
-        from llama_cli import cli_parser
-        from llama_manager.config import RunGroupSpec, RunProfileRegistry, RunProfileSpec
-
-        custom_profile = RunProfileSpec(
-            profile_id="custom-model",
-            model="/models/custom.gguf",
-            alias="custom",
-            device="SYCL0",
-            port=8090,
-            ctx_size=4096,
-            ubatch_size=512,
-            threads=4,
-        )
-        custom_registry = RunProfileRegistry(
-            profiles=(custom_profile,),
-            run_groups=(RunGroupSpec(group_id="custom-group", profile_ids=("custom-model",)),),
-        )
-
-        with (
-            patch.object(cli_parser, "RUNNABLE_TUI_MODES", custom_registry.run_group_ids),
-            patch.object(
-                cli_parser,
-                "VALID_MODES",
-                (*custom_registry.run_group_ids, *cli_parser.COMMAND_MODES),
-            ),
-        ):
-            args = parse_args(["tui", "custom-group"])
-
-        assert args.mode == "tui"
-        assert args.tui_mode == "custom-group"
+    def test_custom_slot_profile_not_parseable_as_tui_mode(self) -> None:
+        """CLI should not treat custom slot profiles as launch modes."""
+        with pytest.raises(SystemExit) as exc_info:
+            parse_args(["tui", "custom-profile"])
+        assert exc_info.value.code == 1
 
     def test_removed_profile_not_in_valid_modes(self) -> None:
         """VALID_MODES should not include profiles removed from registry."""
@@ -661,7 +614,7 @@ class TestCliParserDynamicRegistryIntegration:
         assert "summary-balanced" in VALID_MODES
 
     def test_dry_run_accepts_all_registry_modes(self) -> None:
-        """dry-run should accept all registry-defined run groups."""
+        """dry-run should accept all fixed runnable modes."""
         from llama_cli.cli_parser import get_runnable_tui_modes
 
         for mode in get_runnable_tui_modes():
@@ -670,7 +623,7 @@ class TestCliParserDynamicRegistryIntegration:
             assert args.dry_run_mode == mode
 
     def test_tui_args_accepts_all_registry_modes(self) -> None:
-        """parse_tui_args should accept all registry-defined run groups."""
+        """parse_tui_args should accept all fixed runnable modes."""
         from llama_cli.cli_parser import get_runnable_tui_modes, parse_tui_args
 
         for mode in get_runnable_tui_modes():

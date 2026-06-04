@@ -1,6 +1,6 @@
-"""Dashboard controller — TUI business logic for profile management.
+"""Dashboard controller — TUI business logic for slot profile management.
 
-Handles run-profile CRUD operations and form submissions for the
+Handles slot-profile CRUD operations and form submissions for the
 Textual dashboard.  Pure library — no I/O except sys.stderr.
 """
 
@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class RunProfilePayload:
-    """Form payload for creating/updating a run profile in the TUI.
+class SlotProfilePayload:
+    """Form payload for creating/updating a slot profile in the TUI.
 
     Attributes:
         profile_id: Unique profile identifier (will be normalised).
@@ -45,11 +45,11 @@ class RunProfilePayload:
 class DashboardController:
     """Controller for dashboard TUI operations.
 
-    Handles run-profile persistence and form submissions.
+    Handles slot-profile persistence and form submissions.
     """
 
-    def save_run_profile_from_form(self, payload: RunProfilePayload) -> bool:
-        """Save a run profile from the TUI modal.
+    def save_slot_profile_from_form(self, payload: SlotProfilePayload) -> bool:
+        """Save a slot profile from the TUI modal.
 
         Returns True if saved successfully, False otherwise.
         Validates the payload before saving.
@@ -93,10 +93,10 @@ class DashboardController:
                 return False
 
         # Build and save
-        from .config.profiles import RunProfileSpec
-        from .run_profile_store import save_custom_run_profile
+        from .config.profiles import SlotProfileSpec
+        from .slot_profile_store import save_custom_slot_profile
 
-        profile = RunProfileSpec(
+        profile = SlotProfileSpec(
             profile_id=profile_id,
             model=payload.model,
             alias=payload.label or profile_id,
@@ -115,7 +115,7 @@ class DashboardController:
         )
 
         try:
-            save_custom_run_profile(profile)
+            save_custom_slot_profile(profile)
             return True
         except ValueError as e:
             sys.stderr.write(f"Save failed: {e}\n")

@@ -345,9 +345,8 @@ def _build_test_registry(
     """
     from llama_manager import (
         Config,
-        RunGroupSpec,
-        RunProfileRegistry,
-        RunProfileSpec,
+        SlotProfileRegistry,
+        SlotProfileSpec,
     )
 
     profiles_dir = tmp_path / "profiles"
@@ -380,9 +379,9 @@ def _build_test_registry(
     cfg.summary_balanced_chat_template_kwargs = ""
     cfg.summary_fast_chat_template_kwargs = ""
 
-    registry = RunProfileRegistry(
+    registry = SlotProfileRegistry(
         profiles=(
-            RunProfileSpec(
+            SlotProfileSpec(
                 profile_id="summary-balanced",
                 description="Run summary-balanced model on Intel SYCL.",
                 model=cfg.model_summary_balanced,
@@ -400,7 +399,7 @@ def _build_test_registry(
                 cache_type_v=cfg.default_cache_type_summary_v,
                 backend="llama_cpp",
             ),
-            RunProfileSpec(
+            SlotProfileSpec(
                 profile_id="summary-fast",
                 description="Run summary-fast model on Intel SYCL.",
                 model=cfg.model_summary_fast,
@@ -418,7 +417,7 @@ def _build_test_registry(
                 cache_type_v=cfg.default_cache_type_summary_v,
                 backend="llama_cpp",
             ),
-            RunProfileSpec(
+            SlotProfileSpec(
                 profile_id="qwen35",
                 description="Run qwen35-coding model on NVIDIA CUDA.",
                 model=cfg.model_qwen35,
@@ -433,28 +432,6 @@ def _build_test_registry(
                 n_gpu_layers=cfg.default_n_gpu_layers_qwen35,
                 server_bin=cfg.llama_server_bin_nvidia,
                 backend="llama_cpp",
-            ),
-        ),
-        run_groups=(
-            RunGroupSpec(
-                group_id="summary-balanced",
-                profile_ids=("summary-balanced",),
-                description="Launch the summary-balanced profile.",
-            ),
-            RunGroupSpec(
-                group_id="summary-fast",
-                profile_ids=("summary-fast",),
-                description="Launch the summary-fast profile.",
-            ),
-            RunGroupSpec(
-                group_id="qwen35",
-                profile_ids=("qwen35",),
-                description="Launch the qwen35 profile.",
-            ),
-            RunGroupSpec(
-                group_id="both",
-                profile_ids=("summary-balanced", "qwen35"),
-                description="Launch summary-balanced and qwen35 profiles together.",
             ),
         ),
     )

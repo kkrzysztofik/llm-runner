@@ -63,10 +63,10 @@ def _detect_backend(server_config: ServerConfig) -> str:
     Returns:
         Backend string: 'cuda' or 'sycl'.
     """
-    # Create a temporary profile spec from server_config for resolution
-    from llama_manager.config.profiles import RunProfileSpec
+    # Create a temporary slot profile spec from server_config for resolution
+    from llama_manager.config.profiles import SlotProfileSpec
 
-    temp_profile = RunProfileSpec(
+    temp_profile = SlotProfileSpec(
         profile_id=server_config.alias,
         model=server_config.model,
         alias=server_config.alias,

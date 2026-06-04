@@ -10,13 +10,17 @@ import pytest
 from textual.app import App
 from textual.widgets import Button, Checkbox, Collapsible, Input, ListView, Select
 
-from llama_cli.tui.components.run_profile_modal import (
-    RunProfileModal,
-    RunProfilePayload,
+from llama_cli.tui.components.slot_profile_modal import (
+    SlotProfileModal as RunProfileModal,
+)
+from llama_cli.tui.components.slot_profile_modal import (
+    SlotProfilePayload as RunProfilePayload,
+)
+from llama_cli.tui.components.slot_profile_modal import (
     _parse_n_gpu_layers,
 )
 from llama_manager.config import Config
-from llama_manager.config.profiles import RunProfileSpec
+from llama_manager.config.profiles import SlotProfileSpec as RunProfileSpec
 from llama_manager.model_index import ModelIndexEntry
 
 # ---------------------------------------------------------------------------
@@ -412,7 +416,7 @@ async def test_modal_device_options() -> None:
     """The device Select should have the four expected device options."""
     from textual.app import ComposeResult
 
-    from llama_cli.tui.components.run_profile_modal import _device_row
+    from llama_cli.tui.components.slot_profile_modal import _device_row
 
     class _DeviceRowApp(App[None]):
         def compose(self) -> ComposeResult:
@@ -847,7 +851,7 @@ async def test_parse_float_falls_back_for_invalid_input() -> None:
 
 
 def test_short_parse_error_timeout_message() -> None:
-    from llama_cli.tui.components.run_profile_modal import _short_parse_error
+    from llama_cli.tui.components.slot_profile_modal import _short_parse_error
 
     assert (
         _short_parse_error("parse timed out after 30s")
@@ -856,13 +860,13 @@ def test_short_parse_error_timeout_message() -> None:
 
 
 def test_short_parse_error_strips_for_suffix() -> None:
-    from llama_cli.tui.components.run_profile_modal import _short_parse_error
+    from llama_cli.tui.components.slot_profile_modal import _short_parse_error
 
     assert _short_parse_error("invalid header for /path/model.gguf") == "invalid header"
 
 
 def test_model_detail_parts_includes_parse_error() -> None:
-    from llama_cli.tui.components.run_profile_modal import _model_detail_parts
+    from llama_cli.tui.components.slot_profile_modal import _model_detail_parts
 
     entry = ModelIndexEntry(
         path="/models/test.gguf",

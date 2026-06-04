@@ -515,31 +515,31 @@ class TestDashboardAppProfileModalResult:
     """Tests for profile save callback handling."""
 
     def test_handle_profile_modal_result_save_and_add_slot(self) -> None:
-        from llama_cli.tui.components.run_profile_modal import RunProfilePayload
+        from llama_cli.tui.components.slot_profile_modal import SlotProfilePayload
 
         controller = _make_controller()
-        controller.save_run_profile_from_form.return_value = True
+        controller.save_slot_profile_from_form.return_value = True
         app = DashboardApp(controller)
         app._run_add_slot = MagicMock()  # type: ignore[method-assign]
         app.notify = MagicMock()  # type: ignore[method-assign]
         app.refresh_dashboard = MagicMock()  # type: ignore[method-assign]
 
-        payload = RunProfilePayload(profile_id="my-profile", save_and_add_slot=True)
+        payload = SlotProfilePayload(profile_id="my-profile", save_and_add_slot=True)
         app._handle_profile_modal_result(payload)
 
-        controller.save_run_profile_from_form.assert_called_once_with(payload)
+        controller.save_slot_profile_from_form.assert_called_once_with(payload)
         app._run_add_slot.assert_called_once()
         app.refresh_dashboard.assert_not_called()
 
     def test_handle_profile_modal_result_failed_save(self) -> None:
-        from llama_cli.tui.components.run_profile_modal import RunProfilePayload
+        from llama_cli.tui.components.slot_profile_modal import SlotProfilePayload
 
         controller = _make_controller()
-        controller.save_run_profile_from_form.return_value = False
+        controller.save_slot_profile_from_form.return_value = False
         app = DashboardApp(controller)
         notify_mock = MagicMock()
         app.notify = notify_mock  # type: ignore[method-assign]
 
-        app._handle_profile_modal_result(RunProfilePayload(profile_id="my-profile"))
+        app._handle_profile_modal_result(SlotProfilePayload(profile_id="my-profile"))
 
         notify_mock.assert_called_once_with("Failed to save profile", severity="error")
