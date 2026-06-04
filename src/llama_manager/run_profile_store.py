@@ -1,11 +1,11 @@
 """Persistent store for custom slot profiles saved to XDG config TOML."""
 
-import json
 import logging
 import os
 from pathlib import Path
 from typing import Any
 
+from .common.profile_io import read_profile_toml, write_profile_toml
 from .config.profiles import SlotProfileSpec
 from .config.spec_decode import SpeculativeDecodingConfig
 
@@ -13,24 +13,13 @@ logger = logging.getLogger(__name__)
 
 
 def slot_profiles_file_path() -> Path:
-    """Return the path to the custom slot profiles TOML file.
-
-    Returns:
-        Path to ``$XDG_CONFIG_HOME/llm-runner/slot_profiles.toml``.
-    """
+    """Return the path to the custom slot profiles TOML file."""
     xdg_config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     return xdg_config / "llm-runner" / "slot_profiles.toml"
 
 
 def load_custom_slot_profiles() -> list[SlotProfileSpec]:
-    """Load custom slot profiles from disk.
-
-    Returns an empty list if the file doesn't exist or is invalid.
-    Skips malformed entries with missing required keys.
-
-    Returns:
-        List of ``SlotProfileSpec`` instances parsed from TOML.
-    """
+    """Load custom slot profiles from disk."""
     profiles_dicts, _ = _load_toml_data(slot_profiles_file_path())
     result: list[SlotProfileSpec] = []
     for p in profiles_dicts:
@@ -42,17 +31,7 @@ def load_custom_slot_profiles() -> list[SlotProfileSpec]:
 
 
 def save_custom_slot_profile(profile: SlotProfileSpec) -> None:
-    """Save a single custom slot profile to disk.
-
-    Creates the parent directory if needed. Rejects duplicate ``profile_id``
-    — raises ``ValueError`` if a profile with the same id already exists.
-
-    Args:
-        profile: The profile to persist.
-
-    Raises:
-        ValueError: If *profile* has a duplicate ``profile_id``.
-    """
+    """Save a single custom slot profile to disk."""
     path = slot_profiles_file_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -61,46 +40,25 @@ def save_custom_slot_profile(profile: SlotProfileSpec) -> None:
     if profile.profile_id in ids:
         raise ValueError(f"Duplicate profile_id: {profile.profile_id}")
 
-    profiles_dict: list[dict[str, Any]] = []
-    for p in existing_dicts:
-        profiles_dict.append(p)
-    profiles_dict.append(_profile_to_dict(profile))
-
+    profiles_dict = [*existing_dicts, _profile_to_dict(profile)]
     _write_toml_data(profiles_dict, hidden_builtins, path)
 
 
 def upsert_custom_slot_profile(original_profile_id: str, profile: SlotProfileSpec) -> None:
-    """Upsert a custom slot profile.
-
-    If *original_profile_id* matches an existing custom profile entry in
-    ``[[profiles]]``, that entry is replaced. If no match (e.g. overriding a
-    built-in for the first time), a new entry is appended.
-
-    When ``profile.profile_id != original_profile_id`` (rename):
-      - For existing custom entries: remove old entry, add new.
-        Checks new profile_id doesn't conflict with other entries.
-      - For non-existing (built-in edit with rename): add new entry.
-        Checks new profile_id doesn't conflict with other entries.
-
-    Raises ValueError on duplicate profile_id for new entries or renames.
-    """
+    """Upsert a custom slot profile."""
     path = slot_profiles_file_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
     existing_dicts, hidden_builtins = _load_toml_data(path)
 
     new_id = profile.profile_id
-    # Check for conflicts with existing entries (excluding the original if it exists)
     ids_to_check = {
         p["profile_id"] for p in existing_dicts if p["profile_id"] != original_profile_id
     }
     if new_id in ids_to_check:
         raise ValueError(f"Duplicate profile_id: {new_id}")
 
-    # Find and remove the original entry if it exists
     filtered_dicts = [p for p in existing_dicts if p["profile_id"] != original_profile_id]
-
-    # Add the new/updated entry
     filtered_dicts.append(_profile_to_dict(profile))
 
     _write_toml_data(filtered_dicts, hidden_builtins, path)
@@ -109,28 +67,12 @@ def upsert_custom_slot_profile(original_profile_id: str, profile: SlotProfileSpe
 def delete_custom_slot_profile(
     profile_id: str, builtin_profile_ids: set[str] | None = None
 ) -> bool:
-    """Delete/hide a slot profile.
-
-    - If *profile_id* is in ``[[profiles]]`` (custom entry): remove it from TOML.
-      This restores the built-in if the original is a built-in override.
-    - If *profile_id* is NOT in ``[[profiles]]`` but IS in *builtin_profile_ids*:
-      add it to hidden_builtin_profiles header in TOML.
-    - Otherwise: return False (not found).
-
-    Args:
-        profile_id: The slot profile identifier to delete/hide.
-        builtin_profile_ids: If provided, profiles in this set that have no custom
-            entry will be added to hidden_builtin_profiles instead of returning False.
-
-    Returns:
-        True if the profile was found and acted on.
-    """
+    """Delete or hide a slot profile."""
     path = slot_profiles_file_path()
 
     if path.exists():
         existing_dicts, hidden_builtins = _load_toml_data(path)
 
-        # Check if it's a custom entry — remove it from [[profiles]]
         custom_entries = [p for p in existing_dicts if p["profile_id"] == profile_id]
         if custom_entries:
             filtered_dicts = [p for p in existing_dicts if p["profile_id"] != profile_id]
@@ -141,7 +83,6 @@ def delete_custom_slot_profile(
         existing_dicts = []
         hidden_builtins: set[str] = set()
 
-    # Check if it's a built-in that should be hidden
     if builtin_profile_ids is not None and profile_id in builtin_profile_ids:
         if profile_id not in hidden_builtins:
             hidden_builtins.add(profile_id)
@@ -154,31 +95,16 @@ def delete_custom_slot_profile(
 
 
 def load_hidden_builtin_profile_ids() -> set[str]:
-    """Load the set of hidden built-in profile IDs from the TOML file.
-
-    Returns:
-        Set of hidden built-in profile ID strings.
-    """
+    """Load hidden built-in slot profile IDs."""
     path = slot_profiles_file_path()
     if not path.exists():
         return set()
-    try:
-        with open(path, "rb") as f:
-            data = __load_toml(f)
-        return set(data.get("hidden_builtin_profiles", []))
-    except Exception:  # noqa: BLE001
-        return set()
+    data = read_profile_toml(path)
+    return set(data.get("hidden_builtin_profiles", []))
 
 
 def custom_slot_profile_exists(profile_id: str) -> bool:
-    """Check if a profile_id exists in the ``[[profiles]]`` section of the TOML.
-
-    Args:
-        profile_id: The profile identifier to check.
-
-    Returns:
-        True if a custom entry with this profile_id exists.
-    """
+    """Return True if a custom slot profile exists."""
     profiles_dicts, _ = _load_toml_data(slot_profiles_file_path())
     return any(p["profile_id"] == profile_id for p in profiles_dicts)
 
@@ -275,25 +201,11 @@ def _profile_from_dict(data: dict[str, Any]) -> SlotProfileSpec:
 
 
 def _load_toml_data(path: Path) -> tuple[list[dict[str, Any]], set[str]]:
-    """Load profiles and hidden builtins from the TOML file.
-
-    Args:
-        path: Path to the TOML file.
-
-    Returns:
-        Tuple of (list of profile dicts, set of hidden builtin IDs).
-        Returns empty list and empty set if file doesn't exist or is invalid.
-    """
-    if not path.exists():
-        return [], set()
-    try:
-        with open(path, "rb") as f:
-            data = __load_toml(f)
-        profiles_data = data.get("profiles", [])
-        hidden = set(data.get("hidden_builtin_profiles", []))
-        return profiles_data, hidden
-    except Exception:  # noqa: BLE001
-        return [], set()
+    """Load slot profile TOML data."""
+    data = read_profile_toml(path)
+    profiles_data = data.get("profiles", [])
+    hidden = set(data.get("hidden_builtin_profiles", []))
+    return profiles_data, hidden
 
 
 def _write_toml_data(
@@ -301,93 +213,8 @@ def _write_toml_data(
     hidden_builtins: set[str],
     path: Path,
 ) -> None:
-    """Write profiles and hidden builtins as a TOML file.
-
-    Uses ``json.dumps`` for string values and simple formatting for scalars.
-
-    Args:
-        profiles: List of profile dicts to serialize.
-        hidden_builtins: Set of hidden built-in profile IDs to write as header.
-        path: Destination file path.
-    """
-    lines: list[str] = []
-
-    # Write hidden_builtin_profiles header if non-empty
-    if hidden_builtins:
-        hidden_list = sorted(hidden_builtins)
-        lines.append(f"hidden_builtin_profiles = {json.dumps(hidden_list)}")
-        lines.append("")
-
-    for i, p in enumerate(profiles):
-        if i > 0:
-            lines.append("")
-        lines.append("[[profiles]]")
-        lines.append(f"profile_id = {json.dumps(p['profile_id'])}")
-        lines.append(f"alias = {json.dumps(p.get('alias', ''))}")
-        lines.append(f"device = {json.dumps(p.get('device', ''))}")
-        lines.append(f"model = {json.dumps(p['model'])}")
-        lines.append(f"port = {p['port']}")
-        lines.append(f"ctx_size = {p['ctx_size']}")
-        lines.append(f"ubatch_size = {p['ubatch_size']}")
-        lines.append(f"threads = {p['threads']}")
-        lines.append(f"description = {json.dumps(p.get('description', ''))}")
-        lines.append(f"bind_address = {json.dumps(p.get('bind_address', '127.0.0.1'))}")
-        lines.append(f"tensor_split = {json.dumps(p.get('tensor_split', ''))}")
-        lines.append(f"reasoning_mode = {json.dumps(p.get('reasoning_mode', 'auto'))}")
-        lines.append(f"reasoning_format = {json.dumps(p.get('reasoning_format', 'none'))}")
-        ctk = p.get("chat_template_kwargs", "")
-        if isinstance(ctk, dict):
-            lines.append(f"chat_template_kwargs = {json.dumps(json.dumps(ctk))}")
-        else:
-            lines.append(f"chat_template_kwargs = {json.dumps(str(ctk))}")
-        lines.append(f"reasoning_budget = {json.dumps(p.get('reasoning_budget', ''))}")
-        lines.append(f"use_jinja = {str(p.get('use_jinja', False)).lower()}")
-        lines.append(f"cache_type_k = {json.dumps(p.get('cache_type_k', 'q8_0'))}")
-        lines.append(f"cache_type_v = {json.dumps(p.get('cache_type_v', 'q8_0'))}")
-        ngl = p.get("n_gpu_layers", 99)
-        if isinstance(ngl, str):
-            lines.append(f"n_gpu_layers = {json.dumps(ngl)}")
-        else:
-            lines.append(f"n_gpu_layers = {int(ngl)}")
-        lines.append(f"main_gpu = {int(p.get('main_gpu', 0))}")
-        lines.append(f"server_bin = {json.dumps(p.get('server_bin', ''))}")
-        lines.append(f"backend = {json.dumps(p.get('backend', 'llama_cpp'))}")
-        ra = p.get("risky_acknowledged", [])
-        if ra:
-            lines.append(f"risky_acknowledged = {json.dumps(ra)}")
-        lines.append(f"batch_size = {int(p.get('batch_size', 2048))}")
-        lines.append(f"poll_ms = {int(p.get('poll_ms', 50))}")
-        lines.append(f"n_predict = {int(p.get('n_predict', 32768))}")
-        lines.append(f"parallel = {int(p.get('parallel', 4))}")
-        lines.append(f"threads_batch = {int(p.get('threads_batch', 0))}")
-        lines.append(f"mmproj = {json.dumps(p.get('mmproj', ''))}")
-        lines.append(f"spec_type = {json.dumps(p.get('spec_type', ''))}")
-        lines.append(f"spec_ngram_size_n = {int(p.get('spec_ngram_size_n', 0))}")
-        lines.append(f"draft_min = {int(p.get('draft_min', 0))}")
-        lines.append(f"draft_max = {int(p.get('draft_max', 0))}")
-        lines.append(f"spec_draft_n_max = {int(p.get('spec_draft_n_max', 0))}")
-        lines.append(f"spec_draft_p_min = {float(p.get('spec_draft_p_min', 0.0))}")
-        lines.append(
-            f"spec_draft_cache_type_k = {json.dumps(p.get('spec_draft_cache_type_k', ''))}"
-        )
-        lines.append(
-            f"spec_draft_cache_type_v = {json.dumps(p.get('spec_draft_cache_type_v', ''))}"
-        )
-        lines.append(f"spec_draft_device = {json.dumps(p.get('spec_draft_device', ''))}")
-
-    with open(path, "w") as f:
-        f.write("\n".join(lines) + "\n")
-
-
-def __load_toml(file_obj: Any) -> dict[str, Any]:
-    """Load TOML data from a binary file handle.
-
-    Args:
-        file_obj: Open file in binary mode.
-
-    Returns:
-        Parsed TOML dict.
-    """
-    import tomllib
-
-    return tomllib.load(file_obj)
+    """Write slot profiles and hidden builtins as a TOML file."""
+    write_profile_toml(
+        path,
+        {"profiles": profiles, "hidden_builtin_profiles": sorted(hidden_builtins)},
+    )

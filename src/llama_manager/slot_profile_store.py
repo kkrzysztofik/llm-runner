@@ -1,11 +1,11 @@
 """Persistent store for custom slot profiles saved to XDG config TOML."""
 
-import json
 import logging
 import os
 from pathlib import Path
 from typing import Any
 
+from .common.profile_io import read_profile_toml, write_profile_toml
 from .config.profiles import SlotProfileSpec
 from .config.spec_decode import SpeculativeDecodingConfig
 
@@ -95,12 +95,8 @@ def load_hidden_builtin_profile_ids() -> set[str]:
     path = slot_profiles_file_path()
     if not path.exists():
         return set()
-    try:
-        with open(path, "rb") as f:
-            data = __load_toml(f)
-        return set(data.get("hidden_builtin_profiles", []))
-    except Exception:  # noqa: BLE001
-        return set()
+    data = read_profile_toml(path)
+    return set(data.get("hidden_builtin_profiles", []))
 
 
 def custom_slot_profile_exists(profile_id: str) -> bool:
@@ -202,16 +198,10 @@ def _profile_from_dict(data: dict[str, Any]) -> SlotProfileSpec:
 
 def _load_toml_data(path: Path) -> tuple[list[dict[str, Any]], set[str]]:
     """Load slot profile TOML data."""
-    if not path.exists():
-        return [], set()
-    try:
-        with open(path, "rb") as f:
-            data = __load_toml(f)
-        profiles_data = data.get("profiles", [])
-        hidden = set(data.get("hidden_builtin_profiles", []))
-        return profiles_data, hidden
-    except Exception:  # noqa: BLE001
-        return [], set()
+    data = read_profile_toml(path)
+    profiles_data = data.get("profiles", [])
+    hidden = set(data.get("hidden_builtin_profiles", []))
+    return profiles_data, hidden
 
 
 def _write_toml_data(
@@ -220,76 +210,7 @@ def _write_toml_data(
     path: Path,
 ) -> None:
     """Write slot profiles and hidden builtins as a TOML file."""
-    lines: list[str] = []
-
-    if hidden_builtins:
-        hidden_list = sorted(hidden_builtins)
-        lines.append(f"hidden_builtin_profiles = {json.dumps(hidden_list)}")
-        lines.append("")
-
-    for i, p in enumerate(profiles):
-        if i > 0:
-            lines.append("")
-        lines.append("[[profiles]]")
-        lines.append(f"profile_id = {json.dumps(p['profile_id'])}")
-        lines.append(f"alias = {json.dumps(p.get('alias', ''))}")
-        lines.append(f"device = {json.dumps(p.get('device', ''))}")
-        lines.append(f"model = {json.dumps(p['model'])}")
-        lines.append(f"port = {p['port']}")
-        lines.append(f"ctx_size = {p['ctx_size']}")
-        lines.append(f"ubatch_size = {p['ubatch_size']}")
-        lines.append(f"threads = {p['threads']}")
-        lines.append(f"description = {json.dumps(p.get('description', ''))}")
-        lines.append(f"bind_address = {json.dumps(p.get('bind_address', '127.0.0.1'))}")
-        lines.append(f"tensor_split = {json.dumps(p.get('tensor_split', ''))}")
-        lines.append(f"reasoning_mode = {json.dumps(p.get('reasoning_mode', 'auto'))}")
-        lines.append(f"reasoning_format = {json.dumps(p.get('reasoning_format', 'none'))}")
-        ctk = p.get("chat_template_kwargs", "")
-        if isinstance(ctk, dict):
-            lines.append(f"chat_template_kwargs = {json.dumps(json.dumps(ctk))}")
-        else:
-            lines.append(f"chat_template_kwargs = {json.dumps(str(ctk))}")
-        lines.append(f"reasoning_budget = {json.dumps(p.get('reasoning_budget', ''))}")
-        lines.append(f"use_jinja = {str(p.get('use_jinja', False)).lower()}")
-        lines.append(f"cache_type_k = {json.dumps(p.get('cache_type_k', 'q8_0'))}")
-        lines.append(f"cache_type_v = {json.dumps(p.get('cache_type_v', 'q8_0'))}")
-        ngl = p.get("n_gpu_layers", 99)
-        if isinstance(ngl, str):
-            lines.append(f"n_gpu_layers = {json.dumps(ngl)}")
-        else:
-            lines.append(f"n_gpu_layers = {int(ngl)}")
-        lines.append(f"main_gpu = {int(p.get('main_gpu', 0))}")
-        lines.append(f"server_bin = {json.dumps(p.get('server_bin', ''))}")
-        lines.append(f"backend = {json.dumps(p.get('backend', 'llama_cpp'))}")
-        ra = p.get("risky_acknowledged", [])
-        if ra:
-            lines.append(f"risky_acknowledged = {json.dumps(ra)}")
-        lines.append(f"batch_size = {int(p.get('batch_size', 2048))}")
-        lines.append(f"poll_ms = {int(p.get('poll_ms', 50))}")
-        lines.append(f"n_predict = {int(p.get('n_predict', 32768))}")
-        lines.append(f"parallel = {int(p.get('parallel', 4))}")
-        lines.append(f"threads_batch = {int(p.get('threads_batch', 0))}")
-        lines.append(f"mmproj = {json.dumps(p.get('mmproj', ''))}")
-        lines.append(f"spec_type = {json.dumps(p.get('spec_type', ''))}")
-        lines.append(f"spec_ngram_size_n = {int(p.get('spec_ngram_size_n', 0))}")
-        lines.append(f"draft_min = {int(p.get('draft_min', 0))}")
-        lines.append(f"draft_max = {int(p.get('draft_max', 0))}")
-        lines.append(f"spec_draft_n_max = {int(p.get('spec_draft_n_max', 0))}")
-        lines.append(f"spec_draft_p_min = {float(p.get('spec_draft_p_min', 0.0))}")
-        lines.append(
-            f"spec_draft_cache_type_k = {json.dumps(p.get('spec_draft_cache_type_k', ''))}"
-        )
-        lines.append(
-            f"spec_draft_cache_type_v = {json.dumps(p.get('spec_draft_cache_type_v', ''))}"
-        )
-        lines.append(f"spec_draft_device = {json.dumps(p.get('spec_draft_device', ''))}")
-
-    with open(path, "w") as f:
-        f.write("\n".join(lines) + "\n")
-
-
-def __load_toml(file_obj: Any) -> dict[str, Any]:
-    """Load TOML data from a binary file handle."""
-    import tomllib
-
-    return tomllib.load(file_obj)
+    write_profile_toml(
+        path,
+        {"profiles": profiles, "hidden_builtin_profiles": sorted(hidden_builtins)},
+    )
