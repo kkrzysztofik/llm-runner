@@ -22,24 +22,24 @@ from llama_cli.ui_output import (
     emit_heading,
     emit_info,
 )
-from llama_manager import (
-    Config,
-    SmokeCompositeReport,
-    SmokeProbeConfiguration,
-    SmokeTarget,
-    resolve_runtime_dir,
-    resolve_smoke_targets,
-    run_smoke_probes,
-)
 from llama_manager.config import (
+    Config,
     ServerConfig,
+    SmokeProbeConfiguration,
     create_default_profile_registry,
     create_smoke_config,
     resolve_profile_config,
     resolve_profile_id,
 )
+from llama_manager.orchestration import resolve_runtime_dir
 from llama_manager.probe import SmokeProbeResult
 from llama_manager.probe.smoke import _ensure_report_dir
+from llama_manager.smoke import (
+    SmokeCompositeReport,
+    SmokeTarget,
+    resolve_smoke_targets,
+    run_smoke_probes,
+)
 
 
 def _valid_slot_labels(config: Config) -> str:
@@ -165,7 +165,7 @@ def _build_smoke_config(parsed: argparse.Namespace) -> SmokeProbeConfiguration:
 
     smoke_cfg = create_smoke_config(
         config=cfg,
-        api_key=parsed.api_key or cfg.smoke_api_key,
+        api_key=parsed.api_key or cfg.smoke.api_key,
         model_id_override=parsed.model_id,
     )
 

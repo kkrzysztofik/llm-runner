@@ -1,7 +1,6 @@
 """Dashboard controller for the Textual TUI."""
 
 import contextlib
-import dataclasses
 import logging
 import signal
 import threading
@@ -337,7 +336,7 @@ class DashboardController:
         for cfg in self.configs:
             try:
                 _record, staleness = load_profile_with_staleness(
-                    profiles_dir=self.config.profiles_dir,
+                    profiles_dir=self.config.paths.profiles_dir,
                     gpu_identifier=get_gpu_identifier(cfg.backend),
                     backend=cfg.backend,
                     flavor=ProfileFlavor.BALANCED,
@@ -530,14 +529,7 @@ class DashboardController:
         """
         from llama_manager import apply_config_updates
 
-        # Convert ConfigPayload to update dict (exclude restart flag)
-        updates: dict[str, object] = {}
-        for field in dataclasses.fields(payload):
-            if field.name == "restart":
-                continue
-            updates[field.name] = getattr(payload, field.name)
-
-        result = apply_config_updates(self.model.config, updates)
+        result = apply_config_updates(self.model.config, payload.to_config_updates())
 
         if result.errors:
             for error in result.errors:

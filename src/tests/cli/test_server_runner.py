@@ -17,15 +17,8 @@ from llama_cli.server_runner import (
     _run_dry_run_mode,
 )
 from llama_cli.tui import DashboardController
-from llama_manager import (
-    Config,
-    ErrorCode,
-    ErrorDetail,
-    LaunchResult,
-    MultiValidationError,
-    ServerConfig,
-    ServerManager,
-)
+from llama_manager.config import Config, ErrorCode, ErrorDetail, MultiValidationError, ServerConfig
+from llama_manager.orchestration import LaunchResult, ServerManager
 
 # =============================================================================
 # _resolve_port

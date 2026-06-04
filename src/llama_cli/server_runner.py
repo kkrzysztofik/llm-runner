@@ -396,7 +396,7 @@ def cli_main() -> None:
     cfg = build_config()
 
     # Auto-compute log file path: $XDG_STATE_HOME/llm-runner/logs/llm-runner-<timestamp>.log
-    logs_dir = cfg.logs_dir
+    logs_dir = cfg.paths.logs_dir
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_file = str(logs_dir / f"llm-runner-{timestamp}.log")
 

@@ -596,9 +596,9 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         config = self._dashboard_app.controller.config
         title_label = "SYCL" if backend == "sycl" else "CUDA"
 
-        source_dir = Path(config.llama_cpp_root)
+        source_dir = Path(config.paths.llama_cpp_root)
         build_dir = source_dir / ("build_cuda" if backend == "cuda" else "build")
-        output_dir = config.builds_dir / backend
+        output_dir = config.paths.builds_dir / backend
 
         inputs = self._get_inputs(backend)
 
@@ -610,15 +610,15 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
         # Build all form widgets up-front
         git_branch_input = Input(
-            value=getattr(config, "build_git_branch", "master"),
+            value=config.build.git_branch,
             classes="build-option-input",
         )
         git_commit_input = Input(value="", classes="build-option-input")
         jobs_input = Input(value="", classes="build-option-input")
         retry_attempts_input = Input(
-            value=str(config.build_retry_attempts), classes="build-option-input"
+            value=str(config.build.retry_attempts), classes="build-option-input"
         )
-        retry_delay_input = Input(value=str(config.build_retry_delay), classes="build-option-input")
+        retry_delay_input = Input(value=str(config.build.retry_delay), classes="build-option-input")
         shallow_cb = Checkbox(
             f"Shallow clone (default: {getattr(config, 'build_shallow_clone', True)})",
             classes="build-option-checkbox",
@@ -627,7 +627,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         update_cb = Checkbox("Update sources", classes="build-option-checkbox", value=True)
         clean_cache_cb = Checkbox("Clean cmake cache", classes="build-option-checkbox", value=False)
         timeout_input = Input(value="3600", classes="build-option-input")
-        build_args_input = Input(value=config.build_args_default, classes="build-option-input")
+        build_args_input = Input(value=config.build.args_default, classes="build-option-input")
 
         inputs["git_branch"] = git_branch_input
         inputs["git_commit"] = git_commit_input
@@ -1243,7 +1243,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         self._wizard_state["selected_backend"] = _BACKEND_OPTIONS[event.index][1]
 
 
-# -- Status text helpers (module-level for staticmethod compatibility) -------
+# -- Status text helpers -----------------------------------------------------
 
 
 def _has_binary(status: BuildStatus) -> bool:

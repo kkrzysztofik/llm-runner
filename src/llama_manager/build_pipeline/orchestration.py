@@ -91,10 +91,10 @@ def run_build_for_backend(
     if backend not in ("sycl", "cuda"):
         raise ValueError(f"unsupported backend: {backend!r}; expected one of: sycl, cuda")
 
-    source_dir = Path(config.llama_cpp_root)
+    source_dir = Path(config.paths.llama_cpp_root)
     build_dir = source_dir / ("build_cuda" if backend == "cuda" else "build")
     # Backend-scoped output dir: builds_dir/<backend>/build-artifact.json
-    output_dir = config.builds_dir / backend
+    output_dir = config.paths.builds_dir / backend
 
     build_backend = BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA
     build_config = BuildConfig(
@@ -102,11 +102,11 @@ def run_build_for_backend(
         source_dir=source_dir,
         build_dir=build_dir,
         output_dir=output_dir,
-        git_remote_url=config.build_git_remote,
-        git_branch=config.build_git_branch,
+        git_remote_url=config.build.git_remote,
+        git_branch=config.build.git_branch,
         shallow_clone=getattr(config, "build_shallow_clone", True),
-        retry_attempts=config.build_retry_attempts,
-        retry_delay=config.build_retry_delay,
+        retry_attempts=config.build.retry_attempts,
+        retry_delay=config.build.retry_delay,
     )
 
     if config_overrides is not None:

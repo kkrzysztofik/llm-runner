@@ -23,24 +23,24 @@ from typing import cast
 
 from llama_cli.commands._output import emit_json
 from llama_cli.ui_output import emit_error, emit_plain
-from llama_manager import (
+from llama_manager.benchmark import (
     BenchmarkResult,
     BenchmarkRunner,
+    SubprocessResult,
+    build_benchmark_cmd,
+    run_benchmark,
+)
+from llama_manager.config import (
     Config,
     ProfileFlavor,
     ProfileMetrics,
     ProfileRecord,
     ServerConfig,
-    SubprocessResult,
-    build_benchmark_cmd,
-    get_gpu_identifier,
     resolve_backend_from_profile,
-    run_benchmark,
     write_profile,
 )
-
-# Re-export manager-level functions for backward compatibility
 from llama_manager.config.profile_cache import compute_driver_version_hash
+from llama_manager.gpu_telemetry import get_gpu_identifier
 from llama_manager.profile_orchestrator import (
     get_driver_version,
     resolve_benchmark_binary,
@@ -85,7 +85,7 @@ def _check_slot_lockfile(slot_id: str, config: Config, _emit: Callable[[str], No
     from loguru import logger
 
     try:
-        runtime_dir = config.profiles_dir.parent
+        runtime_dir = config.paths.profiles_dir.parent
         lock_path = runtime_dir / f"{slot_id}.lock"
         if lock_path.exists():
             _emit(
@@ -225,7 +225,7 @@ def cmd_profile(
     if (exit_code := _exit_if_profile_cancelled(cancel_event, slot_id, _emit)) is not None:
         return exit_code
 
-    profile_path = write_profile(config.profiles_dir, record)
+    profile_path = write_profile(config.paths.profiles_dir, record)
 
     if json_output:
         emit_json(record.to_dict())

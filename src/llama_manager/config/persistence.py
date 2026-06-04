@@ -20,234 +20,69 @@ from .defaults import (
     ServerDefaultsConfig,
     SmokeConfig,
 )
-from .spec_decode import SpeculativeDecodingConfig
 
-# Mapping from persisted spec-decode field name -> SpeculativeDecodingConfig attr
-_DEFAULT_SPEC_FIELD_MAP: dict[str, str] = {
-    "default_spec_type": "spec_type",
-    "default_spec_ngram_size_n": "spec_ngram_size_n",
-    "default_draft_min": "draft_min",
-    "default_draft_max": "draft_max",
-    "default_spec_draft_n_max": "spec_draft_n_max",
-    "default_spec_draft_p_min": "spec_draft_p_min",
-    "default_spec_draft_cache_type_k": "spec_draft_cache_type_k",
-    "default_spec_draft_cache_type_v": "spec_draft_cache_type_v",
-    "default_spec_draft_device": "spec_draft_device",
-    "default_reasoning_mode": "reasoning_mode",
-    "default_reasoning_format": "reasoning_format",
-    "default_reasoning_budget": "reasoning_budget",
-}
-
-# Legacy field names that live in sub-dataclasses but are still referenced
-# by flat name in config files, the config modal, and apply_config_updates.
-# Grouped by target sub-dataclass.
-_PATHS_FIELDS: frozenset[str] = frozenset(
-    {
+_PERSISTED_SECTIONS: dict[str, tuple[str, ...]] = {
+    "paths": (
         "llama_cpp_root",
         "models_dir",
         "llama_server_bin_intel",
         "llama_server_bin_nvidia",
-    }
-)
-
-_BUILD_FIELDS: frozenset[str] = frozenset(
-    {
-        "build_git_remote",
-        "build_git_branch",
-    }
-)
-
-_SMOKE_FIELDS: frozenset[str] = frozenset(
-    {
-        "smoke_listen_timeout_s",
-        "smoke_http_request_timeout_s",
-        "smoke_first_token_timeout_s",
-        "smoke_total_chat_timeout_s",
-    }
-)
-
-_SERVER_DEFAULTS_FIELDS: frozenset[str] = frozenset(
-    {
-        "default_profile_port",
-        "default_profile_ctx_size",
-        "default_profile_ubatch_size",
-        "default_profile_threads",
-        "default_profile_n_gpu_layers",
-        "default_bind_address",
-        "default_batch_size",
-        "default_poll_ms",
-        "default_n_predict",
-        "default_parallel",
-        "default_threads_batch",
-        "default_profile_cache_type_k",
-        "default_profile_cache_type_v",
-        "default_use_jinja",
-        "default_profile_chat_template_kwargs",
-        "default_mmproj",
-    }
-)
-
-_DEPLOYMENT_FIELDS: frozenset[str] = frozenset(
-    {
+    ),
+    "deployment": (
+        "host",
         "model_summary_balanced",
         "model_summary_fast",
         "model_qwen35",
         "model_qwen35_both",
-        "host",
         "summary_balanced_port",
         "summary_fast_port",
         "qwen35_port",
         "summary_balanced_chat_template_kwargs",
         "summary_fast_chat_template_kwargs",
-    }
-)
+    ),
+    "build": ("git_remote", "git_branch"),
+    "smoke": (
+        "listen_timeout_s",
+        "http_request_timeout_s",
+        "first_token_timeout_s",
+        "total_chat_timeout_s",
+    ),
+    "server_defaults": (
+        "port",
+        "ctx_size",
+        "ubatch_size",
+        "threads",
+        "n_gpu_layers_profile",
+        "bind_address",
+        "batch_size",
+        "poll_ms",
+        "n_predict",
+        "parallel",
+        "threads_batch",
+        "cache_type_k",
+        "cache_type_v",
+        "reasoning_mode",
+        "reasoning_format",
+        "reasoning_budget",
+        "use_jinja",
+        "chat_template_kwargs",
+        "mmproj",
+        "spec_type",
+        "spec_ngram_size_n",
+        "draft_min",
+        "draft_max",
+        "spec_draft_n_max",
+        "spec_draft_p_min",
+        "spec_draft_cache_type_k",
+        "spec_draft_cache_type_v",
+        "spec_draft_device",
+    ),
+}
 
-# Mapping from legacy flat field name -> (sub-dataclass field, attr name)
-_LEGACY_FIELD_MAP: dict[str, tuple[str, str]] = {}
-for _f in _PATHS_FIELDS:
-    _LEGACY_FIELD_MAP[_f] = ("paths", _f)
-for _f in _BUILD_FIELDS:
-    _LEGACY_FIELD_MAP[_f] = ("build", _f.removeprefix("build_").removeprefix("toolchain_") or _f)
-for _f in _SMOKE_FIELDS:
-    _LEGACY_FIELD_MAP[_f] = ("smoke", _f.removeprefix("smoke_"))
-for _f in _SERVER_DEFAULTS_FIELDS:
-    _LEGACY_FIELD_MAP[_f] = (
-        "server_defaults",
-        _f.removeprefix("default_profile_").removeprefix("default_") or _f,
-    )
-for _f in _DEPLOYMENT_FIELDS:
-    _LEGACY_FIELD_MAP[_f] = ("deployment", _f)
-
-# Explicit mapping for fields where auto-stripping doesn't produce the right attr
-_LEGACY_FIELD_MAP.update(
-    {
-        "build_git_remote": ("build", "git_remote"),
-        "build_git_branch": ("build", "git_branch"),
-        "smoke_listen_timeout_s": ("smoke", "listen_timeout_s"),
-        "smoke_http_request_timeout_s": ("smoke", "http_request_timeout_s"),
-        "smoke_first_token_timeout_s": ("smoke", "first_token_timeout_s"),
-        "smoke_total_chat_timeout_s": ("smoke", "total_chat_timeout_s"),
-        "default_profile_port": ("server_defaults", "port"),
-        "default_profile_ctx_size": ("server_defaults", "ctx_size"),
-        "default_profile_ubatch_size": ("server_defaults", "ubatch_size"),
-        "default_profile_threads": ("server_defaults", "threads"),
-        "default_profile_n_gpu_layers": ("server_defaults", "n_gpu_layers"),
-        "default_bind_address": ("server_defaults", "bind_address"),
-        "default_batch_size": ("server_defaults", "batch_size"),
-        "default_poll_ms": ("server_defaults", "poll_ms"),
-        "default_n_predict": ("server_defaults", "n_predict"),
-        "default_parallel": ("server_defaults", "parallel"),
-        "default_threads_batch": ("server_defaults", "threads_batch"),
-        "default_profile_cache_type_k": ("server_defaults", "cache_type_k"),
-        "default_profile_cache_type_v": ("server_defaults", "cache_type_v"),
-        "default_use_jinja": ("server_defaults", "use_jinja"),
-        "default_profile_chat_template_kwargs": ("server_defaults", "chat_template_kwargs"),
-        "default_mmproj": ("server_defaults", "mmproj"),
-    }
-)
-
-# All legacy field names (union of all groups, including spec-decode fields)
-_ALL_LEGACY_FIELDS: frozenset[str] = frozenset(
-    _LEGACY_FIELD_MAP.keys() | _DEFAULT_SPEC_FIELD_MAP.keys() | _DEPLOYMENT_FIELDS
-)
-
-
-def _build_sub_dataclasses(kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Construct sub-dataclass instances from flat kwargs.
-
-    Consumes the recognised legacy keys from *kwargs* and returns a new
-    dict with sub-dataclass instances ready to be passed to ``Config()``.
-    The original *kwargs* dict is mutated (consumed keys are removed).
-    """
-    paths_kwargs: dict[str, Any] = {}
-    build_kwargs: dict[str, Any] = {}
-    smoke_kwargs: dict[str, Any] = {}
-    sd_kwargs: dict[str, Any] = {}
-    deploy_kwargs: dict[str, Any] = {}
-
-    for field_name in list(kwargs):
-        target = _LEGACY_FIELD_MAP.get(field_name)
-        if target is None:
-            continue
-        sub_field, attr_name = target
-        val = kwargs.pop(field_name)
-        if sub_field == "paths":
-            paths_kwargs[attr_name] = val
-        elif sub_field == "build":
-            build_kwargs[attr_name] = val
-        elif sub_field == "smoke":
-            smoke_kwargs[attr_name] = val
-        elif sub_field == "server_defaults":
-            sd_kwargs[attr_name] = val
-        elif sub_field == "deployment":
-            deploy_kwargs[attr_name] = val
-
-    # Handle pre-built SpeculativeDecodingConfig from load_config_overrides
-    if "default_spec_decode" in kwargs:
-        spec_cfg = kwargs.pop("default_spec_decode")
-        if isinstance(spec_cfg, SpeculativeDecodingConfig):
-            for fld in dataclasses.fields(spec_cfg):
-                sd_kwargs[fld.name] = getattr(spec_cfg, fld.name)
-
-    result: dict[str, Any] = {}
-    if paths_kwargs:
-        result["paths"] = PathsConfig(**paths_kwargs)
-    if build_kwargs:
-        result["build"] = BuildPipelineConfig(**build_kwargs)
-    if smoke_kwargs:
-        result["smoke"] = SmokeConfig(**smoke_kwargs)
-    if sd_kwargs:
-        result["server_defaults"] = ServerDefaultsConfig(**sd_kwargs)
-    if deploy_kwargs:
-        result["deployment"] = DeploymentConfig(**deploy_kwargs)
-
-    return result
-
-
-# Fields that the config modal exposes and this module persists.
-_PERSISTED_FIELDS: tuple[str, ...] = (
-    "llama_cpp_root",
-    "models_dir",
-    "llama_server_bin_intel",
-    "llama_server_bin_nvidia",
-    "host",
-    "build_git_remote",
-    "build_git_branch",
-    "smoke_listen_timeout_s",
-    "smoke_http_request_timeout_s",
-    "smoke_first_token_timeout_s",
-    "smoke_total_chat_timeout_s",
-    "log_file_level",
-    "log_stderr_level",
-    "default_profile_port",
-    "default_profile_ctx_size",
-    "default_profile_ubatch_size",
-    "default_profile_threads",
-    "default_profile_n_gpu_layers",
-    "default_bind_address",
-    "default_batch_size",
-    "default_poll_ms",
-    "default_n_predict",
-    "default_parallel",
-    "default_threads_batch",
-    "default_profile_cache_type_k",
-    "default_profile_cache_type_v",
-    "default_reasoning_mode",
-    "default_reasoning_format",
-    "default_reasoning_budget",
-    "default_use_jinja",
-    "default_profile_chat_template_kwargs",
-    "default_mmproj",
-    "default_spec_type",
-    "default_spec_ngram_size_n",
-    "default_draft_min",
-    "default_draft_max",
-    "default_spec_draft_n_max",
-    "default_spec_draft_p_min",
-    "default_spec_draft_cache_type_k",
-    "default_spec_draft_cache_type_v",
-    "default_spec_draft_device",
-)
+_TOP_LEVEL_FIELDS: tuple[str, ...] = ("log_file_level", "log_stderr_level")
+_UPDATE_FIELDS: frozenset[str] = frozenset(
+    f"{section}.{field}" for section, fields in _PERSISTED_SECTIONS.items() for field in fields
+) | frozenset(_TOP_LEVEL_FIELDS)
 
 # Fields that have a corresponding env var. When building a Config from the
 # file, these env vars override whatever is in the file.
@@ -269,7 +104,7 @@ def config_file_path() -> Path:
 
 
 def load_config_overrides_from_file(path: Path) -> dict[str, Any]:
-    """Parse *path* as TOML and return only the recognised config keys.
+    """Parse *path* as TOML and return recognised nested config sections.
 
     Returns an empty dict when the file does not exist or is empty.
 
@@ -277,24 +112,22 @@ def load_config_overrides_from_file(path: Path) -> dict[str, Any]:
         path: Path to the TOML config file.
 
     Returns:
-        Dict of field name → value for keys found in the file that match
-        ``_PERSISTED_FIELDS``.
+        Dict of Config constructor kwargs for recognised nested sections.
     """
     if not path.exists():
         return {}
     with open(path, "rb") as fh:
         raw = tomllib.load(fh)
     overrides: dict[str, Any] = {}
-    spec_overrides: dict[str, Any] = {}
-    for key, value in raw.items():
-        if key not in _PERSISTED_FIELDS:
-            continue
-        if spec_field := _DEFAULT_SPEC_FIELD_MAP.get(key):
-            spec_overrides[spec_field] = value
-        else:
-            overrides[key] = value
-    if spec_overrides:
-        overrides["default_spec_decode"] = SpeculativeDecodingConfig(**spec_overrides)
+    for section, fields in _PERSISTED_SECTIONS.items():
+        section_data = raw.get(section)
+        if isinstance(section_data, dict):
+            values = {field: section_data[field] for field in fields if field in section_data}
+            if values:
+                overrides[section] = values
+    for field in _TOP_LEVEL_FIELDS:
+        if field in raw:
+            overrides[field] = raw[field]
     return overrides
 
 
@@ -308,10 +141,15 @@ def save_config_to_file(config: Config, path: Path) -> None:
         path: Destination file path (will be overwritten).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    data: dict[str, Any] = {
-        field: _config_persisted_value(config, field) for field in _PERSISTED_FIELDS
-    }
-    lines = [f"{field} = {_toml_value(data[field])}" for field in _PERSISTED_FIELDS]
+    lines: list[str] = []
+    for field in _TOP_LEVEL_FIELDS:
+        lines.append(f"{field} = {_toml_value(getattr(config, field))}")
+    for section, fields in _PERSISTED_SECTIONS.items():
+        lines.append("")
+        lines.append(f"[{section}]")
+        section_config = getattr(config, section)
+        for field in fields:
+            lines.append(f"{field} = {_toml_value(getattr(section_config, field))}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -329,16 +167,23 @@ def build_config() -> Config:
     file_overrides = load_config_overrides_from_file(config_file_path())
 
     # Env vars explicitly listed in _ENV_OVERRIDES override file values.
-    env_overrides: dict[str, Any] = {}
+    paths_overrides = dict(file_overrides.get("paths", {}))
     for field_name, env_var in _ENV_OVERRIDES.items():
         if env_var in os.environ:
-            env_overrides[field_name] = os.environ[env_var]
+            paths_overrides[field_name] = os.environ[env_var]
+    if paths_overrides:
+        file_overrides["paths"] = paths_overrides
 
-    kwargs: dict[str, Any] = {**file_overrides, **env_overrides}
-
-    # Route flat field names into sub-dataclass instances
-    sub_dataclasses = _build_sub_dataclasses(kwargs)
-    kwargs.update(sub_dataclasses)
+    kwargs = dict(file_overrides)
+    for section, cls in (
+        ("paths", PathsConfig),
+        ("build", BuildPipelineConfig),
+        ("smoke", SmokeConfig),
+        ("server_defaults", ServerDefaultsConfig),
+        ("deployment", DeploymentConfig),
+    ):
+        if section in kwargs:
+            kwargs[section] = cls(**kwargs[section])
 
     return Config(**kwargs)
 
@@ -358,39 +203,35 @@ def _toml_value(value: Any) -> str:
     raise TypeError(f"unsupported TOML value type: {type(value).__name__}")
 
 
-def _config_persisted_value(config: Config, field: str) -> Any:
-    return getattr(config, field)
-
-
 # Fields that require integer coercion from string input.
 _INT_FIELDS: frozenset[str] = frozenset(
     {
-        "smoke_listen_timeout_s",
-        "smoke_http_request_timeout_s",
-        "smoke_first_token_timeout_s",
-        "smoke_total_chat_timeout_s",
-        "default_profile_port",
-        "default_profile_ctx_size",
-        "default_profile_ubatch_size",
-        "default_profile_threads",
-        "default_batch_size",
-        "default_poll_ms",
-        "default_n_predict",
-        "default_parallel",
-        "default_threads_batch",
-        "default_spec_ngram_size_n",
-        "default_draft_min",
-        "default_draft_max",
-        "default_spec_draft_n_max",
-        "summary_balanced_port",
-        "summary_fast_port",
-        "qwen35_port",
+        "smoke.listen_timeout_s",
+        "smoke.http_request_timeout_s",
+        "smoke.first_token_timeout_s",
+        "smoke.total_chat_timeout_s",
+        "server_defaults.port",
+        "server_defaults.ctx_size",
+        "server_defaults.ubatch_size",
+        "server_defaults.threads",
+        "server_defaults.batch_size",
+        "server_defaults.poll_ms",
+        "server_defaults.n_predict",
+        "server_defaults.parallel",
+        "server_defaults.threads_batch",
+        "server_defaults.spec_ngram_size_n",
+        "server_defaults.draft_min",
+        "server_defaults.draft_max",
+        "server_defaults.spec_draft_n_max",
+        "deployment.summary_balanced_port",
+        "deployment.summary_fast_port",
+        "deployment.qwen35_port",
     }
 )
 
-_FLOAT_FIELDS: frozenset[str] = frozenset({"default_spec_draft_p_min"})
+_FLOAT_FIELDS: frozenset[str] = frozenset({"server_defaults.spec_draft_p_min"})
 
-_BOOL_FIELDS: frozenset[str] = frozenset({"default_use_jinja"})
+_BOOL_FIELDS: frozenset[str] = frozenset({"server_defaults.use_jinja"})
 
 
 @dataclasses.dataclass
@@ -459,12 +300,9 @@ def apply_config_updates(
     updated_fields: list[str] = []
     errors: list[str] = []
 
-    config_fields = {f.name for f in dataclasses.fields(config)} | _ALL_LEGACY_FIELDS
-
     for field_name, raw_value in updates.items():
         # Skip unknown fields silently
-        spec_field = _DEFAULT_SPEC_FIELD_MAP.get(field_name)
-        if field_name not in config_fields and spec_field is None:
+        if field_name not in _UPDATE_FIELDS:
             continue
 
         value, error = _coerce_config_field_value(field_name, raw_value)
@@ -472,7 +310,11 @@ def apply_config_updates(
             errors.append(error)
             continue
 
-        setattr(config, field_name, value)
+        if "." in field_name:
+            section, attr = field_name.split(".", 1)
+            setattr(getattr(config, section), attr, value)
+        else:
+            setattr(config, field_name, value)
         updated_fields.append(field_name)
 
     # Persist if requested and no errors

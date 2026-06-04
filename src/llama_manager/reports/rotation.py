@@ -26,7 +26,7 @@ def rotate_reports(config: Config | None = None) -> None:
 
     cfg = config if config is not None else Config()
 
-    reports_path = cfg.reports_dir
+    reports_path = cfg.paths.reports_dir
 
     if not reports_path.exists():
         return
@@ -46,7 +46,7 @@ def rotate_reports(config: Config | None = None) -> None:
     report_dirs.sort(key=lambda p: p.name)
 
     # Delete oldest directories if count exceeds max
-    max_reports = cfg.build_max_reports
+    max_reports = cfg.build.max_reports
     if len(report_dirs) > max_reports:
         to_delete = report_dirs[: len(report_dirs) - max_reports]
         for report_dir in to_delete:

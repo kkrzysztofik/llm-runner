@@ -63,8 +63,8 @@ def _run_git(args: list[str], *, cwd: Path | None = None, timeout: int = 5) -> s
 def _default_binary_path(backend: BuildBackend, config: Config) -> Path:
     """Return the Config default llama-server path for a backend."""
     if backend == BuildBackend.SYCL:
-        return Path(config.llama_server_bin_intel)
-    return Path(config.llama_server_bin_nvidia)
+        return Path(config.paths.llama_server_bin_intel)
+    return Path(config.paths.llama_server_bin_nvidia)
 
 
 def _extract_llama_server_version(stdout: str, stderr: str) -> str | None:
@@ -204,8 +204,8 @@ def _source_git_info(
 
 
 def _fetch_remote_branch_sha(config: Config) -> str | None:
-    remote_url = config.build_git_remote
-    branch = config.build_git_branch
+    remote_url = config.build.git_remote
+    branch = config.build.git_branch
     logger.debug("[status] querying remote %s for refs/heads/%s", remote_url, branch)
     ls_remote_output = _run_git(
         ["ls-remote", remote_url, f"refs/heads/{branch}"],
@@ -240,16 +240,16 @@ def get_build_status(backend: BuildBackend, config: Config) -> BuildStatus:
     Returns:
         BuildStatus snapshot with no side effects.
     """
-    artifact_json = config.builds_dir / backend.value / "build-artifact.json"
+    artifact_json = config.paths.builds_dir / backend.value / "build-artifact.json"
     artifact, artifact_exists = _load_artifact_from_json(backend, artifact_json)
     binary_version_output, untracked_binary_path, binary_exists_untracked = _resolve_binary_version(
         backend, config, artifact, artifact_exists
     )
-    source_dir = Path(config.llama_cpp_root)
+    source_dir = Path(config.paths.llama_cpp_root)
     source_exists, source_is_repo, source_branch, source_head_sha, source_remote_url = (
         _source_git_info(source_dir)
     )
-    branch = config.build_git_branch
+    branch = config.build.git_branch
     remote_branch_sha = _fetch_remote_branch_sha(config)
 
     return BuildStatus(

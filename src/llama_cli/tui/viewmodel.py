@@ -155,7 +155,7 @@ class DashboardViewModel:
             status=status,
             status_class=f"server-column-status-{status.replace('_', '-')}",
             backend_label=BACKEND_LABELS.get(cfg.backend, BACKEND_LABELS["llama_cpp"]),
-            url=f"http://{self.model.config.host}:{cfg.port}",
+            url=f"http://{self.model.config.deployment.host}:{cfg.port}",
             config_summary=f"Device: {cfg.device} | Ctx: {cfg.ctx_size} | Threads: {cfg.threads}",
             logs_text=self.model.log_buffers[cfg.alias].get_text(
                 empty_message="Waiting for output..."

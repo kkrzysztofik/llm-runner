@@ -4,10 +4,16 @@ from pathlib import Path
 
 import pytest
 
-from llama_manager.config import Config
+from llama_manager.config import (
+    BuildPipelineConfig,
+    Config,
+    DeploymentConfig,
+    PathsConfig,
+    SmokeConfig,
+)
 from llama_manager.config.persistence import (
     _ENV_OVERRIDES,
-    _PERSISTED_FIELDS,
+    _UPDATE_FIELDS,
     _coerce_config_field_value,
     _toml_value,
     build_config,
@@ -47,19 +53,20 @@ def test_missing_file_returns_empty_dict(tmp_path: Path) -> None:
 def test_load_returns_only_known_keys(tmp_path: Path) -> None:
     toml_path = tmp_path / "config.toml"
     toml_path.write_bytes(
-        b'llama_cpp_root = "/my/llama"\nunknown_field = "ignored"\nhost = "0.0.0.0"\n'
+        b'[paths]\nllama_cpp_root = "/my/llama"\nunknown_field = "ignored"\n'
+        b'[deployment]\nhost = "0.0.0.0"\n'
     )
     result = load_config_overrides_from_file(toml_path)
-    assert result == {"llama_cpp_root": "/my/llama", "host": "0.0.0.0"}
-    assert "unknown_field" not in result
+    assert result == {"paths": {"llama_cpp_root": "/my/llama"}, "deployment": {"host": "0.0.0.0"}}
+    assert "unknown_field" not in result["paths"]
 
 
 def test_load_integer_fields_preserve_type(tmp_path: Path) -> None:
     toml_path = tmp_path / "config.toml"
-    toml_path.write_bytes(b"smoke_listen_timeout_s = 60\n")
+    toml_path.write_bytes(b"[smoke]\nlisten_timeout_s = 60\n")
     result = load_config_overrides_from_file(toml_path)
-    assert result["smoke_listen_timeout_s"] == 60
-    assert isinstance(result["smoke_listen_timeout_s"], int)
+    assert result["smoke"]["listen_timeout_s"] == 60
+    assert isinstance(result["smoke"]["listen_timeout_s"], int)
 
 
 # ---------------------------------------------------------------------------
@@ -69,21 +76,20 @@ def test_load_integer_fields_preserve_type(tmp_path: Path) -> None:
 
 def test_roundtrip_save_load(tmp_path: Path) -> None:
     cfg = Config(
-        llama_cpp_root="/roundtrip/llama",
-        models_dir="/roundtrip/models",
-        host="10.0.0.1",
-        build_git_branch="dev",
-        smoke_listen_timeout_s=99,
+        paths=PathsConfig(llama_cpp_root="/roundtrip/llama", models_dir="/roundtrip/models"),
+        deployment=DeploymentConfig(host="10.0.0.1"),
+        build=BuildPipelineConfig(git_branch="dev"),
+        smoke=SmokeConfig(listen_timeout_s=99),
     )
     path = tmp_path / "config.toml"
     save_config_to_file(cfg, path)
 
     loaded = load_config_overrides_from_file(path)
-    assert loaded["llama_cpp_root"] == "/roundtrip/llama"
-    assert loaded["models_dir"] == "/roundtrip/models"
-    assert loaded["host"] == "10.0.0.1"
-    assert loaded["build_git_branch"] == "dev"
-    assert loaded["smoke_listen_timeout_s"] == 99
+    assert loaded["paths"]["llama_cpp_root"] == "/roundtrip/llama"
+    assert loaded["paths"]["models_dir"] == "/roundtrip/models"
+    assert loaded["deployment"]["host"] == "10.0.0.1"
+    assert loaded["build"]["git_branch"] == "dev"
+    assert loaded["smoke"]["listen_timeout_s"] == 99
 
 
 def test_save_creates_parent_directories(tmp_path: Path) -> None:
@@ -96,16 +102,13 @@ def test_save_writes_all_persisted_fields(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     save_config_to_file(Config(), path)
     loaded = load_config_overrides_from_file(path)
-    from llama_manager.config.persistence import _DEFAULT_SPEC_FIELD_MAP
 
-    for field in _PERSISTED_FIELDS:
-        if field in _DEFAULT_SPEC_FIELD_MAP:
-            # Spec-decode fields are bundled into default_spec_decode on load
-            assert "default_spec_decode" in loaded, (
-                f"Spec field '{field}' saved but default_spec_decode missing on load"
-            )
-        else:
+    for field in _UPDATE_FIELDS:
+        if "." not in field:
             assert field in loaded, f"Field '{field}' missing from saved TOML"
+            continue
+        section, attr = field.split(".", 1)
+        assert attr in loaded[section], f"Field '{field}' missing from saved TOML"
 
 
 def test_toml_value_rejects_unsupported_type() -> None:
@@ -118,19 +121,19 @@ def test_toml_value_escapes_non_printable_string_chars() -> None:
 
 
 def test_coerce_config_field_value_bool_from_int() -> None:
-    value, error = _coerce_config_field_value("default_use_jinja", 1)
+    value, error = _coerce_config_field_value("server_defaults.use_jinja", 1)
     assert error is None
     assert value is True
 
 
 def test_coerce_config_field_value_bool_from_false_string() -> None:
-    value, error = _coerce_config_field_value("default_use_jinja", "off")
+    value, error = _coerce_config_field_value("server_defaults.use_jinja", "off")
     assert error is None
     assert value is False
 
 
 def test_coerce_config_field_value_invalid_float() -> None:
-    value, error = _coerce_config_field_value("default_spec_draft_p_min", "bad")
+    value, error = _coerce_config_field_value("server_defaults.spec_draft_p_min", "bad")
     assert value is None
     assert error is not None
     assert "Invalid value" in error
@@ -145,23 +148,26 @@ def test_build_config_uses_file_values(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.delenv("LLAMA_CPP_ROOT", raising=False)
 
-    cfg_to_save = Config(llama_cpp_root="/from/file", host="192.168.1.1")
+    cfg_to_save = Config(
+        paths=PathsConfig(llama_cpp_root="/from/file"),
+        deployment=DeploymentConfig(host="192.168.1.1"),
+    )
     save_config_to_file(cfg_to_save, config_file_path())
 
     result = build_config()
-    assert result.llama_cpp_root == "/from/file"
-    assert result.host == "192.168.1.1"
+    assert result.paths.llama_cpp_root == "/from/file"
+    assert result.deployment.host == "192.168.1.1"
 
 
 def test_env_var_overrides_file_value(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setenv("LLAMA_CPP_ROOT", "/from/env")
 
-    cfg_to_save = Config(llama_cpp_root="/from/file")
+    cfg_to_save = Config(paths=PathsConfig(llama_cpp_root="/from/file"))
     save_config_to_file(cfg_to_save, config_file_path())
 
     result = build_config()
-    assert result.llama_cpp_root == "/from/env"
+    assert result.paths.llama_cpp_root == "/from/env"
 
 
 def test_build_config_missing_file_uses_defaults(
@@ -174,23 +180,21 @@ def test_build_config_missing_file_uses_defaults(
     result = build_config()
     # Should produce a valid Config with hard-coded defaults
     assert isinstance(result, Config)
-    assert result.build_git_remote == "https://github.com/ggerganov/llama.cpp.git"
+    assert result.build.git_remote == "https://github.com/ggerganov/llama.cpp.git"
 
 
 def test_models_dir_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setenv("MODELS_DIR", "/env/models")
 
-    cfg_to_save = Config(models_dir="/file/models")
+    cfg_to_save = Config(paths=PathsConfig(models_dir="/file/models"))
     save_config_to_file(cfg_to_save, config_file_path())
 
     result = build_config()
-    assert result.models_dir == "/env/models"
+    assert result.paths.models_dir == "/env/models"
 
 
 def test_env_overrides_dict_is_consistent() -> None:
     """Every env override key must be a persisted field."""
     for field_name in _ENV_OVERRIDES:
-        assert field_name in _PERSISTED_FIELDS, (
-            f"_ENV_OVERRIDES key '{field_name}' is not in _PERSISTED_FIELDS"
-        )
+        assert f"paths.{field_name}" in _UPDATE_FIELDS

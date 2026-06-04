@@ -107,7 +107,7 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
     elif default_bin:
         server_bin = default_bin
     else:
-        server_bin = Config().llama_server_bin_intel
+        server_bin = Config().paths.llama_server_bin_intel
 
     cmd = [
         server_bin,

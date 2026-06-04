@@ -161,7 +161,7 @@ def write_failure_report(
 
     config = Config()
     if report_dir is None:
-        report_dir = config.reports_dir
+        report_dir = config.paths.reports_dir
 
     # Create timestamp-only directory name (no backend suffix)
     timestamp = datetime.now(UTC)
@@ -172,7 +172,7 @@ def write_failure_report(
     timestamp_dir.chmod(0o700)
 
     # Truncate and redact build output
-    max_output_len = config.build_output_truncate_bytes
+    max_output_len = config.build.output_truncate_bytes
     truncated_output = build_output[:max_output_len]
     redacted_output = redact_sensitive(truncated_output)
 
@@ -254,7 +254,7 @@ def log_mutating_action(
         redaction_applied = True
 
     # Truncate output if too large
-    max_output_len = config.build_output_truncate_bytes
+    max_output_len = config.build.output_truncate_bytes
     output_truncated = len(output) > max_output_len
     truncated_output = output[:max_output_len]
 
@@ -270,7 +270,7 @@ def log_mutating_action(
     )
 
     # Write to XDG state home
-    log_path = Path(config.xdg_state_base) / "llm-runner" / "mutating_actions.log"
+    log_path = Path(config.paths.xdg_state_base) / "llm-runner" / "mutating_actions.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Append entry to log file

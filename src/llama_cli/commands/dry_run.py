@@ -10,17 +10,11 @@ import sys
 from typing import Any, NoReturn
 
 from llama_cli.ui_output import emit_error, emit_heading, emit_info, emit_success, emit_warn
-from llama_manager import (
-    RISK_ACK_LABEL,
-    Config,
-    DryRunResult,
-    DryRunSlotPayload,
-    ServerConfig,
-    ServerManager,
-    create_default_profile_registry,
-    run_dry_run,
-    write_dry_run_artifact,
-)
+from llama_manager.config import Config, ServerConfig, create_default_profile_registry
+from llama_manager.dry_run import DryRunResult, run_dry_run, write_dry_run_artifact
+from llama_manager.orchestration import ServerManager
+from llama_manager.risk_ack import RISK_ACK_LABEL
+from llama_manager.validation import DryRunSlotPayload
 
 RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
 ELIGIBLE_LABEL = "    Eligible"
@@ -69,10 +63,10 @@ def _print_smoke_probe_info(cfg: Config) -> None:
         cfg: Config instance with smoke defaults.
     """
     emit_info("Smoke Probe:")
-    emit_info(f"    /v1/models: {'skip' if cfg.smoke_skip_models_discovery else 'enabled'}")
-    emit_info(f"    Prompt: {cfg.smoke_prompt}")
-    emit_info(f"    Max tokens: {cfg.smoke_max_tokens}")
-    if cfg.smoke_api_key:
+    emit_info(f"    /v1/models: {'skip' if cfg.smoke.skip_models_discovery else 'enabled'}")
+    emit_info(f"    Prompt: {cfg.smoke.prompt}")
+    emit_info(f"    Max tokens: {cfg.smoke.max_tokens}")
+    if cfg.smoke.api_key:
         emit_info("    API key: [configured]")
     else:
         emit_info("    API key: [not set]")
@@ -129,8 +123,8 @@ def _print_dry_run_header(mode: str, cfg: Config, registry: Any) -> None:
     """
     emit_heading("DRY RUN MODE", level=2)
     emit_info(f"Mode: {mode}")
-    emit_info(f"llama-server (Intel): {cfg.llama_server_bin_intel}")
-    emit_info(f"llama-server (NVIDIA): {cfg.llama_server_bin_nvidia}")
+    emit_info(f"llama-server (Intel): {cfg.paths.llama_server_bin_intel}")
+    emit_info(f"llama-server (NVIDIA): {cfg.paths.llama_server_bin_nvidia}")
     for profile_id in registry.profile_ids:
         profile = registry.get_profile(profile_id)
         emit_info(f"{profile_id} model: {profile.model}")

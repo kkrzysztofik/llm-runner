@@ -7,24 +7,24 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llama_manager import (
-    BenchmarkConfig,
+from llama_manager.config import (
     Config,
     ProfileFlavor,
     ProfileRecord,
     ServerConfig,
     create_default_profile_registry,
-    resolve_profile_slot,
 )
 from llama_manager.profile_orchestrator import (
     BENCHMARK_PROMPT_TOKENS,
     BENCHMARK_RUN_TIMEOUT_SECONDS,
+    BenchmarkConfig,
     SubprocessResult,
     create_profile_record,
     detect_backend,
     get_driver_version,
     resolve_benchmark_binary,
     resolve_benchmark_config,
+    resolve_profile_slot,
     run_profile,
 )
 from tests.support.helpers import make_server_config

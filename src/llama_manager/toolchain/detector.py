@@ -307,7 +307,7 @@ class ToolchainStatus:
 
         Args:
             backend: Build backend to check tools for. If None, returns
-                all missing tools (backward compatible behavior).
+                all missing tools.
 
         Returns:
             List of tool names that are not available for the specified backend.
@@ -318,7 +318,7 @@ class ToolchainStatus:
         # Always check common tools
         self._collect_common_missing(missing)
 
-        # If no backend specified, return all missing tools (backward compatible).
+        # If no backend specified, return all missing tools.
         # nvtop is optional (not required for either backend) — do NOT add it
         # in the global None check; it is only surfaced for the CUDA backend.
         if backend is None:

@@ -15,7 +15,8 @@ from llama_cli.commands.profile import (
     get_driver_version,
     main,
 )
-from llama_manager import BenchmarkResult, ServerConfig
+from llama_manager.benchmark import BenchmarkResult
+from llama_manager.config import ServerConfig
 from llama_manager.validation.validators import require_executable
 
 # ---------------------------------------------------------------------------

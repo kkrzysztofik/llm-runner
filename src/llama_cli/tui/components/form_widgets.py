@@ -131,27 +131,28 @@ def cache_type_row(
 
 def config_profile_prefill(config: Config) -> dict[str, str]:
     """Build run-profile form prefill values from global Config defaults."""
-    spec = config.default_spec_decode
+    defaults = config.server_defaults
+    spec = defaults.spec_decode
     return {
-        "port": str(config.default_profile_port),
-        "ctx-size": str(config.default_profile_ctx_size),
-        "ubatch-size": str(config.default_profile_ubatch_size),
-        "threads": str(config.default_profile_threads),
-        "n-gpu-layers": str(config.default_profile_n_gpu_layers),
-        "bind-address": config.default_bind_address,
-        "batch-size": str(config.default_batch_size),
-        "poll-ms": str(config.default_poll_ms),
-        "n-predict": str(config.default_n_predict),
-        "parallel": str(config.default_parallel),
-        "threads-batch": str(config.default_threads_batch),
-        "cache-type-k": config.default_profile_cache_type_k,
-        "cache-type-v": config.default_profile_cache_type_v,
+        "port": str(defaults.port),
+        "ctx-size": str(defaults.ctx_size),
+        "ubatch-size": str(defaults.ubatch_size),
+        "threads": str(defaults.threads),
+        "n-gpu-layers": str(defaults.n_gpu_layers_profile),
+        "bind-address": defaults.bind_address,
+        "batch-size": str(defaults.batch_size),
+        "poll-ms": str(defaults.poll_ms),
+        "n-predict": str(defaults.n_predict),
+        "parallel": str(defaults.parallel),
+        "threads-batch": str(defaults.threads_batch),
+        "cache-type-k": defaults.cache_type_k,
+        "cache-type-v": defaults.cache_type_v,
         "reasoning-mode": spec.reasoning_mode,
         "reasoning-format": spec.reasoning_format,
         "reasoning-budget": spec.reasoning_budget,
-        "use-jinja": "true" if config.default_use_jinja else "false",
-        "chat-template-kwargs": config.default_profile_chat_template_kwargs,
-        "mmproj": config.default_mmproj,
+        "use-jinja": "true" if defaults.use_jinja else "false",
+        "chat-template-kwargs": defaults.chat_template_kwargs,
+        "mmproj": defaults.mmproj,
         "spec-type": spec.spec_type,
         "spec-ngram-size-n": str(spec.spec_ngram_size_n),
         "draft-min": str(spec.draft_min),
@@ -172,7 +173,8 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
     cfg_row = "form-row config-row"
     cfg_row_select = CONFIG_ROW_SELECT_CLASSES
     prefix = "cfg"
-    spec = config.default_spec_decode
+    defaults = config.server_defaults
+    spec = defaults.spec_decode
 
     speculative = Collapsible(
         field_row(
@@ -262,7 +264,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Default port",
             "default_profile_port",
-            str(config.default_profile_port),
+            str(defaults.port),
             id_prefix=prefix,
             type="number",
             label_classes=cfg_label,
@@ -272,7 +274,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Default ctx size",
             "default_profile_ctx_size",
-            str(config.default_profile_ctx_size),
+            str(defaults.ctx_size),
             id_prefix=prefix,
             type="number",
             label_classes=cfg_label,
@@ -282,7 +284,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Default ubatch",
             "default_profile_ubatch_size",
-            str(config.default_profile_ubatch_size),
+            str(defaults.ubatch_size),
             id_prefix=prefix,
             type="number",
             label_classes=cfg_label,
@@ -292,7 +294,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Default threads",
             "default_profile_threads",
-            str(config.default_profile_threads),
+            str(defaults.threads),
             id_prefix=prefix,
             type="number",
             label_classes=cfg_label,
@@ -302,7 +304,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Default GPU layers",
             "default_profile_n_gpu_layers",
-            str(config.default_profile_n_gpu_layers),
+            str(defaults.n_gpu_layers_profile),
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_input,
@@ -311,7 +313,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Bind address",
             "default_bind_address",
-            config.default_bind_address,
+            defaults.bind_address,
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_input,
@@ -320,7 +322,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Batch size",
             "default_batch_size",
-            str(config.default_batch_size),
+            str(defaults.batch_size),
             id_prefix=prefix,
             type="number",
             label_classes=cfg_label,
@@ -330,7 +332,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Poll (ms)",
             "default_poll_ms",
-            str(config.default_poll_ms),
+            str(defaults.poll_ms),
             id_prefix=prefix,
             type="number",
             label_classes=cfg_label,
@@ -340,7 +342,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "N predict",
             "default_n_predict",
-            str(config.default_n_predict),
+            str(defaults.n_predict),
             id_prefix=prefix,
             type="number",
             label_classes=cfg_label,
@@ -351,7 +353,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             "Default parallel",
             "default_parallel",
             DEFAULT_PARALLEL_CHOICES,
-            str(config.default_parallel),
+            str(defaults.parallel),
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_select,
@@ -360,7 +362,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Threads batch",
             "default_threads_batch",
-            str(config.default_threads_batch),
+            str(defaults.threads_batch),
             id_prefix=prefix,
             type="number",
             label_classes=cfg_label,
@@ -370,7 +372,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         cache_type_row(
             "Cache K",
             "default_profile_cache_type_k",
-            config.default_profile_cache_type_k,
+            defaults.cache_type_k,
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_select,
@@ -379,7 +381,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         cache_type_row(
             "Cache V",
             "default_profile_cache_type_v",
-            config.default_profile_cache_type_v,
+            defaults.cache_type_v,
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_select,
@@ -417,7 +419,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         checkbox_row(
             "Use Jinja",
             "default_use_jinja",
-            config.default_use_jinja,
+            defaults.use_jinja,
             id_prefix=prefix,
             label_classes=cfg_label,
             row_classes=cfg_row,
@@ -425,7 +427,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Chat template kwargs",
             "default_profile_chat_template_kwargs",
-            config.default_profile_chat_template_kwargs,
+            defaults.chat_template_kwargs,
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_input,
@@ -434,7 +436,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "MMProj",
             "default_mmproj",
-            config.default_mmproj,
+            defaults.mmproj,
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_input,

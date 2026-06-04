@@ -356,10 +356,6 @@ def verify_shutdown_ownership(pid: int, port: int) -> bool:
     return True
 
 
-# Backward-compatible alias for tests importing the private name.
-_verify_shutdown_ownership = verify_shutdown_ownership
-
-
 def verify_process_ownership(pid: int, pid_metadata: dict[int, float]) -> bool:
     """Verify process ownership using creation time metadata and UID."""
     if pid in pid_metadata:
