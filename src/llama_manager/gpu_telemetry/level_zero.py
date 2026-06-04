@@ -3,6 +3,7 @@
 import ctypes
 import logging
 import os
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -30,6 +31,14 @@ _ZES_STRING_PROPERTY_SIZE = 64
 _ZE_MAX_DEVICE_UUID_SIZE = 16
 _ZE_MAX_DEVICE_NAME = 256
 _ZE_RESULT_SUCCESS = 0
+_SYS_BUS_PCI_DEVICES = "/sys/bus/pci/devices"
+_SYS_CLASS_DRM = "/sys/class/drm"
+_PROC_ROOT = "/proc"
+_INTEL_HWMON_NAMES = {"xe", "i915", "intel_gpu", "intel-gpu"}
+_PREFERRED_TEMP_LABELS = ("pkg", "card", "gpu", "junction")
+_FDINFO_ENGINE_RE = re.compile(r"^drm-engine-[^:]+:\s*(\d+)")
+_FDINFO_CYCLES_RE = re.compile(r"^drm-cycles-([^:]+):\s*(\d+)")
+_FDINFO_TOTAL_CYCLES_RE = re.compile(r"^drm-total-cycles-([^:]+):\s*(\d+)")
 
 
 class _ZeDeviceUuid(ctypes.Structure):
@@ -132,6 +141,13 @@ class _ZesEngineStats(ctypes.Structure):
 
 class _ZesPowerEnergyCounter(ctypes.Structure):
     _fields_ = [("energy", ctypes.c_uint64), ("timestamp", ctypes.c_uint64)]
+
+
+@dataclass(frozen=True)
+class _FdinfoCounters:
+    engine_ns: int
+    cycles: dict[str, int]
+    total_cycles: dict[str, int]
 
 
 @dataclass(frozen=True)
@@ -369,6 +385,295 @@ def _collect_level_zero_engine_util(lib: ctypes.CDLL, device: _LevelZeroDevice) 
     return max(values)
 
 
+def _safe_read_text(path: str) -> str | None:
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def _safe_read_int(path: str) -> int | None:
+    text = _safe_read_text(path)
+    if text is None:
+        return None
+    try:
+        return int(text.split(maxsplit=1)[0])
+    except ValueError:
+        return None
+
+
+def _normalize_temp(raw_value: int) -> float | None:
+    value = raw_value / 1000.0 if abs(raw_value) >= 1000 else float(raw_value)
+    if value <= 0 or value >= 150:
+        return None
+    return value
+
+
+def _device_root_matches(path: str, device: _LevelZeroDevice) -> bool:
+    vendor = _safe_read_text(os.path.join(path, "vendor"))
+    if vendor is not None and vendor.lower() != f"0x{INTEL_VENDOR_ID:04x}":
+        return False
+    device_id = _safe_read_text(os.path.join(path, "device"))
+    if device_id is not None:
+        try:
+            if int(device_id, 16) != device.device_id:
+                return False
+        except ValueError:
+            return False
+    if device.pci_bdf:
+        return os.path.basename(os.path.realpath(path)).lower() == device.pci_bdf.lower()
+    return vendor is not None or device_id is not None
+
+
+def _iter_device_roots(device: _LevelZeroDevice) -> list[str]:
+    roots: list[str] = []
+    if device.pci_bdf:
+        roots.append(os.path.join(_SYS_BUS_PCI_DEVICES, device.pci_bdf))
+
+    try:
+        drm_entries = sorted(os.listdir(_SYS_CLASS_DRM))
+    except OSError:
+        drm_entries = []
+    for entry in drm_entries:
+        if not (entry.startswith("card") or entry.startswith("renderD")):
+            continue
+        if entry.startswith("card") and "-" in entry:
+            continue
+        device_path = os.path.join(_SYS_CLASS_DRM, entry, "device")
+        if os.path.exists(device_path) and _device_root_matches(device_path, device):
+            roots.append(device_path)
+
+    unique_roots: list[str] = []
+    seen: set[str] = set()
+    for root in roots:
+        real = os.path.realpath(root)
+        if real in seen or not os.path.isdir(root):
+            continue
+        seen.add(real)
+        unique_roots.append(root)
+    return unique_roots
+
+
+def _iter_hwmon_paths(device: _LevelZeroDevice) -> list[str]:
+    hwmon_paths: list[str] = []
+    for root in _iter_device_roots(device):
+        direct = os.path.join(root, "hwmon")
+        try:
+            entries = sorted(os.listdir(direct))
+        except OSError:
+            continue
+        for entry in entries:
+            path = os.path.join(direct, entry)
+            if os.path.isdir(path):
+                hwmon_paths.append(path)
+    return hwmon_paths
+
+
+def _read_hwmon_temperature(hwmon_path: str) -> float | None:
+    name = (_safe_read_text(os.path.join(hwmon_path, "name")) or "").lower()
+    if name and name not in _INTEL_HWMON_NAMES:
+        return None
+
+    readings: list[tuple[str, float]] = []
+    try:
+        entries = sorted(os.listdir(hwmon_path))
+    except OSError:
+        return None
+    for entry in entries:
+        if not entry.startswith("temp") or not entry.endswith("_input"):
+            continue
+        index = entry.removeprefix("temp").removesuffix("_input")
+        raw_value = _safe_read_int(os.path.join(hwmon_path, entry))
+        if raw_value is None:
+            continue
+        temp = _normalize_temp(raw_value)
+        if temp is None:
+            continue
+        label = (_safe_read_text(os.path.join(hwmon_path, f"temp{index}_label")) or "").lower()
+        readings.append((label, temp))
+    if not readings:
+        return None
+    for preferred in _PREFERRED_TEMP_LABELS:
+        for label, temp in readings:
+            if label == preferred:
+                return temp
+    return max(temp for _, temp in readings)
+
+
+def _iter_drm_paths(device: _LevelZeroDevice) -> list[str]:
+    paths: list[str] = []
+    for root in _iter_device_roots(device):
+        drm_root = os.path.join(root, "drm")
+        try:
+            entries = sorted(os.listdir(drm_root))
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.startswith("card") and "-" not in entry:
+                path = os.path.join(drm_root, entry)
+                if os.path.isdir(path):
+                    paths.append(path)
+
+    try:
+        entries = sorted(os.listdir(_SYS_CLASS_DRM))
+    except OSError:
+        entries = []
+    for entry in entries:
+        if not entry.startswith("card") or "-" in entry:
+            continue
+        path = os.path.join(_SYS_CLASS_DRM, entry)
+        device_path = os.path.join(path, "device")
+        if os.path.exists(device_path) and _device_root_matches(device_path, device):
+            paths.append(path)
+
+    unique_paths: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        real = os.path.realpath(path)
+        if real in seen:
+            continue
+        seen.add(real)
+        unique_paths.append(path)
+    return unique_paths
+
+
+def _read_drm_engine_busy(drm_paths: list[str]) -> list[int]:
+    counters: list[int] = []
+    for drm_path in drm_paths:
+        engine_root = os.path.join(drm_path, "engine")
+        try:
+            engines = sorted(os.listdir(engine_root))
+        except OSError:
+            continue
+        for engine in engines:
+            busy = _safe_read_int(os.path.join(engine_root, engine, "busy"))
+            if busy is not None:
+                counters.append(busy)
+    return counters
+
+
+def _collect_sysfs_engine_util(device: _LevelZeroDevice) -> float | None:
+    drm_paths = _iter_drm_paths(device)
+    if not drm_paths:
+        return None
+    start_time = time.monotonic_ns()
+    first = _read_drm_engine_busy(drm_paths)
+    if not first:
+        return None
+    time.sleep(0.05)
+    elapsed = time.monotonic_ns() - start_time
+    if elapsed <= 0:
+        return None
+    second = _read_drm_engine_busy(drm_paths)
+    values: list[float] = []
+    for before, after in zip(first, second, strict=False):
+        if after >= before:
+            values.append(100.0 * (after - before) / elapsed)
+    if not values:
+        return None
+    return max(0.0, min(100.0, max(values)))
+
+
+def _fdinfo_matches_device(path: str, lines: list[str], device: _LevelZeroDevice) -> bool:
+    driver = ""
+    pdev = ""
+    for line in lines:
+        if line.startswith("drm-driver:"):
+            driver = line.partition(":")[2].strip().lower()
+        elif line.startswith("drm-pdev:"):
+            pdev = line.partition(":")[2].strip().lower()
+    if driver and driver not in ("xe", "i915"):
+        return False
+    if device.pci_bdf:
+        return pdev == device.pci_bdf.lower()
+    return driver in ("xe", "i915") or "drm" in path
+
+
+def _read_fdinfo_counters(device: _LevelZeroDevice) -> dict[str, _FdinfoCounters]:
+    snapshots: dict[str, _FdinfoCounters] = {}
+    proc_root = _PROC_ROOT
+    try:
+        proc_entries = sorted(os.listdir(proc_root))
+    except OSError:
+        return snapshots
+    for pid in proc_entries:
+        if not pid.isdigit():
+            continue
+        fdinfo_root = os.path.join(proc_root, pid, "fdinfo")
+        try:
+            fd_entries = sorted(os.listdir(fdinfo_root))
+        except OSError:
+            continue
+        for fd in fd_entries:
+            path = os.path.join(fdinfo_root, fd)
+            text = _safe_read_text(path)
+            if not text:
+                continue
+            lines = text.splitlines()
+            if not _fdinfo_matches_device(path, lines, device):
+                continue
+            engine_ns = 0
+            cycles: dict[str, int] = {}
+            total_cycles: dict[str, int] = {}
+            for line in lines:
+                if match := _FDINFO_ENGINE_RE.match(line):
+                    engine_ns += int(match.group(1))
+                    continue
+                if match := _FDINFO_CYCLES_RE.match(line):
+                    cycles[match.group(1)] = cycles.get(match.group(1), 0) + int(match.group(2))
+                    continue
+                if match := _FDINFO_TOTAL_CYCLES_RE.match(line):
+                    total_cycles[match.group(1)] = total_cycles.get(match.group(1), 0) + int(
+                        match.group(2)
+                    )
+            if engine_ns > 0 or cycles or total_cycles:
+                snapshots[path] = _FdinfoCounters(engine_ns, cycles, total_cycles)
+    return snapshots
+
+
+def _collect_fdinfo_engine_util(device: _LevelZeroDevice) -> float | None:
+    start_time = time.monotonic_ns()
+    first = _read_fdinfo_counters(device)
+    if not first:
+        return None
+    time.sleep(0.05)
+    elapsed = time.monotonic_ns() - start_time
+    if elapsed <= 0:
+        return None
+    second = _read_fdinfo_counters(device)
+    percentages: list[float] = []
+    for path, after in second.items():
+        before = first.get(path)
+        if before is None:
+            continue
+        if after.engine_ns >= before.engine_ns and after.engine_ns > 0:
+            percentages.append(100.0 * (after.engine_ns - before.engine_ns) / elapsed)
+        for engine, after_cycles in after.cycles.items():
+            before_cycles = before.cycles.get(engine)
+            before_total = before.total_cycles.get(engine)
+            after_total = after.total_cycles.get(engine)
+            if before_cycles is None or before_total is None or after_total is None:
+                continue
+            cycle_delta = after_cycles - before_cycles
+            total_delta = after_total - before_total
+            if cycle_delta >= 0 and total_delta > 0:
+                percentages.append(100.0 * cycle_delta / total_delta)
+    if not percentages:
+        return None
+    return max(0.0, min(100.0, sum(percentages)))
+
+
+def _collect_native_engine_util(lib: ctypes.CDLL, device: _LevelZeroDevice) -> float | None:
+    util = _collect_level_zero_engine_util(lib, device)
+    if util is not None:
+        return util
+    util = _collect_sysfs_engine_util(device)
+    if util is not None:
+        return util
+    return _collect_fdinfo_engine_util(device)
+
+
 def _read_power_counters(
     lib: ctypes.CDLL,
     handles: list[ctypes.c_void_p],
@@ -416,46 +721,10 @@ def _collect_level_zero_temp(lib: ctypes.CDLL, device: _LevelZeroDevice) -> floa
 
 def _collect_sysfs_temp(device: _LevelZeroDevice) -> float | None:
     """Fallback: read GPU temperature from sysfs hwmon when L0 Sysman fails."""
-    if not device.pci_bdf:
-        return None
-    hwmon_root = f"/sys/bus/pci/devices/{device.pci_bdf}/hwmon"
-    if not os.path.isdir(hwmon_root):
-        return None
-    for entry in os.listdir(hwmon_root):
-        hwmon_path = os.path.join(hwmon_root, entry)
-        name_path = os.path.join(hwmon_path, "name")
-        if not os.path.isfile(name_path):
-            continue
-        try:
-            with open(name_path) as f:
-                if f.read().strip() != "xe":
-                    continue
-        except OSError:
-            continue
-        sensors: dict[str, list[int]] = {}
-        for fname in os.listdir(hwmon_path):
-            if not fname.startswith("temp") or not fname.endswith("_input"):
-                continue
-            prefix = fname.rsplit("_", 1)[0]
-            fidx = prefix.replace("temp", "")
-            try:
-                with open(os.path.join(hwmon_path, fname)) as f:
-                    sensors.setdefault(fidx, []).append(int(f.read().strip()))
-            except OSError:
-                continue
-        if not sensors:
-            return None
-        for fidx, values in sensors.items():
-            label_file = os.path.join(hwmon_path, f"temp{fidx}_label")
-            try:
-                with open(label_file) as f:
-                    label = f.read().strip()
-            except OSError:
-                label = ""
-            if label == "pkg":
-                return values[0] / 1000.0
-        best = max(vs[0] for vs in sensors.values())
-        return best / 1000.0
+    for hwmon_path in _iter_hwmon_paths(device):
+        temp = _read_hwmon_temperature(hwmon_path)
+        if temp is not None:
+            return temp
     return None
 
 
@@ -479,12 +748,13 @@ def collect_level_zero_stats(selector: GpuTelemetrySelector) -> dict[str, Any] |
             if used_bytes is not None and total_bytes is not None and total_bytes > 0
             else None
         )
+        gpu_util = _collect_native_engine_util(lib, device)
         temp = _collect_level_zero_temp(lib, device)
         if temp is None:
             temp = _collect_sysfs_temp(device)
         stats = {
             "device": device.name,
-            "gpu_util": format_percent(_collect_level_zero_engine_util(lib, device)),
+            "gpu_util": format_percent(gpu_util),
             "mem_util": format_percent(mem_pct),
             "vram": format_memory_used(used_bytes, total_bytes),
             "temp": format_temp(temp),
