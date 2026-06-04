@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 
 from ..common.validators import validate_port_range
-from .errors import ErrorCode, ErrorDetail
+from .errors import ErrorCode, ErrorDetail, ValidationResult
 from .spec_decode import SpeculativeDecodingConfig
 
 # Regex pattern for slot ID normalization: strip, lowercase, allow only a-z0-9_-
@@ -285,7 +285,7 @@ def detect_duplicate_slots(slots: list[ModelSlot]) -> list[str]:
     return duplicates
 
 
-def validate_slot_id(slot_id: str) -> ErrorDetail | None:
+def validate_slot_id(slot_id: str) -> ErrorDetail:
     """Validate and normalize a slot ID.
 
     Args:
@@ -297,11 +297,7 @@ def validate_slot_id(slot_id: str) -> ErrorDetail | None:
     """
     try:
         normalized = normalize_slot_id(slot_id)
-        return ErrorDetail(
-            error_code=None,
-            failed_check="",
-            why_blocked="",
-            how_to_fix="",
+        return ValidationResult(
             slot_id=normalized,
             passed=True,
         )
@@ -315,7 +311,7 @@ def validate_slot_id(slot_id: str) -> ErrorDetail | None:
         )
 
 
-def validate_slot_port(port: int, slot_id: str) -> ErrorDetail | None:
+def validate_slot_port(port: int, slot_id: str) -> ErrorDetail:
     """Validate a slot port number.
 
     Args:
@@ -335,11 +331,7 @@ def validate_slot_port(port: int, slot_id: str) -> ErrorDetail | None:
             how_to_fix="use a TCP port between 1024 and 65535",
             slot_id=slot_id,
         )
-    return ErrorDetail(
-        error_code=None,
-        failed_check="",
-        why_blocked="",
-        how_to_fix="",
+    return ValidationResult(
         slot_id=slot_id,
         passed=True,
     )

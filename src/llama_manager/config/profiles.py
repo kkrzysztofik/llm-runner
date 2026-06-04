@@ -1,7 +1,7 @@
 """Slot profile definitions."""
 
 from collections.abc import Iterable
-from dataclasses import InitVar, dataclass, field
+from dataclasses import dataclass, field
 
 from ..common.text import sanitize_filename_component
 from ..common.validators import validate_port_range
@@ -43,35 +43,76 @@ class SlotProfileSpec:
     threads_batch: int = 0
     mmproj: str = ""
     spec_decode: SpeculativeDecodingConfig = field(default_factory=SpeculativeDecodingConfig)
-    spec_type: InitVar[str | None] = None
-    spec_ngram_size_n: InitVar[int | None] = None
-    draft_min: InitVar[int | None] = None
-    draft_max: InitVar[int | None] = None
-    spec_draft_n_max: InitVar[int | None] = None
-    spec_draft_p_min: InitVar[float | None] = None
-    spec_draft_cache_type_k: InitVar[str | None] = None
-    spec_draft_cache_type_v: InitVar[str | None] = None
-    spec_draft_device: InitVar[str | None] = None
-    reasoning_mode: InitVar[str | None] = None
-    reasoning_format: InitVar[str | None] = None
-    reasoning_budget: InitVar[str | None] = None
 
-    def __post_init__(
+    def __init__(
         self,
-        spec_type: str | None,
-        spec_ngram_size_n: int | None,
-        draft_min: int | None,
-        draft_max: int | None,
-        spec_draft_n_max: int | None,
-        spec_draft_p_min: float | None,
-        spec_draft_cache_type_k: str | None,
-        spec_draft_cache_type_v: str | None,
-        spec_draft_device: str | None,
-        reasoning_mode: str | None,
-        reasoning_format: str | None,
-        reasoning_budget: str | None,
+        profile_id: str,
+        model: str,
+        alias: str,
+        device: str,
+        port: int,
+        ctx_size: int,
+        ubatch_size: int,
+        threads: int,
+        description: str = "",
+        bind_address: str = "127.0.0.1",
+        tensor_split: str = "",
+        chat_template_kwargs: str = "",
+        use_jinja: bool = False,
+        cache_type_k: str = "q8_0",
+        cache_type_v: str = "q8_0",
+        n_gpu_layers: int | str = 99,
+        main_gpu: int = 0,
+        server_bin: str = "",
+        backend: str = "llama_cpp",
+        risky_acknowledged: tuple[str, ...] = (),
+        batch_size: int = 2048,
+        poll_ms: int = 50,
+        n_predict: int = 32768,
+        parallel: int = 4,
+        threads_batch: int = 0,
+        mmproj: str = "",
+        spec_decode: SpeculativeDecodingConfig | None = None,
+        spec_type: str | None = None,
+        spec_ngram_size_n: int | None = None,
+        draft_min: int | None = None,
+        draft_max: int | None = None,
+        spec_draft_n_max: int | None = None,
+        spec_draft_p_min: float | None = None,
+        spec_draft_cache_type_k: str | None = None,
+        spec_draft_cache_type_v: str | None = None,
+        spec_draft_device: str | None = None,
+        reasoning_mode: str | None = None,
+        reasoning_format: str | None = None,
+        reasoning_budget: str | None = None,
     ) -> None:
-        """Validate slot profile data at construction time."""
+        object.__setattr__(self, "profile_id", profile_id)
+        object.__setattr__(self, "model", model)
+        object.__setattr__(self, "alias", alias)
+        object.__setattr__(self, "device", device)
+        object.__setattr__(self, "port", port)
+        object.__setattr__(self, "ctx_size", ctx_size)
+        object.__setattr__(self, "ubatch_size", ubatch_size)
+        object.__setattr__(self, "threads", threads)
+        object.__setattr__(self, "description", description)
+        object.__setattr__(self, "bind_address", bind_address)
+        object.__setattr__(self, "tensor_split", tensor_split)
+        object.__setattr__(self, "chat_template_kwargs", chat_template_kwargs)
+        object.__setattr__(self, "use_jinja", use_jinja)
+        object.__setattr__(self, "cache_type_k", cache_type_k)
+        object.__setattr__(self, "cache_type_v", cache_type_v)
+        object.__setattr__(self, "n_gpu_layers", n_gpu_layers)
+        object.__setattr__(self, "main_gpu", main_gpu)
+        object.__setattr__(self, "server_bin", server_bin)
+        object.__setattr__(self, "backend", backend)
+        object.__setattr__(self, "risky_acknowledged", risky_acknowledged)
+        object.__setattr__(self, "batch_size", batch_size)
+        object.__setattr__(self, "poll_ms", poll_ms)
+        object.__setattr__(self, "n_predict", n_predict)
+        object.__setattr__(self, "parallel", parallel)
+        object.__setattr__(self, "threads_batch", threads_batch)
+        object.__setattr__(self, "mmproj", mmproj)
+        object.__setattr__(self, "spec_decode", spec_decode or SpeculativeDecodingConfig())
         spec_overrides = {
             "spec_type": spec_type,
             "spec_ngram_size_n": spec_ngram_size_n,
@@ -95,6 +136,10 @@ class SlotProfileSpec:
                 object.__setattr__(self, "spec_decode", SpeculativeDecodingConfig(**base))
             except ValueError as exc:
                 raise SlotProfileError(str(exc)) from exc
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        """Validate slot profile data at construction time."""
         _require_text(self.profile_id, "profile_id")
         _require_text(self.model, "model")
         _require_text(self.alias, "alias")
@@ -124,6 +169,54 @@ class SlotProfileSpec:
         if name in SpeculativeDecodingConfig.__dataclass_fields__:
             return getattr(object.__getattribute__(self, "spec_decode"), name)
         return object.__getattribute__(self, name)
+
+    @property
+    def reasoning_mode(self) -> str:
+        return self.spec_decode.reasoning_mode
+
+    @property
+    def reasoning_format(self) -> str:
+        return self.spec_decode.reasoning_format
+
+    @property
+    def reasoning_budget(self) -> str:
+        return self.spec_decode.reasoning_budget
+
+    @property
+    def spec_type(self) -> str:
+        return self.spec_decode.spec_type
+
+    @property
+    def spec_ngram_size_n(self) -> int:
+        return self.spec_decode.spec_ngram_size_n
+
+    @property
+    def draft_min(self) -> int:
+        return self.spec_decode.draft_min
+
+    @property
+    def draft_max(self) -> int:
+        return self.spec_decode.draft_max
+
+    @property
+    def spec_draft_n_max(self) -> int:
+        return self.spec_decode.spec_draft_n_max
+
+    @property
+    def spec_draft_p_min(self) -> float:
+        return self.spec_decode.spec_draft_p_min
+
+    @property
+    def spec_draft_cache_type_k(self) -> str:
+        return self.spec_decode.spec_draft_cache_type_k
+
+    @property
+    def spec_draft_cache_type_v(self) -> str:
+        return self.spec_decode.spec_draft_cache_type_v
+
+    @property
+    def spec_draft_device(self) -> str:
+        return self.spec_decode.spec_draft_device
 
 
 @dataclass(frozen=True, slots=True)

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
@@ -205,7 +206,7 @@ def _append_speculative_flags(cmd: list[str], cfg: ServerConfig) -> None:
 
 
 def sort_validation_errors(
-    results: list[ErrorDetail],
+    results: Sequence[ErrorDetail],
 ) -> list[ErrorDetail]:
     """Sort validation errors deterministically for T003 stable ordering."""
     slot_order: dict[str, int] = {}

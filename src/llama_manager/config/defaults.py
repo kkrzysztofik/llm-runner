@@ -178,6 +178,9 @@ class ServerDefaultsConfig:
 # Legacy flat field name -> (sub-dataclass field on Config, attr on sub-dataclass)
 _CONFIG_LEGACY_ROUTE: dict[str, tuple[str, str]] = {
     "llama_cpp_root": ("paths", "llama_cpp_root"),
+    "xdg_cache_base": ("paths", "xdg_cache_base"),
+    "xdg_state_base": ("paths", "xdg_state_base"),
+    "xdg_data_base": ("paths", "xdg_data_base"),
     "models_dir": ("paths", "models_dir"),
     "llama_server_bin_intel": ("paths", "llama_server_bin_intel"),
     "llama_server_bin_nvidia": ("paths", "llama_server_bin_nvidia"),

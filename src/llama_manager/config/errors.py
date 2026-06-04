@@ -1,6 +1,7 @@
 """Structured validation error types."""
 
 from dataclasses import dataclass
+from typing import cast
 
 from .enums import ErrorCode
 
@@ -9,7 +10,7 @@ from .enums import ErrorCode
 class ErrorDetail:
     """FR-005 structured actionable error detail"""
 
-    error_code: ErrorCode | None
+    error_code: ErrorCode
     failed_check: str
     why_blocked: str
     how_to_fix: str
@@ -76,22 +77,25 @@ class ValidationException(Exception):
             super().__init__(f"Validation failed with {len(multi_error.errors)} error(s)")
 
 
-def ValidationResult(
-    slot_id: str,
-    passed: bool,
-    failed_check: str = "",
-    error_code: ErrorCode | None = None,
-    error_message: str = "",
-) -> ErrorDetail:
+class ValidationResult(ErrorDetail):
     """Compatibility constructor for the old validation-result shape."""
-    return ErrorDetail(
-        error_code=error_code,
-        failed_check=failed_check,
-        why_blocked=error_message,
-        how_to_fix=f"Fix {failed_check} for slot {slot_id}" if failed_check else "",
-        slot_id=slot_id,
-        passed=passed,
-    )
+
+    def __init__(
+        self,
+        slot_id: str,
+        passed: bool,
+        failed_check: str = "",
+        error_code: ErrorCode | None = None,
+        error_message: str = "",
+    ) -> None:
+        super().__init__(
+            error_code=cast(ErrorCode, error_code),
+            failed_check=failed_check,
+            why_blocked=error_message,
+            how_to_fix=f"Fix {failed_check} for slot {slot_id}" if failed_check else "",
+            slot_id=slot_id,
+            passed=passed,
+        )
 
 
 def _extract_slot_id(failed_check: str) -> str | None:
