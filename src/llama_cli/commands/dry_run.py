@@ -90,10 +90,11 @@ def _print_resolved_slot(
     emit_info(f"  UBatch: {server_cfg.ubatch_size}")
     emit_info(f"  KV cache: {server_cfg.cache_type_k}/{server_cfg.cache_type_v}")
     emit_info(f"  n-gpu-layers: {server_cfg.n_gpu_layers}")
-    if server_cfg.reasoning_mode != "auto":
-        emit_info(f"  Reasoning: {server_cfg.reasoning_mode}")
-    if server_cfg.reasoning_format != "none":
-        emit_info(f"  Reasoning Format: {server_cfg.reasoning_format}")
+    spec = server_cfg.spec_decode
+    if spec.reasoning_mode != "auto":
+        emit_info(f"  Reasoning: {spec.reasoning_mode}")
+    if spec.reasoning_format != "none":
+        emit_info(f"  Reasoning Format: {spec.reasoning_format}")
     if server_cfg.use_jinja:
         emit_info(f"  Jinja: {server_cfg.use_jinja}")
     if server_cfg.chat_template_kwargs:

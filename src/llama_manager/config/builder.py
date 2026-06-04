@@ -24,6 +24,21 @@ from .profiles import (
     _parse_main_gpu_from_device,
 )
 from .server import ServerConfig
+from .spec_decode import SpeculativeDecodingConfig
+
+_SPEC_DECODE_FIELDS: frozenset[str] = frozenset(
+    field.name for field in dataclasses.fields(SpeculativeDecodingConfig)
+)
+
+
+def _split_spec_decode_values(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Separate legacy flat spec keys from ServerConfig keys."""
+    config_data = deepcopy(data)
+    spec_data = dict(config_data.pop("spec_decode", {}) or {})
+    for key in _SPEC_DECODE_FIELDS:
+        if key in config_data:
+            spec_data[key] = config_data.pop(key)
+    return config_data, spec_data
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -120,10 +135,8 @@ def _profile_to_config_data(profile: SlotProfileSpec) -> dict[str, Any]:
         "ubatch_size": profile.ubatch_size,
         "threads": profile.threads,
         "tensor_split": tensor_split,
-        "reasoning_mode": profile.reasoning_mode,
-        "reasoning_format": profile.reasoning_format,
         "chat_template_kwargs": profile.chat_template_kwargs,
-        "reasoning_budget": profile.reasoning_budget,
+        "spec_decode": dataclasses.asdict(profile.spec_decode),
         "use_jinja": profile.use_jinja,
         "cache_type_k": profile.cache_type_k,
         "cache_type_v": profile.cache_type_v,
@@ -138,57 +151,51 @@ def _profile_to_config_data(profile: SlotProfileSpec) -> dict[str, Any]:
         "parallel": profile.parallel,
         "threads_batch": profile.threads_batch,
         "mmproj": profile.mmproj,
-        "spec_type": profile.spec_type,
-        "spec_ngram_size_n": profile.spec_ngram_size_n,
-        "draft_min": profile.draft_min,
-        "draft_max": profile.draft_max,
-        "spec_draft_n_max": profile.spec_draft_n_max,
-        "spec_draft_p_min": profile.spec_draft_p_min,
-        "spec_draft_cache_type_k": profile.spec_draft_cache_type_k,
-        "spec_draft_cache_type_v": profile.spec_draft_cache_type_v,
-        "spec_draft_device": profile.spec_draft_device,
     }
 
 
 def _config_data_to_server_config(data: dict[str, Any]) -> ServerConfig:
     """Convert validated ServerConfig-compatible data to ServerConfig."""
+    config_data, spec_data = _split_spec_decode_values(data)
     return ServerConfig(
-        model=data["model"],
-        alias=data["alias"],
-        device=data["device"],
-        port=data["port"],
-        bind_address=data.get("bind_address", "127.0.0.1"),
-        ctx_size=data["ctx_size"],
-        ubatch_size=data["ubatch_size"],
-        threads=data["threads"],
-        tensor_split=data.get("tensor_split", ""),
-        reasoning_mode=data["reasoning_mode"],
-        reasoning_format=data["reasoning_format"],
-        chat_template_kwargs=data["chat_template_kwargs"],
-        reasoning_budget=data.get("reasoning_budget", ""),
-        use_jinja=data["use_jinja"],
-        cache_type_k=data["cache_type_k"],
-        cache_type_v=data["cache_type_v"],
-        n_gpu_layers=data["n_gpu_layers"],
-        main_gpu=data.get("main_gpu", 0),
-        server_bin=data["server_bin"],
-        backend=data["backend"],
-        risky_acknowledged=data["risky_acknowledged"],
-        batch_size=int(data.get("batch_size", 2048)),
-        poll_ms=int(data.get("poll_ms", 50)),
-        n_predict=int(data.get("n_predict", 32768)),
-        parallel=int(data.get("parallel", 4)),
-        threads_batch=int(data.get("threads_batch", 0)),
-        mmproj=str(data.get("mmproj", "")),
-        spec_type=str(data.get("spec_type", "")),
-        spec_ngram_size_n=int(data.get("spec_ngram_size_n", 0)),
-        draft_min=int(data.get("draft_min", 0)),
-        draft_max=int(data.get("draft_max", 0)),
-        spec_draft_n_max=int(data.get("spec_draft_n_max", 0)),
-        spec_draft_p_min=float(data.get("spec_draft_p_min", 0.0)),
-        spec_draft_cache_type_k=str(data.get("spec_draft_cache_type_k", "")),
-        spec_draft_cache_type_v=str(data.get("spec_draft_cache_type_v", "")),
-        spec_draft_device=str(data.get("spec_draft_device", "")),
+        model=config_data["model"],
+        alias=config_data["alias"],
+        device=config_data["device"],
+        port=config_data["port"],
+        bind_address=config_data.get("bind_address", "127.0.0.1"),
+        ctx_size=config_data["ctx_size"],
+        ubatch_size=config_data["ubatch_size"],
+        threads=config_data["threads"],
+        tensor_split=config_data.get("tensor_split", ""),
+        chat_template_kwargs=config_data["chat_template_kwargs"],
+        use_jinja=config_data["use_jinja"],
+        cache_type_k=config_data["cache_type_k"],
+        cache_type_v=config_data["cache_type_v"],
+        n_gpu_layers=config_data["n_gpu_layers"],
+        main_gpu=config_data.get("main_gpu", 0),
+        server_bin=config_data["server_bin"],
+        backend=config_data["backend"],
+        risky_acknowledged=config_data["risky_acknowledged"],
+        batch_size=int(config_data.get("batch_size", 2048)),
+        poll_ms=int(config_data.get("poll_ms", 50)),
+        n_predict=int(config_data.get("n_predict", 32768)),
+        parallel=int(config_data.get("parallel", 4)),
+        threads_batch=int(config_data.get("threads_batch", 0)),
+        mmproj=str(config_data.get("mmproj", "")),
+        spec_decode=SpeculativeDecodingConfig(
+            spec_type=str(spec_data.get("spec_type", "")),
+            spec_ngram_size_n=int(spec_data.get("spec_ngram_size_n", 0)),
+            draft_min=int(spec_data.get("draft_min", 0)),
+            draft_max=int(spec_data.get("draft_max", 0)),
+            spec_draft_n_max=int(spec_data.get("spec_draft_n_max", 0)),
+            spec_draft_p_min=float(spec_data.get("spec_draft_p_min", 0.0)),
+            spec_draft_cache_type_k=str(spec_data.get("spec_draft_cache_type_k", "")),
+            spec_draft_cache_type_v=str(spec_data.get("spec_draft_cache_type_v", "")),
+            spec_draft_device=str(spec_data.get("spec_draft_device", "")),
+            reasoning_mode=str(spec_data.get("reasoning_mode", "auto")),
+            reasoning_format=str(spec_data.get("reasoning_format", "none")),
+            reasoning_budget=str(spec_data.get("reasoning_budget", "")),
+        ),
     )
 
 
@@ -402,8 +409,10 @@ def create_default_slot_profiles(config: Config | None = None) -> tuple[SlotProf
             ctx_size=cfg.default_ctx_size_summary,
             ubatch_size=cfg.default_ubatch_size_summary_balanced,
             threads=cfg.default_threads_summary_balanced,
-            reasoning_mode="off",
-            reasoning_format="deepseek",
+            spec_decode=SpeculativeDecodingConfig(
+                reasoning_mode="off",
+                reasoning_format="deepseek",
+            ),
             chat_template_kwargs=cfg.summary_balanced_chat_template_kwargs,
             use_jinja=True,
             cache_type_k=cfg.default_cache_type_summary_k,
@@ -421,8 +430,10 @@ def create_default_slot_profiles(config: Config | None = None) -> tuple[SlotProf
             ctx_size=cfg.default_ctx_size_summary,
             ubatch_size=cfg.default_ubatch_size_summary_fast,
             threads=cfg.default_threads_summary_fast,
-            reasoning_mode="off",
-            reasoning_format="deepseek",
+            spec_decode=SpeculativeDecodingConfig(
+                reasoning_mode="off",
+                reasoning_format="deepseek",
+            ),
             chat_template_kwargs=cfg.summary_fast_chat_template_kwargs,
             use_jinja=True,
             cache_type_k=cfg.default_cache_type_summary_k,
@@ -535,8 +546,9 @@ def merge_config_overrides(
         "ctx_size": defaults.default_ctx_size_summary,
         "ubatch_size": defaults.default_ubatch_size_summary_balanced,
         "threads": defaults.default_threads_summary_balanced,
-        "reasoning_mode": "off",
-        "reasoning_format": "deepseek",
+        "spec_decode": dataclasses.asdict(
+            SpeculativeDecodingConfig(reasoning_mode="off", reasoning_format="deepseek")
+        ),
         "chat_template_kwargs": defaults.summary_balanced_chat_template_kwargs,
         "use_jinja": True,
         "cache_type_k": defaults.default_cache_type_summary_k,
@@ -675,10 +687,8 @@ def apply_profile_overrides(
         merged.backend = cfg.backend
         merged.tensor_split = cfg.tensor_split
         merged.main_gpu = cfg.main_gpu
-        merged.reasoning_mode = cfg.reasoning_mode
-        merged.reasoning_format = cfg.reasoning_format
         merged.chat_template_kwargs = cfg.chat_template_kwargs
-        merged.reasoning_budget = cfg.reasoning_budget
+        merged.spec_decode = cfg.spec_decode
         merged.use_jinja = cfg.use_jinja
         merged.n_gpu_layers = cfg.n_gpu_layers
         merged.risky_acknowledged = cfg.risky_acknowledged

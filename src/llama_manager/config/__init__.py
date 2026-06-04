@@ -12,7 +12,14 @@ from .builder import (
     merge_config_overrides,
     resolve_profile_config,
 )
-from .defaults import Config, SmokeProbeConfiguration
+from .defaults import (
+    BuildPipelineConfig,
+    Config,
+    PathsConfig,
+    ServerDefaultsConfig,
+    SmokeConfig,
+    SmokeProbeConfiguration,
+)
 from .enums import (
     DoctorCheckStatus,
     ErrorCode,
@@ -23,7 +30,7 @@ from .enums import (
     SmokeProbeStatus,
     VRamRecommendation,
 )
-from .errors import ErrorDetail, MultiValidationError, ValidationResult
+from .errors import ErrorDetail, MultiValidationError, ValidationException, ValidationResult
 from .persistence import (
     ConfigUpdateResult,
     apply_config_updates,
@@ -65,6 +72,7 @@ from .server import (
     validate_slot_id,
     validate_slot_port,
 )
+from .spec_decode import SpeculativeDecodingConfig
 
 __all__ = [
     # enums
@@ -79,10 +87,12 @@ __all__ = [
     # errors
     "ErrorDetail",
     "MultiValidationError",
+    "ValidationException",
     "ValidationResult",
     # server
     "ModelSlot",
     "ServerConfig",
+    "SpeculativeDecodingConfig",
     "detect_duplicate_slots",
     "normalize_slot_id",
     "validate_slot_id",
@@ -94,7 +104,11 @@ __all__ = [
     "resolve_backend_from_profile",
     "resolve_profile_id",
     # defaults
+    "BuildPipelineConfig",
     "Config",
+    "PathsConfig",
+    "ServerDefaultsConfig",
+    "SmokeConfig",
     "SmokeProbeConfiguration",
     # profile_cache
     "CURRENT_SCHEMA_VERSION",

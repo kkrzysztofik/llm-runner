@@ -131,6 +131,7 @@ def cache_type_row(
 
 def config_profile_prefill(config: Config) -> dict[str, str]:
     """Build run-profile form prefill values from global Config defaults."""
+    spec = config.default_spec_decode
     return {
         "port": str(config.default_profile_port),
         "ctx-size": str(config.default_profile_ctx_size),
@@ -145,21 +146,21 @@ def config_profile_prefill(config: Config) -> dict[str, str]:
         "threads-batch": str(config.default_threads_batch),
         "cache-type-k": config.default_profile_cache_type_k,
         "cache-type-v": config.default_profile_cache_type_v,
-        "reasoning-mode": config.default_reasoning_mode,
-        "reasoning-format": config.default_reasoning_format,
-        "reasoning-budget": config.default_reasoning_budget,
+        "reasoning-mode": spec.reasoning_mode,
+        "reasoning-format": spec.reasoning_format,
+        "reasoning-budget": spec.reasoning_budget,
         "use-jinja": "true" if config.default_use_jinja else "false",
         "chat-template-kwargs": config.default_profile_chat_template_kwargs,
         "mmproj": config.default_mmproj,
-        "spec-type": config.default_spec_type,
-        "spec-ngram-size-n": str(config.default_spec_ngram_size_n),
-        "draft-min": str(config.default_draft_min),
-        "draft-max": str(config.default_draft_max),
-        "spec-draft-n-max": str(config.default_spec_draft_n_max),
-        "spec-draft-p-min": str(config.default_spec_draft_p_min),
-        "spec-draft-cache-type-k": config.default_spec_draft_cache_type_k,
-        "spec-draft-cache-type-v": config.default_spec_draft_cache_type_v,
-        "spec-draft-device": config.default_spec_draft_device,
+        "spec-type": spec.spec_type,
+        "spec-ngram-size-n": str(spec.spec_ngram_size_n),
+        "draft-min": str(spec.draft_min),
+        "draft-max": str(spec.draft_max),
+        "spec-draft-n-max": str(spec.spec_draft_n_max),
+        "spec-draft-p-min": str(spec.spec_draft_p_min),
+        "spec-draft-cache-type-k": spec.spec_draft_cache_type_k,
+        "spec-draft-cache-type-v": spec.spec_draft_cache_type_v,
+        "spec-draft-device": spec.spec_draft_device,
     }
 
 
@@ -171,12 +172,13 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
     cfg_row = "form-row config-row"
     cfg_row_select = CONFIG_ROW_SELECT_CLASSES
     prefix = "cfg"
+    spec = config.default_spec_decode
 
     speculative = Collapsible(
         field_row(
             "Ngram Size N",
             "default_spec_ngram_size_n",
-            str(config.default_spec_ngram_size_n),
+            str(spec.spec_ngram_size_n),
             id_prefix=prefix,
             type="number",
             label_classes=cfg_label,
@@ -186,7 +188,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Draft Min",
             "default_draft_min",
-            str(config.default_draft_min),
+            str(spec.draft_min),
             id_prefix=prefix,
             type="number",
             label_classes=cfg_label,
@@ -196,7 +198,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Draft Max",
             "default_draft_max",
-            str(config.default_draft_max),
+            str(spec.draft_max),
             id_prefix=prefix,
             type="number",
             label_classes=cfg_label,
@@ -206,7 +208,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Draft N Max (MTP)",
             "default_spec_draft_n_max",
-            str(config.default_spec_draft_n_max),
+            str(spec.spec_draft_n_max),
             id_prefix=prefix,
             type="number",
             label_classes=cfg_label,
@@ -216,7 +218,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Draft P Min (MTP)",
             "default_spec_draft_p_min",
-            str(config.default_spec_draft_p_min),
+            str(spec.spec_draft_p_min),
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_input,
@@ -225,7 +227,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         cache_type_row(
             "Draft Cache K",
             "default_spec_draft_cache_type_k",
-            config.default_spec_draft_cache_type_k,
+            spec.spec_draft_cache_type_k,
             id_prefix=prefix,
             allow_empty=True,
             label_classes=cfg_label,
@@ -235,7 +237,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         cache_type_row(
             "Draft Cache V",
             "default_spec_draft_cache_type_v",
-            config.default_spec_draft_cache_type_v,
+            spec.spec_draft_cache_type_v,
             id_prefix=prefix,
             allow_empty=True,
             label_classes=cfg_label,
@@ -245,7 +247,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Draft Device",
             "default_spec_draft_device",
-            config.default_spec_draft_device,
+            spec.spec_draft_device,
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_input,
@@ -387,7 +389,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             "Reasoning mode",
             "default_reasoning_mode",
             REASONING_MODE_CHOICES,
-            config.default_reasoning_mode,
+            spec.reasoning_mode,
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_select,
@@ -397,7 +399,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             "Reasoning format",
             "default_reasoning_format",
             REASONING_FORMAT_CHOICES,
-            config.default_reasoning_format,
+            spec.reasoning_format,
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_select,
@@ -406,7 +408,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         field_row(
             "Reasoning budget",
             "default_reasoning_budget",
-            config.default_reasoning_budget,
+            spec.reasoning_budget,
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_input,
@@ -442,7 +444,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             "Spec type",
             "default_spec_type",
             SPEC_TYPE_CHOICES,
-            config.default_spec_type,
+            spec.spec_type,
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_select,

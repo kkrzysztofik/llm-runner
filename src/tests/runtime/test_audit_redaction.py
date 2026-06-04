@@ -562,7 +562,7 @@ class TestCleanupServersIdempotency:
         ):
             manager.cleanup_servers()
 
-        audit = manager._lifecycle_audit
+        audit = manager._audit.lifecycle_audit
         assert any(e["event"] == "cleanup" for e in audit)
         assert any(e["details"] == "initiated" for e in audit)
 
@@ -592,7 +592,7 @@ class TestCleanupServersIdempotency:
             manager.cleanup_servers()
 
         # Should have recorded skip event
-        audit = manager._lifecycle_audit
+        audit = manager._audit.lifecycle_audit
         assert any(e["details"] == "already_shutting_down" for e in audit)
 
 
@@ -1655,7 +1655,7 @@ class TestAuditLogRotationPermissions:
 
     def test_rotate_sets_owner_only_permissions(self, tmp_path: Path) -> None:
         """_rotate_audit_log should chmod rotated files to 0600."""
-        from llama_manager.orchestration.manager import _rotate_audit_log
+        from llama_manager.orchestration.audit import _rotate_audit_log
 
         # Create initial log file
         log_path = tmp_path / "audit.log"
@@ -1673,7 +1673,7 @@ class TestAuditLogRotationPermissions:
 
     def test_rotate_multiple_files_all_chmod(self, tmp_path: Path) -> None:
         """_rotate_audit_log should chmod all existing rotated files."""
-        from llama_manager.orchestration.manager import _rotate_audit_log
+        from llama_manager.orchestration.audit import _rotate_audit_log
 
         log_path = tmp_path / "audit.log"
 
@@ -1697,7 +1697,7 @@ class TestAuditLogRotationPermissions:
 
     def test_append_audit_log_creates_file_with_owner_only_perms(self, tmp_path: Path) -> None:
         """_append_audit_log should create new audit log files with 0600 permissions."""
-        from llama_manager.orchestration.manager import _append_audit_log
+        from llama_manager.orchestration.audit import _append_audit_log
 
         log_path = tmp_path / "audit.log"
 
@@ -1713,7 +1713,7 @@ class TestAuditLogRotationPermissions:
 
     def test_append_audit_log_appends_with_owner_only_perms(self, tmp_path: Path) -> None:
         """_append_audit_log should preserve 0600 permissions when appending."""
-        from llama_manager.orchestration.manager import _append_audit_log
+        from llama_manager.orchestration.audit import _append_audit_log
 
         log_path = tmp_path / "audit.log"
 

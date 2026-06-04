@@ -4,7 +4,7 @@ from .builder import (
     DoctorCheckResult,
     DoctorReport,
     DryRunSlotPayload,
-    ValidationResults,
+    DryRunValidationSummary,
     VllmEligibility,
     _build_environment_redacted,
     _build_hardware_notes,
@@ -21,11 +21,14 @@ from .builder import (
     sort_validation_errors,
 )
 
+ValidationResults = DryRunValidationSummary
+
 __all__ = [
     "build_server_cmd",
     "build_dry_run_slot_payload",
     "DryRunSlotPayload",
     "VllmEligibility",
+    "DryRunValidationSummary",
     "ValidationResults",
     "DoctorCheckResult",
     "DoctorReport",

@@ -580,7 +580,7 @@ class TestSlotStateTransitionHandling:
         # Record a lifecycle event
         app.server_manager._record_lifecycle_event("test_event", pid=12345)
 
-        audit = app.server_manager._lifecycle_audit
+        audit = app.server_manager._audit.lifecycle_audit
         assert len(audit) >= 1
         assert any(e["event"] == "test_event" for e in audit)
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .config.profiles import SlotProfileSpec
+from .config.spec_decode import SpeculativeDecodingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,7 @@ def custom_slot_profile_exists(profile_id: str) -> bool:
 
 def _profile_to_dict(profile: SlotProfileSpec) -> dict[str, Any]:
     """Convert a ``SlotProfileSpec`` to a TOML-serializable dict."""
+    spec = profile.spec_decode
     return {
         "profile_id": profile.profile_id,
         "alias": profile.alias,
@@ -196,10 +198,10 @@ def _profile_to_dict(profile: SlotProfileSpec) -> dict[str, Any]:
         "description": profile.description,
         "bind_address": profile.bind_address,
         "tensor_split": profile.tensor_split,
-        "reasoning_mode": profile.reasoning_mode,
-        "reasoning_format": profile.reasoning_format,
+        "reasoning_mode": spec.reasoning_mode,
+        "reasoning_format": spec.reasoning_format,
         "chat_template_kwargs": profile.chat_template_kwargs,
-        "reasoning_budget": profile.reasoning_budget,
+        "reasoning_budget": spec.reasoning_budget,
         "use_jinja": profile.use_jinja,
         "cache_type_k": profile.cache_type_k,
         "cache_type_v": profile.cache_type_v,
@@ -214,15 +216,15 @@ def _profile_to_dict(profile: SlotProfileSpec) -> dict[str, Any]:
         "parallel": profile.parallel,
         "threads_batch": profile.threads_batch,
         "mmproj": profile.mmproj,
-        "spec_type": profile.spec_type,
-        "spec_ngram_size_n": profile.spec_ngram_size_n,
-        "draft_min": profile.draft_min,
-        "draft_max": profile.draft_max,
-        "spec_draft_n_max": profile.spec_draft_n_max,
-        "spec_draft_p_min": profile.spec_draft_p_min,
-        "spec_draft_cache_type_k": profile.spec_draft_cache_type_k,
-        "spec_draft_cache_type_v": profile.spec_draft_cache_type_v,
-        "spec_draft_device": profile.spec_draft_device,
+        "spec_type": spec.spec_type,
+        "spec_ngram_size_n": spec.spec_ngram_size_n,
+        "draft_min": spec.draft_min,
+        "draft_max": spec.draft_max,
+        "spec_draft_n_max": spec.spec_draft_n_max,
+        "spec_draft_p_min": spec.spec_draft_p_min,
+        "spec_draft_cache_type_k": spec.spec_draft_cache_type_k,
+        "spec_draft_cache_type_v": spec.spec_draft_cache_type_v,
+        "spec_draft_device": spec.spec_draft_device,
     }
 
 
@@ -240,10 +242,7 @@ def _profile_from_dict(data: dict[str, Any]) -> SlotProfileSpec:
         description=data.get("description", ""),
         bind_address=data.get("bind_address", "127.0.0.1"),
         tensor_split=data.get("tensor_split", ""),
-        reasoning_mode=data.get("reasoning_mode", "auto"),
-        reasoning_format=data.get("reasoning_format", "none"),
         chat_template_kwargs=data.get("chat_template_kwargs", ""),
-        reasoning_budget=data.get("reasoning_budget", ""),
         use_jinja=data.get("use_jinja", False),
         cache_type_k=data.get("cache_type_k", "q8_0"),
         cache_type_v=data.get("cache_type_v", "q8_0"),
@@ -258,15 +257,20 @@ def _profile_from_dict(data: dict[str, Any]) -> SlotProfileSpec:
         parallel=int(data.get("parallel", 4)),
         threads_batch=int(data.get("threads_batch", 0)),
         mmproj=data.get("mmproj", ""),
-        spec_type=data.get("spec_type", ""),
-        spec_ngram_size_n=int(data.get("spec_ngram_size_n", 0)),
-        draft_min=int(data.get("draft_min", 0)),
-        draft_max=int(data.get("draft_max", 0)),
-        spec_draft_n_max=int(data.get("spec_draft_n_max", 0)),
-        spec_draft_p_min=float(data.get("spec_draft_p_min", 0.0)),
-        spec_draft_cache_type_k=data.get("spec_draft_cache_type_k", ""),
-        spec_draft_cache_type_v=data.get("spec_draft_cache_type_v", ""),
-        spec_draft_device=data.get("spec_draft_device", ""),
+        spec_decode=SpeculativeDecodingConfig(
+            reasoning_mode=data.get("reasoning_mode", "auto"),
+            reasoning_format=data.get("reasoning_format", "none"),
+            reasoning_budget=data.get("reasoning_budget", ""),
+            spec_type=data.get("spec_type", ""),
+            spec_ngram_size_n=int(data.get("spec_ngram_size_n", 0)),
+            draft_min=int(data.get("draft_min", 0)),
+            draft_max=int(data.get("draft_max", 0)),
+            spec_draft_n_max=int(data.get("spec_draft_n_max", 0)),
+            spec_draft_p_min=float(data.get("spec_draft_p_min", 0.0)),
+            spec_draft_cache_type_k=data.get("spec_draft_cache_type_k", ""),
+            spec_draft_cache_type_v=data.get("spec_draft_cache_type_v", ""),
+            spec_draft_device=data.get("spec_draft_device", ""),
+        ),
     )
 
 

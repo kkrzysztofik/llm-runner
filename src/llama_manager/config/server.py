@@ -4,7 +4,8 @@ import re
 from dataclasses import dataclass, field
 
 from ..common.validators import validate_port_range
-from .errors import ErrorCode, ValidationResult
+from .errors import ErrorCode, ErrorDetail
+from .spec_decode import SpeculativeDecodingConfig
 
 # Regex pattern for slot ID normalization: strip, lowercase, allow only a-z0-9_-
 _SLOT_ID_PATTERN = re.compile(r"[^a-z0-9_-]")
@@ -28,8 +29,7 @@ class ServerConfig:
         threads: Number of CPU threads for inference.
         bind_address: Address to bind the HTTP server to. Defaults to ``"127.0.0.1"``.
         tensor_split: Comma-separated GPU split ratio for multi-GPU tensor parallelism.
-        reasoning_mode: Reasoning mode — ``"auto"``, ``"on"``, or ``"off"``.
-        reasoning_format: Output format for reasoning tokens — ``"none"``, ``"xml"``, etc.
+        spec_decode: Speculative decoding and reasoning options.
         chat_template_kwargs: JSON string of extra chat-template keyword arguments.
         reasoning_budget: Max tokens for reasoning step (empty = auto).
         use_jinja: Enable Jinja-based chat template instead of the default.
@@ -51,10 +51,7 @@ class ServerConfig:
     threads: int
     bind_address: str = "127.0.0.1"
     tensor_split: str = ""
-    reasoning_mode: str = "auto"
-    reasoning_format: str = "none"
     chat_template_kwargs: str = ""
-    reasoning_budget: str = ""
     use_jinja: bool = False
     cache_type_k: str = "q8_0"
     cache_type_v: str = "q8_0"
@@ -69,15 +66,94 @@ class ServerConfig:
     parallel: int = 4
     threads_batch: int = 0
     mmproj: str = ""
-    spec_type: str = ""
-    spec_ngram_size_n: int = 0
-    draft_min: int = 0
-    draft_max: int = 0
-    spec_draft_n_max: int = 0
-    spec_draft_p_min: float = 0.0
-    spec_draft_cache_type_k: str = ""
-    spec_draft_cache_type_v: str = ""
-    spec_draft_device: str = ""
+    spec_decode: SpeculativeDecodingConfig = field(default_factory=SpeculativeDecodingConfig)
+
+    def __init__(
+        self,
+        model: str,
+        alias: str,
+        device: str,
+        port: int,
+        ctx_size: int,
+        ubatch_size: int,
+        threads: int,
+        bind_address: str = "127.0.0.1",
+        tensor_split: str = "",
+        chat_template_kwargs: str = "",
+        use_jinja: bool = False,
+        cache_type_k: str = "q8_0",
+        cache_type_v: str = "q8_0",
+        n_gpu_layers: int | str = 99,
+        main_gpu: int = 0,
+        server_bin: str = "",
+        backend: str = "llama_cpp",
+        risky_acknowledged: list[str] | None = None,
+        batch_size: int = 2048,
+        poll_ms: int = 50,
+        n_predict: int = 32768,
+        parallel: int = 4,
+        threads_batch: int = 0,
+        mmproj: str = "",
+        spec_decode: SpeculativeDecodingConfig | None = None,
+        spec_type: str | None = None,
+        spec_ngram_size_n: int | None = None,
+        draft_min: int | None = None,
+        draft_max: int | None = None,
+        spec_draft_n_max: int | None = None,
+        spec_draft_p_min: float | None = None,
+        spec_draft_cache_type_k: str | None = None,
+        spec_draft_cache_type_v: str | None = None,
+        spec_draft_device: str | None = None,
+        reasoning_mode: str | None = None,
+        reasoning_format: str | None = None,
+        reasoning_budget: str | None = None,
+    ) -> None:
+        self.model = model
+        self.alias = alias
+        self.device = device
+        self.port = port
+        self.ctx_size = ctx_size
+        self.ubatch_size = ubatch_size
+        self.threads = threads
+        self.bind_address = bind_address
+        self.tensor_split = tensor_split
+        self.chat_template_kwargs = chat_template_kwargs
+        self.use_jinja = use_jinja
+        self.cache_type_k = cache_type_k
+        self.cache_type_v = cache_type_v
+        self.n_gpu_layers = n_gpu_layers
+        self.main_gpu = main_gpu
+        self.server_bin = server_bin
+        self.backend = backend
+        self.risky_acknowledged = risky_acknowledged or []
+        self.batch_size = batch_size
+        self.poll_ms = poll_ms
+        self.n_predict = n_predict
+        self.parallel = parallel
+        self.threads_batch = threads_batch
+        self.mmproj = mmproj
+        self.spec_decode = spec_decode or SpeculativeDecodingConfig()
+        spec_overrides = {
+            "spec_type": spec_type,
+            "spec_ngram_size_n": spec_ngram_size_n,
+            "draft_min": draft_min,
+            "draft_max": draft_max,
+            "spec_draft_n_max": spec_draft_n_max,
+            "spec_draft_p_min": spec_draft_p_min,
+            "spec_draft_cache_type_k": spec_draft_cache_type_k,
+            "spec_draft_cache_type_v": spec_draft_cache_type_v,
+            "spec_draft_device": spec_draft_device,
+            "reasoning_mode": reasoning_mode,
+            "reasoning_format": reasoning_format,
+            "reasoning_budget": reasoning_budget,
+        }
+        active_overrides = {
+            key: value for key, value in spec_overrides.items() if value is not None
+        }
+        if active_overrides:
+            base = self.spec_decode.__dict__ | active_overrides
+            self.spec_decode = SpeculativeDecodingConfig(**base)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         if not isinstance(self.main_gpu, int) or self.main_gpu < 0:
@@ -92,18 +168,61 @@ class ServerConfig:
             raise ValueError("poll_ms must be non-negative")
         if self.threads_batch < 0:
             raise ValueError("threads_batch must be non-negative")
-        if self.spec_ngram_size_n < 0:
-            raise ValueError("spec_ngram_size_n must be non-negative")
-        if self.draft_min < 0:
-            raise ValueError("draft_min must be non-negative")
-        if self.draft_max < 0:
-            raise ValueError("draft_max must be non-negative")
-        if self.draft_min > self.draft_max:
-            raise ValueError("draft_min must be <= draft_max")
-        if self.spec_draft_n_max < 0:
-            raise ValueError("spec_draft_n_max must be non-negative")
-        if self.spec_draft_p_min < 0.0 or self.spec_draft_p_min > 1.0:
-            raise ValueError("spec_draft_p_min must be between 0.0 and 1.0")
+        if not isinstance(self.spec_decode, SpeculativeDecodingConfig):
+            raise ValueError("spec_decode must be a SpeculativeDecodingConfig")
+
+    def __getattribute__(self, name: str) -> object:
+        if name in SpeculativeDecodingConfig.__dataclass_fields__:
+            return getattr(object.__getattribute__(self, "spec_decode"), name)
+        return object.__getattribute__(self, name)
+
+    @property
+    def reasoning_mode(self) -> str:
+        return self.spec_decode.reasoning_mode
+
+    @property
+    def reasoning_format(self) -> str:
+        return self.spec_decode.reasoning_format
+
+    @property
+    def reasoning_budget(self) -> str:
+        return self.spec_decode.reasoning_budget
+
+    @property
+    def spec_type(self) -> str:
+        return self.spec_decode.spec_type
+
+    @property
+    def spec_ngram_size_n(self) -> int:
+        return self.spec_decode.spec_ngram_size_n
+
+    @property
+    def draft_min(self) -> int:
+        return self.spec_decode.draft_min
+
+    @property
+    def draft_max(self) -> int:
+        return self.spec_decode.draft_max
+
+    @property
+    def spec_draft_n_max(self) -> int:
+        return self.spec_decode.spec_draft_n_max
+
+    @property
+    def spec_draft_p_min(self) -> float:
+        return self.spec_decode.spec_draft_p_min
+
+    @property
+    def spec_draft_cache_type_k(self) -> str:
+        return self.spec_decode.spec_draft_cache_type_k
+
+    @property
+    def spec_draft_cache_type_v(self) -> str:
+        return self.spec_decode.spec_draft_cache_type_v
+
+    @property
+    def spec_draft_device(self) -> str:
+        return self.spec_decode.spec_draft_device
 
 
 @dataclass
@@ -166,33 +285,37 @@ def detect_duplicate_slots(slots: list[ModelSlot]) -> list[str]:
     return duplicates
 
 
-def validate_slot_id(slot_id: str) -> ValidationResult:
+def validate_slot_id(slot_id: str) -> ErrorDetail | None:
     """Validate and normalize a slot ID.
 
     Args:
         slot_id: Raw slot identifier string
 
     Returns:
-        ValidationResult indicating success or failure with error details
+        None on success, ErrorDetail on failure.
 
     """
     try:
         normalized = normalize_slot_id(slot_id)
-        return ValidationResult(
+        return ErrorDetail(
+            error_code=None,
+            failed_check="",
+            why_blocked="",
+            how_to_fix="",
             slot_id=normalized,
             passed=True,
         )
     except ValueError as e:
-        return ValidationResult(
-            slot_id=slot_id,
-            passed=False,
-            failed_check="slot_id_validation",
+        return ErrorDetail(
             error_code=ErrorCode.INVALID_SLOT_ID,
-            error_message=str(e),
+            failed_check="slot_id_validation",
+            why_blocked=str(e),
+            how_to_fix="use a slot_id containing letters, numbers, underscores, or hyphens",
+            slot_id=slot_id,
         )
 
 
-def validate_slot_port(port: int, slot_id: str) -> ValidationResult:
+def validate_slot_port(port: int, slot_id: str) -> ErrorDetail | None:
     """Validate a slot port number.
 
     Args:
@@ -200,19 +323,23 @@ def validate_slot_port(port: int, slot_id: str) -> ValidationResult:
         slot_id: Slot identifier for error reporting
 
     Returns:
-        ValidationResult indicating success or failure with error details
+        None on success, ErrorDetail on failure.
 
     """
     err = validate_port_range(port)
     if err is not None:
-        return ValidationResult(
-            slot_id=slot_id,
-            passed=False,
-            failed_check="port_range",
+        return ErrorDetail(
             error_code=ErrorCode.PORT_INVALID,
-            error_message=err,
+            failed_check="port_range",
+            why_blocked=err,
+            how_to_fix="use a TCP port between 1024 and 65535",
+            slot_id=slot_id,
         )
-    return ValidationResult(
+    return ErrorDetail(
+        error_code=None,
+        failed_check="",
+        why_blocked="",
+        how_to_fix="",
         slot_id=slot_id,
         passed=True,
     )

@@ -4,15 +4,12 @@ import os
 import stat
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, TypedDict
+from typing import Any, Final, TypedDict
 
 from ..common.constants import DIR_MODE_OWNER_ONLY, FILE_MODE_OWNER_ONLY
 from ..common.file_ops import atomic_exclusive_create_json
 from ..common.security import redact_dict
-from ..config import ErrorCode
-
-if TYPE_CHECKING:
-    from ..orchestration.lockfile import ValidationException
+from ..config import ErrorCode, ValidationException
 
 # Module-local string constants (artifact-specific).
 ARTIFACT_CHECK_NAME: Final[str] = "artifact_persistence"
@@ -235,7 +232,6 @@ def _artifact_error(
 ) -> ValidationException:
     """Build artifact ValidationException."""
     from ..config import ErrorDetail, MultiValidationError
-    from ..orchestration.lockfile import ValidationException
 
     detail = ErrorDetail(
         error_code=ErrorCode.ARTIFACT_PERSISTENCE_FAILURE,

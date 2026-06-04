@@ -9,7 +9,6 @@ from ..config import (
     ModelSlot,
     MultiValidationError,
     ServerConfig,
-    ValidationResult,
 )
 
 
@@ -79,41 +78,41 @@ def validate_server_config(cfg: ServerConfig) -> ErrorDetail | None:
     return validate_backend_eligibility(cfg.backend)
 
 
-def _validate_duplicate_slots(slots: list[ModelSlot]) -> list[ValidationResult]:
+def _validate_duplicate_slots(slots: list[ModelSlot]) -> list[ErrorDetail]:
     """Validate for duplicate slot IDs."""
     from ..config import detect_duplicate_slots
 
-    results: list[ValidationResult] = []
+    results: list[ErrorDetail] = []
     duplicates = detect_duplicate_slots(slots)
     for dup_slot_id in duplicates:
         results.append(
-            ValidationResult(
-                slot_id=dup_slot_id,
-                passed=False,
-                failed_check="duplicate_slot_detection",
+            ErrorDetail(
                 error_code=ErrorCode.DUPLICATE_SLOT,
-                error_message=f"Duplicate slot_id detected: {dup_slot_id}",
+                failed_check="duplicate_slot_detection",
+                why_blocked=f"Duplicate slot_id detected: {dup_slot_id}",
+                how_to_fix=f"Fix duplicate slot_id for slot {dup_slot_id}",
+                slot_id=dup_slot_id,
             )
         )
     return results
 
 
-def _validate_slot(slot: ModelSlot) -> list[ValidationResult]:
+def _validate_slot(slot: ModelSlot) -> list[ErrorDetail]:
     """Validate a single slot configuration."""
     from ..config import normalize_slot_id
 
-    results: list[ValidationResult] = []
+    results: list[ErrorDetail] = []
 
     try:
         normalized_id = normalize_slot_id(slot.slot_id)
     except ValueError as e:
         results.append(
-            ValidationResult(
-                slot_id=slot.slot_id,
-                passed=False,
-                failed_check="slot_id_validation",
+            ErrorDetail(
                 error_code=ErrorCode.INVALID_SLOT_ID,
-                error_message=str(e),
+                failed_check="slot_id_validation",
+                why_blocked=str(e),
+                how_to_fix=f"Fix slot_id_validation for slot {slot.slot_id}",
+                slot_id=slot.slot_id,
             )
         )
         return results
@@ -121,68 +120,55 @@ def _validate_slot(slot: ModelSlot) -> list[ValidationResult]:
     port_err = validate_port_range(slot.port)
     if port_err is not None:
         results.append(
-            ValidationResult(
-                slot_id=normalized_id,
-                passed=False,
-                failed_check="port_validation",
+            ErrorDetail(
                 error_code=ErrorCode.PORT_INVALID,
-                error_message=port_err,
+                failed_check="port_validation",
+                why_blocked=port_err,
+                how_to_fix=f"Fix port_validation for slot {normalized_id}",
+                slot_id=normalized_id,
             )
         )
 
     if slot.model_path:
         if os.path.isdir(slot.model_path):
             results.append(
-                ValidationResult(
-                    slot_id=normalized_id,
-                    passed=False,
-                    failed_check="model_path_validation",
+                ErrorDetail(
                     error_code=ErrorCode.FILE_NOT_FOUND,
-                    error_message="model_path must be a file, not a directory",
+                    failed_check="model_path_validation",
+                    why_blocked="model_path must be a file, not a directory",
+                    how_to_fix=f"Fix model_path_validation for slot {normalized_id}",
+                    slot_id=normalized_id,
                 )
             )
         elif not os.path.isfile(slot.model_path):
             results.append(
-                ValidationResult(
-                    slot_id=normalized_id,
-                    passed=False,
-                    failed_check="model_path_validation",
+                ErrorDetail(
                     error_code=ErrorCode.FILE_NOT_FOUND,
-                    error_message=f"model_path does not exist: {slot.model_path}",
+                    failed_check="model_path_validation",
+                    why_blocked=f"model_path does not exist: {slot.model_path}",
+                    how_to_fix=f"Fix model_path_validation for slot {normalized_id}",
+                    slot_id=normalized_id,
                 )
             )
 
     return results
 
 
-def _convert_results_to_errors(validation_results: list[ValidationResult]) -> MultiValidationError:
+def _convert_results_to_errors(validation_results: list[ErrorDetail]) -> MultiValidationError:
     """Convert validation results to MultiValidationError."""
-    failed = [r for r in validation_results if not r.passed]
-    if not failed:
+    if not validation_results:
         return MultiValidationError(errors=[])
 
     from .commands.builder import sort_validation_errors
 
-    sorted_results = sort_validation_errors(failed)
-
-    error_details: list[ErrorDetail] = []
-    for result in sorted_results:
-        error_detail = ErrorDetail(
-            error_code=result.error_code or ErrorCode.CONFIG_ERROR,
-            failed_check=result.failed_check,
-            why_blocked=result.error_message,
-            how_to_fix=f"Fix {result.failed_check} for slot {result.slot_id}",
-        )
-        error_details.append(error_detail)
-
-    return MultiValidationError(errors=error_details)
+    return MultiValidationError(errors=sort_validation_errors(validation_results))
 
 
 def validate_slots(slots: list[ModelSlot]) -> MultiValidationError | None:
     """Validate ModelSlot configurations and return MultiValidationError if any fail."""
     duplicate_results = _validate_duplicate_slots(slots)
 
-    slot_results: list[ValidationResult] = []
+    slot_results: list[ErrorDetail] = []
     for slot in slots:
         slot_results.extend(_validate_slot(slot))
 

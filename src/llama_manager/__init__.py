@@ -1,18 +1,11 @@
 """llama_manager package - Core library for llm-runner.
 
+Public API — consumers should prefer deep imports for new code.
+This surface is maintained for backward compatibility.
+
 This package provides the core business logic for managing multiple
 llama-server instances, including configuration, server lifecycle,
-GPU statistics, log buffering, and lockfile management. It exports:
-
-- Config & ServerConfig dataclasses for hardware-specific defaults and
-  per-instance launch parameters
-- Factory functions (create_*_cfg) that translate Config into ServerConfig
-- GPU statistics collection via nvtop/psutil
-- Thread-safe real-time log streaming via LogBuffer
-- Subprocess lifecycle management via ServerManager
-- Lockfile and artifact I/O functions (create_lock, read_lock,
-  release_lock, update_lock, write_artifact, resolve_runtime_dir)
-- Server command building and validation utilities
+GPU statistics, log buffering, and lockfile management.
 """
 
 from .benchmark import (
@@ -20,73 +13,33 @@ from .benchmark import (
     BenchmarkRunner,
     SubprocessResult,
     build_benchmark_cmd,
-    parse_benchmark_output,
     run_benchmark,
 )
-from .build_pipeline import (
-    BuildArtifact,
-    BuildBackend,
-    BuildConfig,
-    BuildLock,
-    BuildProgress,
-)
-from .common.security import is_sensitive_key, redact_env_value
 from .config import (
+    BuildPipelineConfig,
     Config,
-    ConfigUpdateResult,
-    DoctorCheckStatus,
     ErrorCode,
     ErrorDetail,
-    GgufParseError,
     ModelSlot,
     MultiValidationError,
-    ServerConfig,
-    SlotProfileError,
-    SlotProfileRegistry,
-    SlotProfileSpec,
-    SlotState,
-    SmokeFailurePhase,
-    SmokePhase,
-    SmokeProbeConfiguration,
-    SmokeProbeStatus,
-    VRamRecommendation,
-    apply_config_updates,
-    build_config,
-    create_default_profile_registry,
-    create_default_slot_profiles,
-    create_qwen35_cfg,
-    create_server_config_from_profile,
-    create_smoke_config,
-    create_summary_balanced_cfg,
-    create_summary_fast_cfg,
-    detect_duplicate_slots,
-    merge_config_overrides,
-    normalize_slot_id,
-    resolve_backend_from_profile,
-    resolve_profile_config,
-    resolve_profile_id,
-    validate_slot_id,
-    validate_slot_port,
-)
-from .config.builder import (
-    create_tui_profile_registry,
-)
-from .config.profile_cache import (
-    CURRENT_SCHEMA_VERSION,
-    PROFILE_OVERRIDE_FIELDS,
+    PathsConfig,
     ProfileFlavor,
     ProfileMetrics,
     ProfileRecord,
-    StalenessReason,
-    StalenessResult,
-    check_staleness,
-    compute_driver_version_hash,
-    compute_gpu_identifier,
-    ensure_profiles_dir,
-    get_profile_path,
+    ServerConfig,
+    ServerDefaultsConfig,
+    SlotProfileRegistry,
+    SlotProfileSpec,
+    SlotState,
+    SmokeConfig,
+    SmokeProbeConfiguration,
+    SpeculativeDecodingConfig,
+    ValidationException,
+    apply_config_updates,
+    build_config,
+    create_default_profile_registry,
     load_profile_with_staleness,
-    profile_to_override_dict,
-    read_profile,
+    resolve_backend_from_profile,
     write_profile,
 )
 from .dry_run import DryRunResult, run_dry_run, write_dry_run_artifact
@@ -94,22 +47,11 @@ from .gpu_telemetry import (
     GPUStats,
     GpuTelemetrySelector,
     collect_gpu_stats,
-    collect_level_zero_stats,
-    collect_nvidia_smi_stats,
-    collect_nvtop_stats,
-    collect_xpu_smi_stats,
     collector_for_config,
     get_gpu_identifier,
-    make_gpu_collector,
-    parse_gpu_telemetry_selector,
     selector_for_config,
 )
 from .log_buffer import LogBuffer
-from .metadata import (
-    GGUFMetadataRecord,
-    extract_gguf_metadata,
-    normalize_filename,
-)
 from .model_index import (
     ModelIndexEntry,
     load_model_index,
@@ -117,352 +59,124 @@ from .model_index import (
     refresh_model_index,
 )
 from .orchestration import (
-    ArtifactMetadata,
-    DefaultProcessLauncher,
-    DryRunArtifactPayload,
-    LaunchOrchestrationResult,
+    AuditLogger,
     LaunchResult,
-    LockMetadata,
-    ProcessHandle,
-    ProcessLauncher,
-    ProcessTimeoutError,
+    RiskAckManager,
     ServerManager,
-    ValidationException,
-    create_lock,
     launch_orchestrate,
-    read_lock,
-    release_lock,
     resolve_runtime_dir,
-    update_lock,
-    write_artifact,
 )
-from .probe import (
-    ConsecutiveFailureCounter,
-    ProvenanceRecord,
-    SmokeCompositeReport,
-    SmokeProbeResult,
-    compute_overall_exit_code,
-    probe_slot,
-    resolve_provenance,
-)
+from .probe import SmokeCompositeReport
 from .profile_orchestrator import (
-    BENCHMARK_PROMPT_TOKENS,
-    BENCHMARK_RUN_TIMEOUT_SECONDS,
     BenchmarkConfig,
-    DriverVersionProvider,
-    create_profile_record,
-    detect_backend,
-    get_driver_version,
-    resolve_benchmark_binary,
-    resolve_benchmark_config,
     resolve_profile_slot,
-    run_profile,
 )
-from .reports import (
-    FailureReport,
-    MutatingActionLogEntry,
-    redact_sensitive,
-    rotate_reports,
-    write_failure_report,
-)
-from .risk_ack import (
-    RISK_ACK_LABEL,
-    RiskAckResult,
-    evaluate_risks,
-    resolve_risk_action,
-)
-from .setup_venv import (
-    VenvResult,
-    check_venv_integrity,
-    create_venv,
-    get_venv_path,
-)
-from .slot_manager import (
-    add_slot_from_form,
-    compute_add_slot_from_form,
-    device_class_for_config,
-    gpu_index_for_config,
-    normalize_slot_port,
-    register_and_start_slot,
-    remove_slot_runtime_state,
-    upsert_profile_slot,
-)
-from .slot_profile_store import (
-    custom_slot_profile_exists,
-    delete_custom_slot_profile,
-    load_custom_slot_profiles,
-    load_hidden_builtin_profile_ids,
-    save_custom_slot_profile,
-    slot_profiles_file_path,
-    upsert_custom_slot_profile,
-)
+from .risk_ack import RISK_ACK_LABEL, RiskAckResult, resolve_risk_action
+from .slot_manager import gpu_index_for_config
 from .slot_state import compute_slot_transition, resolve_slot_runtime_status
-from .smoke import (
-    SmokeTarget,
-    resolve_smoke_targets,
-    run_smoke_probes,
-)
+from .smoke import SmokeTarget, resolve_smoke_targets, run_smoke_probes
 from .system_stats import (
     collect_cpu_percentages,
     collect_memory_usage,
     collect_system_info,
 )
-from .toolchain import (
-    CMAKE_HINT,
-    CMAKE_MINIMUM_VERSION,
-    CUDA_HINT,
-    CUDA_REQUIRED_TOOLS,
-    GCC_HINT,
-    GIT_HINT,
-    MAKE_HINT,
-    NVTOP_HINT,
-    SYCL_HINT,
-    SYCL_REQUIRED_TOOLS,
-    ToolchainErrorDetail,
-    ToolchainHint,
-    ToolchainStatus,
-    detect_tool,
-    get_toolchain_hints,
-    parse_version,
-    version_at_least,
-)
 from .validation import (
     DryRunSlotPayload,
-    ValidationResults,
-    VllmEligibility,
-    build_dry_run_slot_payload,
     build_server_cmd,
     require_executable,
     require_model,
-    validate_backend_eligibility,
     validate_port,
     validate_ports,
-    validate_server_config,
-    validate_slots,
-    validate_threads,
 )
 
-# Re-export redact_sensitive from reports module
-# This avoids circular import issues
-
 __all__ = [
-    # Build pipeline
-    "BuildConfig",
-    "BuildArtifact",
-    "BuildProgress",
-    "BuildLock",
-    "BuildBackend",
+    # Audit
+    "AuditLogger",
+    # Benchmark
+    "BenchmarkResult",
+    "BenchmarkRunner",
+    "SubprocessResult",
+    "build_benchmark_cmd",
+    "run_benchmark",
     # Config
+    "BuildPipelineConfig",
     "Config",
-    "ConfigUpdateResult",
-    "apply_config_updates",
-    "build_config",
-    "ServerConfig",
-    "ModelSlot",
+    "PathsConfig",
+    "ServerDefaultsConfig",
+    "SmokeConfig",
+    "SmokeProbeConfiguration",
+    "SpeculativeDecodingConfig",
+    # Config types
     "ErrorCode",
     "ErrorDetail",
+    "ModelIndexEntry",
+    "ModelSlot",
     "MultiValidationError",
-    "normalize_slot_id",
-    "detect_duplicate_slots",
-    # Enums
-    "SlotState",
-    "SmokePhase",
-    "SmokeFailurePhase",
-    "SmokeProbeStatus",
-    "VRamRecommendation",
-    "DoctorCheckStatus",
-    "GgufParseError",
-    # Smoke probe config
-    "SmokeProbeConfiguration",
-    "validate_slot_id",
-    "validate_slot_port",
-    # Dry-run payload types
-    "DryRunSlotPayload",
-    "VllmEligibility",
-    "ValidationResults",
-    # Server
-    "build_server_cmd",
-    "build_dry_run_slot_payload",
-    "validate_port",
-    "validate_ports",
-    "validate_threads",
-    "validate_slots",
-    "validate_backend_eligibility",
-    "validate_server_config",
-    "require_model",
-    "require_executable",
-    "redact_sensitive",
-    # Slot state
-    "compute_slot_transition",
-    "resolve_slot_runtime_status",
-    # Slot manager
-    "normalize_slot_port",
-    "device_class_for_config",
-    "gpu_index_for_config",
-    "remove_slot_runtime_state",
-    "register_and_start_slot",
-    "upsert_profile_slot",
-    "add_slot_from_form",
-    "compute_add_slot_from_form",
-    # Security helpers
-    "redact_env_value",
-    "is_sensitive_key",
-    # Config builders
-    "create_summary_balanced_cfg",
-    "create_summary_fast_cfg",
-    "create_qwen35_cfg",
-    # Slot profile registry
-    "SlotProfileSpec",
-    "SlotProfileError",
+    "ProfileFlavor",
+    "ProfileMetrics",
+    "ProfileRecord",
+    "ServerConfig",
+    "ServerDefaultsConfig",
     "SlotProfileRegistry",
+    "SlotProfileSpec",
+    "SlotState",
+    "ValidationException",
+    # Config functions
+    "apply_config_updates",
+    "build_config",
     "create_default_profile_registry",
-    "create_default_slot_profiles",
-    "create_tui_profile_registry",
-    "create_server_config_from_profile",
-    "merge_config_overrides",
-    "resolve_profile_config",
-    "resolve_profile_id",
+    "load_profile_with_staleness",
     "resolve_backend_from_profile",
-    # Slot profile persistence
-    "load_custom_slot_profiles",
-    "save_custom_slot_profile",
-    "slot_profiles_file_path",
-    "upsert_custom_slot_profile",
-    "delete_custom_slot_profile",
-    "load_hidden_builtin_profile_ids",
-    "custom_slot_profile_exists",
-    # Reports
-    "FailureReport",
-    "MutatingActionLogEntry",
-    "write_failure_report",
-    "rotate_reports",
-    # Virtual environment
-    "VenvResult",
-    "get_venv_path",
-    "create_venv",
-    "check_venv_integrity",
-    # Toolchain
-    "ToolchainStatus",
-    "ToolchainHint",
-    "ToolchainErrorDetail",
-    "SYCL_REQUIRED_TOOLS",
-    "CUDA_REQUIRED_TOOLS",
-    "CMAKE_MINIMUM_VERSION",
-    "GCC_HINT",
-    "MAKE_HINT",
-    "GIT_HINT",
-    "CMAKE_HINT",
-    "SYCL_HINT",
-    "CUDA_HINT",
-    "NVTOP_HINT",
-    "detect_tool",
-    "get_toolchain_hints",
-    "parse_version",
-    "version_at_least",
-    # Components
-    "LogBuffer",
+    "write_profile",
+    # Dry-run
+    "DryRunResult",
+    "DryRunSlotPayload",
+    "run_dry_run",
+    "write_dry_run_artifact",
+    # GPU telemetry
     "GPUStats",
     "GpuTelemetrySelector",
     "collect_gpu_stats",
-    "collect_level_zero_stats",
-    "collect_nvtop_stats",
-    "collect_nvidia_smi_stats",
-    "collect_xpu_smi_stats",
     "collector_for_config",
     "get_gpu_identifier",
-    "make_gpu_collector",
-    "parse_gpu_telemetry_selector",
     "selector_for_config",
+    # Log buffer
+    "LogBuffer",
+    # Model index
+    "ModelIndexEntry",
+    "load_model_index",
+    "model_index_path",
+    "refresh_model_index",
+    # Orchestration
+    "BenchmarkConfig",
+    "LaunchResult",
+    "RiskAckManager",
+    "ServerManager",
+    "launch_orchestrate",
+    "resolve_profile_slot",
+    "resolve_runtime_dir",
+    # Risk acknowledgement
+    "RISK_ACK_LABEL",
+    "RiskAckResult",
+    "resolve_risk_action",
+    # Slot management
+    "gpu_index_for_config",
+    # Slot state
+    "compute_slot_transition",
+    "resolve_slot_runtime_status",
+    # Smoke probe
+    "SmokeCompositeReport",
+    "SmokeTarget",
+    "resolve_smoke_targets",
+    "run_smoke_probes",
     # System stats
     "collect_cpu_percentages",
     "collect_memory_usage",
     "collect_system_info",
-    "ServerManager",
-    # Process launcher
-    "ProcessHandle",
-    "ProcessLauncher",
-    "ProcessTimeoutError",
-    "DefaultProcessLauncher",
-    # Lockfile and artifacts
-    "ArtifactMetadata",
-    "DryRunArtifactPayload",
-    "LaunchOrchestrationResult",
-    "LaunchResult",
-    "LockMetadata",
-    "ValidationException",
-    "create_lock",
-    "launch_orchestrate",
-    "read_lock",
-    "release_lock",
-    "resolve_runtime_dir",
-    "update_lock",
-    "write_artifact",
-    # Smoke probe
-    "SmokeProbeResult",
-    "SmokeCompositeReport",
-    "SmokeTarget",
-    "ProvenanceRecord",
-    "ConsecutiveFailureCounter",
-    "probe_slot",
-    "resolve_provenance",
-    "compute_overall_exit_code",
-    "resolve_smoke_targets",
-    "run_smoke_probes",
-    # GGUF metadata
-    "GGUFMetadataRecord",
-    "extract_gguf_metadata",
-    "normalize_filename",
-    # Model index
-    "ModelIndexEntry",
-    "model_index_path",
-    "load_model_index",
-    "refresh_model_index",
-    # Config builders
-    "create_smoke_config",
-    # Benchmark
-    "SubprocessResult",
-    "BenchmarkResult",
-    "BenchmarkRunner",
-    "build_benchmark_cmd",
-    "parse_benchmark_output",
-    "run_benchmark",
-    # Profile cache
-    "ProfileFlavor",
-    "ProfileMetrics",
-    "ProfileRecord",
-    "StalenessReason",
-    "StalenessResult",
-    "PROFILE_OVERRIDE_FIELDS",
-    "CURRENT_SCHEMA_VERSION",
-    "compute_gpu_identifier",
-    "compute_driver_version_hash",
-    "ensure_profiles_dir",
-    "get_profile_path",
-    "read_profile",
-    "write_profile",
-    "check_staleness",
-    "load_profile_with_staleness",
-    "profile_to_override_dict",
-    # Risk acknowledgement
-    "RISK_ACK_LABEL",
-    "RiskAckResult",
-    "evaluate_risks",
-    "resolve_risk_action",
-    # Dry-run service
-    "DryRunResult",
-    "DryRunArtifactPayload",
-    "run_dry_run",
-    "write_dry_run_artifact",
-    # Profile orchestration
-    "BenchmarkConfig",
-    "DriverVersionProvider",
-    "BENCHMARK_PROMPT_TOKENS",
-    "BENCHMARK_RUN_TIMEOUT_SECONDS",
-    "resolve_profile_slot",
-    "detect_backend",
-    "resolve_benchmark_config",
-    "resolve_benchmark_binary",
-    "get_driver_version",
-    "create_profile_record",
-    "run_profile",
+    # Validation
+    "build_server_cmd",
+    "require_executable",
+    "require_model",
+    "validate_port",
+    "validate_ports",
 ]

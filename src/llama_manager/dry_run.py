@@ -26,7 +26,7 @@ from llama_manager.orchestration.lockfile import resolve_runtime_dir
 from llama_manager.risk_ack import evaluate_risks
 from llama_manager.validation import (
     DryRunSlotPayload,
-    ValidationResults,
+    DryRunValidationSummary,
     build_dry_run_slot_payload,
     validate_server_config,
 )
@@ -164,7 +164,7 @@ def run_dry_run(
         payload = build_dry_run_slot_payload(
             server_cfg,
             slot_id=slot_id,
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         slot_payloads.append(payload)

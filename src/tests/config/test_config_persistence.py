@@ -96,8 +96,16 @@ def test_save_writes_all_persisted_fields(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     save_config_to_file(Config(), path)
     loaded = load_config_overrides_from_file(path)
+    from llama_manager.config.persistence import _DEFAULT_SPEC_FIELD_MAP
+
     for field in _PERSISTED_FIELDS:
-        assert field in loaded, f"Field '{field}' missing from saved TOML"
+        if field in _DEFAULT_SPEC_FIELD_MAP:
+            # Spec-decode fields are bundled into default_spec_decode on load
+            assert "default_spec_decode" in loaded, (
+                f"Spec field '{field}' saved but default_spec_decode missing on load"
+            )
+        else:
+            assert field in loaded, f"Field '{field}' missing from saved TOML"
 
 
 def test_toml_value_rejects_unsupported_type() -> None:

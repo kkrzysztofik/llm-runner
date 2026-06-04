@@ -8,7 +8,7 @@ import stat
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
 import psutil
 
@@ -16,10 +16,7 @@ logger = logging.getLogger(__name__)
 
 from ..common.constants import DIR_MODE_OWNER_ONLY, FILE_MODE_OWNER_ONLY
 from ..common.file_ops import atomic_exclusive_create_json, atomic_write_json
-from ..config import ErrorCode, ErrorDetail
-
-if TYPE_CHECKING:
-    from ..config import MultiValidationError
+from ..config import ErrorCode, ErrorDetail, MultiValidationError, ValidationException
 
 # Module-local string constants (lockfile-specific).
 LOCKFILE_CHECK_NAME: str = "lockfile_integrity"
@@ -41,20 +38,6 @@ class LockMetadata:
     started_at: float
 
 
-class ValidationException(Exception):
-    """Exception wrapper for MultiValidationError to enable raising as exception."""
-
-    def __init__(self, multi_error: MultiValidationError) -> None:
-        self.multi_error = multi_error
-        if multi_error.errors:
-            details = "; ".join(e.why_blocked for e in multi_error.errors)
-            super().__init__(
-                f"Validation failed with {len(multi_error.errors)} error(s): {details}"
-            )
-        else:
-            super().__init__(f"Validation failed with {len(multi_error.errors)} error(s)")
-
-
 def _make_lockfile_validation_error(
     error_code: ErrorCode,
     failed_check: str,
@@ -62,8 +45,6 @@ def _make_lockfile_validation_error(
     how_to_fix: str,
 ) -> ValidationException:
     """Build a single-error ValidationException from raw fields."""
-    from ..config import MultiValidationError
-
     detail = ErrorDetail(
         error_code=error_code,
         failed_check=failed_check,

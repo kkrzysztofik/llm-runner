@@ -1,4 +1,4 @@
-# Validation result and structured error types
+"""Structured validation error types."""
 
 from dataclasses import dataclass
 
@@ -6,25 +6,20 @@ from .enums import ErrorCode
 
 
 @dataclass
-class ValidationResult:
-    """Result of a validation check with slot identity for T003 deterministic sorting"""
-
-    slot_id: str
-    passed: bool
-    failed_check: str = ""
-    error_code: ErrorCode | None = None
-    error_message: str = ""
-
-
-@dataclass
 class ErrorDetail:
     """FR-005 structured actionable error detail"""
 
-    error_code: ErrorCode
+    error_code: ErrorCode | None
     failed_check: str
     why_blocked: str
     how_to_fix: str
     docs_ref: str | None = None
+    slot_id: str = ""
+    passed: bool = False
+
+    @property
+    def error_message(self) -> str:
+        return self.why_blocked
 
 
 @dataclass
@@ -65,6 +60,38 @@ class MultiValidationError:
             self.errors,
             key=lambda error: _error_sort_key(error, slot_order, len(slot_ids) + 1),
         )
+
+
+class ValidationException(Exception):
+    """Exception wrapper for MultiValidationError to enable raising as exception."""
+
+    def __init__(self, multi_error: MultiValidationError) -> None:
+        self.multi_error = multi_error
+        if multi_error.errors:
+            details = "; ".join(e.why_blocked for e in multi_error.errors)
+            super().__init__(
+                f"Validation failed with {len(multi_error.errors)} error(s): {details}"
+            )
+        else:
+            super().__init__(f"Validation failed with {len(multi_error.errors)} error(s)")
+
+
+def ValidationResult(
+    slot_id: str,
+    passed: bool,
+    failed_check: str = "",
+    error_code: ErrorCode | None = None,
+    error_message: str = "",
+) -> ErrorDetail:
+    """Compatibility constructor for the old validation-result shape."""
+    return ErrorDetail(
+        error_code=error_code,
+        failed_check=failed_check,
+        why_blocked=error_message,
+        how_to_fix=f"Fix {failed_check} for slot {slot_id}" if failed_check else "",
+        slot_id=slot_id,
+        passed=passed,
+    )
 
 
 def _extract_slot_id(failed_check: str) -> str | None:

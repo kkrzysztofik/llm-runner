@@ -1,10 +1,11 @@
 """Slot profile definitions."""
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass, field
 
 from ..common.text import sanitize_filename_component
 from ..common.validators import validate_port_range
+from .spec_decode import SpeculativeDecodingConfig
 
 
 class SlotProfileError(ValueError):
@@ -26,10 +27,7 @@ class SlotProfileSpec:
     description: str = ""
     bind_address: str = "127.0.0.1"
     tensor_split: str = ""
-    reasoning_mode: str = "auto"
-    reasoning_format: str = "none"
     chat_template_kwargs: str = ""
-    reasoning_budget: str = ""
     use_jinja: bool = False
     cache_type_k: str = "q8_0"
     cache_type_v: str = "q8_0"
@@ -44,18 +42,59 @@ class SlotProfileSpec:
     parallel: int = 4
     threads_batch: int = 0
     mmproj: str = ""
-    spec_type: str = ""
-    spec_ngram_size_n: int = 0
-    draft_min: int = 0
-    draft_max: int = 0
-    spec_draft_n_max: int = 0
-    spec_draft_p_min: float = 0.0
-    spec_draft_cache_type_k: str = ""
-    spec_draft_cache_type_v: str = ""
-    spec_draft_device: str = ""
+    spec_decode: SpeculativeDecodingConfig = field(default_factory=SpeculativeDecodingConfig)
+    spec_type: InitVar[str | None] = None
+    spec_ngram_size_n: InitVar[int | None] = None
+    draft_min: InitVar[int | None] = None
+    draft_max: InitVar[int | None] = None
+    spec_draft_n_max: InitVar[int | None] = None
+    spec_draft_p_min: InitVar[float | None] = None
+    spec_draft_cache_type_k: InitVar[str | None] = None
+    spec_draft_cache_type_v: InitVar[str | None] = None
+    spec_draft_device: InitVar[str | None] = None
+    reasoning_mode: InitVar[str | None] = None
+    reasoning_format: InitVar[str | None] = None
+    reasoning_budget: InitVar[str | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(
+        self,
+        spec_type: str | None,
+        spec_ngram_size_n: int | None,
+        draft_min: int | None,
+        draft_max: int | None,
+        spec_draft_n_max: int | None,
+        spec_draft_p_min: float | None,
+        spec_draft_cache_type_k: str | None,
+        spec_draft_cache_type_v: str | None,
+        spec_draft_device: str | None,
+        reasoning_mode: str | None,
+        reasoning_format: str | None,
+        reasoning_budget: str | None,
+    ) -> None:
         """Validate slot profile data at construction time."""
+        spec_overrides = {
+            "spec_type": spec_type,
+            "spec_ngram_size_n": spec_ngram_size_n,
+            "draft_min": draft_min,
+            "draft_max": draft_max,
+            "spec_draft_n_max": spec_draft_n_max,
+            "spec_draft_p_min": spec_draft_p_min,
+            "spec_draft_cache_type_k": spec_draft_cache_type_k,
+            "spec_draft_cache_type_v": spec_draft_cache_type_v,
+            "spec_draft_device": spec_draft_device,
+            "reasoning_mode": reasoning_mode,
+            "reasoning_format": reasoning_format,
+            "reasoning_budget": reasoning_budget,
+        }
+        active_overrides = {
+            key: value for key, value in spec_overrides.items() if value is not None
+        }
+        if active_overrides:
+            base = self.spec_decode.__dict__ | active_overrides
+            try:
+                object.__setattr__(self, "spec_decode", SpeculativeDecodingConfig(**base))
+            except ValueError as exc:
+                raise SlotProfileError(str(exc)) from exc
         _require_text(self.profile_id, "profile_id")
         _require_text(self.model, "model")
         _require_text(self.alias, "alias")
@@ -72,29 +111,19 @@ class SlotProfileSpec:
             raise SlotProfileError("parallel must be -1 or at least 1")
         if self.threads_batch < 0:
             raise SlotProfileError("threads_batch must be non-negative")
-        for name in (
-            "spec_ngram_size_n",
-            "draft_min",
-            "draft_max",
-            "spec_draft_n_max",
-        ):
-            value = getattr(self, name)
-            if value < 0:
-                raise SlotProfileError(f"{name} must be non-negative")
-        if self.draft_min > self.draft_max:
-            raise SlotProfileError("draft_min must be <= draft_max")
-        if self.spec_draft_p_min < 0:
-            raise SlotProfileError("spec_draft_p_min must be non-negative")
-        if self.spec_draft_p_min > 1.0:
-            raise SlotProfileError("spec_draft_p_min must be <= 1.0")
-        if self.spec_type not in ("", "ngram-mod", "draft-mtp"):
-            raise SlotProfileError("spec_type must be '', 'ngram-mod', or 'draft-mtp'")
+        if not isinstance(self.spec_decode, SpeculativeDecodingConfig):
+            raise SlotProfileError("spec_decode must be a SpeculativeDecodingConfig")
         if not isinstance(self.main_gpu, int) or self.main_gpu < 0:
             raise SlotProfileError("main_gpu must be a non-negative integer")
         if isinstance(self.n_gpu_layers, int) and self.n_gpu_layers < 0:
             raise SlotProfileError("n_gpu_layers must be non-negative")
         if isinstance(self.n_gpu_layers, str):
             _require_text(self.n_gpu_layers, "n_gpu_layers")
+
+    def __getattribute__(self, name: str) -> object:
+        if name in SpeculativeDecodingConfig.__dataclass_fields__:
+            return getattr(object.__getattribute__(self, "spec_decode"), name)
+        return object.__getattribute__(self, name)
 
 
 @dataclass(frozen=True, slots=True)

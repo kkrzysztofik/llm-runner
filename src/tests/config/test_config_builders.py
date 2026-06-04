@@ -772,7 +772,7 @@ class TestLifecycleAuditTrail:
                 manager.start_server_background("test", ["cmd"])
 
                 # Should have recorded a start event
-                audit = manager._lifecycle_audit
+                audit = manager._audit.lifecycle_audit
                 assert len(audit) >= 1
                 assert any(e["event"] == "start" for e in audit)
                 assert any(e["pid"] == 12345 for e in audit)
@@ -800,7 +800,7 @@ class TestLifecycleAuditTrail:
                     manager.cleanup_servers()
 
                     # Should have recorded cleanup event
-                    audit = manager._lifecycle_audit
+                    audit = manager._audit.lifecycle_audit
                     assert any(e["event"] == "cleanup" for e in audit)
 
     def test_audit_trail_records_kill_events(self, monkeypatch) -> None:
@@ -838,7 +838,7 @@ class TestLifecycleAuditTrail:
             manager.cleanup_servers()
 
             # Should have recorded kill events
-            audit = manager._lifecycle_audit
+            audit = manager._audit.lifecycle_audit
             kill_events = [e for e in audit if e["event"] == "kill"]
             assert len(kill_events) >= 1
 
@@ -870,7 +870,7 @@ class TestLifecycleAuditTrail:
             manager.cleanup_servers()
 
             # Should have recorded skip event
-            audit = manager._lifecycle_audit
+            audit = manager._audit.lifecycle_audit
             skip_events = [e for e in audit if e["event"] == "skip"]
             assert any(e["details"] == "ownership_failed" for e in skip_events)
 
@@ -900,7 +900,7 @@ class TestLifecycleAuditTrail:
                 manager.start_server_background("server2", ["cmd2"])
 
                 # Should have recorded start events for both servers
-                audit = manager._lifecycle_audit
+                audit = manager._audit.lifecycle_audit
                 start_events = [e for e in audit if e["event"] == "start"]
                 assert len(start_events) == 2
                 pids = [e["pid"] for e in start_events]

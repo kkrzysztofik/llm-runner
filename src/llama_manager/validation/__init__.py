@@ -4,7 +4,7 @@ from .commands.builder import (
     DoctorCheckResult,
     DoctorReport,
     DryRunSlotPayload,
-    ValidationResults,
+    DryRunValidationSummary,
     VllmEligibility,
     assess_vram_risk,
     build_dry_run_slot_payload,
@@ -25,6 +25,8 @@ from .validators import (
     validate_threads,
 )
 
+ValidationResults = DryRunValidationSummary
+
 __all__ = [
     # Validators
     "validate_port",
@@ -42,6 +44,7 @@ __all__ = [
     # Payload types
     "DryRunSlotPayload",
     "VllmEligibility",
+    "DryRunValidationSummary",
     "ValidationResults",
     # Doctor diagnostics
     "DoctorCheckResult",

@@ -7,7 +7,6 @@ import signal
 import threading
 import time
 import traceback
-import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +17,6 @@ import psutil
 
 logger = logging.getLogger(__name__)
 
-from ..common.constants import FILE_MODE_OWNER_ONLY
 from ..common.security import redact_text
 from ..config import (
     Config,
@@ -28,22 +26,21 @@ from ..config import (
     MultiValidationError,
     ServerConfig,
     SlotState,
+    ValidationException,
     apply_profile_overrides,
 )
 from ..gpu_telemetry import GPUStats
 from ..log_buffer import LogBuffer
+from .audit import AuditLogger
 from .launcher import ProcessHandle, ProcessLauncher, ProcessTimeoutError
+from .risk import RiskAckManager
 
 __all__ = ["ServerManager", "launch_orchestrate"]
 
 if TYPE_CHECKING:
     from ..risk_ack import RiskAckResult
 
-from ..orchestration.lockfile import (
-    LOCKFILE_CHECK_NAME,
-    ValidationException,
-    check_lockfile_integrity,
-)
+from ..orchestration.lockfile import LOCKFILE_CHECK_NAME, check_lockfile_integrity
 
 # Module-local string constants (process_manager-specific).
 ARTIFACT_CHECK_NAME: Final[str] = "artifact_persistence"
@@ -168,38 +165,6 @@ class SlotRuntime:
         }
 
 
-# Audit log rotation threshold: 5 MiB
-_AUDIT_LOG_MAX_BYTES: Final[int] = 5 * 1024 * 1024
-# Maximum number of rotated log files to retain (including current)
-_AUDIT_LOG_MAX_FILES: Final[int] = 5
-
-
-def _rotate_audit_log(log_path: Path) -> None:
-    """Rotate audit log files, keeping up to ``_AUDIT_LOG_MAX_FILES``."""
-    oldest = log_path.with_suffix(f".{_AUDIT_LOG_MAX_FILES - 1}")
-    with contextlib.suppress(OSError):
-        oldest.unlink()
-
-    for i in range(_AUDIT_LOG_MAX_FILES - 2, 0, -1):
-        src = log_path.with_suffix(f".{i}")
-        dst = log_path.with_suffix(f".{i + 1}")
-        with contextlib.suppress(OSError):
-            if src.exists():
-                src.rename(dst)
-
-    rotated = log_path.with_suffix(".1")
-    with contextlib.suppress(OSError):
-        log_path.rename(rotated)
-
-    for i in range(1, _AUDIT_LOG_MAX_FILES):
-        rotated_path = log_path.with_suffix(f".{i}")
-        try:
-            if rotated_path.exists():
-                rotated_path.chmod(FILE_MODE_OWNER_ONLY)
-        except OSError:
-            pass
-
-
 def _verify_shutdown_ownership(pid: int, port: int) -> bool:
     """Verify that *pid* owns the slot by checking port binding and UID."""
     if not psutil.pid_exists(pid):
@@ -230,32 +195,6 @@ def _verify_shutdown_ownership(pid: int, port: int) -> bool:
         return False
 
     return True
-
-
-def _append_audit_log(
-    log_path: Path,
-    message: str,
-    redact: bool = True,
-) -> None:
-    """Append a line to the audit log file, rotating if needed."""
-    if log_path.exists():
-        try:
-            size = log_path.stat().st_size
-            if size > _AUDIT_LOG_MAX_BYTES:
-                _rotate_audit_log(log_path)
-        except OSError:
-            pass
-
-    if redact:
-        message = redact_text(message)
-    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    line = f"{timestamp} {message}\n"
-
-    # Use high-level open() with explicit mode to ensure owner-only permissions
-    # on new files; also enforce on existing files via fchmod.
-    with open(log_path, "a", encoding="utf-8") as fh:
-        os.fchmod(fh.fileno(), FILE_MODE_OWNER_ONLY)
-        fh.write(line)
 
 
 def _evaluate_and_handle_risks(
@@ -487,28 +426,30 @@ class ServerManager:
         self.servers: list[ProcessHandle] = []
         self.pid_metadata: dict[int, float] = {}
         self._launcher = process_launcher
-        self._lifecycle_audit: list[dict] = []
-        self._risky_acknowledged_cache: dict[str, set[str]] = {}
-        self._current_launch_attempt_id: str | None = None
-        self._audit_log_path = audit_log_path
+        self._audit = AuditLogger(audit_log_path)
+        self._risk = RiskAckManager()
+
+    # -- Delegates to AuditLogger --
+
+    @property
+    def _lifecycle_audit(self) -> list[dict]:
+        return self._audit.lifecycle_audit
+
+    def _record_lifecycle_event(
+        self, event: str, pid: int | None = None, details: str | None = None
+    ) -> None:
+        self._audit.record_event(event, pid=pid, details=details)
+
+    # -- Delegates to RiskAckManager --
 
     def begin_launch_attempt(self, launch_attempt_id: str | None = None) -> str:
-        """Create/select launch attempt and initialize per-attempt ack cache."""
-        attempt_id = launch_attempt_id or uuid.uuid4().hex
-        self._current_launch_attempt_id = attempt_id
-        self._risky_acknowledged_cache.setdefault(attempt_id, set())
-        return attempt_id
+        return self._risk.begin_launch_attempt(launch_attempt_id)
 
     def issue_ack_token(self, launch_attempt_id: str | None = None) -> str:
-        """Issue deterministic ack token bound to a launch attempt."""
-        attempt_id = launch_attempt_id or self.begin_launch_attempt()
-        return f"ack:{attempt_id}"
+        return self._risk.issue_ack_token(launch_attempt_id)
 
     def validate_ack_token(self, launch_attempt_id: str, ack_token: str | None) -> bool:
-        """Validate that ack_token is bound to launch_attempt_id."""
-        if ack_token is None:
-            return False
-        return ack_token == f"ack:{launch_attempt_id}"
+        return self._risk.validate_ack_token(launch_attempt_id, ack_token)
 
     def acknowledge_risk(
         self,
@@ -517,15 +458,7 @@ class ServerManager:
         launch_attempt_id: str | None = None,
         ack_token: str | None = None,
     ) -> None:
-        """Mark a risky operation as acknowledged for a specific slot."""
-        attempt_id = launch_attempt_id or self._current_launch_attempt_id
-        if attempt_id is None:
-            attempt_id = self.begin_launch_attempt()
-
-        if ack_token is not None and not self.validate_ack_token(attempt_id, ack_token):
-            raise ValueError("ack_token does not match launch_attempt_id")
-
-        self._risky_acknowledged_cache.setdefault(attempt_id, set()).add(f"{slot_id}:{risk_type}")
+        self._risk.acknowledge_risk(slot_id, risk_type, launch_attempt_id, ack_token)
 
     def is_risk_acknowledged(
         self,
@@ -533,16 +466,10 @@ class ServerManager:
         risk_type: str,
         launch_attempt_id: str | None = None,
     ) -> bool:
-        """Check if a risky operation has been acknowledged for a specific slot."""
-        attempt_id = launch_attempt_id or self._current_launch_attempt_id
-        if attempt_id is None:
-            return False
-        return f"{slot_id}:{risk_type}" in self._risky_acknowledged_cache.get(attempt_id, set())
+        return self._risk.is_risk_acknowledged(slot_id, risk_type, launch_attempt_id)
 
     def clear_risk_acknowledgements(self) -> None:
-        """Clear all in-memory risk acknowledgement state."""
-        self._risky_acknowledged_cache.clear()
-        self._current_launch_attempt_id = None
+        self._risk.clear_all()
 
     def _filter_owned_running_pids(self, pids: list[int]) -> list[int]:
         """Filter PIDs to only those that exist and are owned by us."""
@@ -687,25 +614,6 @@ class ServerManager:
             return True
         except OSError:
             return False
-
-    def _record_lifecycle_event(
-        self, event: str, pid: int | None = None, details: str | None = None
-    ) -> None:
-        """Record a lifecycle event in the audit trail."""
-        self._lifecycle_audit.append(
-            {
-                "event": event,
-                "pid": pid,
-                "details": details,
-                "timestamp": time.time(),
-            }
-        )
-        if self._audit_log_path is not None:
-            with contextlib.suppress(OSError):
-                _append_audit_log(
-                    self._audit_log_path,
-                    f"lifecycle:{event} pid={pid} {details or ''}",
-                )
 
     def start_server_background(
         self,

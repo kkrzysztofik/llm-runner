@@ -1,11 +1,13 @@
 """orchestration package — process management, lockfiles, and artifacts."""
 
 from ..common.security import REDACTED_VALUE, redact_dict, redact_text
+from ..config import ValidationException
 from .artifact import (
     ArtifactMetadata,
     DryRunArtifactPayload,
     write_artifact,
 )
+from .audit import AuditLogger
 from .launcher import (
     DefaultProcessLauncher,
     ProcessHandle,
@@ -27,11 +29,15 @@ from .manager import (
     ProcessMetadata,
     ServerManager,
     SlotRuntime,
-    ValidationException,
     launch_orchestrate,
 )
+from .risk import RiskAckManager
 
 __all__ = [
+    # Audit
+    "AuditLogger",
+    # Risk acknowledgement
+    "RiskAckManager",
     # Lockfile operations
     "LockMetadata",
     "check_lockfile_integrity",

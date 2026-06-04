@@ -13,6 +13,7 @@ from textual.widgets import Button, Checkbox, Collapsible, Input, Label, ListIte
 
 from llama_manager.config import Config
 from llama_manager.config.profiles import SlotProfileSpec
+from llama_manager.config.spec_decode import SpeculativeDecodingConfig
 from llama_manager.model_index import ModelIndexEntry
 
 from .form_widgets import (
@@ -284,6 +285,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
 
     def _profile_to_prefill(self, spec: SlotProfileSpec) -> dict[str, str]:
         """Convert SlotProfileSpec to prefill dict for form fields."""
+        spec_decode = spec.spec_decode
         return {
             "profile-id": spec.profile_id,
             "label": spec.alias if spec.alias != spec.profile_id else "",
@@ -300,9 +302,9 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "device": spec.device or "CUDA:0",
             "bind-address": spec.bind_address,
             "tensor-split": spec.tensor_split,
-            "reasoning-mode": spec.reasoning_mode,
-            "reasoning-format": spec.reasoning_format,
-            "reasoning-budget": spec.reasoning_budget,
+            "reasoning-mode": spec_decode.reasoning_mode,
+            "reasoning-format": spec_decode.reasoning_format,
+            "reasoning-budget": spec_decode.reasoning_budget,
             "use-jinja": "true" if spec.use_jinja else "false",
             "cache-type-k": spec.cache_type_k,
             "cache-type-v": spec.cache_type_v,
@@ -313,15 +315,15 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "parallel": str(spec.parallel),
             "threads-batch": str(spec.threads_batch),
             "mmproj": spec.mmproj,
-            "spec-type": spec.spec_type,
-            "spec-ngram-size-n": str(spec.spec_ngram_size_n),
-            "draft-min": str(spec.draft_min),
-            "draft-max": str(spec.draft_max),
-            "spec-draft-n-max": str(spec.spec_draft_n_max),
-            "spec-draft-p-min": str(spec.spec_draft_p_min),
-            "spec-draft-cache-type-k": spec.spec_draft_cache_type_k,
-            "spec-draft-cache-type-v": spec.spec_draft_cache_type_v,
-            "spec-draft-device": spec.spec_draft_device,
+            "spec-type": spec_decode.spec_type,
+            "spec-ngram-size-n": str(spec_decode.spec_ngram_size_n),
+            "draft-min": str(spec_decode.draft_min),
+            "draft-max": str(spec_decode.draft_max),
+            "spec-draft-n-max": str(spec_decode.spec_draft_n_max),
+            "spec-draft-p-min": str(spec_decode.spec_draft_p_min),
+            "spec-draft-cache-type-k": spec_decode.spec_draft_cache_type_k,
+            "spec-draft-cache-type-v": spec_decode.spec_draft_cache_type_v,
+            "spec-draft-device": spec_decode.spec_draft_device,
         }
 
     def action_cancel(self) -> None:
@@ -640,10 +642,7 @@ def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -
         description=payload.label or "",
         bind_address=payload.bind_address,
         tensor_split=payload.tensor_split,
-        reasoning_mode=payload.reasoning_mode,
-        reasoning_format=payload.reasoning_format,
         chat_template_kwargs=ctk if isinstance(ctk, str) else "",
-        reasoning_budget=payload.reasoning_budget,
         use_jinja=payload.use_jinja,
         cache_type_k=payload.cache_type_k,
         cache_type_v=payload.cache_type_v,
@@ -657,13 +656,18 @@ def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -
         parallel=payload.parallel,
         threads_batch=payload.threads_batch,
         mmproj=payload.mmproj,
-        spec_type=payload.spec_type,
-        spec_ngram_size_n=payload.spec_ngram_size_n,
-        draft_min=payload.draft_min,
-        draft_max=payload.draft_max,
-        spec_draft_n_max=payload.spec_draft_n_max,
-        spec_draft_p_min=payload.spec_draft_p_min,
-        spec_draft_cache_type_k=payload.spec_draft_cache_type_k,
-        spec_draft_cache_type_v=payload.spec_draft_cache_type_v,
-        spec_draft_device=payload.spec_draft_device,
+        spec_decode=SpeculativeDecodingConfig(
+            reasoning_mode=payload.reasoning_mode,
+            reasoning_format=payload.reasoning_format,
+            reasoning_budget=payload.reasoning_budget,
+            spec_type=payload.spec_type,
+            spec_ngram_size_n=payload.spec_ngram_size_n,
+            draft_min=payload.draft_min,
+            draft_max=payload.draft_max,
+            spec_draft_n_max=payload.spec_draft_n_max,
+            spec_draft_p_min=payload.spec_draft_p_min,
+            spec_draft_cache_type_k=payload.spec_draft_cache_type_k,
+            spec_draft_cache_type_v=payload.spec_draft_cache_type_v,
+            spec_draft_device=payload.spec_draft_device,
+        ),
     )
