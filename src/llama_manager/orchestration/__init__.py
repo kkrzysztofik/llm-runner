@@ -1,10 +1,9 @@
 """orchestration package — process management, lockfiles, and artifacts."""
 
-from ..common.security import REDACTED_VALUE
+from ..common.security import REDACTED_VALUE, redact_dict, redact_text
 from .artifact import (
     ArtifactMetadata,
     DryRunArtifactPayload,
-    _redact_sensitive_in_dict,  # noqa: F401 — re-exported for tests
     write_artifact,
 )
 from .launcher import (
@@ -29,10 +28,6 @@ from .manager import (
     ServerManager,
     SlotRuntime,
     ValidationException,
-    _append_audit_log,
-    _redact_sensitive,
-    _rotate_audit_log,
-    _verify_shutdown_ownership,
     launch_orchestrate,
 )
 
@@ -61,12 +56,10 @@ __all__ = [
     "LaunchResult",
     "LaunchOrchestrationResult",
     "launch_orchestrate",
-    # Internal (exported for tests)
+    # Redaction (re-exported from common.security)
     "REDACTED_VALUE",
-    "_append_audit_log",
-    "_redact_sensitive",
-    "_rotate_audit_log",
-    "_verify_shutdown_ownership",
+    "redact_dict",
+    "redact_text",
     # Exceptions
     "ValidationException",
 ]

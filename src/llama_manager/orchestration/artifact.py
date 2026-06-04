@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 from ..common.constants import DIR_MODE_OWNER_ONLY, FILE_MODE_OWNER_ONLY
 from ..common.file_ops import atomic_exclusive_create_json
-from ..common.security import REDACTED_VALUE, is_sensitive_key
+from ..common.security import redact_dict
 from ..config import ErrorCode
 
 if TYPE_CHECKING:
@@ -87,7 +87,7 @@ def write_artifact(
     from typing import cast as _cast
 
     try:
-        redacted_data = _redact_sensitive_in_dict(_cast(dict, data))
+        redacted_data = redact_dict(_cast(dict, data))
     except TypeError as e:
         raise _artifact_error(
             f"artifact serialization failed: {e}", "ensure artifact data is JSON-serializable"
@@ -228,34 +228,6 @@ def _validate_resolved_command(data: DryRunArtifactPayload | dict) -> None:
                         "ensure all slot identifiers in resolved_command are strings",
                         check="artifact_validation",
                     )
-
-
-def _redact_value(key: str, value: Any, prefix: str) -> Any:
-    """Recursively redact a single value based on its accumulated key path.
-
-    Handles dicts (recurse), lists (map over items), and sensitive strings.
-    """
-    full_key = f"{prefix}_{key}" if prefix else key
-    if isinstance(value, dict):
-        return _redact_sensitive_in_dict(value, full_key)
-    if isinstance(value, list):
-        return [_redact_value(key, item, full_key) for item in value]
-    if isinstance(value, str) and is_sensitive_key(full_key):
-        return REDACTED_VALUE
-    return value
-
-
-def _redact_sensitive_in_dict(data: dict, env_key_prefix: str = "") -> dict:
-    """Recursively redact sensitive environment variable values in a nested dict.
-
-    Also recurses into lists: dict items are recursed, string items are
-    redacted when ``is_sensitive_key(full_key)`` is true, and all other
-    list items are preserved as-is.
-    """
-    result: dict[str, Any] = {}
-    for key, value in data.items():
-        result[key] = _redact_value(key, value, env_key_prefix)
-    return result
 
 
 def _artifact_error(

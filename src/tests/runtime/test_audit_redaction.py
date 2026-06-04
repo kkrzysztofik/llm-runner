@@ -19,10 +19,10 @@ from llama_manager.orchestration import (
     ServerManager,
     SlotRuntime,
     ValidationException,
-    _redact_sensitive_in_dict,
     check_lockfile_integrity,
     create_lock,
     read_lock,
+    redact_dict,
     release_lock,
     resolve_runtime_dir,
     update_lock,
@@ -797,74 +797,74 @@ class TestAuditLogRedaction:
     """T016: Tests for rotating log appending with secret redaction."""
 
     def test_redacts_api_key_in_dict(self) -> None:
-        """_redact_sensitive_in_dict should redact API_KEY values."""
+        """redact_dict should redact API_KEY values."""
         data = {"api_key": "secret123", "name": "test"}
-        redacted = _redact_sensitive_in_dict(data)
+        redacted = redact_dict(data)
 
         assert redacted["api_key"] == REDACTED_VALUE
         assert redacted["name"] == "test"
 
     def test_redacts_token_in_dict(self) -> None:
-        """_redact_sensitive_in_dict should redact TOKEN values."""
+        """redact_dict should redact TOKEN values."""
         data = {"auth_token": "abc123", "user": "admin"}
-        redacted = _redact_sensitive_in_dict(data)
+        redacted = redact_dict(data)
 
         assert redacted["auth_token"] == REDACTED_VALUE
         assert redacted["user"] == "admin"
 
     def test_redacts_secret_in_dict(self) -> None:
-        """_redact_sensitive_in_dict should redact SECRET values."""
+        """redact_dict should redact SECRET values."""
         data = {"database_secret": "mysecret", "host": "localhost"}
-        redacted = _redact_sensitive_in_dict(data)
+        redacted = redact_dict(data)
 
         assert redacted["database_secret"] == REDACTED_VALUE
         assert redacted["host"] == "localhost"
 
     def test_redacts_password_in_dict(self) -> None:
-        """_redact_sensitive_in_dict should redact PASSWORD values."""
+        """redact_dict should redact PASSWORD values."""
         data = {"DB_PASSWORD": "supersecret", "DB_USER": "admin"}
-        redacted = _redact_sensitive_in_dict(data)
+        redacted = redact_dict(data)
 
         assert redacted["DB_PASSWORD"] == REDACTED_VALUE
         assert redacted["DB_USER"] == "admin"
 
     def test_redacts_auth_in_dict(self) -> None:
-        """_redact_sensitive_in_dict should redact AUTH values."""
+        """redact_dict should redact AUTH values."""
         data = {"AUTH_HEADER": "bearer_xyz", "method": "jwt"}
-        redacted = _redact_sensitive_in_dict(data)
+        redacted = redact_dict(data)
 
         assert redacted["AUTH_HEADER"] == REDACTED_VALUE
         assert redacted["method"] == "jwt"
 
     def test_case_insensitive_redaction(self) -> None:
-        """_redact_sensitive_in_dict should redact keys case-insensitively."""
+        """redact_dict should redact keys case-insensitively."""
         data = {"api_key": "lower", "API_KEY": "upper", "Api_Key": "mixed"}
-        redacted = _redact_sensitive_in_dict(data)
+        redacted = redact_dict(data)
 
         assert all(v == REDACTED_VALUE for v in redacted.values())
 
     def test_non_sensitive_keys_unchanged(self) -> None:
-        """_redact_sensitive_in_dict should not modify non-sensitive keys."""
+        """redact_dict should not modify non-sensitive keys."""
         data = {"name": "test", "port": 8080, "enabled": True}
-        redacted = _redact_sensitive_in_dict(data)
+        redacted = redact_dict(data)
 
         assert redacted == data
 
     def test_nested_dict_redaction(self) -> None:
-        """_redact_sensitive_in_dict should recursively redact nested dicts."""
+        """redact_dict should recursively redact nested dicts."""
         data = {
             "outer": {
                 "api_key": "nested_secret",
                 "safe": "value",
             }
         }
-        redacted = _redact_sensitive_in_dict(data)
+        redacted = redact_dict(data)
 
         assert redacted["outer"]["api_key"] == REDACTED_VALUE
         assert redacted["outer"]["safe"] == "value"
 
     def test_nested_dict_redaction_uses_full_path(self) -> None:
-        """_redact_sensitive_in_dict must check is_sensitive_key against full_key path.
+        """redact_dict must check is_sensitive_key against full_key path.
 
         Regression test: the fix changed is_sensitive_key(key) to
         is_sensitive_key(full_key) so that nested sensitive keys are
@@ -881,13 +881,13 @@ class TestAuditLogRedaction:
                 }
             }
         }
-        redacted = _redact_sensitive_in_dict(data)
+        redacted = redact_dict(data)
 
         assert redacted["level1"]["config"]["api_key"] == REDACTED_VALUE
         assert redacted["level1"]["config"]["normal"] == "preserved"
 
     def test_deeply_nested_redaction(self) -> None:
-        """_redact_sensitive_in_dict should redact at arbitrary nesting depth."""
+        """redact_dict should redact at arbitrary nesting depth."""
         data = {
             "a": {
                 "b": {
@@ -900,28 +900,28 @@ class TestAuditLogRedaction:
                 }
             }
         }
-        redacted = _redact_sensitive_in_dict(data)
+        redacted = redact_dict(data)
 
         assert redacted["a"]["b"]["c"]["d"]["AUTH_TOKEN"] == REDACTED_VALUE
         assert redacted["a"]["b"]["c"]["d"]["safe"] == "value"
 
     def test_non_dict_values_preserved(self) -> None:
-        """_redact_sensitive_in_dict should preserve non-string values."""
+        """redact_dict should preserve non-string values."""
         data = {"count": 42, "enabled": True, "items": [1, 2, 3]}
-        redacted = _redact_sensitive_in_dict(data)
+        redacted = redact_dict(data)
 
         assert redacted["count"] == 42
         assert redacted["enabled"] is True
         assert redacted["items"] == [1, 2, 3]
 
     def test_empty_dict(self) -> None:
-        """_redact_sensitive_in_dict should handle empty dict."""
-        assert _redact_sensitive_in_dict({}) == {}
+        """redact_dict should handle empty dict."""
+        assert redact_dict({}) == {}
 
     def test_sensitive_value_not_in_output(self) -> None:
         """Redacted values should not appear in output."""
         data = {"api_key": "supersecretvalue123"}
-        redacted = _redact_sensitive_in_dict(data)
+        redacted = redact_dict(data)
 
         assert "supersecretvalue123" not in str(redacted)
         assert redacted["api_key"] == REDACTED_VALUE
@@ -1536,7 +1536,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_pid_does_not_exist(self) -> None:
         """_verify_shutdown_ownership should return False when PID doesn't exist."""
-        from llama_manager.orchestration import _verify_shutdown_ownership
+        from llama_manager.orchestration.manager import _verify_shutdown_ownership
 
         with patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=False):
             result = _verify_shutdown_ownership(99999, 8080)
@@ -1545,7 +1545,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_process_creation_fails(self) -> None:
         """_verify_shutdown_ownership should return False on NoSuchProcess."""
-        from llama_manager.orchestration import _verify_shutdown_ownership
+        from llama_manager.orchestration.manager import _verify_shutdown_ownership
 
         with (
             patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
@@ -1558,7 +1558,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_on_access_denied(self) -> None:
         """_verify_shutdown_ownership should return False on AccessDenied."""
-        from llama_manager.orchestration import _verify_shutdown_ownership
+        from llama_manager.orchestration.manager import _verify_shutdown_ownership
 
         with (
             patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
@@ -1571,7 +1571,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_port_mismatch(self) -> None:
         """_verify_shutdown_ownership should return False when port doesn't match."""
-        from llama_manager.orchestration import _verify_shutdown_ownership
+        from llama_manager.orchestration.manager import _verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 4444  # Not 8080
@@ -1590,7 +1590,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_false_when_uid_mismatch(self) -> None:
         """_verify_shutdown_ownership should return False when UID doesn't match."""
-        from llama_manager.orchestration import _verify_shutdown_ownership
+        from llama_manager.orchestration.manager import _verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 8080
@@ -1613,7 +1613,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_returns_true_when_port_and_uid_match(self) -> None:
         """_verify_shutdown_ownership should return True when port + UID match."""
-        from llama_manager.orchestration import _verify_shutdown_ownership
+        from llama_manager.orchestration.manager import _verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 8080
@@ -1636,7 +1636,7 @@ class TestVerifyShutdownOwnership:
 
     def test_verify_net_connections_access_denied_returns_false(self) -> None:
         """_verify_shutdown_ownership returns False on net_connections AccessDenied."""
-        from llama_manager.orchestration import _verify_shutdown_ownership
+        from llama_manager.orchestration.manager import _verify_shutdown_ownership
 
         with (
             patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
@@ -1655,7 +1655,7 @@ class TestAuditLogRotationPermissions:
 
     def test_rotate_sets_owner_only_permissions(self, tmp_path: Path) -> None:
         """_rotate_audit_log should chmod rotated files to 0600."""
-        from llama_manager.orchestration import _rotate_audit_log
+        from llama_manager.orchestration.manager import _rotate_audit_log
 
         # Create initial log file
         log_path = tmp_path / "audit.log"
@@ -1673,7 +1673,7 @@ class TestAuditLogRotationPermissions:
 
     def test_rotate_multiple_files_all_chmod(self, tmp_path: Path) -> None:
         """_rotate_audit_log should chmod all existing rotated files."""
-        from llama_manager.orchestration import _rotate_audit_log
+        from llama_manager.orchestration.manager import _rotate_audit_log
 
         log_path = tmp_path / "audit.log"
 
@@ -1697,7 +1697,7 @@ class TestAuditLogRotationPermissions:
 
     def test_append_audit_log_creates_file_with_owner_only_perms(self, tmp_path: Path) -> None:
         """_append_audit_log should create new audit log files with 0600 permissions."""
-        from llama_manager.orchestration import _append_audit_log
+        from llama_manager.orchestration.manager import _append_audit_log
 
         log_path = tmp_path / "audit.log"
 
@@ -1713,7 +1713,7 @@ class TestAuditLogRotationPermissions:
 
     def test_append_audit_log_appends_with_owner_only_perms(self, tmp_path: Path) -> None:
         """_append_audit_log should preserve 0600 permissions when appending."""
-        from llama_manager.orchestration import _append_audit_log
+        from llama_manager.orchestration.manager import _append_audit_log
 
         log_path = tmp_path / "audit.log"
 
@@ -1735,53 +1735,53 @@ class TestAuditLogRotationPermissions:
 
 
 class TestRedactSensitiveValues:
-    """T016c: _redact_sensitive should redact secret VALUES, not just key names."""
+    """T016c: redact_text should redact secret VALUES, not just key names."""
 
     def test_redacts_api_key_value(self) -> None:
         """API_KEY=secret should be fully redacted."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive("API_KEY=secret123")
+        result = redact_text("API_KEY=secret123")
         assert result == "[REDACTED]"
         assert "secret123" not in result
 
     def test_redacts_api_key_with_spaces(self) -> None:
         """API_KEY = secret (with spaces around =) should be fully redacted."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive("API_KEY = mysecret")
+        result = redact_text("API_KEY = mysecret")
         assert result == "[REDACTED]"
         assert "mysecret" not in result
 
     def test_redacts_quoted_double_value(self) -> None:
         """password="secret" should be fully redacted."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive('DB_PASSWORD="supersecret"')
+        result = redact_text('DB_PASSWORD="supersecret"')
         assert result == "[REDACTED]"
         assert "supersecret" not in result
 
     def test_redacts_quoted_single_value(self) -> None:
         """password='secret' should be fully redacted."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive("API_KEY='mytoken'")
+        result = redact_text("API_KEY='mytoken'")
         assert result == "[REDACTED]"
         assert "mytoken" not in result
 
     def test_redacts_authorization_bearer(self) -> None:
         """Authorization: Bearer token should be fully redacted."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive("Authorization: Bearer mytoken123")
+        result = redact_text("Authorization: Bearer mytoken123")
         assert result == "[REDACTED]"
         assert "mytoken123" not in result
 
     def test_redacts_multiple_secrets_in_line(self) -> None:
         """Multiple secrets in one line should all be redacted."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive(
+        result = redact_text(
             "API_KEY=abc123 and AUTH=xyz789 in same line",
         )
         assert "abc123" not in result
@@ -1791,83 +1791,83 @@ class TestRedactSensitiveValues:
 
     def test_redacts_token_value(self) -> None:
         """TOKEN=value should be fully redacted."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive("auth_token=jwt-here-abc")
+        result = redact_text("auth_token=jwt-here-abc")
         assert result == "[REDACTED]"
         assert "jwt-here-abc" not in result
 
     def test_redacts_secret_value(self) -> None:
         """SECRET=value should be fully redacted."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive("database_secret=postgres_pass")
+        result = redact_text("database_secret=postgres_pass")
         assert result == "[REDACTED]"
         assert "postgres_pass" not in result
 
     def test_redacts_password_value(self) -> None:
         """PASSWORD=value should be fully redacted."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive("PASSWORD=letmein")
+        result = redact_text("PASSWORD=letmein")
         assert result == "[REDACTED]"
         assert "letmein" not in result
 
     def test_redacts_auth_value(self) -> None:
         """AUTH=value should be fully redacted."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive("AUTH=bearer-token-abc")
+        result = redact_text("AUTH=bearer-token-abc")
         assert result == "[REDACTED]"
         assert "bearer-token-abc" not in result
 
     def test_redacts_auth_header_value(self) -> None:
         """AUTH_HEADER=mysecret should be fully redacted (prefixed auth key)."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive("AUTH_HEADER=mysecret")
+        result = redact_text("AUTH_HEADER=mysecret")
         assert result == "[REDACTED]"
         assert "mysecret" not in result
 
     def test_redacts_my_auth_value(self) -> None:
         """MY_AUTH=token should be fully redacted (auth as suffix prefix)."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive("MY_AUTH=token")
+        result = redact_text("MY_AUTH=token")
         assert result == "[REDACTED]"
         assert "token" not in result
 
     def test_redacts_auth_header_with_spaces(self) -> None:
         """AUTH_HEADER = mysecret (with spaces) should be fully redacted."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive("AUTH_HEADER = mysecret")
+        result = redact_text("AUTH_HEADER = mysecret")
         assert result == "[REDACTED]"
         assert "mysecret" not in result
 
     def test_safe_text_unchanged(self) -> None:
         """Text with no sensitive patterns should be unchanged."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
-        result = _redact_sensitive("normal text with no secrets")
+        result = redact_text("normal text with no secrets")
         assert result == "normal text with no secrets"
 
     def test_safe_text_with_word_containing_key(self) -> None:
         """Words that contain KEY as a substring but are not standalone key identifiers
         should not be redacted — e.g. 'nokey' is a plain word, not a secret."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
         # "nokey" contains KEY but is not an uppercase identifier with KEY as a
         # boundary-aligned keyword — the tightened pattern no longer redacts it.
-        result = _redact_sensitive("nokey is a word")
+        result = redact_text("nokey is a word")
         assert result == "nokey is a word"
 
     def test_safe_text_with_word_containing_secret(self) -> None:
         """Text containing a word that has SECRET as substring should not match."""
-        from llama_manager.orchestration import _redact_sensitive
+        from llama_manager.orchestration import redact_text
 
         # "secrets" contains SECRET but word boundary prevents match
-        result = _redact_sensitive("no secrets here")
+        result = redact_text("no secrets here")
         assert result == "no secrets here"
 
 

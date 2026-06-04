@@ -20,10 +20,21 @@ class TestValidatePort:
     def test_valid_port_passes(self) -> None:
         result = validate_port(8080)
         assert result is None
-        result = validate_port(1)
+        result = validate_port(1024)
         assert result is None
         result = validate_port(65535)
         assert result is None
+
+    def test_privileged_port_returns_error(self) -> None:
+        result = validate_port(1)
+        assert result is not None
+        assert result.error_code == ErrorCode.PORT_INVALID
+        result = validate_port(80)
+        assert result is not None
+        assert result.error_code == ErrorCode.PORT_INVALID
+        result = validate_port(1023)
+        assert result is not None
+        assert result.error_code == ErrorCode.PORT_INVALID
 
     def test_zero_returns_error_detail(self) -> None:
         result = validate_port(0)

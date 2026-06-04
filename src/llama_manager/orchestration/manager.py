@@ -3,7 +3,6 @@
 import contextlib
 import logging
 import os
-import re
 import signal
 import threading
 import time
@@ -20,7 +19,7 @@ import psutil
 logger = logging.getLogger(__name__)
 
 from ..common.constants import FILE_MODE_OWNER_ONLY
-from ..common.security import REDACTED_VALUE, SENSITIVE_KEY_NAME_PATTERN, SENSITIVE_WORD_PATTERN
+from ..common.security import redact_text
 from ..config import (
     Config,
     ErrorCode,
@@ -201,30 +200,6 @@ def _rotate_audit_log(log_path: Path) -> None:
             pass
 
 
-def _redact_sensitive(text: str) -> str:
-    """Redact sensitive patterns from text using module-level patterns."""
-    if not isinstance(text, str):
-        return text
-    text = SENSITIVE_WORD_PATTERN.sub(REDACTED_VALUE, text)
-    text = re.sub(
-        r'(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\s*=\s*"[^"]*"',
-        REDACTED_VALUE,
-        text,
-    )
-    text = re.sub(
-        r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\s*=\s*'[^']*'",
-        REDACTED_VALUE,
-        text,
-    )
-    text = re.sub(
-        r"(?i)\b[A-Z_]*Authorization\s*:\s*Bearer\s+\S+",
-        REDACTED_VALUE,
-        text,
-    )
-    text = SENSITIVE_KEY_NAME_PATTERN.sub(REDACTED_VALUE, text)
-    return text
-
-
 def _verify_shutdown_ownership(pid: int, port: int) -> bool:
     """Verify that *pid* owns the slot by checking port binding and UID."""
     if not psutil.pid_exists(pid):
@@ -272,7 +247,7 @@ def _append_audit_log(
             pass
 
     if redact:
-        message = _redact_sensitive(message)
+        message = redact_text(message)
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     line = f"{timestamp} {message}\n"
 
@@ -665,7 +640,7 @@ class ServerManager:
             return
         try:
             for line in iter(pipe.readline, ""):
-                redacted = _redact_sensitive(line.rstrip("\n"))
+                redacted = redact_text(line.rstrip("\n"))
                 formatted = self._format_output(server_name, redacted)
                 if log_handler is not None:
                     log_handler(formatted)

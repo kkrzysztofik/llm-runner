@@ -2,6 +2,7 @@
 
 import os
 
+from ..common.validators import PORT_MAX, PORT_MIN, validate_port_range
 from ..config import (
     ErrorCode,
     ErrorDetail,
@@ -14,12 +15,13 @@ from ..config import (
 
 def validate_port(port: int, name: str = "port") -> ErrorDetail | None:
     """Validate port number."""
-    if not isinstance(port, int) or port < 1 or port > 65535:
+    err = validate_port_range(port)
+    if err is not None:
         return ErrorDetail(
             error_code=ErrorCode.PORT_INVALID,
             failed_check="port_validation",
-            why_blocked=f"{name} must be between 1 and 65535, got: {port}",
-            how_to_fix=f"ensure {name} is an integer between 1 and 65535",
+            why_blocked=f"{name}: {err}",
+            how_to_fix=f"ensure {name} is an integer between {PORT_MIN} and {PORT_MAX}",
         )
     return None
 
@@ -116,14 +118,15 @@ def _validate_slot(slot: ModelSlot) -> list[ValidationResult]:
         )
         return results
 
-    if not (1 <= slot.port <= 65535):
+    port_err = validate_port_range(slot.port)
+    if port_err is not None:
         results.append(
             ValidationResult(
                 slot_id=normalized_id,
                 passed=False,
                 failed_check="port_validation",
                 error_code=ErrorCode.PORT_INVALID,
-                error_message=f"port must be between 1 and 65535, got: {slot.port}",
+                error_message=port_err,
             )
         )
 

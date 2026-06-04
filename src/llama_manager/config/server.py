@@ -3,6 +3,7 @@
 import re
 from dataclasses import dataclass, field
 
+from ..common.validators import validate_port_range
 from .errors import ErrorCode, ValidationResult
 
 # Regex pattern for slot ID normalization: strip, lowercase, allow only a-z0-9_-
@@ -202,13 +203,14 @@ def validate_slot_port(port: int, slot_id: str) -> ValidationResult:
         ValidationResult indicating success or failure with error details
 
     """
-    if not isinstance(port, int) or port < 1024 or port > 65535:
+    err = validate_port_range(port)
+    if err is not None:
         return ValidationResult(
             slot_id=slot_id,
             passed=False,
             failed_check="port_range",
             error_code=ErrorCode.PORT_INVALID,
-            error_message=f"port must be between 1024 and 65535, got: {port}",
+            error_message=err,
         )
     return ValidationResult(
         slot_id=slot_id,

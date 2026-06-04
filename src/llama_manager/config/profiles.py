@@ -3,6 +3,9 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from ..common.text import sanitize_filename_component
+from ..common.validators import validate_port_range
+
 
 class SlotProfileError(ValueError):
     """Raised when slot profile data is invalid."""
@@ -142,9 +145,10 @@ def _require_positive_int(value: int, field_name: str) -> None:
 
 
 def _require_port(port: int) -> None:
-    """Raise if *port* is outside the valid TCP range (1–65535)."""
-    if not (1 <= port <= 65535):
-        raise SlotProfileError(f"port must be between 1 and 65535, got: {port}")
+    """Raise if *port* is outside the valid TCP range (1024–65535)."""
+    err = validate_port_range(port)
+    if err is not None:
+        raise SlotProfileError(err)
 
 
 def _first_duplicate(values: Iterable[str]) -> str | None:
@@ -157,19 +161,14 @@ def _first_duplicate(values: Iterable[str]) -> str | None:
     return None
 
 
-def _normalize_alias(alias: str) -> str:
-    """Normalize an alias string to profile_id form.
+def _profile_id_from_alias(alias: str) -> str:
+    """Convert an alias to comparable profile_id form.
 
-    Handles common variations: underscores, hyphens, and short forms.
-    Converts the alias to a form that can be compared against profile_id values.
-
-    Args:
-        alias: The alias string to normalize.
-
-    Returns:
-        Normalized alias string with hyphens/underscores standardized.
+    Profile aliases intentionally differ from slot IDs: underscores and hyphens
+    are treated as equivalent because user-facing CLI aliases historically use
+    both forms. Filename safety still delegates to the shared sanitizer.
     """
-    return alias.strip().replace("_", "-")
+    return sanitize_filename_component(alias).replace("_", "-")
 
 
 def _resolve_alias_to_profile_id(registry: SlotProfileRegistry, alias: str) -> str | None:
@@ -185,16 +184,19 @@ def _resolve_alias_to_profile_id(registry: SlotProfileRegistry, alias: str) -> s
     Returns:
         The matching profile_id, or None if no match is found.
     """
-    normalized = _normalize_alias(alias)
+    try:
+        normalized = _profile_id_from_alias(alias)
+    except ValueError:
+        return None
 
     # Direct match against profile aliases
     for profile in registry.profiles:
-        if _normalize_alias(profile.alias) == normalized:
+        if _profile_id_from_alias(profile.alias) == normalized:
             return profile.profile_id
 
     # Check against profile_id (for direct profile_id usage)
     for profile in registry.profiles:
-        if _normalize_alias(profile.profile_id) == normalized:
+        if _profile_id_from_alias(profile.profile_id) == normalized:
             return profile.profile_id
 
     return None
@@ -216,7 +218,10 @@ def resolve_profile_id(registry: SlotProfileRegistry, slot_id: str) -> str | Non
     Returns:
         The matching profile_id, or None if no match is found.
     """
-    normalized = _normalize_alias(slot_id)
+    try:
+        normalized = _profile_id_from_alias(slot_id)
+    except ValueError:
+        return None
 
     # Direct match against profile_ids
     for profile in registry.profiles:
@@ -229,7 +234,7 @@ def resolve_profile_id(registry: SlotProfileRegistry, slot_id: str) -> str | Non
 
     # Normalized slot_id match against profile_id
     for profile in registry.profiles:
-        if _normalize_alias(profile.profile_id) == normalized:
+        if _profile_id_from_alias(profile.profile_id) == normalized:
             return profile.profile_id
 
     return None

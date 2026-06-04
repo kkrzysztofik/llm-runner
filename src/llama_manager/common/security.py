@@ -8,7 +8,7 @@ at once.
 
 import re
 from string.templatelib import Interpolation, Template
-from typing import Final
+from typing import Any, Final
 
 # ---------------------------------------------------------------------------
 # Replacement marker
@@ -31,8 +31,8 @@ SENSITIVE_KEY_PATTERN: Final[re.Pattern[str]] = re.compile(
 )
 
 # Matches ``KEY=value`` constructs in plain text / log lines where the key
-# contains a sensitive keyword.  Unquoted values only; see ``_redact_sensitive``
-# in process_manager for the fuller quoted-value and bearer-token handling.
+# contains a sensitive keyword.  Unquoted values only; see ``redact_text``
+# for the fuller quoted-value and bearer-token handling.
 # AUTH_HEADER is listed before AUTH so the longer token wins in alternation.
 SENSITIVE_WORD_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"(?i)\b[A-Z0-9_]*(?<![A-Z0-9])(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)(?:_[0-9A-Z]+)*(?![A-Z0-9])\s*=\s*\S+",
@@ -52,6 +52,21 @@ SENSITIVE_KEY_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(
 _LOG_SENSITIVE_PATTERN: Final[re.Pattern[str]] = re.compile(
     r'(\b[A-Z0-9_]*(?<![A-Z0-9])(?:AUTH_HEADER|AUTH|KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*)=("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|\S+)',
     re.IGNORECASE,
+)
+
+# Matches ``Authorization: Bearer <token>`` headers in log text.
+_BEARER_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?i)\b[A-Z_]*Authorization\s*:\s*Bearer\s+\S+",
+)
+
+# Matches ``KEY="quoted value"`` in plain text (replaces entire match).
+_QUOTED_DOUBLE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r'(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\s*=\s*"[^"]*"',
+)
+
+# Matches ``KEY='single-quoted value'`` in plain text (replaces entire match).
+_QUOTED_SINGLE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?i)\b[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH_HEADER|AUTH)\s*=\s*'[^']*'",
 )
 
 # ---------------------------------------------------------------------------
@@ -145,3 +160,60 @@ def safe_log(template: Template) -> str:  # pyright: ignore[reportInvalidTypeFor
         else:
             parts.append(part)
     return "".join(parts)
+
+
+def redact_text(text: str) -> str:
+    """Redact sensitive patterns from plain text, replacing entire matches.
+
+    Handles unquoted ``KEY=value``, quoted values (single/double),
+    ``Authorization: Bearer <token>`` headers, and bare sensitive key names.
+
+    Args:
+        text: Arbitrary text that may contain sensitive values.
+
+    Returns:
+        Text with all sensitive patterns replaced by ``[REDACTED]``.
+    """
+    if not isinstance(text, str):
+        return text
+    text = SENSITIVE_WORD_PATTERN.sub(REDACTED_VALUE, text)
+    text = _QUOTED_DOUBLE_PATTERN.sub(REDACTED_VALUE, text)
+    text = _QUOTED_SINGLE_PATTERN.sub(REDACTED_VALUE, text)
+    text = _BEARER_PATTERN.sub(REDACTED_VALUE, text)
+    text = SENSITIVE_KEY_NAME_PATTERN.sub(REDACTED_VALUE, text)
+    return text
+
+
+def _redact_value_dict(key: str, value: Any, prefix: str) -> Any:
+    """Recursively redact a single value based on its accumulated key path.
+
+    Handles dicts (recurse), lists (map over items), and sensitive strings.
+    """
+    full_key = f"{prefix}_{key}" if prefix else key
+    if isinstance(value, dict):
+        return redact_dict(value, full_key)
+    if isinstance(value, list):
+        return [_redact_value_dict(key, item, full_key) for item in value]
+    if isinstance(value, str) and is_sensitive_key(full_key):
+        return REDACTED_VALUE
+    return value
+
+
+def redact_dict(data: dict, env_key_prefix: str = "") -> dict:
+    """Recursively redact sensitive environment variable values in a nested dict.
+
+    Also recurses into lists: dict items are recursed, string items are
+    redacted when ``is_sensitive_key(full_key)`` is true, and all other
+    list items are preserved as-is.
+
+    Args:
+        data: Dictionary that may contain sensitive values.
+        env_key_prefix: Accumulated key path for nested structures.
+
+    Returns:
+        New dict with sensitive values replaced by ``[REDACTED]``.
+    """
+    result: dict[str, Any] = {}
+    for key, value in data.items():
+        result[key] = _redact_value_dict(key, value, env_key_prefix)
+    return result
