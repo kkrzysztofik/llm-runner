@@ -37,9 +37,9 @@ from llama_manager.config import (
 )
 from llama_manager.config.profiles import (
     _derive_tensor_split_from_device,
-    _normalize_alias,
     _parse_device_indices,
     _parse_main_gpu_from_device,
+    _profile_id_from_alias,
     _resolve_alias_to_profile_id,
 )
 from llama_manager.log_buffer import LogBuffer
@@ -1856,46 +1856,50 @@ class TestParseMainGpuFromDevice:
 
 
 # =============================================================================
-# _normalize_alias edge cases
+# _profile_id_from_alias edge cases
 # =============================================================================
 
 
-class TestNormalizeAlias:
-    """Tests for the _normalize_alias helper function."""
+class TestProfileIdFromAlias:
+    """Tests for the _profile_id_from_alias helper function."""
 
     def test_empty_string(self) -> None:
-        """_normalize_alias should return empty string for empty input."""
-        assert _normalize_alias("") == ""
+        """_profile_id_from_alias should reject empty input."""
+        with pytest.raises(ValueError):
+            _profile_id_from_alias("")
 
     def test_whitespace_only(self) -> None:
-        """_normalize_alias should return empty string for whitespace-only input."""
-        result = _normalize_alias("   ")
-        # strip() on "   " gives "" then replace("_", "-") gives ""
-        assert result == ""
+        """_profile_id_from_alias should reject whitespace-only input."""
+        with pytest.raises(ValueError):
+            _profile_id_from_alias("   ")
 
     def test_single_underscore(self) -> None:
-        """_normalize_alias should convert single underscore to hyphen."""
-        assert _normalize_alias("foo_bar") == "foo-bar"
+        """_profile_id_from_alias should convert single underscore to hyphen."""
+        assert _profile_id_from_alias("foo_bar") == "foo-bar"
 
     def test_multiple_underscores(self) -> None:
-        """_normalize_alias should convert all underscores to hyphens."""
-        assert _normalize_alias("foo_bar_baz") == "foo-bar-baz"
+        """_profile_id_from_alias should convert all underscores to hyphens."""
+        assert _profile_id_from_alias("foo_bar_baz") == "foo-bar-baz"
 
     def test_already_hyphenated(self) -> None:
-        """_normalize_alias should leave hyphens unchanged."""
-        assert _normalize_alias("foo-bar") == "foo-bar"
+        """_profile_id_from_alias should leave hyphens unchanged."""
+        assert _profile_id_from_alias("foo-bar") == "foo-bar"
 
     def test_mixed_separators(self) -> None:
-        """_normalize_alias should convert underscores to hyphens, leave hyphens."""
-        assert _normalize_alias("foo_bar-baz_qux") == "foo-bar-baz-qux"
+        """_profile_id_from_alias should convert underscores to hyphens, leave hyphens."""
+        assert _profile_id_from_alias("foo_bar-baz_qux") == "foo-bar-baz-qux"
 
     def test_leading_trailing_whitespace(self) -> None:
-        """_normalize_alias should strip leading/trailing whitespace."""
-        assert _normalize_alias("  foo_bar  ") == "foo-bar"
+        """_profile_id_from_alias should strip leading/trailing whitespace."""
+        assert _profile_id_from_alias("  foo_bar  ") == "foo-bar"
 
     def test_mixed_separators_with_whitespace(self) -> None:
-        """_normalize_alias should strip and convert mixed separators."""
-        assert _normalize_alias("  summary_balanced  ") == "summary-balanced"
+        """_profile_id_from_alias should strip and convert mixed separators."""
+        assert _profile_id_from_alias("  summary_balanced  ") == "summary-balanced"
+
+    def test_uppercase_normalized_for_profile_lookup(self) -> None:
+        """_profile_id_from_alias delegates case folding to the filename sanitizer."""
+        assert _profile_id_from_alias("Summary_Balanced") == "summary-balanced"
 
 
 # =============================================================================
@@ -2031,13 +2035,11 @@ class TestResolveProfileIdEdgeCases:
         result = resolve_profile_id(registry, "summary_balanced")
         assert result == "summary-balanced"
 
-    def test_case_sensitive_no_match(self) -> None:
-        """resolve_profile_id should be case-sensitive (no case normalization)."""
+    def test_case_insensitive_match(self) -> None:
+        """resolve_profile_id should match case-insensitively through profile ID normalization."""
         registry = self._make_registry()
-        # "Summary-Balanced" should NOT match "summary-balanced"
-        assert resolve_profile_id(registry, "Summary-Balanced") is None
-        # "QWEN35" should NOT match "qwen35"
-        assert resolve_profile_id(registry, "QWEN35") is None
+        assert resolve_profile_id(registry, "Summary-Balanced") == "summary-balanced"
+        assert resolve_profile_id(registry, "QWEN35") == "qwen35"
 
     def test_mixed_separators_in_slot_id(self) -> None:
         """Slot ID with mixed separators should normalize correctly."""

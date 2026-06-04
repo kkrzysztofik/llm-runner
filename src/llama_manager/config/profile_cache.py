@@ -4,7 +4,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -13,6 +12,7 @@ from typing import Any, Self
 
 from ..common.constants import DIR_MODE_OWNER_ONLY
 from ..common.file_ops import atomic_write_json
+from ..common.text import sanitize_filename_component
 
 logger = logging.getLogger(__name__)
 
@@ -217,44 +217,6 @@ class StalenessResult:
         return "; ".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# Filename & identifier helpers
-# ---------------------------------------------------------------------------
-
-# Regex pattern for filename sanitization: allow a-z, 0-9, dash, underscore, dot
-_FILENAME_SANITIZE_PATTERN = re.compile(r"[^a-z0-9_\-\.]")
-
-
-def _sanitize_filename_component(component: str) -> str:
-    """Sanitize a string for safe use as a filesystem path component.
-
-    Matches the ``normalize_slot_id()`` pattern from config.py: strips
-    whitespace, lowercases ASCII, and replaces any character that is not
-    a lowercase letter, digit, dash, underscore, or dot with an underscore.
-
-    Args:
-        component: Raw string to sanitize.
-
-    Returns:
-        Sanitized string with only allowed characters.
-
-    Raises:
-        ValueError: If the resulting string is empty after sanitization.
-
-    """
-    if not isinstance(component, str) or not component:
-        raise ValueError("component must be a non-empty string")
-
-    sanitized = _FILENAME_SANITIZE_PATTERN.sub("_", component.strip().lower())
-
-    if not sanitized:
-        raise ValueError(
-            f"component must contain at least one valid character after "
-            f"sanitization, got: {component!r}",
-        )
-    return sanitized
-
-
 def compute_gpu_identifier(
     backend: str,
     gpu_name: str,
@@ -289,7 +251,7 @@ def compute_gpu_identifier(
             f"unsupported backend: {backend!r}; expected one of: {', '.join(sorted(prefix_map))}",
         )
 
-    sanitized_name = _sanitize_filename_component(gpu_name)
+    sanitized_name = sanitize_filename_component(gpu_name)
     return f"{prefix}-{sanitized_name}-{device_index:02d}"
 
 
@@ -363,9 +325,9 @@ def get_profile_path(
             resolved path escapes ``profiles_dir`` (path traversal attempt).
 
     """
-    sanitized_gpu = _sanitize_filename_component(gpu_identifier)
-    sanitized_backend = _sanitize_filename_component(backend)
-    sanitized_flavor = _sanitize_filename_component(flavor.value)
+    sanitized_gpu = sanitize_filename_component(gpu_identifier)
+    sanitized_backend = sanitize_filename_component(backend)
+    sanitized_flavor = sanitize_filename_component(flavor.value)
 
     filename = f"{sanitized_gpu}-{sanitized_backend}-{sanitized_flavor}.json"
     candidate = profiles_dir / filename
