@@ -15,11 +15,6 @@ class ValidationResult:
     error_code: ErrorCode | None = None
     error_message: str = ""
 
-    @property
-    def valid(self) -> bool:
-        """Alias for passed to maintain backward compatibility"""
-        return self.passed
-
 
 @dataclass
 class ErrorDetail:

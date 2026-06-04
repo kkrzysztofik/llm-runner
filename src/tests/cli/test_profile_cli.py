@@ -14,9 +14,9 @@ from llama_cli.commands.profile import (
     cmd_profile,
     get_driver_version,
     main,
-    require_executable,
 )
 from llama_manager import BenchmarkResult, ServerConfig
+from llama_manager.validation.validators import require_executable
 
 # ---------------------------------------------------------------------------
 # TestRequireExecutable
@@ -24,33 +24,35 @@ from llama_manager import BenchmarkResult, ServerConfig
 
 
 class TestRequireExecutable:
-    """Tests for require_executable."""
+    """Tests for require_executable (from llama_manager.validation.validators)."""
 
     def test_existing_executable(self, tmp_path: Path) -> None:
-        """require_executable should not raise for an existing executable file."""
+        """require_executable should return None for an existing executable file."""
         exe = tmp_path / "my_binary"
         exe.write_text("#!/bin/sh\necho hello")
         exe.chmod(exe.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-        # Should not raise
-        require_executable(str(exe))
+        result = require_executable(str(exe), name="test binary")
+        assert result is None
 
-    def test_nonexistent_raises(self, tmp_path: Path) -> None:
-        """require_executable should raise FileNotFoundError for missing files."""
+    def test_nonexistent_returns_error(self, tmp_path: Path) -> None:
+        """require_executable should return ErrorDetail for missing files."""
         fake = tmp_path / "does_not_exist"
 
-        with pytest.raises(FileNotFoundError, match="file not found"):
-            require_executable(str(fake))
+        result = require_executable(str(fake), name="test binary")
+        assert result is not None
+        assert "not found" in result.why_blocked
 
-    def test_not_executable_raises(self, tmp_path: Path) -> None:
-        """require_executable should raise PermissionError for non-executable files."""
+    def test_not_executable_returns_error(self, tmp_path: Path) -> None:
+        """require_executable should return ErrorDetail for non-executable files."""
         regular = tmp_path / "not_executable"
         regular.write_text("just text")
         # Explicitly ensure it's NOT executable
         regular.chmod(0o644)
 
-        with pytest.raises(PermissionError, match="not executable"):
-            require_executable(str(regular))
+        result = require_executable(str(regular), name="test binary")
+        assert result is not None
+        assert "not executable" in result.why_blocked
 
 
 # ---------------------------------------------------------------------------
@@ -538,7 +540,7 @@ class TestCmdProfile:
 
             with (
                 patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
-                patch("llama_cli.commands.profile.require_executable"),
+                patch("llama_cli.commands.profile.require_executable", return_value=None),
                 patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
                 patch("llama_cli.commands.profile.get_driver_version", return_value="unknown"),
                 patch(
@@ -599,7 +601,7 @@ class TestCmdProfile:
         with (
             _build_mock_config(tmp_path) as (_, _, _, registry),
             patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
-            patch("llama_cli.commands.profile.require_executable"),
+            patch("llama_cli.commands.profile.require_executable", return_value=None),
             patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
             patch("llama_cli.commands.profile.get_driver_version", return_value="unknown"),
             patch(
@@ -631,7 +633,7 @@ class TestCmdProfile:
         with (
             _build_mock_config(tmp_path) as (_, _, _, registry),
             patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
-            patch("llama_cli.commands.profile.require_executable"),
+            patch("llama_cli.commands.profile.require_executable", return_value=None),
             patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
             patch("llama_cli.commands.profile.get_driver_version", return_value="unknown"),
             patch(
@@ -682,7 +684,7 @@ class TestCmdProfile:
 
             with (
                 patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
-                patch("llama_cli.commands.profile.require_executable"),
+                patch("llama_cli.commands.profile.require_executable", return_value=None),
                 patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
                 patch("llama_cli.commands.profile.get_driver_version", return_value="unknown"),
                 patch(
@@ -722,12 +724,20 @@ class TestCmdProfile:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """cmd_profile should return 1 when the benchmark binary doesn't exist."""
+        from llama_manager.config import ErrorCode, ErrorDetail
+
+        err = ErrorDetail(
+            error_code=ErrorCode.FILE_NOT_FOUND,
+            failed_check="exec_check",
+            why_blocked="benchmark binary not found: /no/such/binary",
+            how_to_fix="install the binary",
+        )
         with (
             _build_mock_config(tmp_path) as (_, _, _, registry),
             patch("llama_cli.commands.profile._detect_backend", return_value="sycl"),
             patch(
                 "llama_cli.commands.profile.require_executable",
-                side_effect=FileNotFoundError("file not found: /no/such/binary"),
+                return_value=err,
             ),
             patch(
                 "llama_manager.profile_orchestrator.create_default_profile_registry",
@@ -742,7 +752,7 @@ class TestCmdProfile:
 
             assert exit_code == 1
             captured = capsys.readouterr()
-            assert "benchmark binary unavailable" in captured.err
+            assert "not found" in captured.err
 
     def test_lockfile_warning_printed(
         self,
@@ -763,7 +773,7 @@ class TestCmdProfile:
                     "llama_manager.profile_orchestrator.resolve_benchmark_binary",
                     return_value="/fake/llama-bench",
                 ),
-                patch("llama_cli.commands.profile.require_executable"),
+                patch("llama_cli.commands.profile.require_executable", return_value=None),
                 patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
                 patch("llama_cli.commands.profile.get_driver_version", return_value="unknown"),
                 patch(
@@ -826,7 +836,7 @@ class TestCmdProfile:
 
             with (
                 patch("llama_cli.commands.profile._detect_backend", return_value="cuda"),
-                patch("llama_cli.commands.profile.require_executable"),
+                patch("llama_cli.commands.profile.require_executable", return_value=None),
                 patch(
                     "llama_cli.commands.profile.get_gpu_identifier", return_value="nvidia-rtx-3090"
                 ),
@@ -876,7 +886,7 @@ class TestCmdProfile:
                         "llama_manager.profile_orchestrator.resolve_benchmark_binary",
                         return_value="/fake/llama-bench",
                     ),
-                    patch("llama_cli.commands.profile.require_executable"),
+                    patch("llama_cli.commands.profile.require_executable", return_value=None),
                     patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
                     patch("llama_cli.commands.profile.get_driver_version", return_value="unknown"),
                     patch(
@@ -922,7 +932,7 @@ class TestCmdProfile:
                     "llama_manager.profile_orchestrator.resolve_benchmark_binary",
                     return_value="/fake/llama-bench",
                 ),
-                patch("llama_cli.commands.profile.require_executable"),
+                patch("llama_cli.commands.profile.require_executable", return_value=None),
                 patch("llama_cli.commands.profile.get_gpu_identifier", return_value="test-gpu"),
                 patch("llama_cli.commands.profile.get_driver_version", return_value="unknown"),
                 patch(

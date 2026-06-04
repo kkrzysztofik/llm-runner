@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from llama_cli.colors import Colors
 from llama_cli.commands._output import emit_json, emit_plain
 from llama_cli.commands._subprocess import run_capture_command
 from llama_cli.commands._toolchain import (
@@ -23,6 +22,7 @@ from llama_cli.commands._toolchain import (
     toolchain_is_ready_for_backend,
 )
 from llama_cli.ui_output import (
+    _style,
     emit_error,
     emit_heading,
     emit_info,
@@ -464,9 +464,9 @@ def _print_check_results(result: DoctorCheckResult) -> int:
     Returns:
         Exit code (0 if healthy, 1 otherwise)
     """
-    yes = Colors.bright_green("✓ YES")
-    no = Colors.bright_red("✗ NO")
-    warn_no = Colors.bright_yellow("⚠ NO")
+    yes = _style("✓ YES", "green")
+    no = _style("✗ NO", "red")
+    warn_no = _style("⚠ NO", "yellow")
 
     emit_heading("Doctor Check Results:")
     emit_success(f"  Toolchain complete: {yes if result.toolchain_complete else no}")
@@ -476,9 +476,9 @@ def _print_check_results(result: DoctorCheckResult) -> int:
     emit_success(f"  Staging dirs clean: {yes if result.staging_dirs_clean else no}")
     emit_success(f"  Reports dir exists: {yes if result.reports_dir_exists else warn_no}")
     stale_count = (
-        Colors.bright_red(str(result.profiles_stale))
+        _style(str(result.profiles_stale), "red")
         if result.profiles_stale > 0
-        else Colors.bright_green(str(result.profiles_stale))
+        else _style(str(result.profiles_stale), "green")
     )
     emit_success(f"  Profiles: {result.profiles_total} total, {stale_count} stale")
 
@@ -811,9 +811,9 @@ def _print_repair_results(result: DoctorRepairResult) -> None:
 
     for i, action in enumerate(result.actions, 1):
         confirm_marker = (
-            Colors.bright_yellow(" [CONFIRMATION REQUIRED]") if action.requires_confirmation else ""
+            _style(" [CONFIRMATION REQUIRED]", "yellow") if action.requires_confirmation else ""
         )
-        emit_plain(f"  {Colors.cyan(str(i))}. {action.description}{confirm_marker}")
+        emit_plain(f"  {_style(str(i), 'cyan')}. {action.description}{confirm_marker}")
         if action.dry_run_command:
             emit_info(f"Command: {action.dry_run_command}")
 

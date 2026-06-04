@@ -139,11 +139,6 @@ class TestGpuIndexForConfig:
         cfg = _make_config(device="CUDA:0,1", main_gpu=1)
         assert gpu_index_for_config(cfg) == 1
 
-    def test_custom_mapping(self) -> None:
-        cfg = _make_config(device="SYCL0")
-        mapping = {"sycl": 2, "cuda": 3}
-        assert gpu_index_for_config(cfg, device_mapping=mapping) == 2
-
     def test_unknown_device_returns_zero(self) -> None:
         cfg = _make_config(device="CPU")
         assert gpu_index_for_config(cfg) == 0

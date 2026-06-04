@@ -1038,7 +1038,6 @@ def test_server_runner_main_dispatches_dry_run_mode() -> None:
     )
     with (
         patch("llama_cli.server_runner.parse_args", return_value=parsed),
-        patch("llama_cli.colors.Colors.is_enabled"),
         patch("llama_cli.server_runner._run_dry_run_mode", return_value=0) as mock_run,
     ):
         code = server_runner.main(["dry-run", "both", "8080", "8081"])

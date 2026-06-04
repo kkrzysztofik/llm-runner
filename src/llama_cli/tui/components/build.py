@@ -1,7 +1,7 @@
 """Build wizard modal screen for the TUI.
 
-Contains the legacy BuildPanel (unused, kept for reference) and the active
-BuildModalScreen that drives the multi-step build wizard workflow.
+Contains the BuildWizardScreen that drives the multi-step build wizard
+workflow.
 """
 
 import re
@@ -53,35 +53,6 @@ from ..types import BuildWizardResult
 
 if TYPE_CHECKING:
     from ..textual_app import DashboardApp
-
-
-# ---------------------------------------------------------------------------
-# Legacy BuildPanel — kept for reference but no longer mounted.
-# ---------------------------------------------------------------------------
-
-
-class BuildPanel(Container):
-    """Build panel widget — always mounted, visibility toggled via CSS."""
-
-    def __init__(self) -> None:  # pragma: no cover
-        super().__init__(id="build-panel", classes="build-panel")
-        self._title = Static("", id="build-title")
-        self._message = Static("", id="build-message")
-        self._progress = ProgressBar(id="build-progress", total=None, show_eta=False)
-        self._result = Static("", id="build-result")
-        self._retry_info = Static("", id="build-retry-info")
-        self._error = Static("", id="build-error")
-        self._target_prompt = Static("", id="build-target-prompt")
-
-    def compose(self) -> ComposeResult:  # pragma: no cover
-        with Container(id="build-content"):
-            yield self._title
-            yield self._message
-            yield self._progress
-            yield self._result
-            yield self._retry_info
-            yield self._error
-            yield self._target_prompt
 
 
 # ---------------------------------------------------------------------------

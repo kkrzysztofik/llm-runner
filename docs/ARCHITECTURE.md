@@ -67,8 +67,6 @@ src/
 │   ├── __init__.py                 # Re-exports: parse_args, parse_tui_args, run_cli
 │   ├── cli_parser.py               # argparse: mode routing, subcommand args
 │   ├── server_runner.py            # main() + cli_main() entry point; mode dispatcher
-│   ├── colors.py                   # ANSI colour constants (legacy; prefer ui_output)
-│   ├── gpu_collectors.py           # collect_nvtop_stats() — subprocess wrapper for nvtop
 │   ├── ui_output.py                # emit_info/success/warn/error/plain/heading helpers
 │   ├── commands/
 │   │   ├── __init__.py

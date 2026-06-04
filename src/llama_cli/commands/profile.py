@@ -13,7 +13,6 @@ Flavors: balanced, fast, quality
 
 import argparse
 import contextlib
-import os
 import re
 import sys
 import threading
@@ -48,6 +47,7 @@ from llama_manager.profile_orchestrator import (
     resolve_benchmark_config,
     resolve_profile_slot,
 )
+from llama_manager.validation.validators import require_executable
 
 
 def _detect_backend(server_config: ServerConfig) -> str:
@@ -78,19 +78,6 @@ def _detect_backend(server_config: ServerConfig) -> str:
         backend=server_config.backend,
     )
     return resolve_backend_from_profile(temp_profile)
-
-
-def require_executable(path: str) -> None:
-    """Validate that *path* exists and is executable.
-
-    Raises:
-        FileNotFoundError: If the path does not exist.
-        PermissionError: If the path exists but is not executable.
-    """
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"file not found: {path}")
-    if not os.access(path, os.X_OK):
-        raise PermissionError(f"not executable: {path}")
 
 
 def _check_slot_lockfile(slot_id: str, config: Config, _emit: Callable[[str], None]) -> None:
@@ -164,10 +151,9 @@ def cmd_profile(
         _emit("error: benchmark binary unavailable", stderr=True)
         return 1
 
-    try:
-        require_executable(bench_bin)
-    except (FileNotFoundError, PermissionError) as exc:
-        _emit(f"error: benchmark binary unavailable: {exc}", stderr=True)
+    exec_err = require_executable(bench_bin, name="benchmark binary")
+    if exec_err is not None:
+        _emit(f"error: {exec_err.why_blocked}", stderr=True)
         return 1
 
     # Get GPU identifier

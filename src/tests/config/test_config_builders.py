@@ -342,7 +342,6 @@ class TestValidationResult:
             passed=True,
         )
         assert result.passed is True
-        assert result.valid is True
         assert result.failed_check == ""
         assert result.error_code is None
         assert result.error_message == ""
@@ -357,17 +356,9 @@ class TestValidationResult:
             error_message="Model file does not exist",
         )
         assert result.passed is False
-        assert result.valid is False
         assert result.failed_check == "model_not_found"
         assert result.error_code == ErrorCode.FILE_NOT_FOUND
         assert result.error_message == "Model file does not exist"
-
-    def test_validation_result_valid_alias(self) -> None:
-        """ValidationResult.valid should alias passed property."""
-        passed_result = ValidationResult(slot_id="a", passed=True)
-        failed_result = ValidationResult(slot_id="b", passed=False)
-        assert passed_result.valid is passed_result.passed
-        assert failed_result.valid is failed_result.passed
 
     def test_validation_result_minimal_fields(self) -> None:
         """ValidationResult should work with minimal required fields."""

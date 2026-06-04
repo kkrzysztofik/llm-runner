@@ -56,23 +56,15 @@ def device_class_for_config(cfg: ServerConfig) -> str:
     return "sycl" if cfg.device.upper().startswith("SYCL") else "cuda"
 
 
-def gpu_index_for_config(
-    cfg: ServerConfig,
-    device_mapping: dict[str, int] | None = None,
-) -> int:
+def gpu_index_for_config(cfg: ServerConfig) -> int:
     """Return telemetry ordinal for a configuration.
 
     Args:
         cfg: Server configuration.
-        device_mapping: Optional override mapping from device class to GPU
-            ordinal. Retained for compatibility.
 
     Returns:
         GPU ordinal for the device's dashboard panel.
     """
-    device_class = device_class_for_config(cfg)
-    if device_mapping is not None:
-        return device_mapping.get(device_class, 0)
     return parse_gpu_telemetry_selector(cfg.device, cfg.main_gpu).ordinal
 
 
