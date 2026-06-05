@@ -10,17 +10,11 @@ import sys
 from typing import Any, NoReturn
 
 from llama_cli.ui_output import emit_error, emit_heading, emit_info, emit_success, emit_warn
-from llama_manager import (
-    RISK_ACK_LABEL,
-    Config,
-    DryRunResult,
-    DryRunSlotPayload,
-    ServerConfig,
-    ServerManager,
-    create_default_profile_registry,
-    run_dry_run,
-    write_dry_run_artifact,
-)
+from llama_manager.config import Config, ServerConfig, create_default_profile_registry
+from llama_manager.dry_run import DryRunResult, run_dry_run, write_dry_run_artifact
+from llama_manager.orchestration import ServerManager
+from llama_manager.risk_ack import RISK_ACK_LABEL
+from llama_manager.validation import DryRunSlotPayload
 
 RISK_CONFIRM_PROMPT = "Confirm risky operation [y/N]: "
 ELIGIBLE_LABEL = "    Eligible"
@@ -69,10 +63,10 @@ def _print_smoke_probe_info(cfg: Config) -> None:
         cfg: Config instance with smoke defaults.
     """
     emit_info("Smoke Probe:")
-    emit_info(f"    /v1/models: {'skip' if cfg.smoke_skip_models_discovery else 'enabled'}")
-    emit_info(f"    Prompt: {cfg.smoke_prompt}")
-    emit_info(f"    Max tokens: {cfg.smoke_max_tokens}")
-    if cfg.smoke_api_key:
+    emit_info(f"    /v1/models: {'skip' if cfg.smoke.skip_models_discovery else 'enabled'}")
+    emit_info(f"    Prompt: {cfg.smoke.prompt}")
+    emit_info(f"    Max tokens: {cfg.smoke.max_tokens}")
+    if cfg.smoke.api_key:
         emit_info("    API key: [configured]")
     else:
         emit_info("    API key: [not set]")
@@ -90,10 +84,11 @@ def _print_resolved_slot(
     emit_info(f"  UBatch: {server_cfg.ubatch_size}")
     emit_info(f"  KV cache: {server_cfg.cache_type_k}/{server_cfg.cache_type_v}")
     emit_info(f"  n-gpu-layers: {server_cfg.n_gpu_layers}")
-    if server_cfg.reasoning_mode != "auto":
-        emit_info(f"  Reasoning: {server_cfg.reasoning_mode}")
-    if server_cfg.reasoning_format != "none":
-        emit_info(f"  Reasoning Format: {server_cfg.reasoning_format}")
+    spec = server_cfg.spec_decode
+    if spec.reasoning_mode != "auto":
+        emit_info(f"  Reasoning: {spec.reasoning_mode}")
+    if spec.reasoning_format != "none":
+        emit_info(f"  Reasoning Format: {spec.reasoning_format}")
     if server_cfg.use_jinja:
         emit_info(f"  Jinja: {server_cfg.use_jinja}")
     if server_cfg.chat_template_kwargs:
@@ -128,15 +123,15 @@ def _print_dry_run_header(mode: str, cfg: Config, registry: Any) -> None:
     """
     emit_heading("DRY RUN MODE", level=2)
     emit_info(f"Mode: {mode}")
-    emit_info(f"llama-server (Intel): {cfg.llama_server_bin_intel}")
-    emit_info(f"llama-server (NVIDIA): {cfg.llama_server_bin_nvidia}")
+    emit_info(f"llama-server (Intel): {cfg.paths.llama_server_bin_intel}")
+    emit_info(f"llama-server (NVIDIA): {cfg.paths.llama_server_bin_nvidia}")
     for profile_id in registry.profile_ids:
         profile = registry.get_profile(profile_id)
         emit_info(f"{profile_id} model: {profile.model}")
 
 
 def _parse_port_overrides(primary_port: str | None, secondary_port: str | None) -> dict[str, int]:
-    """Return positional port overrides for a dry-run group."""
+    """Return positional port overrides for a dry-run mode."""
     overrides: dict[str, int] = {}
     for name, raw in (("primary", primary_port), ("secondary", secondary_port)):
         if raw:

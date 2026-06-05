@@ -3,14 +3,15 @@
 import hashlib
 import json
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
 from ...common.security import redact_env_value
 from ...config import (
     Config,
+    ErrorDetail,
     ServerConfig,
-    ValidationResult,
     VRamRecommendation,
 )
 
@@ -73,7 +74,7 @@ class VllmEligibility:
 
 
 @dataclass
-class ValidationResults:
+class DryRunValidationSummary:
     """FR-003: Aggregated validation results for a slot."""
 
     passed: bool
@@ -95,7 +96,7 @@ class DryRunSlotPayload:
     hardware_notes: dict[str, str | None]
     vllm_eligibility: VllmEligibility
     warnings: list[str]
-    validation_results: ValidationResults
+    validation_results: DryRunValidationSummary
     server_config: ServerConfig | None = None
 
 
@@ -106,7 +107,7 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
     elif default_bin:
         server_bin = default_bin
     else:
-        server_bin = Config().llama_server_bin_intel
+        server_bin = Config().paths.llama_server_bin_intel
 
     cmd = [
         server_bin,
@@ -152,20 +153,21 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         cmd.extend(["--mmproj", cfg.mmproj])
     _append_speculative_flags(cmd, cfg)
 
+    spec = cfg.spec_decode
     if cfg.main_gpu != 0:
         cmd.extend(["--main-gpu", str(cfg.main_gpu)])
     if cfg.device:
         cmd.extend(["--device", cfg.device])
-    if cfg.reasoning_mode:
-        cmd.extend(["--reasoning", cfg.reasoning_mode])
-    if cfg.reasoning_format:
-        cmd.extend(["--reasoning-format", cfg.reasoning_format])
+    if spec.reasoning_mode:
+        cmd.extend(["--reasoning", spec.reasoning_mode])
+    if spec.reasoning_format:
+        cmd.extend(["--reasoning-format", spec.reasoning_format])
     if cfg.tensor_split:
         cmd.extend(["--tensor-split", cfg.tensor_split])
     if cfg.chat_template_kwargs:
         cmd.extend(["--chat-template-kwargs", cfg.chat_template_kwargs])
-    if cfg.reasoning_budget:
-        cmd.extend(["--reasoning-budget", cfg.reasoning_budget])
+    if spec.reasoning_budget:
+        cmd.extend(["--reasoning-budget", spec.reasoning_budget])
     if cfg.use_jinja:
         cmd.append("--jinja")
 
@@ -174,44 +176,45 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
 
 def _append_speculative_flags(cmd: list[str], cfg: ServerConfig) -> None:
     """Append llama-server speculative decoding flags when configured."""
-    if cfg.spec_type == "ngram-mod":
+    spec = cfg.spec_decode
+    if spec.spec_type == "ngram-mod":
         cmd.extend(
             [
                 "--spec-type",
                 "ngram-mod",
                 "--spec-ngram-size-n",
-                str(cfg.spec_ngram_size_n),
+                str(spec.spec_ngram_size_n),
                 "--draft-min",
-                str(cfg.draft_min),
+                str(spec.draft_min),
                 "--draft-max",
-                str(cfg.draft_max),
+                str(spec.draft_max),
             ]
         )
         return
-    if cfg.spec_type != "draft-mtp":
+    if spec.spec_type != "draft-mtp":
         return
-    cmd.extend(["--spec-type", "draft-mtp", "--spec-draft-n-max", str(cfg.spec_draft_n_max)])
-    if cfg.spec_draft_p_min > 0:
-        cmd.extend(["--spec-draft-p-min", str(cfg.spec_draft_p_min)])
+    cmd.extend(["--spec-type", "draft-mtp", "--spec-draft-n-max", str(spec.spec_draft_n_max)])
+    if spec.spec_draft_p_min > 0:
+        cmd.extend(["--spec-draft-p-min", str(spec.spec_draft_p_min)])
     # llama-server flags omit "cache" (--spec-draft-type-k/v), unlike field names.
-    if cfg.spec_draft_cache_type_k:
-        cmd.extend(["--spec-draft-type-k", cfg.spec_draft_cache_type_k])
-    if cfg.spec_draft_cache_type_v:
-        cmd.extend(["--spec-draft-type-v", cfg.spec_draft_cache_type_v])
-    if cfg.spec_draft_device:
-        cmd.extend(["--spec-draft-device", cfg.spec_draft_device])
+    if spec.spec_draft_cache_type_k:
+        cmd.extend(["--spec-draft-type-k", spec.spec_draft_cache_type_k])
+    if spec.spec_draft_cache_type_v:
+        cmd.extend(["--spec-draft-type-v", spec.spec_draft_cache_type_v])
+    if spec.spec_draft_device:
+        cmd.extend(["--spec-draft-device", spec.spec_draft_device])
 
 
 def sort_validation_errors(
-    results: list[ValidationResult],
-) -> list[ValidationResult]:
+    results: Sequence[ErrorDetail],
+) -> list[ErrorDetail]:
     """Sort validation errors deterministically for T003 stable ordering."""
     slot_order: dict[str, int] = {}
     for i, r in enumerate(results):
         if r.slot_id not in slot_order:
             slot_order[r.slot_id] = i
 
-    def sort_key(r: ValidationResult) -> tuple[int, str]:
+    def sort_key(r: ErrorDetail) -> tuple[int, str]:
         slot_idx = slot_order[r.slot_id]
         failed_check = r.failed_check or ""
         return (slot_idx, failed_check)
@@ -223,7 +226,7 @@ def build_dry_run_slot_payload(
     cfg: ServerConfig,
     slot_id: str,
     bind_address: str = "127.0.0.1",
-    validation_results: ValidationResults | None = None,
+    validation_results: DryRunValidationSummary | None = None,
     warnings: list[str] | None = None,
 ) -> DryRunSlotPayload:
     """FR-003: Build canonical dry-run slot payload from ServerConfig + slot_id."""
@@ -240,7 +243,7 @@ def build_dry_run_slot_payload(
     )
 
     if validation_results is None:
-        validation_results = ValidationResults(
+        validation_results = DryRunValidationSummary(
             passed=True,
             checks=[],
         )
@@ -293,7 +296,7 @@ def _build_environment_redacted() -> dict[str, str]:
 
 def _build_openai_flag_bundle(cfg: ServerConfig) -> dict[str, str | int | bool | None]:
     """Build OpenAI API compatibility flag bundle."""
-    chat_completion_supported = cfg.reasoning_mode in ("auto", "enabled")
+    chat_completion_supported = cfg.spec_decode.reasoning_mode in ("auto", "enabled")
 
     bundle: dict[str, str | int | bool | None] = {
         "--chat-format": "chatml" if chat_completion_supported else None,
@@ -321,17 +324,30 @@ def _build_hardware_notes(cfg: ServerConfig) -> dict[str, str | None]:
 
 
 def _parse_device_details(device: str) -> tuple[str | None, str]:
-    if device == "auto":
+    normalized = device.strip()
+    lower = normalized.lower()
+    upper = normalized.upper()
+    if lower == "auto":
         return (None, device)
 
-    if device.startswith("cuda:"):
-        parts = device.split(":", maxsplit=1)
+    if lower.startswith("cuda:"):
+        parts = normalized.split(":", maxsplit=1)
         if len(parts) == 2 and parts[1]:
             return (parts[1], "NVIDIA GPU")
         return (None, device)
 
-    if device.startswith("sycl:"):
-        parts = device.split(":")
+    if upper.startswith("SYCL"):
+        if ":" in normalized:
+            parts = normalized.split(":")
+            if len(parts) >= 3:
+                return (f"{parts[1]}:{parts[2]}", f"SYCL Device {parts[1]}")
+            if len(parts) > 1:
+                return (":".join(parts[1:]), device)
+        ordinal = normalized[4:]
+        return (ordinal or "0", "Intel SYCL GPU")
+
+    if lower.startswith("sycl:"):
+        parts = normalized.split(":")
         if len(parts) >= 3:
             return (f"{parts[1]}:{parts[2]}", f"SYCL Device {parts[1]}")
         if len(parts) > 1:

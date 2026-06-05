@@ -1,12 +1,14 @@
 """orchestration package — process management, lockfiles, and artifacts."""
 
-from ..common.security import REDACTED_VALUE
+from ..common.security import REDACTED_VALUE, redact_dict, redact_text
+from ..config import ValidationException
 from .artifact import (
     ArtifactMetadata,
     DryRunArtifactPayload,
-    _redact_sensitive_in_dict,  # noqa: F401 — re-exported for tests
     write_artifact,
 )
+from .audit import AuditLogger
+from .launch import launch_orchestrate
 from .launcher import (
     DefaultProcessLauncher,
     ProcessHandle,
@@ -22,21 +24,20 @@ from .lockfile import (
     resolve_runtime_dir,
     update_lock,
 )
-from .manager import (
+from .manager import ServerManager
+from .risk import RiskAckManager
+from .types import (
     LaunchOrchestrationResult,
     LaunchResult,
     ProcessMetadata,
-    ServerManager,
     SlotRuntime,
-    ValidationException,
-    _append_audit_log,
-    _redact_sensitive,
-    _rotate_audit_log,
-    _verify_shutdown_ownership,
-    launch_orchestrate,
 )
 
 __all__ = [
+    # Audit
+    "AuditLogger",
+    # Risk acknowledgement
+    "RiskAckManager",
     # Lockfile operations
     "LockMetadata",
     "check_lockfile_integrity",
@@ -61,12 +62,10 @@ __all__ = [
     "LaunchResult",
     "LaunchOrchestrationResult",
     "launch_orchestrate",
-    # Internal (exported for tests)
+    # Redaction (re-exported from common.security)
     "REDACTED_VALUE",
-    "_append_audit_log",
-    "_redact_sensitive",
-    "_rotate_audit_log",
-    "_verify_shutdown_ownership",
+    "redact_dict",
+    "redact_text",
     # Exceptions
     "ValidationException",
 ]

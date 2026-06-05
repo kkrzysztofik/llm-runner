@@ -23,7 +23,7 @@ from tests.support.helpers import make_server_config
 
 if TYPE_CHECKING:
     from llama_cli.tui.components.config_modal import ConfigPayload
-    from llama_cli.tui.components.run_profile_modal import RunProfilePayload
+    from llama_cli.tui.components.slot_profile_modal import SlotProfilePayload
 
 
 def _make_controller(**kwargs: object) -> DashboardController:
@@ -465,8 +465,8 @@ class TestControllerSaveConfig:
 class TestControllerProfileMethods:
     """Tests for DashboardController run-profile management methods."""
 
-    def _make_profile_payload(self, **kwargs: object) -> RunProfilePayload:
-        from llama_cli.tui.components.run_profile_modal import RunProfilePayload
+    def _make_profile_payload(self, **kwargs: object) -> SlotProfilePayload:
+        from llama_cli.tui.components.slot_profile_modal import SlotProfilePayload
 
         defaults: dict[str, object] = {
             "profile_id": "my-profile",
@@ -484,13 +484,13 @@ class TestControllerProfileMethods:
             "original_profile_id": "",
         }
         defaults.update(kwargs)
-        return RunProfilePayload(**defaults)  # type: ignore[arg-type]
+        return SlotProfilePayload(**defaults)  # type: ignore[arg-type]
 
     def test_save_profile_empty_id_returns_false(self) -> None:
         """save_run_profile_from_form should return False for an empty profile_id."""
         controller = _make_controller()
 
-        result = controller.save_run_profile_from_form(self._make_profile_payload(profile_id=""))
+        result = controller.save_slot_profile_from_form(self._make_profile_payload(profile_id=""))
 
         assert result is False
         texts = [msg for _, msg in controller._status_messages]
@@ -500,7 +500,7 @@ class TestControllerProfileMethods:
         """save_run_profile_from_form should return False for an empty model path."""
         controller = _make_controller()
 
-        result = controller.save_run_profile_from_form(self._make_profile_payload(model=""))
+        result = controller.save_slot_profile_from_form(self._make_profile_payload(model=""))
 
         assert result is False
         texts = [msg for _, msg in controller._status_messages]
@@ -510,7 +510,7 @@ class TestControllerProfileMethods:
         """save_run_profile_from_form should return False for port < 1024."""
         controller = _make_controller()
 
-        result = controller.save_run_profile_from_form(self._make_profile_payload(port=80))
+        result = controller.save_slot_profile_from_form(self._make_profile_payload(port=80))
 
         assert result is False
         texts = [msg for _, msg in controller._status_messages]
@@ -520,7 +520,7 @@ class TestControllerProfileMethods:
         """save_run_profile_from_form should return False for ctx_size <= 0."""
         controller = _make_controller()
 
-        result = controller.save_run_profile_from_form(self._make_profile_payload(ctx_size=0))
+        result = controller.save_slot_profile_from_form(self._make_profile_payload(ctx_size=0))
 
         assert result is False
         texts = [msg for _, msg in controller._status_messages]
@@ -530,7 +530,7 @@ class TestControllerProfileMethods:
         """delete_run_profile should return False when the profile is in use."""
         controller = _make_controller()
         # slot0 alias matches profile_id "slot0"
-        result = controller.delete_run_profile("slot0")
+        result = controller.delete_slot_profile("slot0")
 
         assert result is False
         texts = [msg for _, msg in controller._status_messages]
@@ -539,12 +539,12 @@ class TestControllerProfileMethods:
     def test_delete_profile_not_found_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """delete_run_profile should return False when the profile does not exist."""
         monkeypatch.setattr(
-            "llama_manager.run_profile_store.delete_custom_run_profile",
+            "llama_manager.slot_profile_store.delete_custom_slot_profile",
             lambda *a, **kw: False,
         )
         controller = _make_controller()
 
-        result = controller.delete_run_profile("nonexistent-profile")
+        result = controller.delete_slot_profile("nonexistent-profile")
 
         assert result is False
         texts = [msg for _, msg in controller._status_messages]
@@ -553,12 +553,12 @@ class TestControllerProfileMethods:
     def test_delete_profile_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """delete_run_profile should return True and push a message on success."""
         monkeypatch.setattr(
-            "llama_manager.run_profile_store.delete_custom_run_profile",
+            "llama_manager.slot_profile_store.delete_custom_slot_profile",
             lambda *a, **kw: True,
         )
         controller = _make_controller()
 
-        result = controller.delete_run_profile("some-other-profile")
+        result = controller.delete_slot_profile("some-other-profile")
 
         assert result is True
         texts = [msg for _, msg in controller._status_messages]

@@ -25,9 +25,9 @@ from .components.about_modal import AboutModal
 from .components.build import BuildModalScreen
 from .components.config_modal import ConfigModal, ConfigPayload
 from .components.modal import AddSlotModal
-from .components.run_profile_modal import RunProfileModal, RunProfilePayload
 from .components.server_column import ServerColumnPanel
 from .components.server_log import ServerLogPanel
+from .components.slot_profile_modal import SlotProfileModal, SlotProfilePayload
 from .components.system_health import (
     CPUUsageWidget,
     MemorySwapWidget,
@@ -263,7 +263,7 @@ class DashboardApp(App[None]):
         """Open the profiles management screen."""
         from .components.profiles_screen import ProfilesScreen
 
-        profiles = self.controller.list_run_profiles()
+        profiles = self.controller.list_slot_profiles()
         in_use_ids = {
             spec.profile_id
             for spec, _ in profiles
@@ -286,7 +286,7 @@ class DashboardApp(App[None]):
         if action == "add":
             model_index = self.controller.load_model_index()
             self.push_screen(
-                RunProfileModal(model_index=model_index, config=self.controller.config),
+                SlotProfileModal(model_index=model_index, config=self.controller.config),
                 self._handle_profile_modal_result,
             )
 
@@ -296,7 +296,7 @@ class DashboardApp(App[None]):
                 return
 
             from llama_manager.config.builder import create_tui_profile_registry
-            from llama_manager.run_profile_store import custom_profile_exists
+            from llama_manager.slot_profile_store import custom_slot_profile_exists
 
             registry = create_tui_profile_registry(self.controller.config)
             try:
@@ -305,11 +305,11 @@ class DashboardApp(App[None]):
                 self.notify(f"Profile '{profile_id}' not found", severity="error")
                 return
 
-            source = "custom" if custom_profile_exists(profile_id) else "builtin"
+            source = "custom" if custom_slot_profile_exists(profile_id) else "builtin"
 
             model_index = self.controller.load_model_index()
             self.push_screen(
-                RunProfileModal(
+                SlotProfileModal(
                     profile=spec,
                     edit_source=source,
                     model_index=model_index,
@@ -323,20 +323,20 @@ class DashboardApp(App[None]):
             if not profile_id:
                 return
 
-            success = self.controller.delete_run_profile(profile_id)
+            success = self.controller.delete_slot_profile(profile_id)
             if success:
                 self.notify(f"Profile '{profile_id}' deleted", severity="information")
                 self._profile_options_cache = None
                 self._profile_cache_config_id = None
             self.refresh_dashboard()
 
-    def _handle_edit_modal_result(self, result: RunProfilePayload | None) -> None:
+    def _handle_edit_modal_result(self, result: SlotProfilePayload | None) -> None:
         """Handle result from the edit profile modal."""
         if result is None:
             return
 
         original_id = result.original_profile_id or result.profile_id
-        saved = self.controller.update_run_profile(original_id, result)
+        saved = self.controller.update_slot_profile(original_id, result)
         if not saved:
             self.notify("Failed to update profile", severity="error")
             return
@@ -358,9 +358,9 @@ class DashboardApp(App[None]):
         self.refresh_dashboard()
 
     def action_create_profile(self) -> None:
-        """Open the run profile creation modal (legacy alias)."""
+        """Open the slot profile creation modal."""
         self.push_screen(
-            RunProfileModal(config=self.controller.config),
+            SlotProfileModal(config=self.controller.config),
             self._handle_profile_modal_result,
         )
 
@@ -393,11 +393,11 @@ class DashboardApp(App[None]):
         else:
             self.notify("Cancelled", title="Models", severity="information")
 
-    def _handle_profile_modal_result(self, result: RunProfilePayload | None) -> None:
+    def _handle_profile_modal_result(self, result: SlotProfilePayload | None) -> None:
         if result is None:
             return
 
-        saved = self.controller.save_run_profile_from_form(result)
+        saved = self.controller.save_slot_profile_from_form(result)
         if not saved:
             self.notify("Failed to save profile", severity="error")
             return

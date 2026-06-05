@@ -236,7 +236,7 @@ class BuildPipeline:
 
         from ..config import Config
 
-        if not self._acquire_lock(Config().build_lock_path):
+        if not self._acquire_lock(Config().paths.build_lock_path):
             logger.error(
                 "[pipeline] failed to acquire build lock for {}", self.config.backend.value
             )

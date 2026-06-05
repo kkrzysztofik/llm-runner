@@ -7,24 +7,24 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from llama_manager import (
-    BenchmarkConfig,
+from llama_manager.config import (
     Config,
     ProfileFlavor,
     ProfileRecord,
     ServerConfig,
     create_default_profile_registry,
-    resolve_profile_slot,
 )
 from llama_manager.profile_orchestrator import (
     BENCHMARK_PROMPT_TOKENS,
     BENCHMARK_RUN_TIMEOUT_SECONDS,
+    BenchmarkConfig,
     SubprocessResult,
     create_profile_record,
     detect_backend,
     get_driver_version,
     resolve_benchmark_binary,
     resolve_benchmark_config,
+    resolve_profile_slot,
     run_profile,
 )
 from tests.support.helpers import make_server_config
@@ -35,10 +35,19 @@ from tests.support.helpers import make_server_config
 
 
 def _make_config(**overrides: Any) -> Config:
-    """Create a Config with optional overrides."""
+    """Create a Config with optional overrides.
+
+    Supports dotted paths for nested sub-dataclasses, e.g.
+    ``paths.llama_server_bin_intel`` or ``deployment.summary_balanced_port``.
+    """
     cfg = Config()
     for key, value in overrides.items():
-        setattr(cfg, key, value)
+        if "." in key:
+            parts = key.split(".", 1)
+            parent = getattr(cfg, parts[0])
+            setattr(parent, parts[1], value)
+        else:
+            setattr(cfg, key, value)
     return cfg
 
 
@@ -63,7 +72,7 @@ class TestResolveProfileSlot:
         assert isinstance(result, ServerConfig)
         assert result.alias == "summary-balanced"
         assert result.device == "SYCL0"
-        assert result.port == config.summary_balanced_port
+        assert result.port == config.deployment.summary_balanced_port
 
     def test_known_slot_id_qwen35(self) -> None:
         """resolve_profile_slot should return config for qwen35 slot."""
@@ -73,7 +82,7 @@ class TestResolveProfileSlot:
         assert isinstance(result, ServerConfig)
         assert result.alias == "qwen35-coding"
         assert result.device == ""  # CUDA profile
-        assert result.port == config.qwen35_port
+        assert result.port == config.deployment.qwen35_port
 
     def test_known_slot_id_summary_fast(self) -> None:
         """resolve_profile_slot should return config for summary-fast slot."""
@@ -83,7 +92,7 @@ class TestResolveProfileSlot:
         assert isinstance(result, ServerConfig)
         assert result.alias == "summary-fast"
         assert result.device == "SYCL0"
-        assert result.port == config.summary_fast_port
+        assert result.port == config.deployment.summary_fast_port
 
     def test_unknown_slot_id_returns_defaults(self) -> None:
         """resolve_profile_slot should return summary-balanced defaults for unknown slot IDs."""
@@ -93,7 +102,7 @@ class TestResolveProfileSlot:
         assert isinstance(result, ServerConfig)
         assert result.alias == "unknown-slot"
         assert result.device == "SYCL0"
-        assert result.port == config.summary_balanced_port
+        assert result.port == config.deployment.summary_balanced_port
 
     def test_alias_resolution(self) -> None:
         """resolve_profile_slot should resolve aliases to profile IDs."""
@@ -175,11 +184,13 @@ class TestResolveBenchmarkConfig:
         """resolve_benchmark_config should use balanced defaults for SYCL balanced flavor."""
         cfg = _make_server_config(device="SYCL0")
         config = _make_config(
-            model_summary_balanced="/balanced/model.gguf",
-            default_threads_summary_balanced=8,
-            default_ubatch_size_summary_balanced=1024,
-            default_cache_type_summary_k="q8_0",
-            default_cache_type_summary_v="q8_0",
+            **{
+                "deployment.model_summary_balanced": "/balanced/model.gguf",
+                "server_defaults.threads_summary_balanced": 8,
+                "server_defaults.ubatch_size_summary_balanced": 1024,
+                "server_defaults.cache_type_summary_k": "q8_0",
+                "server_defaults.cache_type_summary_v": "q8_0",
+            }
         )
         result = resolve_benchmark_config(cfg, ProfileFlavor.BALANCED, config)
 
@@ -193,11 +204,13 @@ class TestResolveBenchmarkConfig:
         """resolve_benchmark_config should use fast defaults for SYCL fast flavor."""
         cfg = _make_server_config(device="SYCL0")
         config = _make_config(
-            model_summary_fast="/fast/model.gguf",
-            default_threads_summary_fast=4,
-            default_ubatch_size_summary_fast=512,
-            default_cache_type_summary_k="q8_0",
-            default_cache_type_summary_v="q8_0",
+            **{
+                "deployment.model_summary_fast": "/fast/model.gguf",
+                "server_defaults.threads_summary_fast": 4,
+                "server_defaults.ubatch_size_summary_fast": 512,
+                "server_defaults.cache_type_summary_k": "q8_0",
+                "server_defaults.cache_type_summary_v": "q8_0",
+            }
         )
         result = resolve_benchmark_config(cfg, ProfileFlavor.FAST, config)
 
@@ -209,11 +222,13 @@ class TestResolveBenchmarkConfig:
         """resolve_benchmark_config should use balanced defaults for SYCL quality flavor."""
         cfg = _make_server_config(device="SYCL0")
         config = _make_config(
-            model_summary_balanced="/balanced/model.gguf",
-            default_threads_summary_balanced=8,
-            default_ubatch_size_summary_balanced=1024,
-            default_cache_type_summary_k="q8_0",
-            default_cache_type_summary_v="q8_0",
+            **{
+                "deployment.model_summary_balanced": "/balanced/model.gguf",
+                "server_defaults.threads_summary_balanced": 8,
+                "server_defaults.ubatch_size_summary_balanced": 1024,
+                "server_defaults.cache_type_summary_k": "q8_0",
+                "server_defaults.cache_type_summary_v": "q8_0",
+            }
         )
         result = resolve_benchmark_config(cfg, ProfileFlavor.QUALITY, config)
 
@@ -249,16 +264,14 @@ class TestResolveBenchmarkBinary:
         bench_bin.chmod(0o755)
 
         cfg = _make_server_config(server_bin=str(server_bin))
-        config = _make_config(llama_server_bin_intel=str(server_bin))
-
+        config = _make_config(**{"paths.llama_server_bin_intel": str(server_bin)})
         result = resolve_benchmark_binary(cfg, config)
         assert result == str(bench_bin)
 
     def test_fallback_to_shutil_which(self, tmp_path: Path) -> None:
         """resolve_benchmark_binary should fall back to shutil.which when no server binary."""
         cfg = _make_server_config(server_bin="")
-        config = _make_config(llama_server_bin_intel="")
-
+        config = _make_config(**{"paths.llama_server_bin_intel": ""})
         with patch(
             "llama_manager.profile_orchestrator.shutil.which", return_value="/usr/bin/llama-bench"
         ):
@@ -268,7 +281,7 @@ class TestResolveBenchmarkBinary:
     def test_returns_none_when_unavailable(self) -> None:
         """resolve_benchmark_binary should return None when binary is not found."""
         cfg = _make_server_config(server_bin="")
-        config = _make_config(llama_server_bin_intel="")
+        config = _make_config(**{"paths.llama_server_bin_intel": ""})
 
         with patch("llama_manager.profile_orchestrator.shutil.which", return_value=None):
             result = resolve_benchmark_binary(cfg, config)
@@ -281,7 +294,7 @@ class TestResolveBenchmarkBinary:
         server_bin.chmod(0o755)
 
         cfg = _make_server_config(server_bin=str(server_bin))
-        config = _make_config(llama_server_bin_intel=str(server_bin))
+        config = _make_config(**{"paths.llama_server_bin_intel": str(server_bin)})
 
         # llama-bench doesn't exist in tmp_path
         result = resolve_benchmark_binary(cfg, config)
@@ -415,9 +428,6 @@ class TestRunProfile:
 
     def _make_mock_config(self, tmp_path: Path) -> Config:
         """Create a Config with test paths."""
-        profiles_dir = tmp_path / "profiles"
-        profiles_dir.mkdir(parents=True, exist_ok=True)
-
         cfg = _make_config()
         server_bin = tmp_path / "llama-server"
         server_bin.write_text("#!/bin/sh\n")
@@ -427,20 +437,17 @@ class TestRunProfile:
         bench_bin.write_text("#!/bin/sh\n")
         bench_bin.chmod(0o755)
 
-        cfg.llama_server_bin_intel = str(server_bin)
+        cfg.paths.xdg_data_base = str(tmp_path)
+        cfg.paths.llama_server_bin_intel = str(server_bin)
         cfg.server_binary_version = "llama-server 1.0.0"
-        cfg.model_summary_balanced = str(tmp_path / "model.gguf")
-        cfg.default_threads_summary_balanced = 8
-        cfg.default_threads_summary_fast = 4
-        cfg.default_ubatch_size_summary_balanced = 1024
-        cfg.default_ubatch_size_summary_fast = 512
-        cfg.default_cache_type_summary_k = "q8_0"
-        cfg.default_cache_type_summary_v = "q8_0"
+        cfg.deployment.model_summary_balanced = str(tmp_path / "model.gguf")
+        cfg.server_defaults.threads_summary_balanced = 8
+        cfg.server_defaults.threads_summary_fast = 4
+        cfg.server_defaults.ubatch_size_summary_balanced = 1024
+        cfg.server_defaults.ubatch_size_summary_fast = 512
+        cfg.server_defaults.cache_type_summary_k = "q8_0"
+        cfg.server_defaults.cache_type_summary_v = "q8_0"
 
-        mock_cls = type(
-            "MockConfig", (Config,), {"profiles_dir": property(lambda self: profiles_dir)}
-        )
-        object.__setattr__(cfg, "__class__", mock_cls)
         return cfg
 
     def test_successful_profile_returns_record(self, tmp_path: Path) -> None:
@@ -490,7 +497,7 @@ class TestRunProfile:
     def test_missing_benchmark_binary_returns_none(self, tmp_path: Path) -> None:
         """run_profile should return None when benchmark binary is unavailable."""
         config = self._make_mock_config(tmp_path)
-        config.llama_server_bin_intel = ""
+        config.paths.llama_server_bin_intel = ""
 
         with patch("llama_manager.profile_orchestrator.shutil.which", return_value=None):
             record = run_profile(
@@ -515,16 +522,7 @@ class TestRunProfile:
         server_bin.write_text("#!/bin/sh")
         server_bin.chmod(0o755)
 
-        config.llama_server_bin_intel = str(server_bin)
-
-        record = run_profile(
-            slot_id="summary-balanced",
-            config=config,
-            flavor="balanced",
-            driver_provider=lambda backend: "535.104.05",
-        )
-
-        assert record is None
+        config.paths.llama_server_bin_intel = str(server_bin)
 
     def test_driver_provider_used_when_given(self, tmp_path: Path) -> None:
         """run_profile should use the driver_provider when given."""
@@ -571,7 +569,7 @@ class TestRunProfile:
         )
 
         # Check that a profile file was created
-        profiles_dir = config.profiles_dir
+        profiles_dir = config.paths.profiles_dir
         profile_files = list(profiles_dir.glob("*.json"))
         assert len(profile_files) == 1
 

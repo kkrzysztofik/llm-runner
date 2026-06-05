@@ -10,13 +10,17 @@ import pytest
 from textual.app import App
 from textual.widgets import Button, Checkbox, Collapsible, Input, ListView, Select
 
-from llama_cli.tui.components.run_profile_modal import (
-    RunProfileModal,
-    RunProfilePayload,
+from llama_cli.tui.components.slot_profile_modal import (
+    SlotProfileModal as RunProfileModal,
+)
+from llama_cli.tui.components.slot_profile_modal import (
+    SlotProfilePayload as RunProfilePayload,
+)
+from llama_cli.tui.components.slot_profile_modal import (
     _parse_n_gpu_layers,
 )
-from llama_manager.config import Config
-from llama_manager.config.profiles import RunProfileSpec
+from llama_manager.config import Config, ServerDefaultsConfig
+from llama_manager.config.profiles import SlotProfileSpec as RunProfileSpec
 from llama_manager.model_index import ModelIndexEntry
 
 # ---------------------------------------------------------------------------
@@ -112,7 +116,7 @@ def test_compose_prefill_from_profile() -> None:
 
 
 def test_compose_prefill_from_config() -> None:
-    config = Config(default_batch_size=1024, default_poll_ms=0)
+    config = Config(server_defaults=ServerDefaultsConfig(batch_size=1024, poll_ms=0))
     modal = RunProfileModal(config=config)
     prefill = modal._compose_prefill()
     assert prefill["batch-size"] == "1024"
@@ -412,7 +416,7 @@ async def test_modal_device_options() -> None:
     """The device Select should have the four expected device options."""
     from textual.app import ComposeResult
 
-    from llama_cli.tui.components.run_profile_modal import _device_row
+    from llama_cli.tui.components.slot_profile_modal import _device_row
 
     class _DeviceRowApp(App[None]):
         def compose(self) -> ComposeResult:
@@ -710,13 +714,15 @@ async def test_modal_model_selection_keeps_selected_path_in_filter() -> None:
 async def test_create_modal_prefills_from_config() -> None:
     """Create mode should prefill advanced fields from Config defaults."""
     config = Config(
-        default_batch_size=1024,
-        default_poll_ms=0,
-        default_n_predict=8192,
-        default_parallel=2,
-        default_profile_cache_type_k="f16",
-        default_reasoning_mode="off",
-        default_use_jinja=True,
+        server_defaults=ServerDefaultsConfig(
+            batch_size=1024,
+            poll_ms=0,
+            n_predict=8192,
+            parallel=2,
+            cache_type_k="f16",
+            reasoning_mode="off",
+            use_jinja=True,
+        )
     )
     modal = RunProfileModal(config=config)
     app = App[None]()
@@ -745,7 +751,7 @@ async def test_select_displays_current_value_in_control() -> None:
     """Select widgets should render the chosen option inside the control."""
     from textual.widgets import Static
 
-    config = Config(default_profile_cache_type_k="f16", default_reasoning_mode="off")
+    config = Config(server_defaults=ServerDefaultsConfig(cache_type_k="f16", reasoning_mode="off"))
     modal = RunProfileModal(config=config)
     app = App[None]()
 
@@ -847,7 +853,7 @@ async def test_parse_float_falls_back_for_invalid_input() -> None:
 
 
 def test_short_parse_error_timeout_message() -> None:
-    from llama_cli.tui.components.run_profile_modal import _short_parse_error
+    from llama_cli.tui.components.slot_profile_modal import _short_parse_error
 
     assert (
         _short_parse_error("parse timed out after 30s")
@@ -856,13 +862,13 @@ def test_short_parse_error_timeout_message() -> None:
 
 
 def test_short_parse_error_strips_for_suffix() -> None:
-    from llama_cli.tui.components.run_profile_modal import _short_parse_error
+    from llama_cli.tui.components.slot_profile_modal import _short_parse_error
 
     assert _short_parse_error("invalid header for /path/model.gguf") == "invalid header"
 
 
 def test_model_detail_parts_includes_parse_error() -> None:
-    from llama_cli.tui.components.run_profile_modal import _model_detail_parts
+    from llama_cli.tui.components.slot_profile_modal import _model_detail_parts
 
     entry = ModelIndexEntry(
         path="/models/test.gguf",

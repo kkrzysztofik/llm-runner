@@ -197,9 +197,12 @@ class TestTerminateProcessTree:
     def test_os_error_fallback(self) -> None:
         proc = MagicMock()
         proc.pid = 12345
-        proc.poll.return_value = None
+        proc.poll.side_effect = [None, None, 0, 0]
 
-        with patch("llama_manager.build_pipeline.utils.os.getpgid", side_effect=OSError("nope")):
+        with (
+            patch("llama_manager.build_pipeline.utils.os.getpgid", side_effect=OSError("nope")),
+            patch("llama_manager.build_pipeline.utils.time.sleep"),
+        ):
             terminate_process_tree(proc)
 
         assert proc.terminate.called

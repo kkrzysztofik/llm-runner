@@ -3,8 +3,7 @@
 from .builder import (
     apply_profile_overrides,
     create_default_profile_registry,
-    create_default_run_groups,
-    create_default_run_profiles,
+    create_default_slot_profiles,
     create_qwen35_cfg,
     create_server_config_from_profile,
     create_smoke_config,
@@ -12,9 +11,16 @@ from .builder import (
     create_summary_fast_cfg,
     merge_config_overrides,
     resolve_profile_config,
-    resolve_run_group_configs,
 )
-from .defaults import Config, SmokeProbeConfiguration
+from .defaults import (
+    BuildPipelineConfig,
+    Config,
+    DeploymentConfig,
+    PathsConfig,
+    ServerDefaultsConfig,
+    SmokeConfig,
+    SmokeProbeConfiguration,
+)
 from .enums import (
     DoctorCheckStatus,
     ErrorCode,
@@ -25,7 +31,7 @@ from .enums import (
     SmokeProbeStatus,
     VRamRecommendation,
 )
-from .errors import ErrorDetail, MultiValidationError, ValidationResult
+from .errors import ErrorDetail, MultiValidationError, ValidationException
 from .persistence import (
     ConfigUpdateResult,
     apply_config_updates,
@@ -53,10 +59,9 @@ from .profile_cache import (
     write_profile,
 )
 from .profiles import (
-    RunGroupSpec,
-    RunProfileError,
-    RunProfileRegistry,
-    RunProfileSpec,
+    SlotProfileError,
+    SlotProfileRegistry,
+    SlotProfileSpec,
     resolve_backend_from_profile,
     resolve_profile_id,
 )
@@ -68,6 +73,7 @@ from .server import (
     validate_slot_id,
     validate_slot_port,
 )
+from .spec_decode import SpeculativeDecodingConfig
 
 __all__ = [
     # enums
@@ -82,23 +88,28 @@ __all__ = [
     # errors
     "ErrorDetail",
     "MultiValidationError",
-    "ValidationResult",
+    "ValidationException",
     # server
     "ModelSlot",
     "ServerConfig",
+    "SpeculativeDecodingConfig",
     "detect_duplicate_slots",
     "normalize_slot_id",
     "validate_slot_id",
     "validate_slot_port",
     # profiles
-    "RunGroupSpec",
-    "RunProfileError",
-    "RunProfileRegistry",
-    "RunProfileSpec",
+    "SlotProfileError",
+    "SlotProfileRegistry",
+    "SlotProfileSpec",
     "resolve_backend_from_profile",
     "resolve_profile_id",
     # defaults
+    "BuildPipelineConfig",
     "Config",
+    "DeploymentConfig",
+    "PathsConfig",
+    "ServerDefaultsConfig",
+    "SmokeConfig",
     "SmokeProbeConfiguration",
     # profile_cache
     "CURRENT_SCHEMA_VERSION",
@@ -120,8 +131,7 @@ __all__ = [
     # builder
     "apply_profile_overrides",
     "create_default_profile_registry",
-    "create_default_run_groups",
-    "create_default_run_profiles",
+    "create_default_slot_profiles",
     "create_qwen35_cfg",
     "create_server_config_from_profile",
     "create_smoke_config",
@@ -129,7 +139,6 @@ __all__ = [
     "create_summary_fast_cfg",
     "merge_config_overrides",
     "resolve_profile_config",
-    "resolve_run_group_configs",
     # persistence
     "build_config",
     "config_file_path",

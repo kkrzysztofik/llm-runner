@@ -508,7 +508,7 @@ BuildModalScreen {
 
 /* ---- Run Profile Modal ---- */
 
-RunProfileModal {
+SlotProfileModal {
     align: center middle;
 }
 

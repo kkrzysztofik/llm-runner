@@ -13,7 +13,6 @@ Flavors: balanced, fast, quality
 
 import argparse
 import contextlib
-import os
 import re
 import sys
 import threading
@@ -24,30 +23,31 @@ from typing import cast
 
 from llama_cli.commands._output import emit_json
 from llama_cli.ui_output import emit_error, emit_plain
-from llama_manager import (
+from llama_manager.benchmark import (
     BenchmarkResult,
     BenchmarkRunner,
+    SubprocessResult,
+    build_benchmark_cmd,
+    run_benchmark,
+)
+from llama_manager.config import (
     Config,
     ProfileFlavor,
     ProfileMetrics,
     ProfileRecord,
     ServerConfig,
-    SubprocessResult,
-    build_benchmark_cmd,
-    get_gpu_identifier,
     resolve_backend_from_profile,
-    run_benchmark,
     write_profile,
 )
-
-# Re-export manager-level functions for backward compatibility
 from llama_manager.config.profile_cache import compute_driver_version_hash
+from llama_manager.gpu_telemetry import get_gpu_identifier
 from llama_manager.profile_orchestrator import (
     get_driver_version,
     resolve_benchmark_binary,
     resolve_benchmark_config,
     resolve_profile_slot,
 )
+from llama_manager.validation.validators import require_executable
 
 
 def _detect_backend(server_config: ServerConfig) -> str:
@@ -63,10 +63,10 @@ def _detect_backend(server_config: ServerConfig) -> str:
     Returns:
         Backend string: 'cuda' or 'sycl'.
     """
-    # Create a temporary profile spec from server_config for resolution
-    from llama_manager.config.profiles import RunProfileSpec
+    # Create a temporary slot profile spec from server_config for resolution
+    from llama_manager.config.profiles import SlotProfileSpec
 
-    temp_profile = RunProfileSpec(
+    temp_profile = SlotProfileSpec(
         profile_id=server_config.alias,
         model=server_config.model,
         alias=server_config.alias,
@@ -80,25 +80,12 @@ def _detect_backend(server_config: ServerConfig) -> str:
     return resolve_backend_from_profile(temp_profile)
 
 
-def require_executable(path: str) -> None:
-    """Validate that *path* exists and is executable.
-
-    Raises:
-        FileNotFoundError: If the path does not exist.
-        PermissionError: If the path exists but is not executable.
-    """
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"file not found: {path}")
-    if not os.access(path, os.X_OK):
-        raise PermissionError(f"not executable: {path}")
-
-
 def _check_slot_lockfile(slot_id: str, config: Config, _emit: Callable[[str], None]) -> None:
     """Warn if slot appears to be running (lockfile exists)."""
     from loguru import logger
 
     try:
-        runtime_dir = config.profiles_dir.parent
+        runtime_dir = config.paths.profiles_dir.parent
         lock_path = runtime_dir / f"{slot_id}.lock"
         if lock_path.exists():
             _emit(
@@ -164,10 +151,9 @@ def cmd_profile(
         _emit("error: benchmark binary unavailable", stderr=True)
         return 1
 
-    try:
-        require_executable(bench_bin)
-    except (FileNotFoundError, PermissionError) as exc:
-        _emit(f"error: benchmark binary unavailable: {exc}", stderr=True)
+    exec_err = require_executable(bench_bin, name="benchmark binary")
+    if exec_err is not None:
+        _emit(f"error: {exec_err.why_blocked}", stderr=True)
         return 1
 
     # Get GPU identifier
@@ -239,7 +225,7 @@ def cmd_profile(
     if (exit_code := _exit_if_profile_cancelled(cancel_event, slot_id, _emit)) is not None:
         return exit_code
 
-    profile_path = write_profile(config.profiles_dir, record)
+    profile_path = write_profile(config.paths.profiles_dir, record)
 
     if json_output:
         emit_json(record.to_dict())

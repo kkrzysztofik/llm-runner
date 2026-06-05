@@ -75,7 +75,7 @@ def _make_viewmodel(
     model.server_processes = {}
     model.log_buffers = {cfg.alias: MagicMock() for cfg in configs}
     model.config = MagicMock()
-    model.config.host = "127.0.0.1"
+    model.config.deployment.host = "127.0.0.1"
     model.unsaved_slots = set()
     model.stale_warnings = {}
     model.launch_result = None

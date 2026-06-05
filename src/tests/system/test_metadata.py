@@ -198,7 +198,7 @@ class TestParseTimeout:
             return None
 
         with patch(
-            "llama_manager.metadata._try_gguf_reader",
+            "llama_manager.metadata.extractor._try_gguf_reader",
             side_effect=_slow_read,
         ):
             with pytest.raises(TimeoutError) as exc_info:
@@ -218,7 +218,7 @@ class TestParseTimeout:
             return None
 
         with patch(
-            "llama_manager.metadata._try_gguf_reader",
+            "llama_manager.metadata.extractor._try_gguf_reader",
             side_effect=_slow_read,
         ):
             with pytest.raises(TimeoutError) as exc_info:
@@ -242,7 +242,7 @@ class TestParseTimeout:
             raise OSError("disk full")
 
         with patch(
-            "llama_manager.metadata._try_gguf_reader",
+            "llama_manager.metadata.extractor._try_gguf_reader",
             side_effect=_fail_read,
         ):
             with pytest.raises(OSError) as exc_info:

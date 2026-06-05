@@ -6,12 +6,19 @@ _remove_slot_runtime_state, _normalize_slot_port, _device_class_for_config,
 and _gpu_index_for_config.
 """
 
+import json
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 from llama_manager.config import Config, ModelSlot, ServerConfig, SlotState
-from llama_manager.gpu_stats import GPUStats
+from llama_manager.gpu_telemetry import (
+    GPUStats,
+    GpuTelemetrySelector,
+    collect_nvtop_stats_for_selector,
+    parse_gpu_telemetry_selector,
+)
 from llama_manager.log_buffer import LogBuffer
 from llama_manager.slot_manager import (
     add_slot_from_form,
@@ -116,22 +123,62 @@ class TestDeviceClassForConfig:
 
 
 class TestGpuIndexForConfig:
-    def test_sycl_returns_one(self) -> None:
+    def test_sycl_returns_parsed_ordinal(self) -> None:
         cfg = _make_config(device="SYCL0")
-        assert gpu_index_for_config(cfg) == 1
-
-    def test_cuda_returns_zero(self) -> None:
-        cfg = _make_config(device="CUDA0")
         assert gpu_index_for_config(cfg) == 0
 
-    def test_custom_mapping(self) -> None:
-        cfg = _make_config(device="SYCL0")
-        mapping = {"sycl": 2, "cuda": 3}
-        assert gpu_index_for_config(cfg, device_mapping=mapping) == 2
+    def test_sycl_nonzero_returns_parsed_ordinal(self) -> None:
+        cfg = _make_config(device="SYCL2")
+        assert gpu_index_for_config(cfg) == 2
+
+    def test_cuda_returns_zero(self) -> None:
+        cfg = _make_config(device="CUDA:0")
+        assert gpu_index_for_config(cfg) == 0
+
+    def test_cuda_multi_uses_main_gpu_when_listed(self) -> None:
+        cfg = _make_config(device="CUDA:0,1", main_gpu=1)
+        assert gpu_index_for_config(cfg) == 1
 
     def test_unknown_device_returns_zero(self) -> None:
         cfg = _make_config(device="CPU")
         assert gpu_index_for_config(cfg) == 0
+
+
+class TestGpuTelemetrySelector:
+    def test_parse_sycl_selector(self) -> None:
+        selector = parse_gpu_telemetry_selector("SYCL0")
+
+        assert selector.backend == "sycl"
+        assert selector.ordinal == 0
+        assert selector.vendor_id == 0x8086
+
+    def test_parse_cuda_multi_selector_uses_main_gpu(self) -> None:
+        selector = parse_gpu_telemetry_selector("CUDA:0,1", main_gpu=1)
+
+        assert selector.backend == "cuda"
+        assert selector.ordinal == 1
+
+    def test_nvtop_fallback_matches_sycl_by_identity(self, monkeypatch: Any) -> None:
+        payload = [
+            {"device_name": "NVIDIA GeForce RTX 3090", "gpu_util": "0%", "mem_util": "1%"},
+            {"device_name": "NVIDIA GeForce RTX 3090", "gpu_util": "0%", "mem_util": "2%"},
+            {
+                "device_name": "Battlemage G21 (Arc B580)",
+                "gpu_util": "3%",
+                "mem_util": "4%",
+            },
+        ]
+
+        def fake_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+        monkeypatch.setattr("llama_manager.gpu_telemetry.vendor.subprocess.run", fake_run)
+
+        stats = collect_nvtop_stats_for_selector(GpuTelemetrySelector(backend="sycl"))
+
+        assert stats is not None
+        assert stats["device"] == "Battlemage G21 (Arc B580)"
+        assert stats["gpu_util"] == "3%"
 
 
 # =============================================================================
@@ -250,7 +297,7 @@ class TestUpsertProfileSlot:
         assert len(configs) == 1
         assert configs[0].alias == "new"
         assert len(gpu_indices) == 1
-        assert gpu_indices[0] == 1
+        assert gpu_indices[0] == 0
         assert len(gpu_stats) == 1
         assert "Added profile 'profile-id'" in messages[-1]
 
@@ -258,8 +305,8 @@ class TestUpsertProfileSlot:
         old_cfg = _make_config(alias="old", device="SYCL0")
         new_cfg = _make_config(alias="new", device="SYCL0", port=8090)
         configs = [old_cfg]
-        gpu_indices = [1]
-        gpu_stats = [GPUStats(1, collector=_make_collector(1))]
+        gpu_indices = [0]
+        gpu_stats = [GPUStats(0, collector=_make_collector(0))]
         server_manager = MagicMock()
         server_manager.shutdown_slot.return_value = True
         server_manager.start_servers.return_value = [MagicMock()]
@@ -411,9 +458,9 @@ class TestAddSlotFromForm:
     def test_rejects_unknown_profile(
         self, mock_registry_cls: MagicMock, mock_resolve: MagicMock
     ) -> None:
-        from llama_manager.config.profiles import RunProfileError
+        from llama_manager.config.profiles import SlotProfileError
 
-        mock_resolve.side_effect = RunProfileError("unknown")
+        mock_resolve.side_effect = SlotProfileError("unknown")
         registry = MagicMock()
         registry.profile_ids = ["summary-fast", "summary-balanced"]
         mock_registry_cls.return_value = registry

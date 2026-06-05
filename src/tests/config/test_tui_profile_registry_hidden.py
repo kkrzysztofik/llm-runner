@@ -8,8 +8,8 @@ import pytest
 
 from llama_manager.config.builder import create_tui_profile_registry
 from llama_manager.config.defaults import Config
-from llama_manager.config.profiles import RunProfileSpec
-from llama_manager.run_profile_store import save_custom_run_profile
+from llama_manager.config.profiles import SlotProfileSpec
+from llama_manager.slot_profile_store import save_custom_slot_profile
 
 
 @pytest.fixture()
@@ -23,16 +23,16 @@ def test_tui_registry_filters_hidden_builtin(
     xdg_config_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """TUI registry should exclude hidden built-in profiles."""
-    toml_path = xdg_config_home / "llm-runner" / "run_profiles.toml"
+    toml_path = xdg_config_home / "llm-runner" / "slot_profiles.toml"
     toml_path.parent.mkdir(parents=True, exist_ok=True)
     toml_path.write_text(
         'hidden_builtin_profiles = ["summary-fast"]\n',
         encoding="utf-8",
     )
 
-    # Patch run_profiles_file_path to point to our temp TOML
+    # Patch slot_profiles_file_path to point to our temp TOML
     monkeypatch.setattr(
-        "llama_manager.run_profile_store.run_profiles_file_path",
+        "llama_manager.slot_profile_store.slot_profiles_file_path",
         lambda: toml_path,
     )
 
@@ -49,12 +49,12 @@ def test_tui_registry_includes_all_when_no_hidden(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """TUI registry should include all built-ins when no hidden profile."""
-    toml_path = xdg_config_home / "llm-runner" / "run_profiles.toml"
+    toml_path = xdg_config_home / "llm-runner" / "slot_profiles.toml"
     toml_path.parent.mkdir(parents=True, exist_ok=True)
     toml_path.write_text("", encoding="utf-8")
 
     monkeypatch.setattr(
-        "llama_manager.run_profile_store.run_profiles_file_path",
+        "llama_manager.slot_profile_store.slot_profiles_file_path",
         lambda: toml_path,
     )
 
@@ -71,14 +71,14 @@ def test_tui_registry_custom_overrides_hidden_builtin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Custom profile with same profile_id as hidden built-in should appear."""
-    toml_path = xdg_config_home / "llm-runner" / "run_profiles.toml"
+    toml_path = xdg_config_home / "llm-runner" / "slot_profiles.toml"
     toml_path.parent.mkdir(parents=True, exist_ok=True)
     toml_path.write_text(
         'hidden_builtin_profiles = ["summary-fast"]\n',
         encoding="utf-8",
     )
 
-    custom_profile = RunProfileSpec(
+    custom_profile = SlotProfileSpec(
         profile_id="summary-fast",
         model="/models/custom-summary.gguf",
         alias="summary-fast-custom",
@@ -89,10 +89,10 @@ def test_tui_registry_custom_overrides_hidden_builtin(
         threads=4,
         backend="llama_cpp",
     )
-    save_custom_run_profile(custom_profile)
+    save_custom_slot_profile(custom_profile)
 
     monkeypatch.setattr(
-        "llama_manager.run_profile_store.run_profiles_file_path",
+        "llama_manager.slot_profile_store.slot_profiles_file_path",
         lambda: toml_path,
     )
 
@@ -108,7 +108,7 @@ def test_tui_registry_multiple_hidden(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """TUI registry should filter multiple hidden built-ins."""
-    toml_path = xdg_config_home / "llm-runner" / "run_profiles.toml"
+    toml_path = xdg_config_home / "llm-runner" / "slot_profiles.toml"
     toml_path.parent.mkdir(parents=True, exist_ok=True)
     toml_path.write_text(
         'hidden_builtin_profiles = ["summary-fast", "qwen35"]\n',
@@ -116,7 +116,7 @@ def test_tui_registry_multiple_hidden(
     )
 
     monkeypatch.setattr(
-        "llama_manager.run_profile_store.run_profiles_file_path",
+        "llama_manager.slot_profile_store.slot_profiles_file_path",
         lambda: toml_path,
     )
 

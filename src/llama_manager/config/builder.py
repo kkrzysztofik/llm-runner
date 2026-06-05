@@ -8,7 +8,7 @@ from typing import Any
 
 from loguru import logger
 
-from ..gpu_stats import get_gpu_identifier
+from ..gpu_telemetry import get_gpu_identifier
 from .defaults import Config, SmokeProbeConfiguration
 from .profile_cache import (
     PROFILE_OVERRIDE_FIELDS,
@@ -18,14 +18,27 @@ from .profile_cache import (
     profile_to_override_dict,
 )
 from .profiles import (
-    RunGroupSpec,
-    RunProfileError,
-    RunProfileRegistry,
-    RunProfileSpec,
+    SlotProfileRegistry,
+    SlotProfileSpec,
     _derive_tensor_split_from_device,
     _parse_main_gpu_from_device,
 )
 from .server import ServerConfig
+from .spec_decode import SpeculativeDecodingConfig
+
+_SPEC_DECODE_FIELDS: frozenset[str] = frozenset(
+    field.name for field in dataclasses.fields(SpeculativeDecodingConfig)
+)
+
+
+def _split_spec_decode_values(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Separate legacy flat spec keys from ServerConfig keys."""
+    config_data = deepcopy(data)
+    spec_data = dict(config_data.pop("spec_decode", {}) or {})
+    for key in _SPEC_DECODE_FIELDS:
+        if key in config_data:
+            spec_data[key] = config_data.pop(key)
+    return config_data, spec_data
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -89,17 +102,6 @@ def _without_none(values: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
 
 
-def _validate_port_override_count(
-    group: RunGroupSpec, port_overrides: tuple[int | None, ...]
-) -> None:
-    """Ensure port overrides do not exceed the number of profiles in the group."""
-    if len(port_overrides) > len(group.profile_ids):
-        raise RunProfileError(
-            f"run group {group.group_id} accepts at most {len(group.profile_ids)} port override(s), "
-            f"got {len(port_overrides)}"
-        )
-
-
 def _validate_resolved_profile_data(data: dict[str, Any]) -> None:
     """Validate required fields and value ranges in resolved profile data."""
     port = data.get("port")
@@ -116,8 +118,8 @@ def _validate_resolved_profile_data(data: dict[str, Any]) -> None:
             raise ValueError(f"{key} must be a non-empty string")
 
 
-def _profile_to_config_data(profile: RunProfileSpec) -> dict[str, Any]:
-    """Convert profile data to a complete ServerConfig-compatible mapping."""
+def _profile_to_config_data(profile: SlotProfileSpec) -> dict[str, Any]:
+    """Convert slot profile data to a complete ServerConfig-compatible mapping."""
     # Auto-derive tensor_split and main_gpu from device if not explicitly set
     tensor_split = profile.tensor_split or _derive_tensor_split_from_device(profile.device)
     main_gpu = (
@@ -133,10 +135,8 @@ def _profile_to_config_data(profile: RunProfileSpec) -> dict[str, Any]:
         "ubatch_size": profile.ubatch_size,
         "threads": profile.threads,
         "tensor_split": tensor_split,
-        "reasoning_mode": profile.reasoning_mode,
-        "reasoning_format": profile.reasoning_format,
         "chat_template_kwargs": profile.chat_template_kwargs,
-        "reasoning_budget": profile.reasoning_budget,
+        "spec_decode": dataclasses.asdict(profile.spec_decode),
         "use_jinja": profile.use_jinja,
         "cache_type_k": profile.cache_type_k,
         "cache_type_v": profile.cache_type_v,
@@ -151,65 +151,59 @@ def _profile_to_config_data(profile: RunProfileSpec) -> dict[str, Any]:
         "parallel": profile.parallel,
         "threads_batch": profile.threads_batch,
         "mmproj": profile.mmproj,
-        "spec_type": profile.spec_type,
-        "spec_ngram_size_n": profile.spec_ngram_size_n,
-        "draft_min": profile.draft_min,
-        "draft_max": profile.draft_max,
-        "spec_draft_n_max": profile.spec_draft_n_max,
-        "spec_draft_p_min": profile.spec_draft_p_min,
-        "spec_draft_cache_type_k": profile.spec_draft_cache_type_k,
-        "spec_draft_cache_type_v": profile.spec_draft_cache_type_v,
-        "spec_draft_device": profile.spec_draft_device,
     }
 
 
 def _config_data_to_server_config(data: dict[str, Any]) -> ServerConfig:
     """Convert validated ServerConfig-compatible data to ServerConfig."""
+    config_data, spec_data = _split_spec_decode_values(data)
     return ServerConfig(
-        model=data["model"],
-        alias=data["alias"],
-        device=data["device"],
-        port=data["port"],
-        bind_address=data.get("bind_address", "127.0.0.1"),
-        ctx_size=data["ctx_size"],
-        ubatch_size=data["ubatch_size"],
-        threads=data["threads"],
-        tensor_split=data.get("tensor_split", ""),
-        reasoning_mode=data["reasoning_mode"],
-        reasoning_format=data["reasoning_format"],
-        chat_template_kwargs=data["chat_template_kwargs"],
-        reasoning_budget=data.get("reasoning_budget", ""),
-        use_jinja=data["use_jinja"],
-        cache_type_k=data["cache_type_k"],
-        cache_type_v=data["cache_type_v"],
-        n_gpu_layers=data["n_gpu_layers"],
-        main_gpu=data.get("main_gpu", 0),
-        server_bin=data["server_bin"],
-        backend=data["backend"],
-        risky_acknowledged=data["risky_acknowledged"],
-        batch_size=int(data.get("batch_size", 2048)),
-        poll_ms=int(data.get("poll_ms", 50)),
-        n_predict=int(data.get("n_predict", 32768)),
-        parallel=int(data.get("parallel", 4)),
-        threads_batch=int(data.get("threads_batch", 0)),
-        mmproj=str(data.get("mmproj", "")),
-        spec_type=str(data.get("spec_type", "")),
-        spec_ngram_size_n=int(data.get("spec_ngram_size_n", 0)),
-        draft_min=int(data.get("draft_min", 0)),
-        draft_max=int(data.get("draft_max", 0)),
-        spec_draft_n_max=int(data.get("spec_draft_n_max", 0)),
-        spec_draft_p_min=float(data.get("spec_draft_p_min", 0.0)),
-        spec_draft_cache_type_k=str(data.get("spec_draft_cache_type_k", "")),
-        spec_draft_cache_type_v=str(data.get("spec_draft_cache_type_v", "")),
-        spec_draft_device=str(data.get("spec_draft_device", "")),
+        model=config_data["model"],
+        alias=config_data["alias"],
+        device=config_data["device"],
+        port=config_data["port"],
+        bind_address=config_data.get("bind_address", "127.0.0.1"),
+        ctx_size=config_data["ctx_size"],
+        ubatch_size=config_data["ubatch_size"],
+        threads=config_data["threads"],
+        tensor_split=config_data.get("tensor_split", ""),
+        chat_template_kwargs=config_data["chat_template_kwargs"],
+        use_jinja=config_data["use_jinja"],
+        cache_type_k=config_data["cache_type_k"],
+        cache_type_v=config_data["cache_type_v"],
+        n_gpu_layers=config_data["n_gpu_layers"],
+        main_gpu=config_data.get("main_gpu", 0),
+        server_bin=config_data["server_bin"],
+        backend=config_data["backend"],
+        risky_acknowledged=config_data["risky_acknowledged"],
+        batch_size=int(config_data.get("batch_size", 2048)),
+        poll_ms=int(config_data.get("poll_ms", 50)),
+        n_predict=int(config_data.get("n_predict", 32768)),
+        parallel=int(config_data.get("parallel", 4)),
+        threads_batch=int(config_data.get("threads_batch", 0)),
+        mmproj=str(config_data.get("mmproj", "")),
+        spec_decode=SpeculativeDecodingConfig(
+            spec_type=str(spec_data.get("spec_type", "")),
+            spec_ngram_size_n=int(spec_data.get("spec_ngram_size_n", 0)),
+            draft_min=int(spec_data.get("draft_min", 0)),
+            draft_max=int(spec_data.get("draft_max", 0)),
+            spec_draft_n_max=int(spec_data.get("spec_draft_n_max", 0)),
+            spec_draft_p_min=float(spec_data.get("spec_draft_p_min", 0.0)),
+            spec_draft_cache_type_k=str(spec_data.get("spec_draft_cache_type_k", "")),
+            spec_draft_cache_type_v=str(spec_data.get("spec_draft_cache_type_v", "")),
+            spec_draft_device=str(spec_data.get("spec_draft_device", "")),
+            reasoning_mode=str(spec_data.get("reasoning_mode", "auto")),
+            reasoning_format=str(spec_data.get("reasoning_format", "none")),
+            reasoning_budget=str(spec_data.get("reasoning_budget", "")),
+        ),
     )
 
 
 def create_server_config_from_profile(
-    profile: RunProfileSpec,
+    profile: SlotProfileSpec,
     override_config: dict[str, Any] | None = None,
 ) -> ServerConfig:
-    """Resolve any run profile definition into a ServerConfig.
+    """Resolve any slot profile definition into a ServerConfig.
 
     Args:
         profile: Typed profile data to convert.
@@ -232,53 +226,21 @@ def create_server_config_from_profile(
 
 
 def resolve_profile_config(
-    registry: RunProfileRegistry,
+    registry: SlotProfileRegistry,
     profile_id: str,
     override_config: dict[str, Any] | None = None,
 ) -> ServerConfig:
-    """Resolve one registered profile into ServerConfig.
+    """Resolve one registered slot profile into ServerConfig.
 
     Args:
-        registry: Profile registry containing profile definitions.
-        profile_id: Profile identifier to resolve.
-        override_config: Optional explicit profile overrides.
+        registry: Slot profile registry containing profile definitions.
+        profile_id: Slot profile identifier to resolve.
+        override_config: Optional explicit slot profile overrides.
 
     Returns:
         ServerConfig for the requested profile.
     """
     return create_server_config_from_profile(registry.get_profile(profile_id), override_config)
-
-
-def resolve_run_group_configs(
-    registry: RunProfileRegistry,
-    group_id: str,
-    port_overrides: tuple[int | None, ...] = (),
-) -> list[ServerConfig]:
-    """Resolve a registered run group into ordered ServerConfig objects.
-
-    Args:
-        registry: Profile registry containing group and profile definitions.
-        group_id: Run group identifier to resolve.
-        port_overrides: Optional positional port overrides for group members.
-            ``None`` entries are skipped (profile default port is used).
-
-    Returns:
-        ServerConfig objects in run-group profile order.
-
-    Raises:
-        RunProfileError: If too many port overrides are provided.
-    """
-    group = registry.get_run_group(group_id)
-    _validate_port_override_count(group, port_overrides)
-
-    configs: list[ServerConfig] = []
-    for index, profile_id in enumerate(group.profile_ids):
-        if index < len(port_overrides) and port_overrides[index] is not None:
-            override_config = {"port": port_overrides[index]}
-        else:
-            override_config = None
-        configs.append(resolve_profile_config(registry, profile_id, override_config))
-    return configs
 
 
 def create_summary_balanced_cfg(
@@ -288,7 +250,7 @@ def create_summary_balanced_cfg(
     threads: int | None = None,
     cache_k: str | None = None,
     cache_v: str | None = None,
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> ServerConfig:
     """Create a ServerConfig for the summary-balanced model profile.
 
@@ -332,7 +294,7 @@ def create_summary_fast_cfg(
     threads: int | None = None,
     cache_k: str | None = None,
     cache_v: str | None = None,
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> ServerConfig:
     """Create a ServerConfig for the summary-fast model profile.
 
@@ -380,7 +342,7 @@ def create_qwen35_cfg(
     model: str | None = None,
     server_bin: str = "",
     backend: str = "llama_cpp",
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> ServerConfig:
     """Create a ServerConfig for the qwen35-coding model profile.
 
@@ -425,70 +387,74 @@ def create_qwen35_cfg(
     )
 
 
-def create_default_run_profiles(config: Config | None = None) -> tuple[RunProfileSpec, ...]:
-    """Create built-in run profiles as typed data entries.
+def create_default_slot_profiles(config: Config | None = None) -> tuple[SlotProfileSpec, ...]:
+    """Create built-in slot profiles as typed data entries.
 
     Args:
         config: Optional base configuration. When omitted, environment-aware
             defaults are loaded from ``Config``.
 
     Returns:
-        Built-in single-server profile definitions in stable CLI order.
+        Built-in single-server slot profile definitions in stable CLI order.
     """
     cfg = config or Config()
     return (
-        RunProfileSpec(
+        SlotProfileSpec(
             profile_id="summary-balanced",
             description="Run summary-balanced model on Intel SYCL.",
-            model=cfg.model_summary_balanced,
+            model=cfg.deployment.model_summary_balanced,
             alias="summary-balanced",
             device="SYCL0",
-            port=cfg.summary_balanced_port,
-            ctx_size=cfg.default_ctx_size_summary,
-            ubatch_size=cfg.default_ubatch_size_summary_balanced,
-            threads=cfg.default_threads_summary_balanced,
-            reasoning_mode="off",
-            reasoning_format="deepseek",
-            chat_template_kwargs=cfg.summary_balanced_chat_template_kwargs,
+            port=cfg.deployment.summary_balanced_port,
+            ctx_size=cfg.server_defaults.ctx_size_summary,
+            ubatch_size=cfg.server_defaults.ubatch_size_summary_balanced,
+            threads=cfg.server_defaults.threads_summary_balanced,
+            spec_decode=SpeculativeDecodingConfig(
+                reasoning_mode="off",
+                reasoning_format="deepseek",
+            ),
+            chat_template_kwargs=cfg.deployment.summary_balanced_chat_template_kwargs,
             use_jinja=True,
-            cache_type_k=cfg.default_cache_type_summary_k,
-            cache_type_v=cfg.default_cache_type_summary_v,
+            cache_type_k=cfg.server_defaults.cache_type_summary_k,
+            cache_type_v=cfg.server_defaults.cache_type_summary_v,
             parallel=4,
             backend="llama_cpp",
         ),
-        RunProfileSpec(
+        SlotProfileSpec(
             profile_id="summary-fast",
             description="Run summary-fast model on Intel SYCL.",
-            model=cfg.model_summary_fast,
+            model=cfg.deployment.model_summary_fast,
             alias="summary-fast",
             device="SYCL0",
-            port=cfg.summary_fast_port,
-            ctx_size=cfg.default_ctx_size_summary,
-            ubatch_size=cfg.default_ubatch_size_summary_fast,
-            threads=cfg.default_threads_summary_fast,
-            reasoning_mode="off",
-            reasoning_format="deepseek",
-            chat_template_kwargs=cfg.summary_fast_chat_template_kwargs,
+            port=cfg.deployment.summary_fast_port,
+            ctx_size=cfg.server_defaults.ctx_size_summary,
+            ubatch_size=cfg.server_defaults.ubatch_size_summary_fast,
+            threads=cfg.server_defaults.threads_summary_fast,
+            spec_decode=SpeculativeDecodingConfig(
+                reasoning_mode="off",
+                reasoning_format="deepseek",
+            ),
+            chat_template_kwargs=cfg.deployment.summary_fast_chat_template_kwargs,
             use_jinja=True,
-            cache_type_k=cfg.default_cache_type_summary_k,
-            cache_type_v=cfg.default_cache_type_summary_v,
+            cache_type_k=cfg.server_defaults.cache_type_summary_k,
+            cache_type_v=cfg.server_defaults.cache_type_summary_v,
             parallel=4,
             backend="llama_cpp",
         ),
-        RunProfileSpec(
+        SlotProfileSpec(
             profile_id="qwen35",
             description="Run qwen35-coding model on NVIDIA CUDA.",
-            model=cfg.model_qwen35,
+            model=cfg.deployment.model_qwen35,
             alias="qwen35-coding",
             device="",
-            port=cfg.qwen35_port,
-            ctx_size=cfg.default_ctx_size_qwen35,
+            port=cfg.deployment.qwen35_port,
+            ctx_size=cfg.server_defaults.ctx_size_qwen35,
             ubatch_size=256,
-            threads=cfg.default_threads_qwen35,
-            cache_type_k=cfg.default_cache_type_qwen35_k,
-            cache_type_v=cfg.default_cache_type_qwen35_v,
-            n_gpu_layers=cfg.default_n_gpu_layers_qwen35,
-            server_bin=cfg.llama_server_bin_nvidia,
+            threads=cfg.server_defaults.threads_qwen35,
+            cache_type_k=cfg.server_defaults.cache_type_qwen35_k,
+            cache_type_v=cfg.server_defaults.cache_type_qwen35_v,
+            n_gpu_layers=cfg.server_defaults.n_gpu_layers_qwen35,
+            server_bin=cfg.paths.llama_server_bin_nvidia,
             batch_size=1024,
             poll_ms=0,
             parallel=4,
@@ -497,52 +463,17 @@ def create_default_run_profiles(config: Config | None = None) -> tuple[RunProfil
     )
 
 
-def create_default_run_groups() -> tuple[RunGroupSpec, ...]:
-    """Create built-in launch modes as typed run-group data entries.
-
-    Returns:
-        Built-in run groups in stable CLI order. Single-profile modes are
-        represented as one-member groups so launch surfaces can resolve every
-        mode through the same data shape.
-    """
-    return (
-        RunGroupSpec(
-            group_id="summary-balanced",
-            profile_ids=("summary-balanced",),
-            description="Launch the summary-balanced profile.",
-        ),
-        RunGroupSpec(
-            group_id="summary-fast",
-            profile_ids=("summary-fast",),
-            description="Launch the summary-fast profile.",
-        ),
-        RunGroupSpec(
-            group_id="qwen35",
-            profile_ids=("qwen35",),
-            description="Launch the qwen35 profile.",
-        ),
-        RunGroupSpec(
-            group_id="both",
-            profile_ids=("summary-balanced", "qwen35"),
-            description="Launch summary-balanced and qwen35 profiles together.",
-        ),
-    )
-
-
-def create_default_profile_registry(config: Config | None = None) -> RunProfileRegistry:
-    """Create the built-in dynamic profile registry.
+def create_default_profile_registry(config: Config | None = None) -> SlotProfileRegistry:
+    """Create the built-in dynamic slot profile registry.
 
     Args:
         config: Optional base configuration used to resolve environment-aware
             model paths, ports, binaries, and tuning defaults.
 
     Returns:
-        Validated registry containing built-in profiles and run groups.
+        Validated registry containing built-in slot profiles.
     """
-    return RunProfileRegistry(
-        profiles=create_default_run_profiles(config),
-        run_groups=create_default_run_groups(),
-    )
+    return SlotProfileRegistry(profiles=create_default_slot_profiles(config))
 
 
 def merge_config_overrides(
@@ -607,21 +538,22 @@ def merge_config_overrides(
 
     # Start with defaults
     base_defaults: dict = {
-        "model": defaults.model_summary_balanced,
+        "model": defaults.deployment.model_summary_balanced,
         "alias": "default",
         "device": "",
-        "port": defaults.summary_balanced_port,
+        "port": defaults.deployment.summary_balanced_port,
         "bind_address": "127.0.0.1",
-        "ctx_size": defaults.default_ctx_size_summary,
-        "ubatch_size": defaults.default_ubatch_size_summary_balanced,
-        "threads": defaults.default_threads_summary_balanced,
-        "reasoning_mode": "off",
-        "reasoning_format": "deepseek",
-        "chat_template_kwargs": defaults.summary_balanced_chat_template_kwargs,
+        "ctx_size": defaults.server_defaults.ctx_size_summary,
+        "ubatch_size": defaults.server_defaults.ubatch_size_summary_balanced,
+        "threads": defaults.server_defaults.threads_summary_balanced,
+        "spec_decode": dataclasses.asdict(
+            SpeculativeDecodingConfig(reasoning_mode="off", reasoning_format="deepseek")
+        ),
+        "chat_template_kwargs": defaults.deployment.summary_balanced_chat_template_kwargs,
         "use_jinja": True,
-        "cache_type_k": defaults.default_cache_type_summary_k,
-        "cache_type_v": defaults.default_cache_type_summary_v,
-        "n_gpu_layers": defaults.default_n_gpu_layers,
+        "cache_type_k": defaults.server_defaults.cache_type_summary_k,
+        "cache_type_v": defaults.server_defaults.cache_type_summary_v,
+        "n_gpu_layers": defaults.server_defaults.n_gpu_layers,
         "main_gpu": 0,
         "server_bin": "",
         "backend": "llama_cpp",
@@ -703,7 +635,7 @@ def apply_profile_overrides(
             binary_version = base_config.server_binary_version or "unknown"
 
             record, staleness = load_profile_with_staleness(
-                profiles_dir=base_config.profiles_dir,
+                profiles_dir=base_config.paths.profiles_dir,
                 gpu_identifier=gpu_identifier,
                 backend=cfg.backend,
                 flavor=ProfileFlavor.BALANCED,
@@ -755,10 +687,8 @@ def apply_profile_overrides(
         merged.backend = cfg.backend
         merged.tensor_split = cfg.tensor_split
         merged.main_gpu = cfg.main_gpu
-        merged.reasoning_mode = cfg.reasoning_mode
-        merged.reasoning_format = cfg.reasoning_format
         merged.chat_template_kwargs = cfg.chat_template_kwargs
-        merged.reasoning_budget = cfg.reasoning_budget
+        merged.spec_decode = cfg.spec_decode
         merged.use_jinja = cfg.use_jinja
         merged.n_gpu_layers = cfg.n_gpu_layers
         merged.risky_acknowledged = cfg.risky_acknowledged
@@ -788,56 +718,47 @@ def create_smoke_config(
         SmokeProbeConfiguration with resolved values.
 
     """
-    api_key_resolved = api_key or config.smoke_api_key
+    api_key_resolved = api_key or config.smoke.api_key
     return SmokeProbeConfiguration(
-        inter_slot_delay_s=config.smoke_inter_slot_delay_s,
-        listen_timeout_s=config.smoke_listen_timeout_s,
-        http_request_timeout_s=config.smoke_http_request_timeout_s,
-        max_tokens=config.smoke_max_tokens,
-        prompt=config.smoke_prompt,
-        skip_models_discovery=config.smoke_skip_models_discovery,
+        inter_slot_delay_s=config.smoke.inter_slot_delay_s,
+        listen_timeout_s=config.smoke.listen_timeout_s,
+        http_request_timeout_s=config.smoke.http_request_timeout_s,
+        max_tokens=config.smoke.max_tokens,
+        prompt=config.smoke.prompt,
+        skip_models_discovery=config.smoke.skip_models_discovery,
         api_key=api_key_resolved,
         model_id_override=model_id_override,
-        first_token_timeout_s=config.smoke_first_token_timeout_s,
-        total_chat_timeout_s=config.smoke_total_chat_timeout_s,
+        first_token_timeout_s=config.smoke.first_token_timeout_s,
+        total_chat_timeout_s=config.smoke.total_chat_timeout_s,
     )
 
 
-def create_tui_profile_registry(config: Config) -> RunProfileRegistry:
-    """Create a profile registry for TUI use: built-in + custom profiles from disk.
+def create_tui_profile_registry(config: Config) -> SlotProfileRegistry:
+    """Create a slot profile registry for TUI use: built-in + custom profiles from disk.
 
-    Custom profiles are loaded from ``run_profiles.toml``. Duplicate
+    Custom profiles are loaded from ``slot_profiles.toml``. Duplicate
     ``profile_id`` between built-in and custom is resolved by preferring
-    the custom profile. Hidden built-in profiles (from
-    ``hidden_builtin_profiles`` in the TOML) are excluded.
+    the custom profile. Hidden built-in profiles are excluded.
 
     Args:
         config: Base configuration used to resolve built-in profiles.
 
     Returns:
-        Merged ``RunProfileRegistry`` with built-in and custom profiles.
+        Merged ``SlotProfileRegistry`` with built-in and custom profiles.
     """
-    from ..run_profile_store import load_custom_run_profiles, load_hidden_builtin_profile_ids
+    from ..slot_profile_store import load_custom_slot_profiles, load_hidden_builtin_profile_ids
 
     hidden = load_hidden_builtin_profile_ids()
 
     builtins = create_default_profile_registry(config)
-    custom = load_custom_run_profiles()
+    custom = load_custom_slot_profiles()
 
     # Merge: skip hidden built-ins, custom profiles override built-ins with same profile_id
-    all_profiles: dict[str, RunProfileSpec] = {}
+    all_profiles: dict[str, SlotProfileSpec] = {}
     for p in builtins.profiles:
         if p.profile_id not in hidden:
             all_profiles[p.profile_id] = p
     for p in custom:
         all_profiles[p.profile_id] = p
 
-    # Filter run groups to only include those whose profiles are all present
-    filtered_groups: tuple[RunGroupSpec, ...] = tuple(
-        g for g in builtins.run_groups if all(pid in all_profiles for pid in g.profile_ids)
-    )
-
-    return RunProfileRegistry(
-        profiles=tuple(all_profiles.values()),
-        run_groups=filtered_groups,
-    )
+    return SlotProfileRegistry(profiles=tuple(all_profiles.values()))

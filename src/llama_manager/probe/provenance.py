@@ -45,7 +45,7 @@ def _resolve_sha() -> str:
 
     """
     cfg = Config()
-    llama_cpp_root = cfg.llama_cpp_root
+    llama_cpp_root = cfg.paths.llama_cpp_root
     git_head = Path(llama_cpp_root) / ".git" / "HEAD"
     if not git_head.exists():
         return "unknown"

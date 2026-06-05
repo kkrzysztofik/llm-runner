@@ -391,7 +391,7 @@ def _resolve_backend_paths(
     if args.output_dir:
         output_dir = Path(args.output_dir) / backend.value
     else:
-        output_dir = config.builds_dir / backend.value
+        output_dir = config.paths.builds_dir / backend.value
 
     return build_dir, output_dir
 
@@ -407,7 +407,7 @@ def run_build_command(args: argparse.Namespace) -> int:
     """
     backends = _get_backends(args.backend)
     config = Config()
-    source_dir = args.source_dir or Path(config.llama_cpp_root)
+    source_dir = args.source_dir or Path(config.paths.llama_cpp_root)
 
     results: list[tuple[BuildBackend, BuildResult]] = []
     for backend in backends:

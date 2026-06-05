@@ -78,16 +78,29 @@ def doctor_mocks(
     mock_integrity.return_value = (True, None)
 
     mock_config_instance = MagicMock()
-    mock_config_instance.build_lock_path = tmp_path / "lock"
-    mock_config_instance.reports_dir = tmp_path / "reports"
-    mock_config_instance.toolchain_timeout_seconds = 3600
-    mock_config_instance.llama_cpp_root = str(tmp_path)
-    mock_config_instance.profiles_dir = tmp_path / "profiles"
-    mock_config_instance.builds_dir = tmp_path / "builds"
+    mock_config_instance.paths = MagicMock()
+    mock_config_instance.paths.build_lock_path = tmp_path / "lock"
+    mock_config_instance.paths.reports_dir = tmp_path / "reports"
+    mock_config_instance.paths.llama_cpp_root = str(tmp_path)
+    mock_config_instance.paths.profiles_dir = tmp_path / "profiles"
+    mock_config_instance.paths.builds_dir = tmp_path / "builds"
+    mock_config_instance.build = MagicMock()
+    mock_config_instance.build.toolchain_timeout_seconds = 3600
 
     if config_overrides:
         for key, value in config_overrides.items():
-            setattr(mock_config_instance, key, value)
+            if key in (
+                "reports_dir",
+                "builds_dir",
+                "profiles_dir",
+                "llama_cpp_root",
+                "build_lock_path",
+            ):
+                setattr(mock_config_instance.paths, key, value)
+            elif key == "toolchain_timeout_seconds":
+                setattr(mock_config_instance.build, key, value)
+            else:
+                setattr(mock_config_instance, key, value)
 
     mock_config_cls.return_value = mock_config_instance
 
@@ -490,7 +503,7 @@ class TestProfileStalenessCheck:
             mock_config_instance,
             stack,
         ) = doctor_mocks(tmp_path)
-        mock_config_instance.profiles_dir = profiles_dir
+        mock_config_instance.paths.profiles_dir = profiles_dir
         try:
             exit_code = cmd_doctor_check(_make_namespace(backend="all", json=False))
 
@@ -523,7 +536,7 @@ class TestProfileStalenessCheck:
             mock_config_instance,
             stack,
         ) = doctor_mocks(tmp_path)
-        mock_config_instance.profiles_dir = profiles_dir
+        mock_config_instance.paths.profiles_dir = profiles_dir
         try:
             exit_code = cmd_doctor_check(_make_namespace(backend="all", json=False))
 
@@ -553,7 +566,7 @@ class TestProfileStalenessCheck:
             mock_config_instance,
             stack,
         ) = doctor_mocks(tmp_path)
-        mock_config_instance.profiles_dir = profiles_dir
+        mock_config_instance.paths.profiles_dir = profiles_dir
         try:
             exit_code = cmd_doctor_check(_make_namespace(backend="all", json=True))
 
@@ -584,7 +597,7 @@ class TestProfileStalenessCheck:
             mock_config_instance,
             stack,
         ) = doctor_mocks(tmp_path)
-        mock_config_instance.profiles_dir = profiles_dir
+        mock_config_instance.paths.profiles_dir = profiles_dir
         try:
             # With max-age-days=200, the 100-day-old profile should NOT be stale
             exit_code = cmd_doctor_check(
@@ -615,7 +628,7 @@ class TestProfileStalenessCheck:
             mock_config_instance,
             stack,
         ) = doctor_mocks(tmp_path)
-        mock_config_instance.profiles_dir = profiles_dir
+        mock_config_instance.paths.profiles_dir = profiles_dir
         try:
             result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False))
 
@@ -643,7 +656,7 @@ class TestProfileStalenessCheck:
             mock_config_instance,
             stack,
         ) = doctor_mocks(tmp_path)
-        mock_config_instance.profiles_dir = profiles_dir
+        mock_config_instance.paths.profiles_dir = profiles_dir
         try:
             # With max-age-days=200, the 100-day-old profile should NOT be stale
             result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False, max_age_days=200))
@@ -669,7 +682,7 @@ class TestProfileStalenessCheck:
             mock_config_instance,
             stack,
         ) = doctor_mocks(tmp_path)
-        mock_config_instance.profiles_dir = profiles_dir
+        mock_config_instance.paths.profiles_dir = profiles_dir
         try:
             result = cmd_doctor_repair(_make_namespace(dry_run=True, json=False))
 
@@ -700,7 +713,7 @@ class TestProfileStalenessCheck:
             mock_config_instance,
             stack,
         ) = doctor_mocks(tmp_path)
-        mock_config_instance.profiles_dir = profiles_dir
+        mock_config_instance.paths.profiles_dir = profiles_dir
         try:
             exit_code = cmd_doctor_check(_make_namespace(backend="all", json=False))
 
@@ -986,8 +999,8 @@ class TestCheckBuildLockBranches:
             )
         )
         config = MagicMock()
-        config.build_lock_path = lock_path
-        config.toolchain_timeout_seconds = 1
+        config.paths.build_lock_path = lock_path
+        config.build.toolchain_timeout_seconds = 1
 
         _check_build_lock(result, config)
 
@@ -1016,8 +1029,8 @@ class TestCheckBuildLockBranches:
             )
         )
         config = MagicMock()
-        config.build_lock_path = lock_path
-        config.toolchain_timeout_seconds = 3600
+        config.paths.build_lock_path = lock_path
+        config.build.toolchain_timeout_seconds = 3600
 
         _check_build_lock(result, config)
 
@@ -1038,8 +1051,8 @@ class TestCheckBuildLockBranches:
         lock_path = tmp_path / "lock"
         lock_path.write_text("not json")
         config = MagicMock()
-        config.build_lock_path = lock_path
-        config.toolchain_timeout_seconds = 3600
+        config.paths.build_lock_path = lock_path
+        config.build.toolchain_timeout_seconds = 3600
 
         _check_build_lock(result, config)
 
@@ -1066,7 +1079,7 @@ class TestCheckStagingDirs:
         (build_dir / ".failed").touch()
 
         config = MagicMock()
-        config.llama_cpp_root = str(tmp_path)
+        config.paths.llama_cpp_root = str(tmp_path)
 
         _check_staging_dirs(result, config)
 
@@ -1088,7 +1101,7 @@ class TestCheckStagingDirs:
         build_dir.mkdir()
 
         config = MagicMock()
-        config.llama_cpp_root = str(tmp_path)
+        config.paths.llama_cpp_root = str(tmp_path)
 
         _check_staging_dirs(result, config)
 
@@ -1233,7 +1246,7 @@ class TestCheckProfilesCorrupt:
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
         (profiles_dir / "corrupt.json").write_text("not json")
-        config.profiles_dir = profiles_dir
+        config.paths.profiles_dir = profiles_dir
 
         _check_profiles(result, config)
 
@@ -1340,7 +1353,7 @@ class TestCollectLockRepairActions:
         lock_path.write_text("not json")
 
         config = MagicMock()
-        config.build_lock_path = lock_path
+        config.paths.build_lock_path = lock_path
 
         _collect_lock_repair_actions(result, config)
 
@@ -1353,7 +1366,7 @@ class TestCollectLockRepairActions:
         lock_path = tmp_path / "nonexistent-lock"
 
         config = MagicMock()
-        config.build_lock_path = lock_path
+        config.paths.build_lock_path = lock_path
 
         _collect_lock_repair_actions(result, config)
 
@@ -1371,9 +1384,9 @@ class TestCollectDirectoriesRepairActions:
         reports_dir.write_text("I am a file")
 
         config = MagicMock()
-        config.reports_dir = reports_dir
-        config.profiles_dir = tmp_path / "profiles"
-        config.builds_dir = tmp_path / "builds"
+        config.paths.reports_dir = reports_dir
+        config.paths.profiles_dir = tmp_path / "profiles"
+        config.paths.builds_dir = tmp_path / "builds"
 
         _collect_directories_repair_actions(result, config)
 
@@ -1386,9 +1399,9 @@ class TestCollectDirectoriesRepairActions:
         result = DoctorRepairResult(actions=[])
 
         config = MagicMock()
-        config.reports_dir = tmp_path / "reports"
-        config.profiles_dir = tmp_path / "profiles"
-        config.builds_dir = tmp_path / "builds"
+        config.paths.reports_dir = tmp_path / "reports"
+        config.paths.profiles_dir = tmp_path / "profiles"
+        config.paths.builds_dir = tmp_path / "builds"
 
         _collect_directories_repair_actions(result, config)
 
@@ -1626,7 +1639,7 @@ class TestCheckReportsDir:
         reports_dir = tmp_path / "reports"
         reports_dir.mkdir()
         config = MagicMock()
-        config.reports_dir = reports_dir
+        config.paths.reports_dir = reports_dir
 
         _check_reports_dir(result, config)
 
@@ -1645,7 +1658,7 @@ class TestCheckReportsDir:
         )
         reports_dir = tmp_path / "reports"
         config = MagicMock()
-        config.reports_dir = reports_dir
+        config.paths.reports_dir = reports_dir
 
         _check_reports_dir(result, config)
 

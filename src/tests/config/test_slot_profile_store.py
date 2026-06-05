@@ -7,13 +7,19 @@ from typing import Any
 
 import pytest
 
-from llama_manager.config.profiles import RunProfileSpec
-from llama_manager.run_profile_store import (
+from llama_manager.config.profiles import SlotProfileSpec as RunProfileSpec
+from llama_manager.slot_profile_store import (
     _profile_from_dict,
     _profile_to_dict,
-    load_custom_run_profiles,
-    run_profiles_file_path,
-    save_custom_run_profile,
+)
+from llama_manager.slot_profile_store import (
+    load_custom_slot_profiles as load_custom_run_profiles,
+)
+from llama_manager.slot_profile_store import (
+    save_custom_slot_profile as save_custom_run_profile,
+)
+from llama_manager.slot_profile_store import (
+    slot_profiles_file_path as run_profiles_file_path,
 )
 
 # ---------------------------------------------------------------------------
@@ -52,14 +58,14 @@ def sample_profile() -> RunProfileSpec:
 
 def test_run_profiles_file_path_uses_xdg_config(xdg_config_home: Path) -> None:
     """run_profiles_file_path should use XDG_CONFIG_HOME when set."""
-    expected = xdg_config_home / "llm-runner" / "run_profiles.toml"
+    expected = xdg_config_home / "llm-runner" / "slot_profiles.toml"
     assert run_profiles_file_path() == expected
 
 
 def test_run_profiles_file_path_falls_back_to_home(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When XDG_CONFIG_HOME is unset, path should be ~/.config/llm-runner/run_profiles.toml."""
+    """When XDG_CONFIG_HOME is unset, path should be ~/.config/llm-runner/slot_profiles.toml."""
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
 
@@ -68,7 +74,7 @@ def test_run_profiles_file_path_falls_back_to_home(
 
     monkeypatch.setattr(Path, "home", staticmethod(fake_home))
     result = run_profiles_file_path()
-    assert result == tmp_path / ".config" / "llm-runner" / "run_profiles.toml"
+    assert result == tmp_path / ".config" / "llm-runner" / "slot_profiles.toml"
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +90,7 @@ def test_load_custom_run_profiles_empty_when_no_file(xdg_config_home: Path) -> N
 
 def test_load_custom_run_profiles_parses_valid_file(xdg_config_home: Path) -> None:
     """load_custom_run_profiles should parse a valid TOML file correctly."""
-    toml_path = xdg_config_home / "llm-runner" / "run_profiles.toml"
+    toml_path = xdg_config_home / "llm-runner" / "slot_profiles.toml"
     toml_path.parent.mkdir(parents=True, exist_ok=True)
     toml_path.write_text(
         '[["profiles"]]\n'
@@ -115,7 +121,7 @@ def test_load_custom_run_profiles_parses_valid_file(xdg_config_home: Path) -> No
 
 def test_load_custom_run_profiles_returns_empty_on_invalid_toml(xdg_config_home: Path) -> None:
     """load_custom_run_profiles should return empty list for invalid TOML."""
-    toml_path = xdg_config_home / "llm-runner" / "run_profiles.toml"
+    toml_path = xdg_config_home / "llm-runner" / "slot_profiles.toml"
     toml_path.parent.mkdir(parents=True, exist_ok=True)
     toml_path.write_text("this is not valid toml {{{", encoding="utf-8")
     profiles = load_custom_run_profiles()
@@ -124,7 +130,7 @@ def test_load_custom_run_profiles_returns_empty_on_invalid_toml(xdg_config_home:
 
 def test_load_custom_run_profiles_returns_empty_on_missing_keys(xdg_config_home: Path) -> None:
     """load_custom_run_profiles should return empty list when required keys are missing."""
-    toml_path = xdg_config_home / "llm-runner" / "run_profiles.toml"
+    toml_path = xdg_config_home / "llm-runner" / "slot_profiles.toml"
     toml_path.parent.mkdir(parents=True, exist_ok=True)
     toml_path.write_text(
         '[["profiles"]]\n'
@@ -385,7 +391,9 @@ def test_upsert_custom_run_profile_appends_new(
     sample_profile: RunProfileSpec,
 ) -> None:
     """upsert with non-existing original_profile_id should append a new entry."""
-    from llama_manager.run_profile_store import upsert_custom_run_profile
+    from llama_manager.slot_profile_store import (
+        upsert_custom_slot_profile as upsert_custom_run_profile,
+    )
 
     upsert_custom_run_profile("nonexistent", sample_profile)
 
@@ -399,7 +407,9 @@ def test_upsert_custom_run_profile_replaces_existing(
     sample_profile: RunProfileSpec,
 ) -> None:
     """upsert with existing original_profile_id should replace that entry."""
-    from llama_manager.run_profile_store import upsert_custom_run_profile
+    from llama_manager.slot_profile_store import (
+        upsert_custom_slot_profile as upsert_custom_run_profile,
+    )
 
     # First save the profile
     save_custom_run_profile(sample_profile)
@@ -430,7 +440,9 @@ def test_upsert_custom_run_profile_rename(
     sample_profile: RunProfileSpec,
 ) -> None:
     """upsert with different profile.profile_id should rename the entry."""
-    from llama_manager.run_profile_store import upsert_custom_run_profile
+    from llama_manager.slot_profile_store import (
+        upsert_custom_slot_profile as upsert_custom_run_profile,
+    )
 
     save_custom_run_profile(sample_profile)
 
@@ -458,7 +470,9 @@ def test_upsert_custom_run_profile_rename_checks_conflict(
     sample_profile: RunProfileSpec,
 ) -> None:
     """Rename that conflicts with existing entry should raise ValueError."""
-    from llama_manager.run_profile_store import upsert_custom_run_profile
+    from llama_manager.slot_profile_store import (
+        upsert_custom_slot_profile as upsert_custom_run_profile,
+    )
 
     profile_2 = RunProfileSpec(
         profile_id="target-profile",
@@ -499,7 +513,12 @@ def test_delete_custom_run_profile_removes_custom_entry(
     sample_profile: RunProfileSpec,
 ) -> None:
     """delete should remove a custom profile from [[profiles]]."""
-    from llama_manager.run_profile_store import delete_custom_run_profile, load_custom_run_profiles
+    from llama_manager.slot_profile_store import (
+        delete_custom_slot_profile as delete_custom_run_profile,
+    )
+    from llama_manager.slot_profile_store import (
+        load_custom_slot_profiles as load_custom_run_profiles,
+    )
 
     save_custom_run_profile(sample_profile)
 
@@ -516,15 +535,19 @@ def test_delete_custom_run_profile_hides_builtin(
     sample_profile: RunProfileSpec,
 ) -> None:
     """delete should mark a built-in as hidden when no custom entry exists."""
-    from llama_manager.run_profile_store import (
-        delete_custom_run_profile,
+    from llama_manager.slot_profile_store import (
+        delete_custom_slot_profile as delete_custom_run_profile,
+    )
+    from llama_manager.slot_profile_store import (
         load_hidden_builtin_profile_ids,
     )
 
-    toml_path = xdg_config_home / "llm-runner" / "run_profiles.toml"
+    toml_path = xdg_config_home / "llm-runner" / "slot_profiles.toml"
     toml_path.parent.mkdir(parents=True, exist_ok=True)
     toml_path.write_text("", encoding="utf-8")
-    monkeypatch.setattr("llama_manager.run_profile_store.run_profiles_file_path", lambda: toml_path)
+    monkeypatch.setattr(
+        "llama_manager.slot_profile_store.slot_profiles_file_path", lambda: toml_path
+    )
 
     builtin_ids: set[str] = {"summary-balanced", "summary-fast", "qwen35"}
     result = delete_custom_run_profile("summary-fast", builtin_ids)
@@ -538,7 +561,9 @@ def test_delete_custom_run_profile_not_found(
     xdg_config_home: Path,
 ) -> None:
     """delete should return False for unknown profile_id."""
-    from llama_manager.run_profile_store import delete_custom_run_profile
+    from llama_manager.slot_profile_store import (
+        delete_custom_slot_profile as delete_custom_run_profile,
+    )
 
     result = delete_custom_run_profile("unknown-profile")
     assert result is False
@@ -549,8 +574,10 @@ def test_delete_custom_run_profile_removes_custom_and_restores_builtin(
     sample_profile: RunProfileSpec,
 ) -> None:
     """delete custom entry should remove it, hiding the builtin."""
-    from llama_manager.run_profile_store import (
-        delete_custom_run_profile,
+    from llama_manager.slot_profile_store import (
+        delete_custom_slot_profile as delete_custom_run_profile,
+    )
+    from llama_manager.slot_profile_store import (
         load_hidden_builtin_profile_ids,
     )
 
@@ -575,7 +602,7 @@ def test_custom_profile_exists_true(
     sample_profile: RunProfileSpec,
 ) -> None:
     """custom_profile_exists should return True for a saved custom profile."""
-    from llama_manager.run_profile_store import custom_profile_exists
+    from llama_manager.slot_profile_store import custom_slot_profile_exists as custom_profile_exists
 
     save_custom_run_profile(sample_profile)
     assert custom_profile_exists("my-custom-profile") is True
@@ -585,7 +612,7 @@ def test_custom_profile_exists_false(
     xdg_config_home: Path,
 ) -> None:
     """custom_profile_exists should return False for unknown profile_id."""
-    from llama_manager.run_profile_store import custom_profile_exists
+    from llama_manager.slot_profile_store import custom_slot_profile_exists as custom_profile_exists
 
     assert custom_profile_exists("nonexistent") is False
 
@@ -599,9 +626,9 @@ def test_load_hidden_builtin_profile_ids_returns_set(
     xdg_config_home: Path,
 ) -> None:
     """load_hidden_builtin_profile_ids should load from TOML."""
-    from llama_manager.run_profile_store import load_hidden_builtin_profile_ids
+    from llama_manager.slot_profile_store import load_hidden_builtin_profile_ids
 
-    toml_path = xdg_config_home / "llm-runner" / "run_profiles.toml"
+    toml_path = xdg_config_home / "llm-runner" / "slot_profiles.toml"
     toml_path.parent.mkdir(parents=True, exist_ok=True)
     toml_path.write_text(
         'hidden_builtin_profiles = ["summary-fast", "qwen35"]\n',
@@ -616,7 +643,7 @@ def test_load_hidden_builtin_profile_ids_empty_when_no_file(
     xdg_config_home: Path,
 ) -> None:
     """load_hidden_builtin_profile_ids should return empty set when no file."""
-    from llama_manager.run_profile_store import load_hidden_builtin_profile_ids
+    from llama_manager.slot_profile_store import load_hidden_builtin_profile_ids
 
     hidden = load_hidden_builtin_profile_ids()
     assert hidden == set()

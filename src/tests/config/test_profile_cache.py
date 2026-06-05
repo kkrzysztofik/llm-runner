@@ -8,11 +8,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from llama_manager.common.text import sanitize_filename_component
 from llama_manager.config.profile_cache import (
     ProfileFlavor,
     ProfileMetrics,
     ProfileRecord,
-    _sanitize_filename_component,
     compute_driver_version_hash,
     compute_gpu_identifier,
     ensure_profiles_dir,
@@ -21,81 +21,81 @@ from llama_manager.config.profile_cache import (
 
 
 class TestSanitizeFilenameComponent:
-    """Tests for _sanitize_filename_component."""
+    """Tests for sanitize_filename_component."""
 
     def test_alphanumeric_passthrough(self) -> None:
         """Alphanumeric strings pass through unchanged."""
-        assert _sanitize_filename_component("hello123") == "hello123"
+        assert sanitize_filename_component("hello123") == "hello123"
 
     def test_dashes_preserved(self) -> None:
         """Dashes are preserved in the output."""
-        assert _sanitize_filename_component("hello-world") == "hello-world"
+        assert sanitize_filename_component("hello-world") == "hello-world"
 
     def test_underscores_preserved(self) -> None:
         """Underscores are preserved in the output."""
-        assert _sanitize_filename_component("hello_world") == "hello_world"
+        assert sanitize_filename_component("hello_world") == "hello_world"
 
     def test_dots_preserved(self) -> None:
         """Dots are preserved in the output."""
-        assert _sanitize_filename_component("hello.world") == "hello.world"
+        assert sanitize_filename_component("hello.world") == "hello.world"
 
     def test_uppercase_lowercased(self) -> None:
         """Uppercase letters are lowercased."""
-        assert _sanitize_filename_component("HelloWorld") == "helloworld"
+        assert sanitize_filename_component("HelloWorld") == "helloworld"
 
     def test_spaces_replaced_with_underscore(self) -> None:
         """Spaces are replaced with underscores."""
-        assert _sanitize_filename_component("hello world") == "hello_world"
+        assert sanitize_filename_component("hello world") == "hello_world"
 
     def test_special_chars_replaced_with_underscore(self) -> None:
         """Special characters are replaced with underscores."""
-        assert _sanitize_filename_component("GeForce RTX 3090") == "geforce_rtx_3090"
+        assert sanitize_filename_component("GeForce RTX 3090") == "geforce_rtx_3090"
 
     def test_leading_trailing_stripped(self) -> None:
         """Leading and trailing whitespace is stripped."""
-        assert _sanitize_filename_component("  hello  ") == "hello"
+        assert sanitize_filename_component("  hello  ") == "hello"
 
     def test_mixed_case_and_special(self) -> None:
         """Mixed case with special chars is fully sanitized."""
-        assert _sanitize_filename_component("GeForce RTX 3090 Ti!") == "geforce_rtx_3090_ti_"
+        assert sanitize_filename_component("GeForce RTX 3090 Ti!") == "geforce_rtx_3090_ti_"
 
     def test_numbers_preserved(self) -> None:
         """Numbers are preserved."""
-        assert _sanitize_filename_component("model_v2_1") == "model_v2_1"
+        assert sanitize_filename_component("model_v2_1") == "model_v2_1"
 
     def test_empty_string_raises(self) -> None:
         """Empty string raises ValueError."""
         with pytest.raises(ValueError, match="non-empty string"):
-            _sanitize_filename_component("")
+            sanitize_filename_component("")
 
     def test_none_raises(self) -> None:
         """None raises ValueError."""
         with pytest.raises(ValueError, match="non-empty string"):
-            _sanitize_filename_component(None)  # type: ignore[arg-type]
+            sanitize_filename_component(None)  # type: ignore[arg-type]
 
     def test_whitespace_only_raises(self) -> None:
         """Whitespace-only string raises ValueError."""
         with pytest.raises(ValueError, match="at least one valid character"):
-            _sanitize_filename_component("   ")
+            sanitize_filename_component("   ")
 
     def test_all_special_chars_becomes_underscores(self) -> None:
         """String with only special chars becomes underscores (not empty)."""
         # @#$% all become underscores -> "____" which is non-empty
-        result = _sanitize_filename_component("@#$%")
+        result = sanitize_filename_component("@#$%")
         assert result == "____"
 
     def test_mixed_valid_invalid(self) -> None:
         """Mixed valid and invalid chars produces sanitized result."""
-        result = _sanitize_filename_component("GPU@Device#1")
+        result = sanitize_filename_component("GPU@Device#1")
         assert result == "gpu_device_1"
 
     def test_numeric_string(self) -> None:
         """Pure numeric string passes through."""
-        assert _sanitize_filename_component("12345") == "12345"
+        assert sanitize_filename_component("12345") == "12345"
 
     def test_underscore_hyphen_mixed(self) -> None:
         """Mixed underscores and hyphens are preserved."""
-        assert _sanitize_filename_component("a_b-c_d") == "a_b-c_d"
+        assert sanitize_filename_component("a_b-c_d") == "a_b-c_d"
 
 
 class TestComputeGpuIdentifier:
@@ -256,11 +256,11 @@ class TestGetProfilePath:
         """Path traversal attempts should raise ValueError."""
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
-        # Mock _sanitize_filename_component to return a path with ..
+        # Mock sanitize_filename_component to return a path with ..
         # This tests the traversal protection in get_profile_path
         with (
             patch(
-                "llama_manager.config.profile_cache._sanitize_filename_component",
+                "llama_manager.config.profile_cache.sanitize_filename_component",
                 side_effect=lambda s: "../../../etc" if s == "gpu" else s,
             ),
             pytest.raises(ValueError, match="escapes profiles_dir"),

@@ -1,7 +1,6 @@
 """Dashboard controller for the Textual TUI."""
 
 import contextlib
-import dataclasses
 import logging
 import signal
 import threading
@@ -43,7 +42,7 @@ from llama_manager.logging_setup import (
 )
 
 from .components.config_modal import ConfigPayload
-from .components.run_profile_modal import RunProfilePayload
+from .components.slot_profile_modal import SlotProfilePayload
 from .constants import MSG_BUILD_CANCELLED, MSG_BUILD_FAILED
 from .model import DashboardModel
 from .textual_app import DashboardApp
@@ -337,7 +336,7 @@ class DashboardController:
         for cfg in self.configs:
             try:
                 _record, staleness = load_profile_with_staleness(
-                    profiles_dir=self.config.profiles_dir,
+                    profiles_dir=self.config.paths.profiles_dir,
                     gpu_identifier=get_gpu_identifier(cfg.backend),
                     backend=cfg.backend,
                     flavor=ProfileFlavor.BALANCED,
@@ -530,14 +529,7 @@ class DashboardController:
         """
         from llama_manager import apply_config_updates
 
-        # Convert ConfigPayload to update dict (exclude restart flag)
-        updates: dict[str, object] = {}
-        for field in dataclasses.fields(payload):
-            if field.name == "restart":
-                continue
-            updates[field.name] = getattr(payload, field.name)
-
-        result = apply_config_updates(self.model.config, updates)
+        result = apply_config_updates(self.model.config, payload.to_config_updates())
 
         if result.errors:
             for error in result.errors:
@@ -581,17 +573,17 @@ class DashboardController:
         except OSError as exc:
             return (False, f"Failed to clean model cache: {exc}")
 
-    def list_run_profiles(self) -> list[tuple[Any, str]]:
-        """Return list of ``(RunProfileSpec, source)`` tuples for all profiles.
+    def list_slot_profiles(self) -> list[tuple[Any, str]]:
+        """Return list of ``(SlotProfileSpec, source)`` tuples for all profiles.
 
         Source is ``'builtin'`` or ``'custom'``.
         """
-        from llama_manager.run_profile_store import custom_profile_exists
+        from llama_manager.slot_profile_store import custom_slot_profile_exists
 
         registry = self._build_tui_registry()
         result: list[tuple[Any, str]] = []
         for p in registry.profiles:
-            is_custom = custom_profile_exists(p.profile_id)
+            is_custom = custom_slot_profile_exists(p.profile_id)
             source = "custom" if is_custom else "builtin"
             result.append((p, source))
         return result
@@ -607,8 +599,8 @@ class DashboardController:
                 return True
         return False
 
-    def update_run_profile(self, original_profile_id: str, payload: RunProfilePayload) -> bool:
-        """Update an existing run profile.
+    def update_slot_profile(self, original_profile_id: str, payload: SlotProfilePayload) -> bool:
+        """Update an existing slot profile.
 
         Handles both built-in override and custom profile update.
 
@@ -622,7 +614,7 @@ class DashboardController:
         """
         import json
 
-        from llama_manager.run_profile_store import upsert_custom_run_profile
+        from llama_manager.slot_profile_store import upsert_custom_slot_profile
 
         profile_id = payload.profile_id.strip().lower().replace(" ", "-")
         if not profile_id:
@@ -665,24 +657,24 @@ class DashboardController:
                 self._push_status_message("chat_template_kwargs must be valid JSON")
                 return False
 
-        from .components.run_profile_modal import payload_to_run_profile_spec
+        from .components.slot_profile_modal import payload_to_slot_profile_spec
 
         try:
-            spec = payload_to_run_profile_spec(profile_id, payload)
+            spec = payload_to_slot_profile_spec(profile_id, payload)
         except ValueError as exc:
             self._push_status_message(str(exc))
             return False
 
         try:
-            upsert_custom_run_profile(original_profile_id, spec)
+            upsert_custom_slot_profile(original_profile_id, spec)
             self._push_status_message(f"Profile '{profile_id}' updated")
             return True
         except ValueError as exc:
             self._push_status_message(str(exc))
             return False
 
-    def delete_run_profile(self, profile_id: str) -> bool:
-        """Delete/hide a run profile. Returns True if successful.
+    def delete_slot_profile(self, profile_id: str) -> bool:
+        """Delete/hide a slot profile. Returns True if successful.
 
         Args:
             profile_id: The profile identifier to delete/hide.
@@ -690,7 +682,7 @@ class DashboardController:
         Returns:
             True if the profile was found and acted on, False otherwise.
         """
-        from llama_manager.run_profile_store import delete_custom_run_profile
+        from llama_manager.slot_profile_store import delete_custom_slot_profile
 
         # Check if in use
         if self.is_profile_in_use(profile_id):
@@ -699,7 +691,7 @@ class DashboardController:
 
         builtin_ids = self._builtin_profile_ids()
         try:
-            result = delete_custom_run_profile(profile_id, builtin_ids)
+            result = delete_custom_slot_profile(profile_id, builtin_ids)
             if result:
                 self._push_status_message(f"Profile '{profile_id}' deleted")
             else:
@@ -709,18 +701,18 @@ class DashboardController:
             self._push_status_message(f"Error deleting profile: {exc}")
             return False
 
-    def save_run_profile_from_form(self, payload: RunProfilePayload) -> bool:
-        """Save a custom run profile from the modal form payload.
+    def save_slot_profile_from_form(self, payload: SlotProfilePayload) -> bool:
+        """Save a custom slot profile from the modal form payload.
 
         Args:
-            payload: Typed form values from the run profile modal.
+            payload: Typed form values from the slot profile modal.
 
         Returns:
             True if the profile was saved successfully, False otherwise.
         """
         import json
 
-        from llama_manager.run_profile_store import save_custom_run_profile
+        from llama_manager.slot_profile_store import save_custom_slot_profile
 
         profile_id = payload.profile_id.strip().lower().replace(" ", "-")
         if not profile_id:
@@ -772,16 +764,16 @@ class DashboardController:
             self._push_status_message("Device is required")
             return False
 
-        from .components.run_profile_modal import payload_to_run_profile_spec
+        from .components.slot_profile_modal import payload_to_slot_profile_spec
 
         try:
-            spec = payload_to_run_profile_spec(profile_id, payload)
+            spec = payload_to_slot_profile_spec(profile_id, payload)
         except ValueError as exc:
             self._push_status_message(str(exc))
             return False
 
         try:
-            save_custom_run_profile(spec)
+            save_custom_slot_profile(spec)
             return True
         except ValueError as exc:
             self._push_status_message(str(exc))

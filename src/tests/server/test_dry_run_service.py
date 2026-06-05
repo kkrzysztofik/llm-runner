@@ -1,11 +1,7 @@
 """Tests for dry-run domain service."""
 
-from llama_manager import (
-    Config,
-    DryRunResult,
-    create_default_profile_registry,
-    run_dry_run,
-)
+from llama_manager.config import Config, create_default_profile_registry
+from llama_manager.dry_run import DryRunResult, run_dry_run
 
 
 class TestRunDryRun:

@@ -350,7 +350,7 @@ class TestServerManagerAckFlow:
         manager.begin_launch_attempt()
         manager.clear_risk_acknowledgements()
 
-        assert manager._current_launch_attempt_id is None
+        assert manager._risk._current_launch_attempt_id is None
 
 
 class TestServerManagerFormatOutput:

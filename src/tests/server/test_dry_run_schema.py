@@ -21,7 +21,7 @@ from typing import Any
 
 from llama_manager.config import ErrorCode, ServerConfig
 from llama_manager.validation import (
-    ValidationResults,
+    DryRunValidationSummary,
     VllmEligibility,
     build_dry_run_slot_payload,
 )
@@ -51,7 +51,7 @@ class TestFR003PerSlotRequiredFields:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert hasattr(payload, "slot_id")
@@ -64,7 +64,7 @@ class TestFR003PerSlotRequiredFields:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert hasattr(payload, "binary_path")
@@ -77,7 +77,7 @@ class TestFR003PerSlotRequiredFields:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert hasattr(payload, "command_args")
@@ -90,7 +90,7 @@ class TestFR003PerSlotRequiredFields:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert hasattr(payload, "model_path")
@@ -102,7 +102,7 @@ class TestFR003PerSlotRequiredFields:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert hasattr(payload, "bind_address")
@@ -115,7 +115,7 @@ class TestFR003PerSlotRequiredFields:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert hasattr(payload, "port")
@@ -128,7 +128,7 @@ class TestFR003PerSlotRequiredFields:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert hasattr(payload, "environment_redacted")
@@ -140,7 +140,7 @@ class TestFR003PerSlotRequiredFields:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert hasattr(payload, "openai_flag_bundle")
@@ -152,7 +152,7 @@ class TestFR003PerSlotRequiredFields:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert hasattr(payload, "hardware_notes")
@@ -164,7 +164,7 @@ class TestFR003PerSlotRequiredFields:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert hasattr(payload, "vllm_eligibility")
@@ -176,7 +176,7 @@ class TestFR003PerSlotRequiredFields:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=["warning1", "warning2"],
         )
         assert hasattr(payload, "warnings")
@@ -184,16 +184,16 @@ class TestFR003PerSlotRequiredFields:
         assert payload.warnings == ["warning1", "warning2"]
 
     def test_validation_results_field_present_and_object(self) -> None:
-        """FR-003: validation_results must be present and be a ValidationResults object."""
+        """FR-003: validation_results must be present and be a DryRunValidationSummary object."""
         cfg = self._minimal_cfg()
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert hasattr(payload, "validation_results")
-        assert isinstance(payload.validation_results, ValidationResults)
+        assert isinstance(payload.validation_results, DryRunValidationSummary)
 
 
 class TestFR003DeterministicFieldOrdering:
@@ -209,7 +209,7 @@ class TestFR003DeterministicFieldOrdering:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         # Get field order from __dataclass_fields__ which preserves definition order
@@ -233,7 +233,7 @@ class TestFR003DeterministicFieldOrdering:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         field_names = list(payload.__dataclass_fields__.keys())
@@ -271,7 +271,7 @@ class TestFR003CommandArgsEdgeCases:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         # Path with spaces should be tokenized correctly
@@ -284,7 +284,7 @@ class TestFR003CommandArgsEdgeCases:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert "/path/model-with_chars$.gguf" in payload.command_args
@@ -295,7 +295,7 @@ class TestFR003CommandArgsEdgeCases:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         # Verify key flag-argument patterns exist
@@ -318,7 +318,7 @@ class TestFR003CommandArgsEdgeCases:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.command_args, list)
@@ -330,14 +330,14 @@ class TestFR003CommandArgsEdgeCases:
         payload1 = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         # Create another payload for same config
         payload2 = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         # Command args should be identical (deterministic)
@@ -351,7 +351,7 @@ class TestFR003CommandArgsEdgeCases:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.command_args, list)
@@ -364,14 +364,14 @@ class TestFR003CommandArgsEdgeCases:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert long_path in payload.command_args
         assert len(payload.command_args) > 0
 
 
-class TestFR003ValidationResultsOrdering:
+class TestFR003DryRunValidationSummaryOrdering:
     """FR-003: Validation results ordering within slot payload."""
 
     def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
@@ -384,7 +384,7 @@ class TestFR003ValidationResultsOrdering:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="slot1",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.validation_results.passed, bool)
@@ -396,7 +396,7 @@ class TestFR003ValidationResultsOrdering:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="slot1",
-            validation_results=ValidationResults(passed=True, checks=checks),
+            validation_results=DryRunValidationSummary(passed=True, checks=checks),
             warnings=[],
         )
         assert isinstance(payload.validation_results.checks, list)
@@ -415,7 +415,7 @@ class TestFR003EnvironmentRedaction:
         payload = build_dry_run_slot_payload(
             self._cfg(slot_id="slot1"),
             slot_id="slot1",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.environment_redacted, dict)
@@ -433,7 +433,7 @@ class TestFR003EnvironmentRedaction:
             payload = build_dry_run_slot_payload(
                 self._cfg(slot_id="slot1"),
                 slot_id="slot1",
-                validation_results=ValidationResults(passed=True, checks=[]),
+                validation_results=DryRunValidationSummary(passed=True, checks=[]),
                 warnings=[],
             )
             # API_KEY should be redacted
@@ -451,7 +451,7 @@ class TestFR003EnvironmentRedaction:
             payload = build_dry_run_slot_payload(
                 self._cfg(slot_id="slot1"),
                 slot_id="slot1",
-                validation_results=ValidationResults(passed=True, checks=[]),
+                validation_results=DryRunValidationSummary(passed=True, checks=[]),
                 warnings=[],
             )
             # MODEL_PATH should NOT be redacted (not in KEY|TOKEN|SECRET|PASSWORD|AUTH)
@@ -473,7 +473,7 @@ class TestFR003HardwareNotes:
         payload = build_dry_run_slot_payload(
             self._cfg(slot_id="slot1"),
             slot_id="slot1",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert "backend" in payload.hardware_notes
@@ -485,7 +485,7 @@ class TestFR003HardwareNotes:
         payload = build_dry_run_slot_payload(
             self._cfg(slot_id="slot1"),
             slot_id="slot1",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         backend = payload.hardware_notes["backend"]
@@ -496,7 +496,7 @@ class TestFR003HardwareNotes:
         payload = build_dry_run_slot_payload(
             self._cfg(slot_id="slot1"),
             slot_id="slot1",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         device_id = payload.hardware_notes["device_id"]
@@ -507,7 +507,7 @@ class TestFR003HardwareNotes:
         payload = build_dry_run_slot_payload(
             self._cfg(slot_id="slot1"),
             slot_id="slot1",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         device_name = payload.hardware_notes["device_name"]
@@ -526,7 +526,7 @@ class TestFR003VllmEligibility:
         payload = build_dry_run_slot_payload(
             self._cfg(slot_id="slot1"),
             slot_id="slot1",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert hasattr(payload.vllm_eligibility, "eligible")
@@ -537,7 +537,7 @@ class TestFR003VllmEligibility:
         payload = build_dry_run_slot_payload(
             self._cfg(slot_id="slot1"),
             slot_id="slot1",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert hasattr(payload.vllm_eligibility, "reason")
@@ -548,7 +548,7 @@ class TestFR003VllmEligibility:
         payload = build_dry_run_slot_payload(
             self._cfg(slot_id="slot1"),
             slot_id="slot1",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert payload.vllm_eligibility.eligible is False
@@ -599,14 +599,14 @@ class TestFR003SlotConfigurationSequenceConsistency:
             f"Sort order mismatch: expected {expected_sorted_order}, got {actual_sorted_order}"
         )
 
-        # Create ValidationResults with same slot order
-        validation_results = ValidationResults(
+        # Create DryRunValidationSummary with same slot order
+        validation_results = DryRunValidationSummary(
             passed=False,
             checks=[
                 {
                     "slot_id": error.failed_check.split("_")[1],
                     "failed_check": error.failed_check,
-                    "error_code": error.error_code.value,
+                    "error_code": error.error_code.value,  # type: ignore[union-attr]
                 }
                 for error in mve.errors
             ],
@@ -652,7 +652,7 @@ class TestFR003SlotConfigurationSequenceConsistency:
             build_dry_run_slot_payload(
                 self._cfg(slot_id=error.failed_check.split("_")[1]),
                 slot_id=error.failed_check.split("_")[1],
-                validation_results=ValidationResults(
+                validation_results=DryRunValidationSummary(
                     passed=False,
                     checks=[{"failed_check": error.failed_check}],
                 ),
@@ -767,7 +767,7 @@ class TestFR003NewArtifactShapeAssertions:
             build_dry_run_slot_payload(
                 self._cfg(slot_id=error.failed_check.split("_")[1]),
                 slot_id=error.failed_check.split("_")[1],
-                validation_results=ValidationResults(
+                validation_results=DryRunValidationSummary(
                     passed=False, checks=[{"failed_check": error.failed_check}]
                 ),
                 warnings=[],
@@ -805,7 +805,7 @@ class TestFR003NewArtifactShapeAssertions:
             build_dry_run_slot_payload(
                 self._cfg(slot_id=error.failed_check.split("_")[1]),
                 slot_id=error.failed_check.split("_")[1],
-                validation_results=ValidationResults(
+                validation_results=DryRunValidationSummary(
                     passed=False, checks=[{"failed_check": error.failed_check}]
                 ),
                 warnings=[],
@@ -855,7 +855,7 @@ class TestFR003NewArtifactShapeAssertions:
             build_dry_run_slot_payload(
                 self._cfg(slot_id=error.failed_check.split("_")[1]),
                 slot_id=error.failed_check.split("_")[1],
-                validation_results=ValidationResults(
+                validation_results=DryRunValidationSummary(
                     passed=False, checks=[{"failed_check": error.failed_check}]
                 ),
                 warnings=[],
@@ -883,7 +883,7 @@ class TestFR003NewArtifactShapeAssertions:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
 
@@ -967,7 +967,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.slot_id, str)
@@ -979,7 +979,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.binary_path, str)
@@ -991,7 +991,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.command_args, list)
@@ -1004,7 +1004,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.model_path, str)
@@ -1016,7 +1016,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.bind_address, str)
@@ -1028,7 +1028,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.port, int)
@@ -1040,7 +1040,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.environment_redacted, dict)
@@ -1052,7 +1052,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.openai_flag_bundle, dict)
@@ -1066,7 +1066,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         for key, value in payload.openai_flag_bundle.items():
@@ -1080,7 +1080,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.hardware_notes, dict)
@@ -1101,7 +1101,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert payload.hardware_notes["backend"] == "llama_cpp"
@@ -1112,7 +1112,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert payload.hardware_notes["backend"] == "llama_cpp"
@@ -1125,7 +1125,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert payload.hardware_notes["backend"] == "llama_cpp"
@@ -1138,7 +1138,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert isinstance(payload.vllm_eligibility, VllmEligibility)
@@ -1151,7 +1151,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert payload.vllm_eligibility.eligible is False
@@ -1163,7 +1163,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=["warning1", "warning2"],
         )
         assert isinstance(payload.warnings, list)
@@ -1171,16 +1171,16 @@ class TestFR003DryRunPayloadContract:
         assert payload.warnings == ["warning1", "warning2"]
 
     def test_validation_results_field_present_and_type(self) -> None:
-        """FR-003: validation_results should be ValidationResults object."""
+        """FR-003: validation_results should be DryRunValidationSummary object."""
         cfg = self._minimal_cfg()
-        validation = ValidationResults(passed=True, checks=[{"check": "test"}])
+        validation = DryRunValidationSummary(passed=True, checks=[{"check": "test"}])
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
             validation_results=validation,
             warnings=[],
         )
-        assert isinstance(payload.validation_results, ValidationResults)
+        assert isinstance(payload.validation_results, DryRunValidationSummary)
         assert payload.validation_results.passed is True
         assert isinstance(payload.validation_results.checks, list)
 
@@ -1213,7 +1213,7 @@ class TestFR003DryRunPayloadContract:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         # Verify field order by checking attribute names in __dict__
@@ -1579,7 +1579,7 @@ class TestFR011VllmBlockingActionableFields:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert payload.vllm_eligibility.eligible is False
@@ -1599,7 +1599,7 @@ class TestFR003OpenAIBundleDeterminism:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         keys = list(payload.openai_flag_bundle.keys())
@@ -1617,13 +1617,13 @@ class TestFR003OpenAIBundleDeterminism:
         payload1 = build_dry_run_slot_payload(
             cfg,
             slot_id="qwen35-test",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         payload2 = build_dry_run_slot_payload(
             cfg,
             slot_id="qwen35-test",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         # Should produce identical bundles
@@ -1640,7 +1640,7 @@ class TestFR003OpenAIBundleDeterminism:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert payload.openai_flag_bundle["--chat-format"] == "chatml"
@@ -1651,7 +1651,7 @@ class TestFR003OpenAIBundleDeterminism:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert payload.openai_flag_bundle["--chat-format"] is None
@@ -1662,7 +1662,7 @@ class TestFR003OpenAIBundleDeterminism:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         keys = set(payload.openai_flag_bundle.keys())
@@ -1678,19 +1678,19 @@ class TestFR003OpenAIBundleDeterminism:
         payload1 = build_dry_run_slot_payload(
             cfg,
             slot_id="test",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         payload2 = build_dry_run_slot_payload(
             cfg,
             slot_id="test",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         payload3 = build_dry_run_slot_payload(
             cfg,
             slot_id="test",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
 
@@ -1706,13 +1706,13 @@ class TestFR003OpenAIBundleDeterminism:
         payload1 = build_dry_run_slot_payload(
             cfg1,
             slot_id="test1",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         payload2 = build_dry_run_slot_payload(
             cfg2,
             slot_id="test2",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
 
@@ -1725,7 +1725,7 @@ class TestFR003OpenAIBundleDeterminism:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         assert payload.openai_flag_bundle["--host"] == "127.0.0.1"
@@ -1755,7 +1755,7 @@ class TestFR003DryRunHumanReadableOutput:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
 
@@ -1783,7 +1783,7 @@ class TestFR003DryRunHumanReadableOutput:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
 

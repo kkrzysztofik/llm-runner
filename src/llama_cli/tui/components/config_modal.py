@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widget import Widget
@@ -14,7 +13,9 @@ from llama_manager.config import Config
 from .form_widgets import (
     CONFIG_ROW_SELECT_CLASSES,
     CONFIG_SELECT_CLASSES,
+    MODAL_CANCEL_BINDINGS,
     build_config_profile_defaults_collapsible,
+    field_row,
     select_row,
 )
 
@@ -69,6 +70,51 @@ class ConfigPayload:
     restart: bool = False
     clean_cache: bool = False
 
+    def to_config_updates(self) -> dict[str, object]:
+        return {
+            "paths.llama_cpp_root": self.llama_cpp_root,
+            "paths.models_dir": self.models_dir,
+            "paths.llama_server_bin_intel": self.llama_server_bin_intel,
+            "paths.llama_server_bin_nvidia": self.llama_server_bin_nvidia,
+            "deployment.host": self.host,
+            "build.git_remote": self.build_git_remote,
+            "build.git_branch": self.build_git_branch,
+            "smoke.listen_timeout_s": self.smoke_listen_timeout_s,
+            "smoke.http_request_timeout_s": self.smoke_http_request_timeout_s,
+            "smoke.first_token_timeout_s": self.smoke_first_token_timeout_s,
+            "smoke.total_chat_timeout_s": self.smoke_total_chat_timeout_s,
+            "log_file_level": self.log_file_level,
+            "log_stderr_level": self.log_stderr_level,
+            "server_defaults.port": self.default_profile_port,
+            "server_defaults.ctx_size": self.default_profile_ctx_size,
+            "server_defaults.ubatch_size": self.default_profile_ubatch_size,
+            "server_defaults.threads": self.default_profile_threads,
+            "server_defaults.n_gpu_layers_profile": self.default_profile_n_gpu_layers,
+            "server_defaults.bind_address": self.default_bind_address,
+            "server_defaults.batch_size": self.default_batch_size,
+            "server_defaults.poll_ms": self.default_poll_ms,
+            "server_defaults.n_predict": self.default_n_predict,
+            "server_defaults.parallel": self.default_parallel,
+            "server_defaults.threads_batch": self.default_threads_batch,
+            "server_defaults.cache_type_k": self.default_profile_cache_type_k,
+            "server_defaults.cache_type_v": self.default_profile_cache_type_v,
+            "server_defaults.reasoning_mode": self.default_reasoning_mode,
+            "server_defaults.reasoning_format": self.default_reasoning_format,
+            "server_defaults.reasoning_budget": self.default_reasoning_budget,
+            "server_defaults.use_jinja": self.default_use_jinja,
+            "server_defaults.chat_template_kwargs": self.default_profile_chat_template_kwargs,
+            "server_defaults.mmproj": self.default_mmproj,
+            "server_defaults.spec_type": self.default_spec_type,
+            "server_defaults.spec_ngram_size_n": self.default_spec_ngram_size_n,
+            "server_defaults.draft_min": self.default_draft_min,
+            "server_defaults.draft_max": self.default_draft_max,
+            "server_defaults.spec_draft_n_max": self.default_spec_draft_n_max,
+            "server_defaults.spec_draft_p_min": self.default_spec_draft_p_min,
+            "server_defaults.spec_draft_cache_type_k": self.default_spec_draft_cache_type_k,
+            "server_defaults.spec_draft_cache_type_v": self.default_spec_draft_cache_type_v,
+            "server_defaults.spec_draft_device": self.default_spec_draft_device,
+        }
+
 
 class ConfigModal(ModalScreen[ConfigPayload | None]):
     """Full-screen modal for editing global Config settings.
@@ -78,10 +124,7 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
     all running server slots.  Returns ``None`` on cancel.
     """
 
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
-        Binding("ctrl+c", "cancel", "Cancel"),
-    ]
+    BINDINGS = MODAL_CANCEL_BINDINGS
 
     def __init__(self, config: Config) -> None:
         super().__init__()
@@ -93,6 +136,10 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
 
     def compose(self) -> ComposeResult:
         c = self._config
+        paths = c.paths
+        deployment = c.deployment
+        build = c.build
+        smoke = c.smoke
         yield Container(
             Label(
                 "⚙  Global Configuration",
@@ -101,8 +148,24 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             ),
             VerticalScroll(
                 Label("System Paths", classes=_SECTION_LABEL_CLASSES),
-                self._field_row("llama-cpp root", "llama_cpp_root", c.llama_cpp_root),
-                self._field_row("models directory", "models_dir", c.models_dir),
+                field_row(
+                    "llama-cpp root",
+                    "llama_cpp_root",
+                    paths.llama_cpp_root,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
+                ),
+                field_row(
+                    "models directory",
+                    "models_dir",
+                    paths.models_dir,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
+                ),
                 Horizontal(
                     Label("Model Cache:", classes="form-label config-field-label"),
                     Button(
@@ -113,42 +176,90 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                     classes="form-row config-row config-action-row",
                 ),
                 Label("Binary Paths", classes=_SECTION_LABEL_CLASSES),
-                self._field_row(
+                field_row(
                     "llama-server (Intel/SYCL)",
                     "llama_server_bin_intel",
-                    c.llama_server_bin_intel,
+                    paths.llama_server_bin_intel,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
                 ),
-                self._field_row(
+                field_row(
                     "llama-server (NVIDIA/CUDA)",
                     "llama_server_bin_nvidia",
-                    c.llama_server_bin_nvidia,
+                    paths.llama_server_bin_nvidia,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
                 ),
                 Label("Network", classes=_SECTION_LABEL_CLASSES),
-                self._field_row("bind host", "host", c.host),
+                field_row(
+                    "bind host",
+                    "host",
+                    deployment.host,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
+                ),
                 build_config_profile_defaults_collapsible(c),
                 Label("Build", classes=_SECTION_LABEL_CLASSES),
-                self._field_row("git remote", "build_git_remote", c.build_git_remote),
-                self._field_row("git branch", "build_git_branch", c.build_git_branch),
+                field_row(
+                    "git remote",
+                    "build_git_remote",
+                    build.git_remote,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
+                ),
+                field_row(
+                    "git branch",
+                    "build_git_branch",
+                    build.git_branch,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
+                ),
                 Label("Smoke Probes (seconds)", classes=_SECTION_LABEL_CLASSES),
-                self._field_row(
+                field_row(
                     "listen timeout",
                     "smoke_listen_timeout_s",
-                    str(c.smoke_listen_timeout_s),
+                    str(smoke.listen_timeout_s),
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
                 ),
-                self._field_row(
+                field_row(
                     "http request timeout",
                     "smoke_http_request_timeout_s",
-                    str(c.smoke_http_request_timeout_s),
+                    str(smoke.http_request_timeout_s),
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
                 ),
-                self._field_row(
+                field_row(
                     "first token timeout",
                     "smoke_first_token_timeout_s",
-                    str(c.smoke_first_token_timeout_s),
+                    str(smoke.first_token_timeout_s),
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
                 ),
-                self._field_row(
+                field_row(
                     "total chat timeout",
                     "smoke_total_chat_timeout_s",
-                    str(c.smoke_total_chat_timeout_s),
+                    str(smoke.total_chat_timeout_s),
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
                 ),
                 Label("Logging", classes=_SECTION_LABEL_CLASSES),
                 self._log_level_select("stderr level", "log_stderr_level", c.log_stderr_level),
@@ -173,18 +284,6 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _field_row(self, label: str, field_id: str, value: str) -> Widget:
-        """Build a labelled input row for one config field."""
-        return Horizontal(
-            Label(f"{label}:", classes="form-label config-field-label"),
-            Input(
-                value=value,
-                id=f"cfg-{field_id}",
-                classes="form-input config-input",
-            ),
-            classes="form-row config-row",
-        )
 
     def _log_level_select(self, label: str, select_id: str, value: str) -> Widget:
         """Build a labelled Select widget for log level selection."""

@@ -8,9 +8,11 @@ Covers:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from typing import Any, cast
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from textual.css.query import NoMatches
 
 from llama_cli.tui.components.build import BuildModalScreen
 from llama_cli.tui.textual_app import (
@@ -102,53 +104,25 @@ class TestProfileOptionsCached:
 class TestBuildModalScreenCancel:
     """Tests for BuildModalScreen cancel behavior."""
 
-    @pytest.mark.anyio
-    async def test_cancel_dismisses_none(self) -> None:
+    def test_cancel_dismisses_none(self) -> None:
         """Cancel button should dismiss the modal with None."""
-        from llama_cli.tui.textual_app import DashboardApp
-
-        controller = _make_controller()
         screen = BuildModalScreen()
-        result_holder: list[object] = []
+        dismiss = MagicMock()
+        screen.dismiss = dismiss  # type: ignore[method-assign]
 
-        def on_result(result: object) -> None:
-            result_holder.append(result)
+        screen.action_cancel()
 
-        app = DashboardApp(controller)
-        async with app.run_test() as pilot:
-            await app.push_screen(screen, on_result)
-            # Wait for the screen to fully render and the status worker to complete
-            for _ in range(10):
-                await pilot.pause()
-            # Use action_cancel instead of button click to avoid OutOfBounds
-            screen.action_cancel()
-            await pilot.pause()
+        dismiss.assert_called_once_with(None)
 
-        assert len(result_holder) == 1
-        assert result_holder[0] is None
+    def test_escape_binding_routes_to_cancel(self) -> None:
+        """Escape key should be bound to the cancel action."""
+        binding = next(
+            binding
+            for binding in (cast(Any, item) for item in BuildModalScreen.BINDINGS)
+            if binding.key == "escape"
+        )
 
-    @pytest.mark.anyio
-    async def test_escape_dismisses_none(self) -> None:
-        """Escape key should dismiss the modal."""
-        from llama_cli.tui.textual_app import DashboardApp
-
-        controller = _make_controller()
-        screen = BuildModalScreen()
-        result_holder: list[object] = []
-
-        def on_result(result: object) -> None:
-            result_holder.append(result)
-
-        app = DashboardApp(controller)
-        async with app.run_test() as pilot:
-            await app.push_screen(screen, on_result)
-            for _ in range(5):
-                await pilot.pause()
-            await pilot.press("escape")
-            await pilot.pause()
-
-        assert len(result_holder) == 1
-        assert result_holder[0] is None
+        assert binding.action == "cancel"
 
 
 class TestDashboardAppInit:
@@ -399,15 +373,16 @@ class TestDashboardAppCheckAction:
 
         assert app.check_action("about", ()) is False
 
-    @pytest.mark.anyio
-    async def test_action_about_pushes_about_modal(self) -> None:
+    def test_action_about_pushes_about_modal(self) -> None:
         from llama_cli.tui.components.about_modal import AboutModal
 
         app = self._make_app()
-        async with app.run_test() as pilot:
-            app.action_about()
-            await pilot.pause()
-            assert isinstance(app.screen, AboutModal)
+        app.push_screen = MagicMock()  # type: ignore[method-assign]
+
+        app.action_about()
+
+        pushed_screen = app.push_screen.call_args.args[0]  # type: ignore[attr-defined]
+        assert isinstance(pushed_screen, AboutModal)
 
 
 class TestDashboardAppGpuStatsRefresh:
@@ -444,10 +419,7 @@ class TestDashboardAppGpuStatsRefresh:
         app = DashboardApp(controller)
         app.call_from_thread = lambda fn, *args, **kwargs: fn(*args, **kwargs)  # type: ignore[method-assign]
 
-        async with app.run_test() as pilot:
-            app._refresh_gpu_stats_worker()
-            for _ in range(10):
-                await pilot.pause()
+        DashboardApp._refresh_gpu_stats_worker.__wrapped__(app)  # type: ignore[attr-defined]
 
         assert app._gpu_stats_refresh_active is False
 
@@ -455,38 +427,43 @@ class TestDashboardAppGpuStatsRefresh:
 class TestDashboardAppAddSlotFlow:
     """Tests for async add-slot worker and finish handler."""
 
+    def _stub_finish_add_slot_ui(self, app: DashboardApp) -> None:
+        app.query_one = MagicMock(side_effect=NoMatches())  # type: ignore[method-assign]
+        app._reconcile_server_log_panels = AsyncMock()  # type: ignore[method-assign]
+        app.refresh_dashboard = MagicMock()  # type: ignore[method-assign]
+
     @pytest.mark.anyio
     async def test_finish_add_slot_applies_successful_slot(self) -> None:
         controller = _make_controller()
         controller.apply_add_slot_from_form.return_value = (True, ["Slot added"])
         app = DashboardApp(controller)
+        self._stub_finish_add_slot_ui(app)
         new_cfg = make_server_config(alias="new-slot")
 
-        async with app.run_test() as pilot:
-            await app._finish_add_slot(
-                "Slot added for profile",
-                None,
-                True,
-                ["Validated"],
-                "new-slot",
-                new_cfg,
-            )
-            await pilot.pause()
+        await app._finish_add_slot(
+            "Slot added for profile",
+            None,
+            True,
+            ["Validated"],
+            "new-slot",
+            new_cfg,
+        )
 
         controller.apply_add_slot_from_form.assert_called_once_with(new_cfg, "new-slot")
         controller._push_status_message.assert_called_with("Validated")
+        app._reconcile_server_log_panels.assert_awaited_once()  # type: ignore[attr-defined]
+        app.refresh_dashboard.assert_called_once()  # type: ignore[attr-defined]
 
     @pytest.mark.anyio
     async def test_finish_add_slot_shows_error(self) -> None:
         controller = _make_controller()
         controller.refresh_model_index_async.return_value = False
         app = DashboardApp(controller)
+        self._stub_finish_add_slot_ui(app)
         notify_mock = MagicMock()
         app.notify = notify_mock  # type: ignore[method-assign]
 
-        async with app.run_test() as pilot:
-            await app._finish_add_slot(error="Add slot failed: boom")
-            await pilot.pause()
+        await app._finish_add_slot(error="Add slot failed: boom")
 
         error_calls = [
             call for call in notify_mock.call_args_list if call.kwargs.get("severity") == "error"
@@ -498,13 +475,12 @@ class TestDashboardAppAddSlotFlow:
     async def test_finish_add_slot_pushes_validation_messages_on_failure(self) -> None:
         controller = _make_controller()
         app = DashboardApp(controller)
+        self._stub_finish_add_slot_ui(app)
 
-        async with app.run_test() as pilot:
-            await app._finish_add_slot(
-                success=False,
-                messages=["Profile is required"],
-            )
-            await pilot.pause()
+        await app._finish_add_slot(
+            success=False,
+            messages=["Profile is required"],
+        )
 
         controller._push_status_message.assert_called_with("Profile is required")
 
@@ -521,10 +497,10 @@ class TestDashboardAppAddSlotFlow:
 
         app.call_from_thread = _capture_finish  # type: ignore[method-assign]
 
-        async with app.run_test() as pilot:
-            worker = app._run_add_slot({"profile": "summary-balanced", "port": "8080"})
-            await worker.wait()
-            await pilot.pause()
+        DashboardApp._run_add_slot.__wrapped__(  # type: ignore[attr-defined]
+            app,
+            {"profile": "summary-balanced", "port": "8080"},
+        )
 
         finish_calls = [
             call for call in captured if getattr(call[0], "__name__", "") == "_finish_add_slot"
@@ -539,31 +515,31 @@ class TestDashboardAppProfileModalResult:
     """Tests for profile save callback handling."""
 
     def test_handle_profile_modal_result_save_and_add_slot(self) -> None:
-        from llama_cli.tui.components.run_profile_modal import RunProfilePayload
+        from llama_cli.tui.components.slot_profile_modal import SlotProfilePayload
 
         controller = _make_controller()
-        controller.save_run_profile_from_form.return_value = True
+        controller.save_slot_profile_from_form.return_value = True
         app = DashboardApp(controller)
         app._run_add_slot = MagicMock()  # type: ignore[method-assign]
         app.notify = MagicMock()  # type: ignore[method-assign]
         app.refresh_dashboard = MagicMock()  # type: ignore[method-assign]
 
-        payload = RunProfilePayload(profile_id="my-profile", save_and_add_slot=True)
+        payload = SlotProfilePayload(profile_id="my-profile", save_and_add_slot=True)
         app._handle_profile_modal_result(payload)
 
-        controller.save_run_profile_from_form.assert_called_once_with(payload)
+        controller.save_slot_profile_from_form.assert_called_once_with(payload)
         app._run_add_slot.assert_called_once()
         app.refresh_dashboard.assert_not_called()
 
     def test_handle_profile_modal_result_failed_save(self) -> None:
-        from llama_cli.tui.components.run_profile_modal import RunProfilePayload
+        from llama_cli.tui.components.slot_profile_modal import SlotProfilePayload
 
         controller = _make_controller()
-        controller.save_run_profile_from_form.return_value = False
+        controller.save_slot_profile_from_form.return_value = False
         app = DashboardApp(controller)
         notify_mock = MagicMock()
         app.notify = notify_mock  # type: ignore[method-assign]
 
-        app._handle_profile_modal_result(RunProfilePayload(profile_id="my-profile"))
+        app._handle_profile_modal_result(SlotProfilePayload(profile_id="my-profile"))
 
         notify_mock.assert_called_once_with("Failed to save profile", severity="error")

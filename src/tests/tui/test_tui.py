@@ -462,11 +462,11 @@ class TestGPUTelemetryPanel:
     """T016d: Tests for GPU telemetry panel update."""
 
     def test_gpu_stats_initialized(self) -> None:
-        """GPUStats should be initialized for each GPU index."""
+        """GPUStats should be initialized for each configured slot."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0, 1])
-        assert len(app.gpu_stats) == 2
+        assert len(app.gpu_stats) == 1
 
     def test_gpu_stats_collects_data(self) -> None:
         """GPUStats should collect data when updated."""
@@ -580,7 +580,7 @@ class TestSlotStateTransitionHandling:
         # Record a lifecycle event
         app.server_manager._record_lifecycle_event("test_event", pid=12345)
 
-        audit = app.server_manager._lifecycle_audit
+        audit = app.server_manager._audit.lifecycle_audit
         assert len(audit) >= 1
         assert any(e["event"] == "test_event" for e in audit)
 

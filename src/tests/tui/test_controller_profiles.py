@@ -1,4 +1,4 @@
-"""Tests for DashboardController run-profile CRUD methods."""
+"""Tests for DashboardController slot-profile CRUD methods."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llama_cli.tui import DashboardController
-from llama_cli.tui.components.run_profile_modal import RunProfilePayload
-from llama_manager.config.profiles import RunProfileSpec
+from llama_cli.tui.components.slot_profile_modal import SlotProfilePayload
+from llama_manager.config.profiles import SlotProfileSpec
 from tests.support.helpers import make_server_config
 
 
@@ -26,16 +26,16 @@ def mock_controller() -> DashboardController:
 
 
 # ---------------------------------------------------------------------------
-# list_run_profiles
+# list_slot_profiles
 # ---------------------------------------------------------------------------
 
 
-def test_list_run_profiles_returns_tuples(mock_controller: DashboardController) -> None:
-    """list_run_profiles should return list of (spec, source) tuples."""
+def test_list_slot_profiles_returns_tuples(mock_controller: DashboardController) -> None:
+    """list_slot_profiles should return list of (spec, source) tuples."""
     with patch.object(mock_controller, "_build_tui_registry") as mock_registry:
         mock_reg = MagicMock()
         mock_reg.profiles = (
-            RunProfileSpec(
+            SlotProfileSpec(
                 profile_id="summary-balanced",
                 model="/models/test.gguf",
                 alias="summary-balanced",
@@ -49,18 +49,20 @@ def test_list_run_profiles_returns_tuples(mock_controller: DashboardController) 
         )
         mock_registry.return_value = mock_reg
 
-        with patch("llama_manager.run_profile_store.custom_profile_exists", return_value=False):
-            result = mock_controller.list_run_profiles()
+        with patch(
+            "llama_manager.slot_profile_store.custom_slot_profile_exists", return_value=False
+        ):
+            result = mock_controller.list_slot_profiles()
 
     assert isinstance(result, list)
     assert len(result) == 1
     spec, source = result[0]
-    assert isinstance(spec, RunProfileSpec)
+    assert isinstance(spec, SlotProfileSpec)
     assert source == "builtin"
 
 
-def test_list_run_profiles_marks_custom() -> None:
-    """list_run_profiles should mark custom profiles as 'custom'."""
+def test_list_slot_profiles_marks_custom() -> None:
+    """list_slot_profiles should mark custom profiles as 'custom'."""
     configs = [make_server_config(alias="test")]
     ctrl = DashboardController(
         configs=configs,
@@ -70,7 +72,7 @@ def test_list_run_profiles_marks_custom() -> None:
     with patch.object(ctrl, "_build_tui_registry") as mock_registry:
         mock_reg = MagicMock()
         mock_reg.profiles = (
-            RunProfileSpec(
+            SlotProfileSpec(
                 profile_id="my-custom",
                 model="/models/custom.gguf",
                 alias="my-custom",
@@ -84,8 +86,10 @@ def test_list_run_profiles_marks_custom() -> None:
         )
         mock_registry.return_value = mock_reg
 
-        with patch("llama_manager.run_profile_store.custom_profile_exists", return_value=True):
-            result = ctrl.list_run_profiles()
+        with patch(
+            "llama_manager.slot_profile_store.custom_slot_profile_exists", return_value=True
+        ):
+            result = ctrl.list_slot_profiles()
 
     assert len(result) == 1
     _, source = result[0]
@@ -136,7 +140,7 @@ def test_is_profile_in_use_coding_alias(mock_controller: DashboardController) ->
 
 def test_update_run_profile_valid(mock_controller: DashboardController) -> None:
     """update_run_profile should call upsert with validated spec."""
-    payload = RunProfilePayload(
+    payload = SlotProfilePayload(
         profile_id="my-profile",
         label="My Profile",
         model="/models/test.gguf",
@@ -150,9 +154,9 @@ def test_update_run_profile_valid(mock_controller: DashboardController) -> None:
     )
 
     with patch(
-        "llama_manager.run_profile_store.upsert_custom_run_profile",
+        "llama_manager.slot_profile_store.upsert_custom_slot_profile",
     ) as mock_upsert:
-        result = mock_controller.update_run_profile("original-id", payload)
+        result = mock_controller.update_slot_profile("original-id", payload)
 
     assert result is True
     mock_upsert.assert_called_once()
@@ -166,7 +170,7 @@ def test_update_run_profile_valid(mock_controller: DashboardController) -> None:
 
 def test_update_run_profile_empty_device(mock_controller: DashboardController) -> None:
     """update_run_profile should return False for empty device."""
-    payload = RunProfilePayload(
+    payload = SlotProfilePayload(
         profile_id="my-profile",
         label="My Profile",
         model="/models/test.gguf",
@@ -179,13 +183,13 @@ def test_update_run_profile_empty_device(mock_controller: DashboardController) -
         device="",
     )
 
-    result = mock_controller.update_run_profile("original-id", payload)
+    result = mock_controller.update_slot_profile("original-id", payload)
     assert result is False
 
 
 def test_update_run_profile_device_passed_through(mock_controller: DashboardController) -> None:
     """update_run_profile should pass device through to the spec."""
-    payload = RunProfilePayload(
+    payload = SlotProfilePayload(
         profile_id="my-profile",
         label="My Profile",
         model="/models/test.gguf",
@@ -199,9 +203,9 @@ def test_update_run_profile_device_passed_through(mock_controller: DashboardCont
     )
 
     with patch(
-        "llama_manager.run_profile_store.upsert_custom_run_profile",
+        "llama_manager.slot_profile_store.upsert_custom_slot_profile",
     ) as mock_upsert:
-        result = mock_controller.update_run_profile("original-id", payload)
+        result = mock_controller.update_slot_profile("original-id", payload)
 
     assert result is True
     call_args = mock_upsert.call_args
@@ -210,7 +214,7 @@ def test_update_run_profile_device_passed_through(mock_controller: DashboardCont
 
 def test_update_run_profile_invalid_port(mock_controller: DashboardController) -> None:
     """update_run_profile should return False for invalid port."""
-    payload = RunProfilePayload(
+    payload = SlotProfilePayload(
         profile_id="my-profile",
         label="My Profile",
         model="/models/test.gguf",
@@ -222,13 +226,13 @@ def test_update_run_profile_invalid_port(mock_controller: DashboardController) -
         chat_template_kwargs="",
     )
 
-    result = mock_controller.update_run_profile("original-id", payload)
+    result = mock_controller.update_slot_profile("original-id", payload)
     assert result is False
 
 
 def test_update_run_profile_port_too_low(mock_controller: DashboardController) -> None:
     """update_run_profile should return False for port below 1024."""
-    payload = RunProfilePayload(
+    payload = SlotProfilePayload(
         profile_id="my-profile",
         label="My Profile",
         model="/models/test.gguf",
@@ -240,13 +244,13 @@ def test_update_run_profile_port_too_low(mock_controller: DashboardController) -
         chat_template_kwargs="",
     )
 
-    result = mock_controller.update_run_profile("original-id", payload)
+    result = mock_controller.update_slot_profile("original-id", payload)
     assert result is False
 
 
 def test_update_run_profile_empty_profile_id(mock_controller: DashboardController) -> None:
     """update_run_profile should return False for empty profile_id."""
-    payload = RunProfilePayload(
+    payload = SlotProfilePayload(
         profile_id="",
         label="My Profile",
         model="/models/test.gguf",
@@ -258,13 +262,13 @@ def test_update_run_profile_empty_profile_id(mock_controller: DashboardControlle
         chat_template_kwargs="",
     )
 
-    result = mock_controller.update_run_profile("original-id", payload)
+    result = mock_controller.update_slot_profile("original-id", payload)
     assert result is False
 
 
 def test_update_run_profile_empty_model(mock_controller: DashboardController) -> None:
     """update_run_profile should return False for empty model."""
-    payload = RunProfilePayload(
+    payload = SlotProfilePayload(
         profile_id="my-profile",
         label="My Profile",
         model="",
@@ -276,13 +280,13 @@ def test_update_run_profile_empty_model(mock_controller: DashboardController) ->
         chat_template_kwargs="",
     )
 
-    result = mock_controller.update_run_profile("original-id", payload)
+    result = mock_controller.update_slot_profile("original-id", payload)
     assert result is False
 
 
 def test_update_run_profile_invalid_ctx_size(mock_controller: DashboardController) -> None:
     """update_run_profile should return False for non-positive ctx_size."""
-    payload = RunProfilePayload(
+    payload = SlotProfilePayload(
         profile_id="my-profile",
         label="My Profile",
         model="/models/test.gguf",
@@ -294,7 +298,7 @@ def test_update_run_profile_invalid_ctx_size(mock_controller: DashboardControlle
         chat_template_kwargs="",
     )
 
-    result = mock_controller.update_run_profile("original-id", payload)
+    result = mock_controller.update_slot_profile("original-id", payload)
     assert result is False
 
 
@@ -302,7 +306,7 @@ def test_update_run_profile_upsert_raises_returns_false(
     mock_controller: DashboardController,
 ) -> None:
     """update_run_profile should return False when upsert raises ValueError."""
-    payload = RunProfilePayload(
+    payload = SlotProfilePayload(
         profile_id="my-profile",
         label="My Profile",
         model="/models/test.gguf",
@@ -315,10 +319,10 @@ def test_update_run_profile_upsert_raises_returns_false(
     )
 
     with patch(
-        "llama_manager.run_profile_store.upsert_custom_run_profile",
+        "llama_manager.slot_profile_store.upsert_custom_slot_profile",
         side_effect=ValueError("Duplicate profile_id: my-profile"),
     ):
-        result = mock_controller.update_run_profile("original-id", payload)
+        result = mock_controller.update_slot_profile("original-id", payload)
 
     assert result is False
 
@@ -327,7 +331,7 @@ def test_update_run_profile_invalid_chat_template_json(
     mock_controller: DashboardController,
 ) -> None:
     """update_run_profile should return False for invalid chat_template_kwargs JSON."""
-    payload = RunProfilePayload(
+    payload = SlotProfilePayload(
         profile_id="my-profile",
         label="My Profile",
         model="/models/test.gguf",
@@ -340,13 +344,13 @@ def test_update_run_profile_invalid_chat_template_json(
         chat_template_kwargs="{not-json",
     )
 
-    result = mock_controller.update_run_profile("original-id", payload)
+    result = mock_controller.update_slot_profile("original-id", payload)
     assert result is False
 
 
 def test_update_run_profile_invalid_ngl_string(mock_controller: DashboardController) -> None:
     """update_run_profile should return False for non-integer n_gpu_layers."""
-    payload = RunProfilePayload(
+    payload = SlotProfilePayload(
         profile_id="my-profile",
         label="My Profile",
         model="/models/test.gguf",
@@ -359,7 +363,7 @@ def test_update_run_profile_invalid_ngl_string(mock_controller: DashboardControl
         chat_template_kwargs="",
     )
 
-    result = mock_controller.update_run_profile("original-id", payload)
+    result = mock_controller.update_slot_profile("original-id", payload)
     assert result is False
 
 
@@ -367,7 +371,7 @@ def test_update_run_profile_payload_to_spec_value_error(
     mock_controller: DashboardController,
 ) -> None:
     """update_run_profile should return False when spec conversion raises ValueError."""
-    payload = RunProfilePayload(
+    payload = SlotProfilePayload(
         profile_id="my-profile",
         label="My Profile",
         model="/models/test.gguf",
@@ -381,7 +385,7 @@ def test_update_run_profile_payload_to_spec_value_error(
         poll_ms=-1,
     )
 
-    result = mock_controller.update_run_profile("original-id", payload)
+    result = mock_controller.update_slot_profile("original-id", payload)
     assert result is False
 
 
@@ -395,11 +399,11 @@ def test_delete_run_profile_success(mock_controller: DashboardController) -> Non
     with (
         patch.object(mock_controller, "is_profile_in_use", return_value=False),
         patch(
-            "llama_manager.run_profile_store.delete_custom_run_profile",
+            "llama_manager.slot_profile_store.delete_custom_slot_profile",
             return_value=True,
         ) as mock_delete,
     ):
-        result = mock_controller.delete_run_profile("summary-balanced")
+        result = mock_controller.delete_slot_profile("summary-balanced")
 
     assert result is True
     mock_delete.assert_called_once_with(
@@ -411,9 +415,9 @@ def test_delete_run_profile_in_use(mock_controller: DashboardController) -> None
     """delete_run_profile should return False when profile is in use."""
     with (
         patch.object(mock_controller, "is_profile_in_use", return_value=True),
-        patch("llama_manager.run_profile_store.delete_custom_run_profile"),
+        patch("llama_manager.slot_profile_store.delete_custom_slot_profile"),
     ):
-        result = mock_controller.delete_run_profile("summary-balanced")
+        result = mock_controller.delete_slot_profile("summary-balanced")
 
     assert result is False
 
@@ -423,11 +427,11 @@ def test_delete_run_profile_not_found(mock_controller: DashboardController) -> N
     with (
         patch.object(mock_controller, "is_profile_in_use", return_value=False),
         patch(
-            "llama_manager.run_profile_store.delete_custom_run_profile",
+            "llama_manager.slot_profile_store.delete_custom_slot_profile",
             return_value=False,
         ),
     ):
-        result = mock_controller.delete_run_profile("nonexistent")
+        result = mock_controller.delete_slot_profile("nonexistent")
 
     assert result is False
 
@@ -439,11 +443,11 @@ def test_delete_run_profile_exception_returns_false(
     with (
         patch.object(mock_controller, "is_profile_in_use", return_value=False),
         patch(
-            "llama_manager.run_profile_store.delete_custom_run_profile",
+            "llama_manager.slot_profile_store.delete_custom_slot_profile",
             side_effect=RuntimeError("store error"),
         ),
     ):
-        result = mock_controller.delete_run_profile("summary-balanced")
+        result = mock_controller.delete_slot_profile("summary-balanced")
 
     assert result is False
 

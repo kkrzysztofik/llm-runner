@@ -12,13 +12,9 @@ import pytest
 from llama_manager.config import (
     Config,
     ErrorCode,
+    ErrorDetail,
     ModelSlot,
-    RunGroupSpec,
-    RunProfileError,
-    RunProfileRegistry,
-    RunProfileSpec,
     ServerConfig,
-    ValidationResult,
     create_default_profile_registry,
     create_qwen35_cfg,
     create_server_config_from_profile,
@@ -27,15 +23,23 @@ from llama_manager.config import (
     resolve_backend_from_profile,
     resolve_profile_config,
     resolve_profile_id,
-    resolve_run_group_configs,
     validate_slot_id,
     validate_slot_port,
 )
+from llama_manager.config import (
+    SlotProfileError as RunProfileError,
+)
+from llama_manager.config import (
+    SlotProfileRegistry as RunProfileRegistry,
+)
+from llama_manager.config import (
+    SlotProfileSpec as RunProfileSpec,
+)
 from llama_manager.config.profiles import (
     _derive_tensor_split_from_device,
-    _normalize_alias,
     _parse_device_indices,
     _parse_main_gpu_from_device,
+    _profile_id_from_alias,
     _resolve_alias_to_profile_id,
 )
 from llama_manager.log_buffer import LogBuffer
@@ -46,45 +50,51 @@ from tests.support.helpers import valid_artifact_data
 class TestConfig:
     def test_defaults_are_set(self) -> None:
         cfg = Config()
-        assert cfg.host == "127.0.0.1"
-        assert cfg.summary_balanced_port == 8080
-        assert cfg.summary_fast_port == 8082
-        assert cfg.qwen35_port == 8081
+        assert cfg.deployment.host == "127.0.0.1"
+        assert cfg.deployment.summary_balanced_port == 8080
+        assert cfg.deployment.summary_fast_port == 8082
+        assert cfg.deployment.qwen35_port == 8081
 
     def test_ports_are_distinct_by_default(self) -> None:
         cfg = Config()
-        ports = {cfg.summary_balanced_port, cfg.summary_fast_port, cfg.qwen35_port}
+        ports = {
+            cfg.deployment.summary_balanced_port,
+            cfg.deployment.summary_fast_port,
+            cfg.deployment.qwen35_port,
+        }
         assert len(ports) == 3, "Default ports must all be different"
 
     def test_default_ctx_sizes_are_positive(self) -> None:
         cfg = Config()
-        assert cfg.default_ctx_size_summary > 0
-        assert cfg.default_ctx_size_qwen35 > 0
+        assert cfg.server_defaults.ctx_size_summary > 0
+        assert cfg.server_defaults.ctx_size_qwen35 > 0
 
     def test_default_threads_are_positive(self) -> None:
         cfg = Config()
-        assert cfg.default_threads_summary_balanced > 0
-        assert cfg.default_threads_summary_fast > 0
-        assert cfg.default_threads_qwen35 > 0
+        assert cfg.server_defaults.threads_summary_balanced > 0
+        assert cfg.server_defaults.threads_summary_fast > 0
+        assert cfg.server_defaults.threads_qwen35 > 0
 
     def test_llama_cpp_root_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.llama_cpp_root should default to ~/.cache/llm-runner/llama.cpp."""
+        """Config.paths.llama_cpp_root should default to ~/.cache/llm-runner/llama.cpp."""
         monkeypatch.delenv("LLAMA_CPP_ROOT", raising=False)
         monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
         cfg = Config()
         expected = Path.home() / ".cache" / "llm-runner" / "llama.cpp"
-        assert cfg.llama_cpp_root == str(expected)
-        assert cfg.llama_server_bin_intel == str(expected / "build" / "bin" / "llama-server")
-        assert cfg.llama_server_bin_nvidia == str(expected / "build_cuda" / "bin" / "llama-server")
+        assert cfg.paths.llama_cpp_root == str(expected)
+        assert cfg.paths.llama_server_bin_intel == str(expected / "build" / "bin" / "llama-server")
+        assert cfg.paths.llama_server_bin_nvidia == str(
+            expected / "build_cuda" / "bin" / "llama-server"
+        )
 
     def test_llama_cpp_root_with_xdg_cache_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.llama_cpp_root should respect XDG_CACHE_HOME by default."""
+        """Config.paths.llama_cpp_root should respect XDG_CACHE_HOME by default."""
         monkeypatch.delenv("LLAMA_CPP_ROOT", raising=False)
         custom_cache = "/custom/cache"
         monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
         cfg = Config()
         expected = Path(custom_cache) / "llm-runner" / "llama.cpp"
-        assert cfg.llama_cpp_root == str(expected)
+        assert cfg.paths.llama_cpp_root == str(expected)
 
     def test_llama_cpp_root_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """LLAMA_CPP_ROOT should override the XDG cache default."""
@@ -92,85 +102,85 @@ class TestConfig:
         monkeypatch.setenv("LLAMA_CPP_ROOT", custom_root)
         monkeypatch.setenv("XDG_CACHE_HOME", "/ignored/cache")
         cfg = Config()
-        assert cfg.llama_cpp_root == custom_root
-        assert cfg.llama_server_bin_intel == str(
+        assert cfg.paths.llama_cpp_root == custom_root
+        assert cfg.paths.llama_server_bin_intel == str(
             Path(custom_root) / "build" / "bin" / "llama-server"
         )
-        assert cfg.llama_server_bin_nvidia == str(
+        assert cfg.paths.llama_server_bin_nvidia == str(
             Path(custom_root) / "build_cuda" / "bin" / "llama-server"
         )
 
     def test_venv_path_default(self) -> None:
-        """Config.venv_path should return Path to ~/.cache/llm-runner/venv by default."""
+        """Config.paths.venv_path should return Path to ~/.cache/llm-runner/venv by default."""
         cfg = Config()
         expected = Path.home() / ".cache" / "llm-runner" / "venv"
-        assert cfg.venv_path == expected
-        assert isinstance(cfg.venv_path, Path)
+        assert cfg.paths.venv_path == expected
+        assert isinstance(cfg.paths.venv_path, Path)
 
     def test_venv_path_with_xdg_cache_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.venv_path should respect XDG_CACHE_HOME environment variable."""
+        """Config.paths.venv_path should respect XDG_CACHE_HOME environment variable."""
         custom_cache = "/custom/cache"
         monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
         cfg = Config()
         expected = Path(custom_cache) / "llm-runner" / "venv"
-        assert cfg.venv_path == expected
+        assert cfg.paths.venv_path == expected
 
     def test_builds_dir_default(self) -> None:
-        """Config.builds_dir should return Path to ~/.local/state/llm-runner/builds by default."""
+        """Config.paths.builds_dir should return Path to ~/.local/state/llm-runner/builds by default."""
         cfg = Config()
         expected = Path.home() / ".local" / "state" / "llm-runner" / "builds"
-        assert cfg.builds_dir == expected
-        assert isinstance(cfg.builds_dir, Path)
+        assert cfg.paths.builds_dir == expected
+        assert isinstance(cfg.paths.builds_dir, Path)
 
     def test_builds_dir_with_xdg_state_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.builds_dir should respect XDG_STATE_HOME environment variable."""
+        """Config.paths.builds_dir should respect XDG_STATE_HOME environment variable."""
         custom_state = "/custom/state"
         monkeypatch.setenv("XDG_STATE_HOME", custom_state)
         cfg = Config()
         expected = Path(custom_state) / "llm-runner" / "builds"
-        assert cfg.builds_dir == expected
+        assert cfg.paths.builds_dir == expected
 
     def test_reports_dir_default(self) -> None:
-        """Config.reports_dir should return Path to ~/.local/share/llm-runner/reports by default."""
+        """Config.paths.reports_dir should return Path to ~/.local/share/llm-runner/reports by default."""
         cfg = Config()
         expected = Path.home() / ".local" / "share" / "llm-runner" / "reports"
-        assert cfg.reports_dir == expected
-        assert isinstance(cfg.reports_dir, Path)
+        assert cfg.paths.reports_dir == expected
+        assert isinstance(cfg.paths.reports_dir, Path)
 
     def test_reports_dir_with_xdg_data_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.reports_dir should respect XDG_DATA_HOME environment variable."""
+        """Config.paths.reports_dir should respect XDG_DATA_HOME environment variable."""
         custom_data = "/custom/data"
         monkeypatch.setenv("XDG_DATA_HOME", custom_data)
         cfg = Config()
         expected = Path(custom_data) / "llm-runner" / "reports"
-        assert cfg.reports_dir == expected
+        assert cfg.paths.reports_dir == expected
 
     def test_build_lock_path_default(self) -> None:
-        """Config.build_lock_path should return Path to ~/.cache/llm-runner/.build.lock by default."""
+        """Config.paths.build_lock_path should return Path to ~/.cache/llm-runner/.build.lock by default."""
         cfg = Config()
         expected = Path.home() / ".cache" / "llm-runner" / ".build.lock"
-        assert cfg.build_lock_path == expected
-        assert isinstance(cfg.build_lock_path, Path)
+        assert cfg.paths.build_lock_path == expected
+        assert isinstance(cfg.paths.build_lock_path, Path)
 
     def test_build_lock_path_with_xdg_cache_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.build_lock_path should respect XDG_CACHE_HOME environment variable."""
+        """Config.paths.build_lock_path should respect XDG_CACHE_HOME environment variable."""
         custom_cache = "/custom/cache"
         monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
         cfg = Config()
         expected = Path(custom_cache) / "llm-runner" / ".build.lock"
-        assert cfg.build_lock_path == expected
+        assert cfg.paths.build_lock_path == expected
 
     def test_xdg_paths_are_under_xdg_base_directories(self) -> None:
         """All XDG paths should be under their respective base directories."""
         cfg = Config()
         # venv_path should be under xdg_cache_base
-        assert str(cfg.venv_path).startswith(str(Path(cfg.xdg_cache_base)))
+        assert str(cfg.paths.venv_path).startswith(str(Path(cfg.paths.xdg_cache_base)))
         # builds_dir should be under xdg_state_base (per specs/002-build-setup/data-model.md)
-        assert str(cfg.builds_dir).startswith(str(Path(cfg.xdg_state_base)))
+        assert str(cfg.paths.builds_dir).startswith(str(Path(cfg.paths.xdg_state_base)))
         # reports_dir should be under xdg_data_base
-        assert str(cfg.reports_dir).startswith(str(Path(cfg.xdg_data_base)))
+        assert str(cfg.paths.reports_dir).startswith(str(Path(cfg.paths.xdg_data_base)))
         # build_lock_path should be under xdg_cache_base (per spec FR-004.4)
-        assert str(cfg.build_lock_path).startswith(str(Path(cfg.xdg_cache_base)))
+        assert str(cfg.paths.build_lock_path).startswith(str(Path(cfg.paths.xdg_cache_base)))
 
 
 class TestServerConfig:
@@ -328,46 +338,37 @@ class TestErrorCode:
         assert len(codes) == 23  # All error codes defined (13 original + 10 M2)
 
 
-class TestValidationResult:
-    """Tests for ValidationResult scaffolding."""
+class TestErrorDetail:
+    """Tests for ErrorDetail as unified validation result."""
 
-    def test_validation_result_passed(self) -> None:
-        """ValidationResult should indicate success when passed=True."""
-        result = ValidationResult(
+    def test_error_detail_passed(self) -> None:
+        """ErrorDetail should indicate success when passed=True."""
+        result = ErrorDetail(
             slot_id="slot1",
             passed=True,
         )
         assert result.passed is True
-        assert result.valid is True
         assert result.failed_check == ""
         assert result.error_code is None
         assert result.error_message == ""
 
-    def test_validation_result_failed(self) -> None:
-        """ValidationResult should capture failure details."""
-        result = ValidationResult(
+    def test_error_detail_failed(self) -> None:
+        """ErrorDetail should capture failure details."""
+        result = ErrorDetail(
             slot_id="slot2",
             passed=False,
             failed_check="model_not_found",
             error_code=ErrorCode.FILE_NOT_FOUND,
-            error_message="Model file does not exist",
+            why_blocked="Model file does not exist",
         )
         assert result.passed is False
-        assert result.valid is False
         assert result.failed_check == "model_not_found"
         assert result.error_code == ErrorCode.FILE_NOT_FOUND
         assert result.error_message == "Model file does not exist"
 
-    def test_validation_result_valid_alias(self) -> None:
-        """ValidationResult.valid should alias passed property."""
-        passed_result = ValidationResult(slot_id="a", passed=True)
-        failed_result = ValidationResult(slot_id="b", passed=False)
-        assert passed_result.valid is passed_result.passed
-        assert failed_result.valid is failed_result.passed
-
-    def test_validation_result_minimal_fields(self) -> None:
-        """ValidationResult should work with minimal required fields."""
-        result = ValidationResult(slot_id="test", passed=True)
+    def test_error_detail_minimal_fields(self) -> None:
+        """ErrorDetail should work with minimal required fields."""
+        result = ErrorDetail(slot_id="test", passed=True)
         assert result.slot_id == "test"
         assert result.passed is True
 
@@ -471,8 +472,8 @@ class TestProcessOwnershipVerification:
 
         with (
             patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen,
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.launcher.psutil.pid_exists", return_value=True),
             patch("os.kill") as mock_kill,
         ):
             mock_proc = mock_popen.return_value
@@ -506,7 +507,7 @@ class TestProcessOwnershipVerification:
             mock_proc.stderr = None
             mock_proc.wait.return_value = 0
 
-            with patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil:
+            with patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil:
                 mock_proc_obj = mock_psutil.return_value
                 mock_proc_obj.create_time.return_value = 1234567890.05  # matches
 
@@ -777,7 +778,7 @@ class TestLifecycleAuditTrail:
                 manager.start_server_background("test", ["cmd"])
 
                 # Should have recorded a start event
-                audit = manager._lifecycle_audit
+                audit = manager._audit.lifecycle_audit
                 assert len(audit) >= 1
                 assert any(e["event"] == "start" for e in audit)
                 assert any(e["pid"] == 12345 for e in audit)
@@ -796,7 +797,7 @@ class TestLifecycleAuditTrail:
             mock_proc.stderr = None
             mock_proc.wait.return_value = 0
 
-            with patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil:
+            with patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil:
                 mock_proc_obj = mock_psutil.return_value
                 mock_proc_obj.create_time.return_value = 1234567890.05
 
@@ -805,7 +806,7 @@ class TestLifecycleAuditTrail:
                     manager.cleanup_servers()
 
                     # Should have recorded cleanup event
-                    audit = manager._lifecycle_audit
+                    audit = manager._audit.lifecycle_audit
                     assert any(e["event"] == "cleanup" for e in audit)
 
     def test_audit_trail_records_kill_events(self, monkeypatch) -> None:
@@ -820,8 +821,8 @@ class TestLifecycleAuditTrail:
 
         with (
             patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen,
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.launcher.psutil.pid_exists", return_value=True),
             patch("os.kill") as mock_kill,
         ):
             mock_proc = mock_popen.return_value
@@ -843,7 +844,7 @@ class TestLifecycleAuditTrail:
             manager.cleanup_servers()
 
             # Should have recorded kill events
-            audit = manager._lifecycle_audit
+            audit = manager._audit.lifecycle_audit
             kill_events = [e for e in audit if e["event"] == "kill"]
             assert len(kill_events) >= 1
 
@@ -856,8 +857,8 @@ class TestLifecycleAuditTrail:
 
         with (
             patch("llama_manager.orchestration.launcher.subprocess.Popen") as mock_popen,
-            patch("llama_manager.orchestration.manager.psutil.Process") as mock_psutil,
-            patch("llama_manager.orchestration.manager.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.launcher.psutil.pid_exists", return_value=True),
             patch("os.kill") as mock_kill,
         ):
             mock_proc = mock_popen.return_value
@@ -875,7 +876,7 @@ class TestLifecycleAuditTrail:
             manager.cleanup_servers()
 
             # Should have recorded skip event
-            audit = manager._lifecycle_audit
+            audit = manager._audit.lifecycle_audit
             skip_events = [e for e in audit if e["event"] == "skip"]
             assert any(e["details"] == "ownership_failed" for e in skip_events)
 
@@ -905,7 +906,7 @@ class TestLifecycleAuditTrail:
                 manager.start_server_background("server2", ["cmd2"])
 
                 # Should have recorded start events for both servers
-                audit = manager._lifecycle_audit
+                audit = manager._audit.lifecycle_audit
                 start_events = [e for e in audit if e["event"] == "start"]
                 assert len(start_events) == 2
                 pids = [e["pid"] for e in start_events]
@@ -1460,47 +1461,6 @@ class TestRunProfileSpec:
             )
 
 
-# =============================================================================
-# RunGroupSpec validation
-# =============================================================================
-
-
-class TestRunGroupSpec:
-    """Tests for RunGroupSpec dataclass validation."""
-
-    def test_valid_group(self) -> None:
-        """Valid RunGroupSpec should be created without error."""
-        group = RunGroupSpec(
-            group_id="test-group",
-            profile_ids=("profile-a", "profile-b"),
-            description="Test group",
-            tui_enabled=True,
-        )
-        assert group.group_id == "test-group"
-        assert len(group.profile_ids) == 2
-
-    def test_empty_group_id_raises(self) -> None:
-        """Empty group_id should raise RunProfileError."""
-        with pytest.raises(RunProfileError):
-            RunGroupSpec(
-                group_id="",
-                profile_ids=("profile-a",),
-            )
-
-    def test_empty_profile_ids_raises(self) -> None:
-        """Empty profile_ids tuple should raise RunProfileError."""
-        with pytest.raises(RunProfileError):
-            RunGroupSpec(
-                group_id="test-group",
-                profile_ids=(),
-            )
-
-
-# =============================================================================
-# RunProfileRegistry validation
-# =============================================================================
-
-
 class TestRunProfileRegistry:
     """Tests for RunProfileRegistry validation and accessors."""
 
@@ -1521,76 +1481,26 @@ class TestRunProfileRegistry:
         )
 
     def test_valid_registry(self) -> None:
-        """Valid registry with profiles and groups should be created."""
-        registry = RunProfileRegistry(
-            profiles=(self._make_spec("a"),),
-            run_groups=(RunGroupSpec(group_id="g1", profile_ids=("a",)),),
-        )
+        """Valid registry with profiles should be created."""
+        registry = RunProfileRegistry(profiles=(self._make_spec("a"),))
         assert registry.profile_ids == ("a",)
-        assert registry.run_group_ids == ("g1",)
 
     def test_duplicate_profile_ids_raises(self) -> None:
         """Duplicate profile_id should raise RunProfileError."""
         with pytest.raises(RunProfileError):
-            RunProfileRegistry(
-                profiles=(self._make_spec("a"), self._make_spec("a")),
-                run_groups=(),
-            )
-
-    def test_duplicate_group_ids_raises(self) -> None:
-        """Duplicate group_id should raise RunProfileError."""
-        with pytest.raises(RunProfileError):
-            RunProfileRegistry(
-                profiles=(self._make_spec("a"),),
-                run_groups=(
-                    RunGroupSpec(group_id="g1", profile_ids=("a",)),
-                    RunGroupSpec(group_id="g1", profile_ids=("a",)),
-                ),
-            )
-
-    def test_unknown_profile_reference_raises(self) -> None:
-        """Group referencing unknown profile should raise RunProfileError."""
-        with pytest.raises(RunProfileError):
-            RunProfileRegistry(
-                profiles=(self._make_spec("a"),),
-                run_groups=(RunGroupSpec(group_id="g1", profile_ids=("a", "unknown")),),
-            )
+            RunProfileRegistry(profiles=(self._make_spec("a"), self._make_spec("a")))
 
     def test_get_profile_returns_spec(self) -> None:
         """get_profile should return the RunProfileSpec for a known id."""
-        registry = RunProfileRegistry(
-            profiles=(self._make_spec("a"),),
-            run_groups=(),
-        )
+        registry = RunProfileRegistry(profiles=(self._make_spec("a"),))
         spec = registry.get_profile("a")
         assert spec.profile_id == "a"
 
     def test_get_profile_unknown_raises(self) -> None:
         """get_profile for unknown id should raise RunProfileError."""
-        registry = RunProfileRegistry(
-            profiles=(self._make_spec("a"),),
-            run_groups=(),
-        )
+        registry = RunProfileRegistry(profiles=(self._make_spec("a"),))
         with pytest.raises(RunProfileError):
             registry.get_profile("unknown")
-
-    def test_get_run_group_returns_spec(self) -> None:
-        """get_run_group should return the RunGroupSpec for a known id."""
-        registry = RunProfileRegistry(
-            profiles=(self._make_spec("a"),),
-            run_groups=(RunGroupSpec(group_id="g1", profile_ids=("a",)),),
-        )
-        group = registry.get_run_group("g1")
-        assert group.group_id == "g1"
-
-    def test_get_run_group_unknown_raises(self) -> None:
-        """get_run_group for unknown id should raise RunProfileError."""
-        registry = RunProfileRegistry(
-            profiles=(self._make_spec("a"),),
-            run_groups=(),
-        )
-        with pytest.raises(RunProfileError):
-            registry.get_run_group("unknown")
 
 
 # =============================================================================
@@ -1606,25 +1516,6 @@ class TestDefaultRegistry:
         registry = create_default_profile_registry()
         expected = {"summary-balanced", "summary-fast", "qwen35"}
         assert set(registry.profile_ids) == expected
-
-    def test_registry_has_expected_groups(self) -> None:
-        """Default registry should contain summary-balanced, summary-fast, qwen35, both."""
-        registry = create_default_profile_registry()
-        expected = {"summary-balanced", "summary-fast", "qwen35", "both"}
-        assert set(registry.run_group_ids) == expected
-
-    def test_both_group_has_two_profiles(self) -> None:
-        """The 'both' run group should reference summary-balanced and qwen35."""
-        registry = create_default_profile_registry()
-        group = registry.get_run_group("both")
-        assert set(group.profile_ids) == {"summary-balanced", "qwen35"}
-
-    def test_all_groups_tui_enabled(self) -> None:
-        """All default run groups should be TUI-enabled."""
-        registry = create_default_profile_registry()
-        for gid in registry.run_group_ids:
-            group = registry.get_run_group(gid)
-            assert group.tui_enabled is True, f"Group {gid} should be TUI-enabled"
 
     def test_profile_ports_are_distinct(self) -> None:
         """Default profiles should have distinct ports."""
@@ -1691,57 +1582,6 @@ class TestServerConfigResolution:
         registry = create_default_profile_registry()
         cfg = resolve_profile_config(registry, "summary-fast", {"port": 7777})
         assert cfg.port == 7777
-
-
-# =============================================================================
-# resolve_run_group_configs
-# =============================================================================
-
-
-class TestResolveRunGroupConfigs:
-    """Tests for resolve_run_group_configs."""
-
-    def test_resolve_both_group(self) -> None:
-        """Resolving 'both' should return two ServerConfigs."""
-        registry = create_default_profile_registry()
-        configs = resolve_run_group_configs(registry, "both")
-        assert len(configs) == 2
-        assert configs[0].alias == "summary-balanced"
-        assert configs[1].alias == "qwen35-coding"
-
-    def test_resolve_group_with_port_overrides(self) -> None:
-        """Port overrides should be applied positionally to group profiles."""
-        registry = create_default_profile_registry()
-        configs = resolve_run_group_configs(registry, "both", (9090, 9091))
-        assert configs[0].port == 9090
-        assert configs[1].port == 9091
-
-    def test_resolve_group_partial_port_override(self) -> None:
-        """Single port override should only affect first profile in group."""
-        registry = create_default_profile_registry()
-        default_qwen35_port = registry.get_profile("qwen35").port
-        configs = resolve_run_group_configs(registry, "both", (9090,))
-        assert configs[0].port == 9090
-        assert configs[1].port == default_qwen35_port
-
-    def test_resolve_group_too_many_port_overrides_raises(self) -> None:
-        """More port overrides than group profiles should raise RunProfileError."""
-        registry = create_default_profile_registry()
-        with pytest.raises(RunProfileError):
-            resolve_run_group_configs(registry, "summary-balanced", (8080, 8081, 8082))
-
-    def test_resolve_group_unknown_raises(self) -> None:
-        """Unknown group id should raise RunProfileError."""
-        registry = create_default_profile_registry()
-        with pytest.raises(RunProfileError):
-            resolve_run_group_configs(registry, "nonexistent-group")
-
-    def test_resolve_single_profile_group(self) -> None:
-        """Single-profile group should return one ServerConfig."""
-        registry = create_default_profile_registry()
-        configs = resolve_run_group_configs(registry, "summary-fast")
-        assert len(configs) == 1
-        assert configs[0].alias == "summary-fast"
 
 
 # =============================================================================
@@ -1832,11 +1672,6 @@ class TestResolveProfileId:
                     backend="llama_cpp",
                     risky_acknowledged=(),
                 ),
-            ),
-            run_groups=(
-                RunGroupSpec(group_id="summary-balanced", profile_ids=("summary-balanced",)),
-                RunGroupSpec(group_id="summary-fast", profile_ids=("summary-fast",)),
-                RunGroupSpec(group_id="qwen35", profile_ids=("qwen35",)),
             ),
         )
 
@@ -2027,46 +1862,50 @@ class TestParseMainGpuFromDevice:
 
 
 # =============================================================================
-# _normalize_alias edge cases
+# _profile_id_from_alias edge cases
 # =============================================================================
 
 
-class TestNormalizeAlias:
-    """Tests for the _normalize_alias helper function."""
+class TestProfileIdFromAlias:
+    """Tests for the _profile_id_from_alias helper function."""
 
     def test_empty_string(self) -> None:
-        """_normalize_alias should return empty string for empty input."""
-        assert _normalize_alias("") == ""
+        """_profile_id_from_alias should reject empty input."""
+        with pytest.raises(ValueError):
+            _profile_id_from_alias("")
 
     def test_whitespace_only(self) -> None:
-        """_normalize_alias should return empty string for whitespace-only input."""
-        result = _normalize_alias("   ")
-        # strip() on "   " gives "" then replace("_", "-") gives ""
-        assert result == ""
+        """_profile_id_from_alias should reject whitespace-only input."""
+        with pytest.raises(ValueError):
+            _profile_id_from_alias("   ")
 
     def test_single_underscore(self) -> None:
-        """_normalize_alias should convert single underscore to hyphen."""
-        assert _normalize_alias("foo_bar") == "foo-bar"
+        """_profile_id_from_alias should convert single underscore to hyphen."""
+        assert _profile_id_from_alias("foo_bar") == "foo-bar"
 
     def test_multiple_underscores(self) -> None:
-        """_normalize_alias should convert all underscores to hyphens."""
-        assert _normalize_alias("foo_bar_baz") == "foo-bar-baz"
+        """_profile_id_from_alias should convert all underscores to hyphens."""
+        assert _profile_id_from_alias("foo_bar_baz") == "foo-bar-baz"
 
     def test_already_hyphenated(self) -> None:
-        """_normalize_alias should leave hyphens unchanged."""
-        assert _normalize_alias("foo-bar") == "foo-bar"
+        """_profile_id_from_alias should leave hyphens unchanged."""
+        assert _profile_id_from_alias("foo-bar") == "foo-bar"
 
     def test_mixed_separators(self) -> None:
-        """_normalize_alias should convert underscores to hyphens, leave hyphens."""
-        assert _normalize_alias("foo_bar-baz_qux") == "foo-bar-baz-qux"
+        """_profile_id_from_alias should convert underscores to hyphens, leave hyphens."""
+        assert _profile_id_from_alias("foo_bar-baz_qux") == "foo-bar-baz-qux"
 
     def test_leading_trailing_whitespace(self) -> None:
-        """_normalize_alias should strip leading/trailing whitespace."""
-        assert _normalize_alias("  foo_bar  ") == "foo-bar"
+        """_profile_id_from_alias should strip leading/trailing whitespace."""
+        assert _profile_id_from_alias("  foo_bar  ") == "foo-bar"
 
     def test_mixed_separators_with_whitespace(self) -> None:
-        """_normalize_alias should strip and convert mixed separators."""
-        assert _normalize_alias("  summary_balanced  ") == "summary-balanced"
+        """_profile_id_from_alias should strip and convert mixed separators."""
+        assert _profile_id_from_alias("  summary_balanced  ") == "summary-balanced"
+
+    def test_uppercase_normalized_for_profile_lookup(self) -> None:
+        """_profile_id_from_alias delegates case folding to the filename sanitizer."""
+        assert _profile_id_from_alias("Summary_Balanced") == "summary-balanced"
 
 
 # =============================================================================
@@ -2109,7 +1948,6 @@ class TestResolveAliasToProfileId:
                     risky_acknowledged=(),
                 ),
             ),
-            run_groups=(),
         )
 
     def test_unknown_alias_returns_none(self) -> None:
@@ -2177,7 +2015,6 @@ class TestResolveProfileIdEdgeCases:
                     risky_acknowledged=(),
                 ),
             ),
-            run_groups=(),
         )
 
     def test_empty_slot_id_returns_none(self) -> None:
@@ -2204,13 +2041,11 @@ class TestResolveProfileIdEdgeCases:
         result = resolve_profile_id(registry, "summary_balanced")
         assert result == "summary-balanced"
 
-    def test_case_sensitive_no_match(self) -> None:
-        """resolve_profile_id should be case-sensitive (no case normalization)."""
+    def test_case_insensitive_match(self) -> None:
+        """resolve_profile_id should match case-insensitively through profile ID normalization."""
         registry = self._make_registry()
-        # "Summary-Balanced" should NOT match "summary-balanced"
-        assert resolve_profile_id(registry, "Summary-Balanced") is None
-        # "QWEN35" should NOT match "qwen35"
-        assert resolve_profile_id(registry, "QWEN35") is None
+        assert resolve_profile_id(registry, "Summary-Balanced") == "summary-balanced"
+        assert resolve_profile_id(registry, "QWEN35") == "qwen35"
 
     def test_mixed_separators_in_slot_id(self) -> None:
         """Slot ID with mixed separators should normalize correctly."""
@@ -2364,7 +2199,7 @@ def test_non_whitelisted_profile_keys_ignored() -> None:
     # threads should be applied (whitelisted)
     assert result.threads == 32
     # port should NOT be overridden by profile (not whitelisted)
-    assert result.port == defaults.summary_balanced_port
+    assert result.port == defaults.server_defaults.port
     # device should NOT be overridden by profile (not whitelisted)
     assert result.device == ""
 

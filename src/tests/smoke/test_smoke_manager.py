@@ -60,8 +60,8 @@ class TestResolveSmokeTargetsBoth:
         summary_target = next(t for t in targets if t.slot_id == "summary-balanced")
         qwen35_target = next(t for t in targets if t.slot_id == "qwen35-coding")
 
-        assert summary_target.port == cfg.summary_balanced_port
-        assert qwen35_target.port == cfg.qwen35_port
+        assert summary_target.port == cfg.deployment.summary_balanced_port
+        assert qwen35_target.port == cfg.deployment.qwen35_port
 
 
 # ---------------------------------------------------------------------------

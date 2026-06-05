@@ -13,21 +13,30 @@ input() prompts, emit_* calls, formatting, and sys.exit.
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from llama_manager.config import Config, create_default_profile_registry, resolve_run_group_configs
+from llama_manager.config import (
+    Config,
+    SlotProfileRegistry,
+    create_default_profile_registry,
+    resolve_profile_config,
+)
 from llama_manager.orchestration import DryRunArtifactPayload, ServerManager, write_artifact
 from llama_manager.orchestration.lockfile import resolve_runtime_dir
 from llama_manager.risk_ack import evaluate_risks
 from llama_manager.validation import (
     DryRunSlotPayload,
-    ValidationResults,
+    DryRunValidationSummary,
     build_dry_run_slot_payload,
     validate_server_config,
 )
 
-if TYPE_CHECKING:
-    from llama_manager.config import RunProfileRegistry
+DRY_RUN_MODE_PROFILE_IDS: dict[str, tuple[str, ...]] = {
+    "summary-balanced": ("summary-balanced",),
+    "summary-fast": ("summary-fast",),
+    "qwen35": ("qwen35",),
+    "both": ("summary-balanced", "qwen35"),
+}
 
 
 @dataclass
@@ -45,7 +54,7 @@ class DryRunResult:
 def run_dry_run(
     mode: str,
     config: Config,
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
     port_overrides: dict[str, int] | None = None,
     acknowledged: bool = False,
 ) -> DryRunResult:
@@ -72,9 +81,9 @@ def run_dry_run(
     if registry is None:
         registry = create_default_profile_registry(config)
 
-    run_group_ids = registry.run_group_ids
-    if mode not in run_group_ids:
-        allowed_modes = ", ".join(run_group_ids)
+    profile_ids = DRY_RUN_MODE_PROFILE_IDS.get(mode)
+    if profile_ids is None:
+        allowed_modes = ", ".join(DRY_RUN_MODE_PROFILE_IDS)
         return DryRunResult(
             mode=mode,
             slot_payloads=[],
@@ -91,12 +100,28 @@ def run_dry_run(
             for name in ("primary", "secondary")
         )
 
-    try:
-        configs = resolve_run_group_configs(
-            registry,
-            mode,
-            port_overrides=position_overrides,
+    if len(position_overrides) > len(profile_ids):
+        return DryRunResult(
+            mode=mode,
+            slot_payloads=[],
+            has_error=True,
+            errors=[
+                f"port override error: mode {mode} accepts at most {len(profile_ids)} "
+                f"port override(s), got {len(position_overrides)}"
+            ],
         )
+
+    try:
+        configs = [
+            resolve_profile_config(
+                registry,
+                profile_id,
+                {"port": position_overrides[index]}
+                if index < len(position_overrides) and position_overrides[index] is not None
+                else None,
+            )
+            for index, profile_id in enumerate(profile_ids)
+        ]
     except (ValueError, TypeError) as exc:
         return DryRunResult(
             mode=mode,
@@ -105,7 +130,7 @@ def run_dry_run(
             errors=[f"port override error: {exc}"],
         )
 
-    slot_ids = registry.get_run_group(mode).profile_ids
+    slot_ids = profile_ids
     slot_payloads: list[DryRunSlotPayload] = []
     errors: list[str] = []
     warnings: list[str] = []
@@ -139,7 +164,7 @@ def run_dry_run(
         payload = build_dry_run_slot_payload(
             server_cfg,
             slot_id=slot_id,
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
         slot_payloads.append(payload)

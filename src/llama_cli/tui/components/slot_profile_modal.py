@@ -1,4 +1,4 @@
-"""Run profile creation and editing modal for the TUI dashboard."""
+"""Slot profile creation and editing modal for the TUI dashboard."""
 
 from __future__ import annotations
 
@@ -6,16 +6,17 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Collapsible, Input, Label, ListItem, ListView, Select
 
 from llama_manager.config import Config
-from llama_manager.config.profiles import RunProfileSpec
+from llama_manager.config.profiles import SlotProfileSpec
+from llama_manager.config.spec_decode import SpeculativeDecodingConfig
 from llama_manager.model_index import ModelIndexEntry
 
 from .form_widgets import (
+    MODAL_CANCEL_BINDINGS,
     REASONING_FORMAT_CHOICES,
     REASONING_MODE_CHOICES,
     ROW_SELECT_CLASSES,
@@ -30,8 +31,8 @@ from .form_widgets import (
 
 
 @dataclass
-class RunProfilePayload:
-    """Payload from the run profile modal."""
+class SlotProfilePayload:
+    """Payload from the slot profile modal."""
 
     profile_id: str = ""
     label: str = ""
@@ -83,15 +84,15 @@ def _parse_n_gpu_layers(raw: str) -> int | str:
         return raw
 
 
-class RunProfileModal(ModalScreen[RunProfilePayload | None]):
-    """Modal for creating or editing a run profile.
+class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
+    """Modal for creating or editing a slot profile.
 
-    Returns a ``RunProfilePayload`` on save, or ``None`` on cancel.
+    Returns a ``SlotProfilePayload`` on save, or ``None`` on cancel.
     """
 
     def __init__(
         self,
-        profile: RunProfileSpec | None = None,
+        profile: SlotProfileSpec | None = None,
         edit_source: str | None = None,
         model_index: list[ModelIndexEntry] | None = None,
         config: Config | None = None,
@@ -103,10 +104,7 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
         self._config = config
         self._selected_model_path: str = profile.model if profile else ""
 
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
-        Binding("ctrl+c", "cancel", "Cancel"),
-    ]
+    BINDINGS = MODAL_CANCEL_BINDINGS
 
     CSS = """
     .profile-dialog {
@@ -191,7 +189,7 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
     """
 
     def compose(self) -> ComposeResult:
-        title = "Edit Run Profile" if self._profile else "Create Run Profile"
+        title = "Edit Slot Profile" if self._profile else "Create Slot Profile"
         yield Container(
             Label(
                 title,
@@ -282,8 +280,9 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
             return config_profile_prefill(self._config)
         return {}
 
-    def _profile_to_prefill(self, spec: RunProfileSpec) -> dict[str, str]:
-        """Convert RunProfileSpec to prefill dict for form fields."""
+    def _profile_to_prefill(self, spec: SlotProfileSpec) -> dict[str, str]:
+        """Convert SlotProfileSpec to prefill dict for form fields."""
+        spec_decode = spec.spec_decode
         return {
             "profile-id": spec.profile_id,
             "label": spec.alias if spec.alias != spec.profile_id else "",
@@ -300,9 +299,9 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
             "device": spec.device or "CUDA:0",
             "bind-address": spec.bind_address,
             "tensor-split": spec.tensor_split,
-            "reasoning-mode": spec.reasoning_mode,
-            "reasoning-format": spec.reasoning_format,
-            "reasoning-budget": spec.reasoning_budget,
+            "reasoning-mode": spec_decode.reasoning_mode,
+            "reasoning-format": spec_decode.reasoning_format,
+            "reasoning-budget": spec_decode.reasoning_budget,
             "use-jinja": "true" if spec.use_jinja else "false",
             "cache-type-k": spec.cache_type_k,
             "cache-type-v": spec.cache_type_v,
@@ -313,15 +312,15 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
             "parallel": str(spec.parallel),
             "threads-batch": str(spec.threads_batch),
             "mmproj": spec.mmproj,
-            "spec-type": spec.spec_type,
-            "spec-ngram-size-n": str(spec.spec_ngram_size_n),
-            "draft-min": str(spec.draft_min),
-            "draft-max": str(spec.draft_max),
-            "spec-draft-n-max": str(spec.spec_draft_n_max),
-            "spec-draft-p-min": str(spec.spec_draft_p_min),
-            "spec-draft-cache-type-k": spec.spec_draft_cache_type_k,
-            "spec-draft-cache-type-v": spec.spec_draft_cache_type_v,
-            "spec-draft-device": spec.spec_draft_device,
+            "spec-type": spec_decode.spec_type,
+            "spec-ngram-size-n": str(spec_decode.spec_ngram_size_n),
+            "draft-min": str(spec_decode.draft_min),
+            "draft-max": str(spec_decode.draft_max),
+            "spec-draft-n-max": str(spec_decode.spec_draft_n_max),
+            "spec-draft-p-min": str(spec_decode.spec_draft_p_min),
+            "spec-draft-cache-type-k": spec_decode.spec_draft_cache_type_k,
+            "spec-draft-cache-type-v": spec_decode.spec_draft_cache_type_v,
+            "spec-draft-device": spec_decode.spec_draft_device,
         }
 
     def action_cancel(self) -> None:
@@ -337,7 +336,7 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
         elif event.button.id == "save-add-profile":
             self.dismiss(self._collect_values(save_and_add_slot=True))
 
-    def _collect_values(self, *, save_and_add_slot: bool = False) -> RunProfilePayload:
+    def _collect_values(self, *, save_and_add_slot: bool = False) -> SlotProfilePayload:
         """Read all Input widgets and return a typed payload."""
         ngl_raw = self.query_one("#profile-n-gpu-layers", Input).value.strip()
         ngl_val = _parse_n_gpu_layers(ngl_raw)
@@ -345,7 +344,7 @@ class RunProfileModal(ModalScreen[RunProfilePayload | None]):
         device_select = self.query_one("#profile-device", Select)
         device_val = str(device_select.value) if device_select.value else "CUDA:0"
 
-        return RunProfilePayload(
+        return SlotProfilePayload(
             profile_id=self.query_one("#profile-profile-id", Input).value.strip(),
             label=self.query_one("#profile-label", Input).value.strip(),
             server_bin=self.query_one("#profile-server-bin", Input).value.strip(),
@@ -624,11 +623,11 @@ def _short_parse_error(error: str) -> str:
     return error.split(" for ", maxsplit=1)[0]
 
 
-def payload_to_run_profile_spec(profile_id: str, payload: RunProfilePayload) -> RunProfileSpec:
-    """Build a ``RunProfileSpec`` from modal form payload."""
+def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -> SlotProfileSpec:
+    """Build a ``SlotProfileSpec`` from modal form payload."""
     ngl = payload.n_gpu_layers
     ctk = payload.chat_template_kwargs
-    return RunProfileSpec(
+    return SlotProfileSpec(
         profile_id=profile_id,
         alias=payload.label or profile_id,
         device=payload.device,
@@ -640,10 +639,7 @@ def payload_to_run_profile_spec(profile_id: str, payload: RunProfilePayload) -> 
         description=payload.label or "",
         bind_address=payload.bind_address,
         tensor_split=payload.tensor_split,
-        reasoning_mode=payload.reasoning_mode,
-        reasoning_format=payload.reasoning_format,
         chat_template_kwargs=ctk if isinstance(ctk, str) else "",
-        reasoning_budget=payload.reasoning_budget,
         use_jinja=payload.use_jinja,
         cache_type_k=payload.cache_type_k,
         cache_type_v=payload.cache_type_v,
@@ -657,13 +653,18 @@ def payload_to_run_profile_spec(profile_id: str, payload: RunProfilePayload) -> 
         parallel=payload.parallel,
         threads_batch=payload.threads_batch,
         mmproj=payload.mmproj,
-        spec_type=payload.spec_type,
-        spec_ngram_size_n=payload.spec_ngram_size_n,
-        draft_min=payload.draft_min,
-        draft_max=payload.draft_max,
-        spec_draft_n_max=payload.spec_draft_n_max,
-        spec_draft_p_min=payload.spec_draft_p_min,
-        spec_draft_cache_type_k=payload.spec_draft_cache_type_k,
-        spec_draft_cache_type_v=payload.spec_draft_cache_type_v,
-        spec_draft_device=payload.spec_draft_device,
+        spec_decode=SpeculativeDecodingConfig(
+            reasoning_mode=payload.reasoning_mode,
+            reasoning_format=payload.reasoning_format,
+            reasoning_budget=payload.reasoning_budget,
+            spec_type=payload.spec_type,
+            spec_ngram_size_n=payload.spec_ngram_size_n,
+            draft_min=payload.draft_min,
+            draft_max=payload.draft_max,
+            spec_draft_n_max=payload.spec_draft_n_max,
+            spec_draft_p_min=payload.spec_draft_p_min,
+            spec_draft_cache_type_k=payload.spec_draft_cache_type_k,
+            spec_draft_cache_type_v=payload.spec_draft_cache_type_v,
+            spec_draft_device=payload.spec_draft_device,
+        ),
     )

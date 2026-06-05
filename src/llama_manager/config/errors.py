@@ -1,4 +1,4 @@
-# Validation result and structured error types
+"""Structured validation error types."""
 
 from dataclasses import dataclass
 
@@ -6,30 +6,24 @@ from .enums import ErrorCode
 
 
 @dataclass
-class ValidationResult:
-    """Result of a validation check with slot identity for T003 deterministic sorting"""
+class ErrorDetail:
+    """FR-005 structured actionable error detail.
 
-    slot_id: str
-    passed: bool
-    failed_check: str = ""
+    Also used as a success result when ``passed=True`` (with empty strings
+    for the error-specific fields).
+    """
+
     error_code: ErrorCode | None = None
-    error_message: str = ""
+    failed_check: str = ""
+    why_blocked: str = ""
+    how_to_fix: str = ""
+    docs_ref: str | None = None
+    slot_id: str = ""
+    passed: bool = False
 
     @property
-    def valid(self) -> bool:
-        """Alias for passed to maintain backward compatibility"""
-        return self.passed
-
-
-@dataclass
-class ErrorDetail:
-    """FR-005 structured actionable error detail"""
-
-    error_code: ErrorCode
-    failed_check: str
-    why_blocked: str
-    how_to_fix: str
-    docs_ref: str | None = None
+    def error_message(self) -> str:
+        return self.why_blocked
 
 
 @dataclass
@@ -70,6 +64,20 @@ class MultiValidationError:
             self.errors,
             key=lambda error: _error_sort_key(error, slot_order, len(slot_ids) + 1),
         )
+
+
+class ValidationException(Exception):
+    """Exception wrapper for MultiValidationError to enable raising as exception."""
+
+    def __init__(self, multi_error: MultiValidationError) -> None:
+        self.multi_error = multi_error
+        if multi_error.errors:
+            details = "; ".join(e.why_blocked for e in multi_error.errors)
+            super().__init__(
+                f"Validation failed with {len(multi_error.errors)} error(s): {details}"
+            )
+        else:
+            super().__init__(f"Validation failed with {len(multi_error.errors)} error(s)")
 
 
 def _extract_slot_id(failed_check: str) -> str | None:

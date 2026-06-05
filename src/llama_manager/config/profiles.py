@@ -1,16 +1,20 @@
-"""Run profile and run group definitions."""
+"""Slot profile definitions."""
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from ..common.text import sanitize_filename_component
+from ..common.validators import validate_port_range
+from .spec_decode import SpeculativeDecodingConfig
 
 
-class RunProfileError(ValueError):
-    """Raised when run profile or run group data is invalid."""
+class SlotProfileError(ValueError):
+    """Raised when slot profile data is invalid."""
 
 
 @dataclass(frozen=True, slots=True)
-class RunProfileSpec:
-    """Typed data definition for one launchable llama-server profile."""
+class SlotProfileSpec:
+    """Typed data definition for one launchable llama-server slot profile."""
 
     profile_id: str
     model: str
@@ -23,10 +27,7 @@ class RunProfileSpec:
     description: str = ""
     bind_address: str = "127.0.0.1"
     tensor_split: str = ""
-    reasoning_mode: str = "auto"
-    reasoning_format: str = "none"
     chat_template_kwargs: str = ""
-    reasoning_budget: str = ""
     use_jinja: bool = False
     cache_type_k: str = "q8_0"
     cache_type_v: str = "q8_0"
@@ -41,18 +42,104 @@ class RunProfileSpec:
     parallel: int = 4
     threads_batch: int = 0
     mmproj: str = ""
-    spec_type: str = ""
-    spec_ngram_size_n: int = 0
-    draft_min: int = 0
-    draft_max: int = 0
-    spec_draft_n_max: int = 0
-    spec_draft_p_min: float = 0.0
-    spec_draft_cache_type_k: str = ""
-    spec_draft_cache_type_v: str = ""
-    spec_draft_device: str = ""
+    spec_decode: SpeculativeDecodingConfig = field(default_factory=SpeculativeDecodingConfig)
+
+    def __init__(
+        self,
+        profile_id: str,
+        model: str,
+        alias: str,
+        device: str,
+        port: int,
+        ctx_size: int,
+        ubatch_size: int,
+        threads: int,
+        description: str = "",
+        bind_address: str = "127.0.0.1",
+        tensor_split: str = "",
+        chat_template_kwargs: str = "",
+        use_jinja: bool = False,
+        cache_type_k: str = "q8_0",
+        cache_type_v: str = "q8_0",
+        n_gpu_layers: int | str = 99,
+        main_gpu: int = 0,
+        server_bin: str = "",
+        backend: str = "llama_cpp",
+        risky_acknowledged: tuple[str, ...] = (),
+        batch_size: int = 2048,
+        poll_ms: int = 50,
+        n_predict: int = 32768,
+        parallel: int = 4,
+        threads_batch: int = 0,
+        mmproj: str = "",
+        spec_decode: SpeculativeDecodingConfig | None = None,
+        spec_type: str | None = None,
+        spec_ngram_size_n: int | None = None,
+        draft_min: int | None = None,
+        draft_max: int | None = None,
+        spec_draft_n_max: int | None = None,
+        spec_draft_p_min: float | None = None,
+        spec_draft_cache_type_k: str | None = None,
+        spec_draft_cache_type_v: str | None = None,
+        spec_draft_device: str | None = None,
+        reasoning_mode: str | None = None,
+        reasoning_format: str | None = None,
+        reasoning_budget: str | None = None,
+    ) -> None:
+        object.__setattr__(self, "profile_id", profile_id)
+        object.__setattr__(self, "model", model)
+        object.__setattr__(self, "alias", alias)
+        object.__setattr__(self, "device", device)
+        object.__setattr__(self, "port", port)
+        object.__setattr__(self, "ctx_size", ctx_size)
+        object.__setattr__(self, "ubatch_size", ubatch_size)
+        object.__setattr__(self, "threads", threads)
+        object.__setattr__(self, "description", description)
+        object.__setattr__(self, "bind_address", bind_address)
+        object.__setattr__(self, "tensor_split", tensor_split)
+        object.__setattr__(self, "chat_template_kwargs", chat_template_kwargs)
+        object.__setattr__(self, "use_jinja", use_jinja)
+        object.__setattr__(self, "cache_type_k", cache_type_k)
+        object.__setattr__(self, "cache_type_v", cache_type_v)
+        object.__setattr__(self, "n_gpu_layers", n_gpu_layers)
+        object.__setattr__(self, "main_gpu", main_gpu)
+        object.__setattr__(self, "server_bin", server_bin)
+        object.__setattr__(self, "backend", backend)
+        object.__setattr__(self, "risky_acknowledged", risky_acknowledged)
+        object.__setattr__(self, "batch_size", batch_size)
+        object.__setattr__(self, "poll_ms", poll_ms)
+        object.__setattr__(self, "n_predict", n_predict)
+        object.__setattr__(self, "parallel", parallel)
+        object.__setattr__(self, "threads_batch", threads_batch)
+        object.__setattr__(self, "mmproj", mmproj)
+        object.__setattr__(self, "spec_decode", spec_decode or SpeculativeDecodingConfig())
+        spec_overrides = {
+            "spec_type": spec_type,
+            "spec_ngram_size_n": spec_ngram_size_n,
+            "draft_min": draft_min,
+            "draft_max": draft_max,
+            "spec_draft_n_max": spec_draft_n_max,
+            "spec_draft_p_min": spec_draft_p_min,
+            "spec_draft_cache_type_k": spec_draft_cache_type_k,
+            "spec_draft_cache_type_v": spec_draft_cache_type_v,
+            "spec_draft_device": spec_draft_device,
+            "reasoning_mode": reasoning_mode,
+            "reasoning_format": reasoning_format,
+            "reasoning_budget": reasoning_budget,
+        }
+        active_overrides = {
+            key: value for key, value in spec_overrides.items() if value is not None
+        }
+        if active_overrides:
+            base = self.spec_decode.__dict__ | active_overrides
+            try:
+                object.__setattr__(self, "spec_decode", SpeculativeDecodingConfig(**base))
+            except ValueError as exc:
+                raise SlotProfileError(str(exc)) from exc
+        self.__post_init__()
 
     def __post_init__(self) -> None:
-        """Validate profile data at construction time."""
+        """Validate slot profile data at construction time."""
         _require_text(self.profile_id, "profile_id")
         _require_text(self.model, "model")
         _require_text(self.alias, "alias")
@@ -64,140 +151,130 @@ class RunProfileSpec:
         _require_positive_int(self.batch_size, "batch_size")
         _require_positive_int(self.n_predict, "n_predict")
         if self.poll_ms < 0:
-            raise RunProfileError("poll_ms must be non-negative")
+            raise SlotProfileError("poll_ms must be non-negative")
         if self.parallel != -1 and self.parallel < 1:
-            raise RunProfileError("parallel must be -1 or at least 1")
+            raise SlotProfileError("parallel must be -1 or at least 1")
         if self.threads_batch < 0:
-            raise RunProfileError("threads_batch must be non-negative")
-        for name in (
-            "spec_ngram_size_n",
-            "draft_min",
-            "draft_max",
-            "spec_draft_n_max",
-        ):
-            value = getattr(self, name)
-            if value < 0:
-                raise RunProfileError(f"{name} must be non-negative")
-        if self.draft_min > self.draft_max:
-            raise RunProfileError("draft_min must be <= draft_max")
-        if self.spec_draft_p_min < 0:
-            raise RunProfileError("spec_draft_p_min must be non-negative")
-        if self.spec_draft_p_min > 1.0:
-            raise RunProfileError("spec_draft_p_min must be <= 1.0")
-        if self.spec_type not in ("", "ngram-mod", "draft-mtp"):
-            raise RunProfileError("spec_type must be '', 'ngram-mod', or 'draft-mtp'")
+            raise SlotProfileError("threads_batch must be non-negative")
+        if not isinstance(self.spec_decode, SpeculativeDecodingConfig):
+            raise SlotProfileError("spec_decode must be a SpeculativeDecodingConfig")
         if not isinstance(self.main_gpu, int) or self.main_gpu < 0:
-            raise RunProfileError("main_gpu must be a non-negative integer")
+            raise SlotProfileError("main_gpu must be a non-negative integer")
         if isinstance(self.n_gpu_layers, int) and self.n_gpu_layers < 0:
-            raise RunProfileError("n_gpu_layers must be non-negative")
+            raise SlotProfileError("n_gpu_layers must be non-negative")
         if isinstance(self.n_gpu_layers, str):
             _require_text(self.n_gpu_layers, "n_gpu_layers")
 
+    def __getattribute__(self, name: str) -> object:
+        if name in SpeculativeDecodingConfig.__dataclass_fields__:
+            return getattr(object.__getattribute__(self, "spec_decode"), name)
+        return object.__getattribute__(self, name)
+
+    @property
+    def reasoning_mode(self) -> str:
+        return self.spec_decode.reasoning_mode
+
+    @property
+    def reasoning_format(self) -> str:
+        return self.spec_decode.reasoning_format
+
+    @property
+    def reasoning_budget(self) -> str:
+        return self.spec_decode.reasoning_budget
+
+    @property
+    def spec_type(self) -> str:
+        return self.spec_decode.spec_type
+
+    @property
+    def spec_ngram_size_n(self) -> int:
+        return self.spec_decode.spec_ngram_size_n
+
+    @property
+    def draft_min(self) -> int:
+        return self.spec_decode.draft_min
+
+    @property
+    def draft_max(self) -> int:
+        return self.spec_decode.draft_max
+
+    @property
+    def spec_draft_n_max(self) -> int:
+        return self.spec_decode.spec_draft_n_max
+
+    @property
+    def spec_draft_p_min(self) -> float:
+        return self.spec_decode.spec_draft_p_min
+
+    @property
+    def spec_draft_cache_type_k(self) -> str:
+        return self.spec_decode.spec_draft_cache_type_k
+
+    @property
+    def spec_draft_cache_type_v(self) -> str:
+        return self.spec_decode.spec_draft_cache_type_v
+
+    @property
+    def spec_draft_device(self) -> str:
+        return self.spec_decode.spec_draft_device
+
 
 @dataclass(frozen=True, slots=True)
-class RunGroupSpec:
-    """Typed data definition for a launch mode containing one or more profiles."""
+class SlotProfileRegistry:
+    """Collection of slot profile data used by launch surfaces."""
 
-    group_id: str
-    profile_ids: tuple[str, ...]
-    description: str = ""
-    tui_enabled: bool = True
+    profiles: tuple[SlotProfileSpec, ...]
 
     def __post_init__(self) -> None:
-        """Validate run group data at construction time."""
-        _require_text(self.group_id, "group_id")
-        if not self.profile_ids:
-            raise RunProfileError("profile_ids must contain at least one profile")
-        for profile_id in self.profile_ids:
-            _require_text(profile_id, "profile_id")
-
-
-@dataclass(frozen=True, slots=True)
-class RunProfileRegistry:
-    """Collection of profile and run-group data used by launch surfaces."""
-
-    profiles: tuple[RunProfileSpec, ...]
-    run_groups: tuple[RunGroupSpec, ...]
-
-    def __post_init__(self) -> None:
-        """Validate uniqueness and group references."""
+        """Validate uniqueness."""
         duplicate_profile = _first_duplicate(profile.profile_id for profile in self.profiles)
         if duplicate_profile is not None:
-            raise RunProfileError(f"duplicate profile_id: {duplicate_profile}")
+            raise SlotProfileError(f"duplicate profile_id: {duplicate_profile}")
+        aliases = (profile.alias for profile in self.profiles if profile.alias)
+        duplicate_alias = _first_duplicate(aliases)
+        if duplicate_alias is not None:
+            raise SlotProfileError(f"duplicate profile alias: {duplicate_alias}")
 
-        duplicate_group = _first_duplicate(group.group_id for group in self.run_groups)
-        if duplicate_group is not None:
-            raise RunProfileError(f"duplicate group_id: {duplicate_group}")
-
-        profile_ids = {profile.profile_id for profile in self.profiles}
-        for group in self.run_groups:
-            for profile_id in group.profile_ids:
-                if profile_id not in profile_ids:
-                    raise RunProfileError(
-                        f"run group {group.group_id} references unknown profile: {profile_id}"
-                    )
-
-    def get_profile(self, profile_id: str) -> RunProfileSpec:
-        """Return the profile matching ``profile_id``.
+    def get_profile(self, profile_id: str) -> SlotProfileSpec:
+        """Return the slot profile matching ``profile_id``.
 
         Args:
             profile_id: Profile identifier to look up.
 
         Returns:
-            Matching run profile definition.
+            Matching slot profile definition.
 
         Raises:
-            RunProfileError: If no profile matches the identifier.
+            SlotProfileError: If no profile matches the identifier.
         """
         for profile in self.profiles:
             if profile.profile_id == profile_id:
                 return profile
-        raise RunProfileError(f"unknown profile: {profile_id}")
-
-    def get_run_group(self, group_id: str) -> RunGroupSpec:
-        """Return the run group matching ``group_id``.
-
-        Args:
-            group_id: Run group identifier to look up.
-
-        Returns:
-            Matching run group definition.
-
-        Raises:
-            RunProfileError: If no run group matches the identifier.
-        """
-        for group in self.run_groups:
-            if group.group_id == group_id:
-                return group
-        raise RunProfileError(f"unknown run group: {group_id}")
+        raise SlotProfileError(f"unknown profile: {profile_id}")
 
     @property
     def profile_ids(self) -> tuple[str, ...]:
         """Return profile identifiers in registry order."""
         return tuple(profile.profile_id for profile in self.profiles)
 
-    @property
-    def run_group_ids(self) -> tuple[str, ...]:
-        """Return run group identifiers in registry order."""
-        return tuple(group.group_id for group in self.run_groups)
-
 
 def _require_text(value: str, field_name: str) -> None:
     """Raise if *value* is empty or whitespace-only."""
     if not value.strip():
-        raise RunProfileError(f"{field_name} must not be empty")
+        raise SlotProfileError(f"{field_name} must not be empty")
 
 
 def _require_positive_int(value: int, field_name: str) -> None:
     """Raise if *value* is less than 1."""
     if value < 1:
-        raise RunProfileError(f"{field_name} must be greater than 0")
+        raise SlotProfileError(f"{field_name} must be greater than 0")
 
 
 def _require_port(port: int) -> None:
-    """Raise if *port* is outside the valid TCP range (1–65535)."""
-    if not (1 <= port <= 65535):
-        raise RunProfileError(f"port must be between 1 and 65535, got: {port}")
+    """Raise if *port* is outside the valid TCP range (1024–65535)."""
+    err = validate_port_range(port)
+    if err is not None:
+        raise SlotProfileError(err)
 
 
 def _first_duplicate(values: Iterable[str]) -> str | None:
@@ -210,22 +287,17 @@ def _first_duplicate(values: Iterable[str]) -> str | None:
     return None
 
 
-def _normalize_alias(alias: str) -> str:
-    """Normalize an alias string to profile_id form.
+def _profile_id_from_alias(alias: str) -> str:
+    """Convert an alias to comparable profile_id form.
 
-    Handles common variations: underscores, hyphens, and short forms.
-    Converts the alias to a form that can be compared against profile_id values.
-
-    Args:
-        alias: The alias string to normalize.
-
-    Returns:
-        Normalized alias string with hyphens/underscores standardized.
+    Profile aliases intentionally differ from slot IDs: underscores and hyphens
+    are treated as equivalent because user-facing CLI aliases historically use
+    both forms. Filename safety still delegates to the shared sanitizer.
     """
-    return alias.strip().replace("_", "-")
+    return sanitize_filename_component(alias).replace("_", "-")
 
 
-def _resolve_alias_to_profile_id(registry: RunProfileRegistry, alias: str) -> str | None:
+def _resolve_alias_to_profile_id(registry: SlotProfileRegistry, alias: str) -> str | None:
     """Resolve an alias string to a registered profile_id.
 
     Matches the alias against profile aliases in the registry, handling
@@ -238,22 +310,25 @@ def _resolve_alias_to_profile_id(registry: RunProfileRegistry, alias: str) -> st
     Returns:
         The matching profile_id, or None if no match is found.
     """
-    normalized = _normalize_alias(alias)
+    try:
+        normalized = _profile_id_from_alias(alias)
+    except ValueError:
+        return None
 
     # Direct match against profile aliases
     for profile in registry.profiles:
-        if _normalize_alias(profile.alias) == normalized:
+        if _profile_id_from_alias(profile.alias) == normalized:
             return profile.profile_id
 
     # Check against profile_id (for direct profile_id usage)
     for profile in registry.profiles:
-        if _normalize_alias(profile.profile_id) == normalized:
+        if _profile_id_from_alias(profile.profile_id) == normalized:
             return profile.profile_id
 
     return None
 
 
-def resolve_profile_id(registry: RunProfileRegistry, slot_id: str) -> str | None:
+def resolve_profile_id(registry: SlotProfileRegistry, slot_id: str) -> str | None:
     """Resolve a slot_id or alias to a registered profile_id.
 
     Resolution order:
@@ -269,7 +344,10 @@ def resolve_profile_id(registry: RunProfileRegistry, slot_id: str) -> str | None
     Returns:
         The matching profile_id, or None if no match is found.
     """
-    normalized = _normalize_alias(slot_id)
+    try:
+        normalized = _profile_id_from_alias(slot_id)
+    except ValueError:
+        return None
 
     # Direct match against profile_ids
     for profile in registry.profiles:
@@ -282,13 +360,13 @@ def resolve_profile_id(registry: RunProfileRegistry, slot_id: str) -> str | None
 
     # Normalized slot_id match against profile_id
     for profile in registry.profiles:
-        if _normalize_alias(profile.profile_id) == normalized:
+        if _profile_id_from_alias(profile.profile_id) == normalized:
             return profile.profile_id
 
     return None
 
 
-def resolve_backend_from_profile(profile: RunProfileSpec) -> str:
+def resolve_backend_from_profile(profile: SlotProfileSpec) -> str:
     """Derive backend string from a profile spec.
 
     Uses the device field to determine backend:

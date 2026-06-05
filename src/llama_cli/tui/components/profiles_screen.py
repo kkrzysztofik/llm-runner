@@ -1,4 +1,4 @@
-"""Profiles screen showing all configured run profiles with CRUD actions."""
+"""Profiles screen showing all configured slot profiles with CRUD actions."""
 
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Label
 
 if TYPE_CHECKING:
-    from llama_manager.config.profiles import RunProfileSpec
+    from llama_manager.config.profiles import SlotProfileSpec
     from llama_manager.model_index import ModelIndexEntry
 
 
 class ProfilesScreen(ModalScreen[dict[str, Any] | None]):
-    """Screen listing all run profiles with add/edit/delete actions.
+    """Screen listing all slot profiles with add/edit/delete actions.
 
     Returns a dict with action key (``add``, ``edit``, ``delete``) or ``None``
     to close.  ``edit`` and ``delete`` also include a ``profile_id`` key.
@@ -26,14 +26,14 @@ class ProfilesScreen(ModalScreen[dict[str, Any] | None]):
 
     def __init__(
         self,
-        profiles: list[tuple[RunProfileSpec, str]],
+        profiles: list[tuple[SlotProfileSpec, str]],
         in_use_ids: set[str] | None = None,
         model_index: list[ModelIndexEntry] | None = None,
     ) -> None:
         """Initialize the profiles screen.
 
         Args:
-            profiles: List of ``(RunProfileSpec, source)`` tuples where source is
+            profiles: List of ``(SlotProfileSpec, source)`` tuples where source is
                 ``"builtin"`` or ``"custom"``.
             in_use_ids: Set of profile IDs currently in use by running slots.
                 Deletion is blocked for these.
@@ -130,7 +130,7 @@ class ProfilesScreen(ModalScreen[dict[str, Any] | None]):
 
     def compose(self) -> ComposeResult:
         yield Container(
-            Label("Run Profiles", classes="profiles-title"),
+            Label("Slot Profiles", classes="profiles-title"),
             Container(
                 *(self._profile_card(spec, source) for spec, source in self._profiles)
                 if self._profiles
@@ -151,7 +151,7 @@ class ProfilesScreen(ModalScreen[dict[str, Any] | None]):
             classes="profiles-dialog",
         )
 
-    def _profile_card(self, spec: RunProfileSpec, source: str) -> Horizontal:
+    def _profile_card(self, spec: SlotProfileSpec, source: str) -> Horizontal:
         """Build a profile card row with info and action buttons."""
         in_use = spec.profile_id in self._in_use_ids
         source_label = "built-in" if source == "builtin" else "custom"
@@ -215,7 +215,7 @@ class ProfilesScreen(ModalScreen[dict[str, Any] | None]):
 
 
 def _format_model_line(
-    spec: RunProfileSpec,
+    spec: SlotProfileSpec,
     model_index: list[ModelIndexEntry] | None = None,
 ) -> str:
     """Format model display line with filename and detected quantization."""
@@ -237,7 +237,7 @@ def _format_model_line(
 
 
 def _format_model_details(
-    spec: RunProfileSpec,
+    spec: SlotProfileSpec,
     model_index: list[ModelIndexEntry] | None = None,
 ) -> str:
     """Format indexed model metadata using the choose-dialog detail fields."""
@@ -262,7 +262,7 @@ def _format_model_details(
 
 
 def _find_model_index_entry(
-    spec: RunProfileSpec,
+    spec: SlotProfileSpec,
     model_index: list[ModelIndexEntry] | None = None,
 ) -> ModelIndexEntry | None:
     """Return the model index entry matching a profile model path or filename."""

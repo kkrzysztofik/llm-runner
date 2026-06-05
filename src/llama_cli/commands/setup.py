@@ -13,7 +13,6 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from llama_cli.colors import Colors
 from llama_cli.commands._output import emit_json, emit_json_error
 from llama_cli.commands._toolchain import (
     filter_optional_tools,
@@ -22,6 +21,7 @@ from llama_cli.commands._toolchain import (
     toolchain_check_exit_code,
 )
 from llama_cli.ui_output import (
+    _style,
     emit_error,
     emit_heading,
     emit_info,
@@ -64,9 +64,9 @@ def _print_status(status: Any) -> None:
     Args:
         status: ToolchainStatus object
     """
-    yes = Colors.bright_green("✓ YES")
-    no = Colors.bright_red("✗ NO")
-    missing = Colors.bright_red("MISSING")
+    yes = _style("✓ YES", "green")
+    no = _style("✗ NO", "red")
+    missing = _style("MISSING", "red")
 
     emit_heading("Toolchain Status:")
     tools = [
@@ -79,8 +79,8 @@ def _print_status(status: Any) -> None:
         ("nvtop", status.nvtop),
     ]
     for name, value in tools:
-        display = Colors.green(value) if value else missing
-        emit_info(f"  {Colors.cyan(name)}: {display}")
+        display = _style(value, "green") if value else missing
+        emit_info(f"  {_style(name, 'cyan')}: {display}")
     emit_success("")
     emit_success(f"SYCL ready: {yes if status.is_sycl_ready else no}")
     emit_success(f"CUDA ready: {yes if status.is_cuda_ready else no}")

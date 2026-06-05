@@ -653,10 +653,9 @@ from typing import Any
 from llama_manager.config import (
     Config,
     ServerConfig,
-    ValidationResult,
 )
 from llama_manager.validation import (
-    ValidationResults,
+    DryRunValidationSummary,
     build_dry_run_slot_payload,
 )
 from tests.support.helpers import make_server_config
@@ -793,11 +792,11 @@ def test_validate_slots_invalid_id() -> None:
 
 class TestFR005FR003CanonicalParity:
     """FR-003/FR-005: Verify canonical parity between MultiValidationError and
-    dry-run ValidationResults.errors field-level alignment.
+    dry-run DryRunValidationSummary.errors field-level alignment.
     """
 
     def test_error_code_field_alignment(self) -> None:
-        """FR-005: MultiValidationError.error_code must align with ValidationResults.error_code."""
+        """FR-005: MultiValidationError.error_code must align with DryRunValidationSummary.error_code."""
         # Create MultiValidationError with ErrorDetail
         errors = [
             ErrorDetail(
@@ -816,14 +815,14 @@ class TestFR005FR003CanonicalParity:
         mve = MultiValidationError(errors=errors)
         mve.sort_errors()
 
-        # Create equivalent ValidationResult list
+        # Create equivalent ErrorDetail list
         validation_results_list = [
-            ValidationResult(
+            ErrorDetail(
                 slot_id="slot1",
                 passed=False,
                 failed_check=error.failed_check,
                 error_code=error.error_code,
-                error_message=error.why_blocked,
+                why_blocked=error.why_blocked,
             )
             for error in mve.errors
         ]
@@ -834,11 +833,11 @@ class TestFR005FR003CanonicalParity:
         ):
             assert error_detail.error_code == vr.error_code, (
                 f"Error {i}: error_code mismatch - "
-                f"ErrorDetail={error_detail.error_code}, ValidationResult={vr.error_code}"
+                f"ErrorDetail={error_detail.error_code}, ErrorDetail={vr.error_code}"
             )
 
     def test_failed_check_field_alignment(self) -> None:
-        """FR-005: MultiValidationError.failed_check must align with ValidationResults.failed_check."""
+        """FR-005: MultiValidationError.failed_check must align with DryRunValidationSummary.failed_check."""
         errors = [
             ErrorDetail(
                 error_code=ErrorCode.PORT_INVALID,
@@ -856,14 +855,14 @@ class TestFR005FR003CanonicalParity:
         mve = MultiValidationError(errors=errors)
         mve.sort_errors()
 
-        # Create equivalent ValidationResult list
+        # Create equivalent ErrorDetail list
         validation_results_list = [
-            ValidationResult(
+            ErrorDetail(
                 slot_id=error.failed_check.split("_")[1],  # Extract slot_id from failed_check
                 passed=False,
                 failed_check=error.failed_check,
                 error_code=error.error_code,
-                error_message=error.why_blocked,
+                why_blocked=error.why_blocked,
             )
             for error in mve.errors
         ]
@@ -874,7 +873,7 @@ class TestFR005FR003CanonicalParity:
         ):
             assert error_detail.failed_check == vr.failed_check, (
                 f"Error {i}: failed_check mismatch - "
-                f"ErrorDetail={error_detail.failed_check}, ValidationResult={vr.failed_check}"
+                f"ErrorDetail={error_detail.failed_check}, ErrorDetail={vr.failed_check}"
             )
 
     def test_validation_results_checks_alignment(self) -> None:
@@ -889,24 +888,24 @@ class TestFR005FR003CanonicalParity:
         ]
         mve = MultiValidationError(errors=errors)
 
-        # Create ValidationResults with checks that align with ErrorDetails
+        # Create DryRunValidationSummary with checks that align with ErrorDetails
         checks = [
             {
                 "failed_check": error.failed_check,
-                "error_code": error.error_code.value,
+                "error_code": error.error_code.value,  # type: ignore[union-attr]
                 "why_blocked": error.why_blocked,
                 "how_to_fix": error.how_to_fix,
             }
             for error in mve.errors
         ]
 
-        validation_results = ValidationResults(passed=False, checks=checks)
+        validation_results = DryRunValidationSummary(passed=False, checks=checks)
 
         # Verify checks contain aligned fields
         assert len(validation_results.checks) == len(mve.errors)
         for check, error in zip(validation_results.checks, mve.errors, strict=True):
             assert check["failed_check"] == error.failed_check
-            assert check["error_code"] == error.error_code.value
+            assert check["error_code"] == error.error_code.value  # type: ignore[union-attr]
             assert check["why_blocked"] == error.why_blocked
             assert check["how_to_fix"] == error.how_to_fix
 
@@ -953,14 +952,14 @@ class TestFR003SlotConfigurationSequenceConsistency:
             f"Sort order mismatch: expected {expected_sorted_order}, got {actual_sorted_order}"
         )
 
-        # Create ValidationResults with same slot order
-        validation_results = ValidationResults(
+        # Create DryRunValidationSummary with same slot order
+        validation_results = DryRunValidationSummary(
             passed=False,
             checks=[
                 {
                     "slot_id": error.failed_check.split("_")[1],
                     "failed_check": error.failed_check,
-                    "error_code": error.error_code.value,
+                    "error_code": error.error_code.value,  # type: ignore[union-attr]
                 }
                 for error in mve.errors
             ],
@@ -1004,7 +1003,7 @@ class TestFR003SlotConfigurationSequenceConsistency:
             build_dry_run_slot_payload(
                 self._cfg(slot_id=error.failed_check.split("_")[1]),
                 slot_id=error.failed_check.split("_")[1],
-                validation_results=ValidationResults(
+                validation_results=DryRunValidationSummary(
                     passed=False,
                     checks=[{"failed_check": error.failed_check}],
                 ),
@@ -1115,7 +1114,7 @@ class TestFR003NewArtifactShapeAssertions:
             build_dry_run_slot_payload(
                 self._cfg(slot_id=error.failed_check.split("_")[1]),
                 slot_id=error.failed_check.split("_")[1],
-                validation_results=ValidationResults(
+                validation_results=DryRunValidationSummary(
                     passed=False, checks=[{"failed_check": error.failed_check}]
                 ),
                 warnings=[],
@@ -1151,7 +1150,7 @@ class TestFR003NewArtifactShapeAssertions:
             build_dry_run_slot_payload(
                 self._cfg(slot_id=error.failed_check.split("_")[1]),
                 slot_id=error.failed_check.split("_")[1],
-                validation_results=ValidationResults(
+                validation_results=DryRunValidationSummary(
                     passed=False, checks=[{"failed_check": error.failed_check}]
                 ),
                 warnings=[],
@@ -1199,7 +1198,7 @@ class TestFR003NewArtifactShapeAssertions:
             build_dry_run_slot_payload(
                 self._cfg(slot_id=error.failed_check.split("_")[1]),
                 slot_id=error.failed_check.split("_")[1],
-                validation_results=ValidationResults(
+                validation_results=DryRunValidationSummary(
                     passed=False, checks=[{"failed_check": error.failed_check}]
                 ),
                 warnings=[],
@@ -1227,7 +1226,7 @@ class TestFR003NewArtifactShapeAssertions:
         payload = build_dry_run_slot_payload(
             cfg,
             slot_id="test-slot",
-            validation_results=ValidationResults(passed=True, checks=[]),
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
             warnings=[],
         )
 

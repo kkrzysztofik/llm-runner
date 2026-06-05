@@ -189,7 +189,7 @@ def refresh_model_index(
     *,
     progressive: bool = False,
 ) -> tuple[list[ModelIndexEntry], int, int]:
-    """Scan ``config.models_dir`` for ``*.gguf`` files and rebuild the index.
+    """Scan ``config.paths.models_dir`` for ``*.gguf`` files and rebuild the index.
 
     Uses the existing cache to skip files whose ``mtime_iso`` hasn't changed.
     Writes atomically via a temp file + rename.
@@ -206,9 +206,9 @@ def refresh_model_index(
         A tuple of ``(entries, total_scanned, error_count)`` where
         *entries* is the complete sorted list.
     """
-    models_dir = Path(config.models_dir)
+    models_dir = Path(config.paths.models_dir)
     if not models_dir.is_dir():
-        logger.debug("models_dir %s not a directory, skipping index", config.models_dir)
+        logger.debug("models_dir %s not a directory, skipping index", config.paths.models_dir)
         return ([], 0, 0)
 
     old_index = load_model_index(config)
@@ -237,13 +237,13 @@ def refresh_model_index(
         logger.info(
             "model index: cache empty — full rescan of %d GGUF file(s) in %s",
             len(unique_files),
-            config.models_dir,
+            config.paths.models_dir,
         )
     else:
         logger.info(
             "model index: scanning %d GGUF file(s) in %s (cache: %d entries)",
             len(unique_files),
-            config.models_dir,
+            config.paths.models_dir,
             len(old_lookup),
         )
 

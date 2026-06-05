@@ -690,7 +690,7 @@ class TestDryRunSmokeFlagBundleOutput:
         from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
-        cfg.smoke_skip_models_discovery = skip
+        cfg.smoke.skip_models_discovery = skip
         _print_smoke_probe_info(cfg)
 
         captured = capsys.readouterr()
@@ -715,7 +715,7 @@ class TestDryRunSmokeFlagBundleOutput:
         from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
-        cfg.smoke_prompt = "Say hello."
+        cfg.smoke.prompt = "Say hello."
         _print_smoke_probe_info(cfg)
 
         captured = capsys.readouterr()
@@ -737,7 +737,7 @@ class TestDryRunSmokeFlagBundleOutput:
         from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
-        cfg.smoke_api_key = api_key
+        cfg.smoke.api_key = api_key
         _print_smoke_probe_info(cfg)
 
         captured = capsys.readouterr()
@@ -756,14 +756,14 @@ class TestDryRunSmokeFlagBundleOutput:
 
         captured = capsys.readouterr()
         assert "Max tokens:" in captured.out
-        assert str(cfg.smoke_max_tokens) in captured.out
+        assert str(cfg.smoke.max_tokens) in captured.out
 
     def test_dry_run_shows_custom_max_tokens(self, capsys) -> None:
         """dry-run output must show custom max tokens value."""
         from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
-        cfg.smoke_max_tokens = 32
+        cfg.smoke.max_tokens = 32
         _print_smoke_probe_info(cfg)
 
         captured = capsys.readouterr()
@@ -791,7 +791,7 @@ class TestDryRunSmokeFlagBundleOutput:
         from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
-        cfg.smoke_api_key = "sk-my-key"
+        cfg.smoke.api_key = "sk-my-key"
         _print_smoke_probe_info(cfg)
 
         captured = capsys.readouterr()
@@ -879,7 +879,7 @@ class TestDryRunSmokeFlagBundleOutput:
         from llama_cli.commands.dry_run import _print_smoke_probe_info
 
         cfg = Config()
-        cfg.smoke_prompt = "Hello, world!"
+        cfg.smoke.prompt = "Hello, world!"
         _print_smoke_probe_info(cfg)
 
         captured = capsys.readouterr()

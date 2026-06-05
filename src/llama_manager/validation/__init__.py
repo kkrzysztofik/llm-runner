@@ -4,7 +4,7 @@ from .commands.builder import (
     DoctorCheckResult,
     DoctorReport,
     DryRunSlotPayload,
-    ValidationResults,
+    DryRunValidationSummary,
     VllmEligibility,
     assess_vram_risk,
     build_dry_run_slot_payload,
@@ -42,7 +42,7 @@ __all__ = [
     # Payload types
     "DryRunSlotPayload",
     "VllmEligibility",
-    "ValidationResults",
+    "DryRunValidationSummary",
     # Doctor diagnostics
     "DoctorCheckResult",
     "DoctorReport",

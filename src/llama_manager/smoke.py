@@ -17,9 +17,14 @@ from llama_manager.config import (
     Config,
     SmokeProbeConfiguration,
     create_default_profile_registry,
-    resolve_run_group_configs,
+    resolve_profile_config,
+    resolve_profile_id,
 )
 from llama_manager.probe import SmokeCompositeReport, SmokeProbeResult, probe_slot
+
+SMOKE_MODE_PROFILE_IDS: dict[str, tuple[str, ...]] = {
+    "both": ("summary-balanced", "qwen35"),
+}
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -68,7 +73,10 @@ def resolve_smoke_targets(
     registry = create_default_profile_registry(config)
 
     if mode == "both":
-        configs = resolve_run_group_configs(registry, "both")
+        configs = [
+            resolve_profile_config(registry, profile_id)
+            for profile_id in SMOKE_MODE_PROFILE_IDS["both"]
+        ]
         return [
             SmokeTarget(
                 slot_id=cfg.alias,
@@ -82,7 +90,10 @@ def resolve_smoke_targets(
 
     if mode == "slot" and slot_id:
         try:
-            configs = resolve_run_group_configs(registry, slot_id)
+            profile_id = resolve_profile_id(registry, slot_id)
+            if profile_id is None:
+                return []
+            configs = [resolve_profile_config(registry, profile_id)]
             return [
                 SmokeTarget(
                     slot_id=cfg.alias,

@@ -480,7 +480,7 @@ class TestCrashDetection:
 
     def test_exit_code_unknown_status_fallback(self) -> None:
         """Unknown SmokeProbeStatus should fall back to exit code 10."""
-        from llama_manager.probe import _EXIT_CODE_MAP
+        from llama_manager.probe.smoke import _EXIT_CODE_MAP
 
         # Verify all known statuses are in the map
         for status in SmokeProbeStatus:
@@ -617,7 +617,7 @@ class TestProvenanceResolution:
             patch("llama_manager.probe.provenance.Path.exists", return_value=True),
             patch("llama_manager.probe.provenance.Path.read_text", return_value=short_sha),
         ):
-            from llama_manager.probe import _resolve_sha
+            from llama_manager.probe.provenance import _resolve_sha
 
             sha = _resolve_sha()
 
@@ -818,7 +818,7 @@ class TestApiKeyHeaderPrecedence:
                 {"object": "list", "data": [{"id": "test-model", "object": "model"}]},
             )
 
-            from llama_manager.probe import _probe_models
+            from llama_manager.probe.smoke import _probe_models
 
             _result = _probe_models("127.0.0.1", 8080, 10, api_key, "test-model")
 
@@ -844,7 +844,7 @@ class TestApiKeyHeaderPrecedence:
                 {"object": "list", "choices": [{"message": {"content": "hello"}}]},
             )
 
-            from llama_manager.probe import _probe_chat
+            from llama_manager.probe.smoke import _probe_chat
 
             _result = _probe_chat("127.0.0.1", 8080, smoke_cfg, "test-model", api_key)
 
@@ -1447,7 +1447,7 @@ class TestTcpConnect:
         with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
             mock_sock = self._mock_socket(mock_socket_cls)
 
-            from llama_manager.probe import _tcp_connect
+            from llama_manager.probe.smoke import _tcp_connect
 
             _tcp_connect("127.0.0.1", 8080, 5)
 
@@ -1466,7 +1466,7 @@ class TestTcpConnect:
             mock_sock = self._mock_socket(mock_socket_cls)
             mock_sock.connect.side_effect = side_effect
 
-            from llama_manager.probe import _tcp_connect
+            from llama_manager.probe.smoke import _tcp_connect
 
             with pytest.raises(expected_exception):
                 _tcp_connect("127.0.0.1", 8080, 5)
@@ -1478,7 +1478,7 @@ class TestTcpConnect:
         with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
             mock_sock = self._mock_socket(mock_socket_cls)
 
-            from llama_manager.probe import _tcp_connect
+            from llama_manager.probe.smoke import _tcp_connect
 
             _tcp_connect("127.0.0.1", 8080, 30)
 
@@ -1489,7 +1489,7 @@ class TestTcpConnect:
         with patch("llama_manager.probe.smoke.socket.socket") as mock_socket_cls:
             self._mock_socket(mock_socket_cls)
 
-            from llama_manager.probe import _tcp_connect
+            from llama_manager.probe.smoke import _tcp_connect
 
             _tcp_connect("127.0.0.1", 8080, 5)
 
@@ -1755,7 +1755,7 @@ class TestProbeModelsAllModelsCheck:
             mock_client_instance.get.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.probe import _probe_models
+            from llama_manager.probe.smoke import _probe_models
 
             result, discovered_id = _probe_models("127.0.0.1", 8080, 10, "", "expected-model")
 
@@ -1781,7 +1781,7 @@ class TestProbeModelsAllModelsCheck:
             mock_client_instance.get.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.probe import _probe_models
+            from llama_manager.probe.smoke import _probe_models
 
             result, discovered_id = _probe_models("127.0.0.1", 8080, 10, "", "expected-model")
 
@@ -1807,7 +1807,7 @@ class TestProbeModelsAllModelsCheck:
             mock_client_instance.get.return_value = mock_response
             mock_client_cls.return_value = mock_client_instance
 
-            from llama_manager.probe import _probe_models
+            from llama_manager.probe.smoke import _probe_models
 
             result, discovered_id = _probe_models("127.0.0.1", 8080, 10, "", "")
 

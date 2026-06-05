@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from llama_manager.config import Config, RunProfileSpec
+from llama_manager.config import Config, SlotProfileSpec
 from llama_manager.config.builder import create_tui_profile_registry
-from llama_manager.run_profile_store import save_custom_run_profile
+from llama_manager.slot_profile_store import save_custom_slot_profile
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -43,28 +43,12 @@ def test_tui_registry_includes_builtins(config: Config) -> None:
     assert "qwen35" in profile_ids
 
 
-def test_tui_registry_includes_builtins_run_groups(config: Config) -> None:
-    """create_tui_profile_registry should include built-in run groups."""
-    registry = create_tui_profile_registry(config)
-
-    group_ids = registry.run_group_ids
-    assert "summary-balanced" in group_ids
-    assert "summary-fast" in group_ids
-    assert "qwen35" in group_ids
-    assert "both" in group_ids
-
-
-# ---------------------------------------------------------------------------
-# Custom profiles
-# ---------------------------------------------------------------------------
-
-
 def test_tui_registry_includes_custom(
     config: Config,
     xdg_config_home: Path,
 ) -> None:
     """create_tui_profile_registry should include custom profiles from disk."""
-    custom_profile = RunProfileSpec(
+    custom_profile = SlotProfileSpec(
         profile_id="my-custom",
         model="/models/custom.gguf",
         alias="my-custom",
@@ -75,7 +59,7 @@ def test_tui_registry_includes_custom(
         threads=4,
         backend="llama_cpp",
     )
-    save_custom_run_profile(custom_profile)
+    save_custom_slot_profile(custom_profile)
 
     registry = create_tui_profile_registry(config)
     profile_ids = registry.profile_ids
@@ -88,7 +72,7 @@ def test_tui_registry_custom_overrides_builtin(
 ) -> None:
     """Custom profile with same profile_id as a built-in should override it."""
     # Save a custom profile that shadows the built-in 'summary-balanced'
-    override_profile = RunProfileSpec(
+    override_profile = SlotProfileSpec(
         profile_id="summary-balanced",
         model="/models/override.gguf",
         alias="summary-balanced",
@@ -99,7 +83,7 @@ def test_tui_registry_custom_overrides_builtin(
         threads=2,
         backend="llama_cpp",
     )
-    save_custom_run_profile(override_profile)
+    save_custom_slot_profile(override_profile)
 
     registry = create_tui_profile_registry(config)
     profile = registry.get_profile("summary-balanced")
@@ -111,13 +95,13 @@ def test_tui_registry_custom_overrides_builtin(
     assert profile.threads == 2
 
 
-def test_tui_registry_custom_does_not_override_run_groups(
+def test_tui_registry_custom_profile_keeps_builtin_profiles(
     config: Config,
     xdg_config_home: Path,
 ) -> None:
-    """Custom profiles should not affect built-in run groups."""
-    save_custom_run_profile(
-        RunProfileSpec(
+    """Custom profiles should not affect built-in slot profiles."""
+    save_custom_slot_profile(
+        SlotProfileSpec(
             profile_id="my-custom",
             model="/models/custom.gguf",
             alias="my-custom",
@@ -131,9 +115,9 @@ def test_tui_registry_custom_does_not_override_run_groups(
     )
 
     registry = create_tui_profile_registry(config)
-    group_ids = registry.run_group_ids
-    assert "both" in group_ids
-    assert "summary-balanced" in group_ids
+    profile_ids = registry.profile_ids
+    assert "summary-balanced" in profile_ids
+    assert "qwen35" in profile_ids
 
 
 def test_tui_registry_multiple_custom_profiles(
@@ -141,8 +125,8 @@ def test_tui_registry_multiple_custom_profiles(
     xdg_config_home: Path,
 ) -> None:
     """Multiple custom profiles should all be included."""
-    save_custom_run_profile(
-        RunProfileSpec(
+    save_custom_slot_profile(
+        SlotProfileSpec(
             profile_id="profile-a",
             model="/models/a.gguf",
             alias="profile-a",
@@ -154,8 +138,8 @@ def test_tui_registry_multiple_custom_profiles(
             backend="llama_cpp",
         ),
     )
-    save_custom_run_profile(
-        RunProfileSpec(
+    save_custom_slot_profile(
+        SlotProfileSpec(
             profile_id="profile-b",
             model="/models/b.gguf",
             alias="profile-b",
@@ -182,8 +166,8 @@ def test_tui_registry_preserves_builtin_profile_fields_when_custom_no_override(
     xdg_config_home: Path,
 ) -> None:
     """When custom profile doesn't shadow a built-in, built-in fields are preserved."""
-    save_custom_run_profile(
-        RunProfileSpec(
+    save_custom_slot_profile(
+        SlotProfileSpec(
             profile_id="extra-profile",
             model="/models/extra.gguf",
             alias="extra",

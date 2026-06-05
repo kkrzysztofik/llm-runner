@@ -25,14 +25,14 @@ from .config import (
     ProfileFlavor,
     ProfileMetrics,
     ProfileRecord,
-    RunProfileRegistry,
     ServerConfig,
+    SlotProfileRegistry,
     create_default_profile_registry,
     resolve_profile_config,
     resolve_profile_id,
 )
 from .config.profile_cache import compute_driver_version_hash, write_profile
-from .gpu_stats import get_gpu_identifier
+from .gpu_telemetry import get_gpu_identifier
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -83,7 +83,7 @@ class BenchmarkConfig:
 def resolve_profile_slot(
     slot_id: str,
     config: Config,
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> ServerConfig:
     """Resolve a slot_id to a ServerConfig.
 
@@ -110,16 +110,16 @@ def resolve_profile_slot(
 
     # Unknown slot IDs default to summary-balanced profile parameters.
     server_config = ServerConfig(
-        model=config.model_summary_balanced,
+        model=config.deployment.model_summary_balanced,
         alias=slot_id,
         device="SYCL0",
-        port=config.summary_balanced_port,
-        ctx_size=config.default_ctx_size_summary,
-        ubatch_size=config.default_ubatch_size_summary_balanced,
-        threads=config.default_threads_summary_balanced,
-        cache_type_k=config.default_cache_type_summary_k,
-        cache_type_v=config.default_cache_type_summary_v,
-        n_gpu_layers=config.default_n_gpu_layers,
+        port=config.deployment.summary_balanced_port,
+        ctx_size=config.server_defaults.ctx_size_summary,
+        ubatch_size=config.server_defaults.ubatch_size_summary_balanced,
+        threads=config.server_defaults.threads_summary_balanced,
+        cache_type_k=config.server_defaults.cache_type_summary_k,
+        cache_type_v=config.server_defaults.cache_type_summary_v,
+        n_gpu_layers=config.server_defaults.n_gpu_layers,
     )
     return server_config
 
@@ -184,27 +184,27 @@ def resolve_benchmark_config(
     # SYCL profiles use flavor-based overrides
     if flavor == ProfileFlavor.BALANCED:
         return BenchmarkConfig(
-            model=config.model_summary_balanced,
-            threads=config.default_threads_summary_balanced,
-            ubatch_size=config.default_ubatch_size_summary_balanced,
-            cache_type_k=config.default_cache_type_summary_k,
-            cache_type_v=config.default_cache_type_summary_v,
+            model=config.deployment.model_summary_balanced,
+            threads=config.server_defaults.threads_summary_balanced,
+            ubatch_size=config.server_defaults.ubatch_size_summary_balanced,
+            cache_type_k=config.server_defaults.cache_type_summary_k,
+            cache_type_v=config.server_defaults.cache_type_summary_v,
         )
     if flavor == ProfileFlavor.FAST:
         return BenchmarkConfig(
-            model=config.model_summary_fast,
-            threads=config.default_threads_summary_fast,
-            ubatch_size=config.default_ubatch_size_summary_fast,
-            cache_type_k=config.default_cache_type_summary_k,
-            cache_type_v=config.default_cache_type_summary_v,
+            model=config.deployment.model_summary_fast,
+            threads=config.server_defaults.threads_summary_fast,
+            ubatch_size=config.server_defaults.ubatch_size_summary_fast,
+            cache_type_k=config.server_defaults.cache_type_summary_k,
+            cache_type_v=config.server_defaults.cache_type_summary_v,
         )
     # quality — use balanced as base
     return BenchmarkConfig(
-        model=config.model_summary_balanced,
-        threads=config.default_threads_summary_balanced,
-        ubatch_size=config.default_ubatch_size_summary_balanced,
-        cache_type_k=config.default_cache_type_summary_k,
-        cache_type_v=config.default_cache_type_summary_v,
+        model=config.deployment.model_summary_balanced,
+        threads=config.server_defaults.threads_summary_balanced,
+        ubatch_size=config.server_defaults.ubatch_size_summary_balanced,
+        cache_type_k=config.server_defaults.cache_type_summary_k,
+        cache_type_v=config.server_defaults.cache_type_summary_v,
     )
 
 
@@ -227,7 +227,7 @@ def resolve_benchmark_binary(server_config: ServerConfig, config: Config) -> str
     Returns:
         Path to the ``llama-bench`` binary, or ``None`` if not found.
     """
-    server_bin = server_config.server_bin or config.llama_server_bin_intel
+    server_bin = server_config.server_bin or config.paths.llama_server_bin_intel
     if not server_bin:
         return shutil.which("llama-bench")
 
@@ -367,7 +367,7 @@ def run_profile(
     flavor: str,
     driver_provider: DriverVersionProvider | None = None,
     runner: BenchmarkRunner | None = None,
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> ProfileRecord | None:
     """Run a full profile: resolve config, detect backend, run benchmark, record result.
 
@@ -462,7 +462,7 @@ def run_profile(
 
     # Write profile to disk
     try:
-        write_profile(config.profiles_dir, record)
+        write_profile(config.paths.profiles_dir, record)
     except OSError, ValueError:
         logger.opt(exception=True).error(
             "Failed to write profile record for slot '{}'",

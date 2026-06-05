@@ -15,12 +15,16 @@ import psutil
 from llama_manager import (
     Config,
     GPUStats,
+    GpuTelemetrySelector,
     LaunchResult,
     LogBuffer,
     ModelSlot,
     ServerConfig,
     ServerManager,
-    collect_nvtop_stats,
+    collect_gpu_stats,
+    collector_for_config,
+    gpu_index_for_config,
+    selector_for_config,
 )
 from llama_manager.build_pipeline import BuildConfig
 
@@ -46,7 +50,12 @@ class DashboardModel:
             cfg.alias: LogBuffer(redact_sensitive=True) for cfg in configs
         }
         self.gpu_stats: list[GPUStats] = [
-            GPUStats(idx, collector=self.make_collector(idx)) for idx in gpu_indices
+            GPUStats(
+                gpu_index_for_config(cfg),
+                collector=collector_for_config(cfg),
+                selector=selector_for_config(cfg),
+            )
+            for cfg in configs
         ]
         self.running = True
         self.launch_result: LaunchResult | None = None
@@ -76,8 +85,9 @@ class DashboardModel:
         self.server_processes: dict[str, Any] = {}
 
     def make_collector(self, device_index: int) -> Callable[[], dict[str, Any]]:
-        """Create a GPU collector bound to a device index."""
-        return lambda: collect_nvtop_stats(device_index)
+        """Create a legacy CUDA collector bound to a device ordinal."""
+        selector = GpuTelemetrySelector(backend="cuda", ordinal=device_index)
+        return lambda: collect_gpu_stats(selector)
 
     def stop(self) -> None:
         """Stop the dashboard."""

@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from llama_cli.colors import Colors
 from llama_cli.commands._output import emit_json, emit_plain
 from llama_cli.commands._subprocess import run_capture_command
 from llama_cli.commands._toolchain import (
@@ -23,6 +22,7 @@ from llama_cli.commands._toolchain import (
     toolchain_is_ready_for_backend,
 )
 from llama_cli.ui_output import (
+    _style,
     emit_error,
     emit_heading,
     emit_info,
@@ -154,7 +154,7 @@ def _check_venv(result: DoctorCheckResult) -> None:
 
 def _check_build_lock(result: DoctorCheckResult, config: Config) -> None:
     """Check build lock status and update result."""
-    lock_path = config.build_lock_path
+    lock_path = config.paths.build_lock_path
     if not lock_path.exists():
         result.build_lock_free = True
         return
@@ -181,8 +181,8 @@ def _check_build_lock(result: DoctorCheckResult, config: Config) -> None:
 
 def _check_staging_dirs(result: DoctorCheckResult, config: Config) -> None:
     """Check for failed staging directories and update result."""
-    build_dir = Path(config.llama_cpp_root) / "build"
-    build_cuda_dir = Path(config.llama_cpp_root) / "build_cuda"
+    build_dir = Path(config.paths.llama_cpp_root) / "build"
+    build_cuda_dir = Path(config.paths.llama_cpp_root) / "build_cuda"
     staging_dirs = [d for d in [build_dir, build_cuda_dir] if d.exists()]
 
     failed_staging: list[str] = []
@@ -204,7 +204,7 @@ def _check_staging_dirs(result: DoctorCheckResult, config: Config) -> None:
 
 def _check_reports_dir(result: DoctorCheckResult, config: Config) -> None:
     """Check reports directory status and update result."""
-    result.reports_dir_exists = config.reports_dir.exists()
+    result.reports_dir_exists = config.paths.reports_dir.exists()
     if not result.reports_dir_exists:
         result.warnings.append("Reports directory does not exist")
 
@@ -385,7 +385,7 @@ def _check_profiles(
         current_binary_version: Current llama-server binary version
             (enables binary-change detection when provided).
     """
-    profiles_dir = config.profiles_dir
+    profiles_dir = config.paths.profiles_dir
     if not profiles_dir.exists():
         result.profiles_total = 0
         result.profiles_stale = 0
@@ -464,9 +464,9 @@ def _print_check_results(result: DoctorCheckResult) -> int:
     Returns:
         Exit code (0 if healthy, 1 otherwise)
     """
-    yes = Colors.bright_green("✓ YES")
-    no = Colors.bright_red("✗ NO")
-    warn_no = Colors.bright_yellow("⚠ NO")
+    yes = _style("✓ YES", "green")
+    no = _style("✗ NO", "red")
+    warn_no = _style("⚠ NO", "yellow")
 
     emit_heading("Doctor Check Results:")
     emit_success(f"  Toolchain complete: {yes if result.toolchain_complete else no}")
@@ -476,9 +476,9 @@ def _print_check_results(result: DoctorCheckResult) -> int:
     emit_success(f"  Staging dirs clean: {yes if result.staging_dirs_clean else no}")
     emit_success(f"  Reports dir exists: {yes if result.reports_dir_exists else warn_no}")
     stale_count = (
-        Colors.bright_red(str(result.profiles_stale))
+        _style(str(result.profiles_stale), "red")
         if result.profiles_stale > 0
-        else Colors.bright_green(str(result.profiles_stale))
+        else _style(str(result.profiles_stale), "green")
     )
     emit_success(f"  Profiles: {result.profiles_total} total, {stale_count} stale")
 
@@ -616,8 +616,8 @@ def _collect_venv_repair_actions(result: DoctorRepairResult) -> None:
 
 def _collect_staging_repair_actions(result: DoctorRepairResult, config: Config) -> None:
     """Collect repair actions for failed staging directories."""
-    build_dir = Path(config.llama_cpp_root) / "build"
-    build_cuda_dir = Path(config.llama_cpp_root) / "build_cuda"
+    build_dir = Path(config.paths.llama_cpp_root) / "build"
+    build_cuda_dir = Path(config.paths.llama_cpp_root) / "build_cuda"
     staging_dirs = [d for d in [build_dir, build_cuda_dir] if d.exists()]
 
     for staging_dir in staging_dirs:
@@ -637,7 +637,7 @@ def _collect_staging_repair_actions(result: DoctorRepairResult, config: Config) 
 
 def _collect_lock_repair_actions(result: DoctorRepairResult, config: Config) -> None:
     """Collect repair actions for stale/corrupted build locks."""
-    lock_path = config.build_lock_path
+    lock_path = config.paths.build_lock_path
     if not lock_path.exists():
         return
 
@@ -682,9 +682,9 @@ def _collect_directories_repair_actions(result: DoctorRepairResult, config: Conf
         config: Application config (provides directory paths).
     """
     directories: list[tuple[str, Path]] = [
-        ("reports", config.reports_dir),
-        ("profiles", config.profiles_dir),
-        ("builds", config.builds_dir),
+        ("reports", config.paths.reports_dir),
+        ("profiles", config.paths.profiles_dir),
+        ("builds", config.paths.builds_dir),
     ]
 
     for name, dir_path in directories:
@@ -746,7 +746,7 @@ def _collect_profile_repair_actions(
         current_binary_version: Current llama-server binary version
             (enables binary-change detection when provided).
     """
-    profiles_dir = config.profiles_dir
+    profiles_dir = config.paths.profiles_dir
     if not profiles_dir.exists():
         return
 
@@ -811,9 +811,9 @@ def _print_repair_results(result: DoctorRepairResult) -> None:
 
     for i, action in enumerate(result.actions, 1):
         confirm_marker = (
-            Colors.bright_yellow(" [CONFIRMATION REQUIRED]") if action.requires_confirmation else ""
+            _style(" [CONFIRMATION REQUIRED]", "yellow") if action.requires_confirmation else ""
         )
-        emit_plain(f"  {Colors.cyan(str(i))}. {action.description}{confirm_marker}")
+        emit_plain(f"  {_style(str(i), 'cyan')}. {action.description}{confirm_marker}")
         if action.dry_run_command:
             emit_info(f"Command: {action.dry_run_command}")
 

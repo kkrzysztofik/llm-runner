@@ -10,8 +10,13 @@ from typing import Any
 
 from .config import Config, ModelSlot, ServerConfig, SlotState
 from .config.builder import create_default_profile_registry, resolve_profile_config
-from .config.profiles import RunProfileError, RunProfileRegistry
-from .gpu_stats import GPUStats
+from .config.profiles import SlotProfileError, SlotProfileRegistry
+from .gpu_telemetry import (
+    GPUStats,
+    collector_for_config,
+    parse_gpu_telemetry_selector,
+    selector_for_config,
+)
 from .log_buffer import LogBuffer
 from .orchestration import ServerManager
 from .slot_state import compute_slot_transition
@@ -51,22 +56,16 @@ def device_class_for_config(cfg: ServerConfig) -> str:
     return "sycl" if cfg.device.upper().startswith("SYCL") else "cuda"
 
 
-def gpu_index_for_config(
-    cfg: ServerConfig,
-    device_mapping: dict[str, int] | None = None,
-) -> int:
-    """Return dashboard GPU index for a configuration.
+def gpu_index_for_config(cfg: ServerConfig) -> int:
+    """Return telemetry ordinal for a configuration.
 
     Args:
         cfg: Server configuration.
-        device_mapping: Optional override mapping from device class to GPU
-            index.  Defaults to ``{"sycl": 1, "cuda": 0}``.
 
     Returns:
-        GPU index for the device's dashboard panel.
+        GPU ordinal for the device's dashboard panel.
     """
-    mapping = device_mapping or {"sycl": 1, "cuda": 0}
-    return mapping.get(device_class_for_config(cfg), 0)
+    return parse_gpu_telemetry_selector(cfg.device, cfg.main_gpu).ordinal
 
 
 def remove_slot_runtime_state(alias: str, state: dict[str, Any]) -> None:
@@ -170,7 +169,11 @@ def upsert_profile_slot(
         configs.append(cfg)
         gpu_idx = gpu_index_for_config(cfg)
         gpu_indices.append(gpu_idx)
-        gpu_stats.append(GPUStats(gpu_idx, collector=make_collector(gpu_idx)))
+        gpu_stats.append(
+            GPUStats(
+                gpu_idx, collector=collector_for_config(cfg), selector=selector_for_config(cfg)
+            )
+        )
         state, slot_messages = register_and_start_slot(cfg, server_manager, state)
         messages.extend(slot_messages)
         messages.append(
@@ -190,7 +193,9 @@ def upsert_profile_slot(
     configs[existing_index] = cfg
     gpu_idx = gpu_index_for_config(cfg)
     gpu_indices[existing_index] = gpu_idx
-    gpu_stats[existing_index] = GPUStats(gpu_idx, collector=make_collector(gpu_idx))
+    gpu_stats[existing_index] = GPUStats(
+        gpu_idx, collector=collector_for_config(cfg), selector=selector_for_config(cfg)
+    )
 
     state, slot_messages = register_and_start_slot(cfg, server_manager, state)
     messages.extend(slot_messages)
@@ -204,7 +209,7 @@ def upsert_profile_slot(
 def compute_add_slot_from_form(
     values: dict[str, str],
     config: Config,
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> tuple[bool, list[str], str, ServerConfig | None]:
     """Validate form values and resolve a profile config without mutating runtime state."""
     messages: list[str] = []
@@ -227,7 +232,7 @@ def compute_add_slot_from_form(
 
     try:
         new_cfg = resolve_profile_config(registry, profile_id, override_config=override_config)
-    except RunProfileError:
+    except SlotProfileError:
         allowed = ", ".join(registry.profile_ids)
         messages.append(f"Unknown profile '{profile_id}'. Choose one of: {allowed}")
         return False, messages, profile_id, None
@@ -244,7 +249,7 @@ def add_slot_from_form(
     server_manager: ServerManager,
     state: dict[str, Any],
     make_collector: Callable[[int], Callable[[], dict[str, Any]]],
-    registry: RunProfileRegistry | None = None,
+    registry: SlotProfileRegistry | None = None,
 ) -> tuple[bool, list[str], dict[str, Any]]:
     """Create or replace a slot from modal form values.
 
@@ -258,7 +263,7 @@ def add_slot_from_form(
         state: Mutable runtime-state dictionary.
         make_collector: Factory that returns a GPU collector callable for a
             given device index.
-        registry: Optional pre-built ``RunProfileRegistry``. When omitted,
+        registry: Optional pre-built ``SlotProfileRegistry``. When omitted,
             a fresh registry is created via ``create_default_profile_registry``.
 
     Returns:
