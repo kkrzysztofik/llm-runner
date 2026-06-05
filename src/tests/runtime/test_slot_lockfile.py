@@ -84,17 +84,19 @@ class TestCheckLockStale:
 
         with patch("llama_manager.orchestration.slot_lockfile.resolve_runtime_dir") as mock_resolve:
             mock_resolve.return_value = tmp_path
-            with patch(
-                "llama_manager.orchestration.slot_lockfile.verify_shutdown_ownership"
-            ) as mock_verify:
-                with patch("llama_manager.orchestration.slot_lockfile.os.kill") as mock_kill:
-                    mock_verify.return_value = True
-                    mock_kill.side_effect = OSError("process gone")
-                    from llama_manager.orchestration.slot_lockfile import shutdown_slot
+            with (
+                patch(
+                    "llama_manager.orchestration.slot_lockfile.verify_shutdown_ownership"
+                ) as mock_verify,
+                patch("llama_manager.orchestration.slot_lockfile.os.kill") as mock_kill,
+            ):
+                mock_verify.return_value = True
+                mock_kill.side_effect = OSError("process gone")
+                from llama_manager.orchestration.slot_lockfile import shutdown_slot
 
-                    result = shutdown_slot("test-slot")
+                result = shutdown_slot("test-slot")
 
-                    assert result is True
+                assert result is True
 
     def test_shutdown_with_valid_lock_exits_quickly(self, tmp_path: Path) -> None:
         """Should return True when process exits during SIGTERM wait."""
