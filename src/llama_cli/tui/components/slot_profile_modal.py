@@ -189,7 +189,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
     """
 
     def compose(self) -> ComposeResult:
-        title = "Edit Run Profile" if self._profile else "Create Run Profile"
+        title = "Edit Slot Profile" if self._profile else "Create Slot Profile"
         yield Container(
             Label(
                 title,

@@ -97,17 +97,19 @@ def _collect_fdinfo_engine_util(device: _LevelZeroDevice) -> float | None:
     if elapsed <= 0:
         return None
     second = _read_fdinfo_counters(device)
-    percentages: list[float] = []
+    engine_percentages: list[float] = []
     for path, after in second.items():
         before = first.get(path)
         if before is None:
             continue
-        if after.engine_ns >= before.engine_ns and after.engine_ns > 0:
-            percentages.append(100.0 * (after.engine_ns - before.engine_ns) / elapsed)
-        percentages.extend(_cycle_percentages(before, after))
-    if not percentages:
+        cycle_pcts = _cycle_percentages(before, after)
+        if cycle_pcts:
+            engine_percentages.extend(cycle_pcts)
+        elif after.engine_ns >= before.engine_ns and after.engine_ns > 0:
+            engine_percentages.append(100.0 * (after.engine_ns - before.engine_ns) / elapsed)
+    if not engine_percentages:
         return None
-    return max(0.0, min(100.0, sum(percentages)))
+    return max(0.0, min(100.0, max(engine_percentages)))
 
 
 def _cycle_percentages(before: _FdinfoCounters, after: _FdinfoCounters) -> list[float]:

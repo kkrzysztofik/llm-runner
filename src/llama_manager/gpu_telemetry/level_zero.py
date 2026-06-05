@@ -1,7 +1,5 @@
 """Level Zero Sysman telemetry collector for Intel GPUs."""
 
-import time
-
 from . import level_zero_fdinfo as _fdinfo
 from . import level_zero_sysfs as _sysfs
 from .level_zero_device import (
@@ -71,5 +69,4 @@ __all__ = [
     "_SYS_CLASS_DRM",
     "_uuid_to_string",
     "collect_level_zero_stats",
-    "time",
 ]

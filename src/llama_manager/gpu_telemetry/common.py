@@ -33,7 +33,10 @@ def parse_gpu_telemetry_selector(
     upper = raw.upper()
     if upper.startswith("SYCL"):
         ordinal_text = raw[4:].lstrip(":")
-        ordinal = int(ordinal_text.split(":", maxsplit=1)[0] or "0")
+        try:
+            ordinal = int(ordinal_text.split(":", maxsplit=1)[0] or "0")
+        except ValueError:
+            ordinal = 0
         return GpuTelemetrySelector(
             backend="sycl",
             ordinal=ordinal,

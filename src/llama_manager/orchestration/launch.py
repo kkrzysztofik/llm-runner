@@ -120,6 +120,25 @@ def _build_launch_status_messages(
     return status_messages
 
 
+def _build_launch_only_messages(launch_result: LaunchResult) -> list[str]:
+    """Build launch-specific status messages (excludes profile_messages)."""
+    messages: list[str] = []
+
+    if launch_result.is_blocked():
+        messages.append("Launch blocked: no slots could be launched")
+        if launch_result.errors is not None:
+            for error_detail in launch_result.errors.errors:
+                messages.append(f"  {error_detail.error_code} - {error_detail.why_blocked}")
+        return messages
+
+    if launch_result.is_degraded():
+        messages.append("Launch degraded: some slots blocked")
+        for warning in launch_result.warnings or []:
+            messages.append(f"  warning: {warning}")
+
+    return messages
+
+
 def _build_log_handlers(
     launched_configs: list[ServerConfig],
     log_buffers: Mapping[str, LogBuffer],
@@ -246,7 +265,7 @@ def launch_orchestrate(
 
     launch_result = server_manager.launch_all_slots(slots, configs=updated_configs)
 
-    status_messages.extend(_build_launch_status_messages(launch_result, profile_messages))
+    status_messages.extend(_build_launch_only_messages(launch_result))
 
     if launch_result.is_blocked():
         return _blocked_result(updated_configs, launch_result, status_messages, risk_result)

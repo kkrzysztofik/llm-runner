@@ -230,6 +230,10 @@ class SlotProfileRegistry:
         duplicate_profile = _first_duplicate(profile.profile_id for profile in self.profiles)
         if duplicate_profile is not None:
             raise SlotProfileError(f"duplicate profile_id: {duplicate_profile}")
+        aliases = (profile.alias for profile in self.profiles if profile.alias)
+        duplicate_alias = _first_duplicate(aliases)
+        if duplicate_alias is not None:
+            raise SlotProfileError(f"duplicate profile alias: {duplicate_alias}")
 
     def get_profile(self, profile_id: str) -> SlotProfileSpec:
         """Return the slot profile matching ``profile_id``.

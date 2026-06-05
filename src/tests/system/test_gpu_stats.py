@@ -2,7 +2,10 @@
 
 import ctypes
 import json
+import pathlib
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from llama_manager.gpu_telemetry import collect_nvtop_stats, level_zero
 
@@ -19,7 +22,9 @@ def _level_zero_device() -> level_zero._LevelZeroDevice:
     )
 
 
-def test_level_zero_sysfs_temp_accepts_xe_pkg_sensor(tmp_path, monkeypatch) -> None:
+def test_level_zero_sysfs_temp_accepts_xe_pkg_sensor(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Sysfs fallback should read the XE package temperature used by nvtop."""
     pci_root = tmp_path / "pci"
     hwmon = pci_root / "0000:30:00.0" / "hwmon" / "hwmon0"
@@ -34,7 +39,9 @@ def test_level_zero_sysfs_temp_accepts_xe_pkg_sensor(tmp_path, monkeypatch) -> N
     assert level_zero._collect_sysfs_temp(_level_zero_device()) == 49.0
 
 
-def test_level_zero_sysfs_temp_accepts_i915_sensor(tmp_path, monkeypatch) -> None:
+def test_level_zero_sysfs_temp_accepts_i915_sensor(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Sysfs fallback should not reject i915 hwmon names."""
     pci_root = tmp_path / "pci"
     hwmon = pci_root / "0000:30:00.0" / "hwmon" / "hwmon0"
@@ -46,7 +53,9 @@ def test_level_zero_sysfs_temp_accepts_i915_sensor(tmp_path, monkeypatch) -> Non
     assert level_zero._collect_sysfs_temp(_level_zero_device()) == 47.0
 
 
-def test_level_zero_fdinfo_util_samples_i915_engine_ns(tmp_path, monkeypatch) -> None:
+def test_level_zero_fdinfo_util_samples_i915_engine_ns(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """DRM fdinfo fallback should compute process-summed i915 engine utilization."""
     proc_root = tmp_path / "proc"
     fdinfo = proc_root / "123" / "fdinfo"
@@ -62,9 +71,9 @@ def test_level_zero_fdinfo_util_samples_i915_engine_ns(tmp_path, monkeypatch) ->
         )
 
     monkeypatch.setattr(level_zero, "_PROC_ROOT", str(proc_root))
-    monkeypatch.setattr(level_zero.time, "sleep", advance_sample)
+    monkeypatch.setattr(level_zero._fdinfo.time, "sleep", advance_sample)
     monotonic_values = iter((1_000_000_000, 1_100_000_000))
-    monkeypatch.setattr(level_zero.time, "monotonic_ns", lambda: next(monotonic_values))
+    monkeypatch.setattr(level_zero._fdinfo.time, "monotonic_ns", lambda: next(monotonic_values))
 
     assert level_zero._collect_fdinfo_engine_util(_level_zero_device()) == 25.0
 

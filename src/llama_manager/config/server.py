@@ -292,7 +292,7 @@ def validate_slot_id(slot_id: str) -> ErrorDetail:
         slot_id: Raw slot identifier string
 
     Returns:
-        None on success, ErrorDetail on failure.
+        ErrorDetail with passed=True on success, ErrorDetail with passed=False on failure.
 
     """
     try:
@@ -319,7 +319,7 @@ def validate_slot_port(port: int, slot_id: str) -> ErrorDetail:
         slot_id: Slot identifier for error reporting
 
     Returns:
-        None on success, ErrorDetail on failure.
+        ErrorDetail with passed=True on success, ErrorDetail with passed=False on failure.
 
     """
     err = validate_port_range(port)

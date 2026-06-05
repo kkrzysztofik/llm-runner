@@ -16,4 +16,8 @@ def sanitize_filename_component(component: str) -> str:
             "component must contain at least one valid character after "
             f"sanitization, got: {component!r}",
         )
+    if all(c == "." for c in sanitized):
+        raise ValueError(
+            f"component must not consist only of dots, got: {component!r}",
+        )
     return sanitized
