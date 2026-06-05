@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widget import Widget
@@ -14,7 +13,9 @@ from llama_manager.config import Config
 from .form_widgets import (
     CONFIG_ROW_SELECT_CLASSES,
     CONFIG_SELECT_CLASSES,
+    MODAL_CANCEL_BINDINGS,
     build_config_profile_defaults_collapsible,
+    field_row,
     select_row,
 )
 
@@ -123,10 +124,7 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
     all running server slots.  Returns ``None`` on cancel.
     """
 
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
-        Binding("ctrl+c", "cancel", "Cancel"),
-    ]
+    BINDINGS = MODAL_CANCEL_BINDINGS
 
     def __init__(self, config: Config) -> None:
         super().__init__()
@@ -150,8 +148,24 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             ),
             VerticalScroll(
                 Label("System Paths", classes=_SECTION_LABEL_CLASSES),
-                self._field_row("llama-cpp root", "llama_cpp_root", paths.llama_cpp_root),
-                self._field_row("models directory", "models_dir", paths.models_dir),
+                field_row(
+                    "llama-cpp root",
+                    "llama_cpp_root",
+                    paths.llama_cpp_root,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
+                ),
+                field_row(
+                    "models directory",
+                    "models_dir",
+                    paths.models_dir,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
+                ),
                 Horizontal(
                     Label("Model Cache:", classes="form-label config-field-label"),
                     Button(
@@ -162,42 +176,90 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                     classes="form-row config-row config-action-row",
                 ),
                 Label("Binary Paths", classes=_SECTION_LABEL_CLASSES),
-                self._field_row(
+                field_row(
                     "llama-server (Intel/SYCL)",
                     "llama_server_bin_intel",
                     paths.llama_server_bin_intel,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
                 ),
-                self._field_row(
+                field_row(
                     "llama-server (NVIDIA/CUDA)",
                     "llama_server_bin_nvidia",
                     paths.llama_server_bin_nvidia,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
                 ),
                 Label("Network", classes=_SECTION_LABEL_CLASSES),
-                self._field_row("bind host", "host", deployment.host),
+                field_row(
+                    "bind host",
+                    "host",
+                    deployment.host,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
+                ),
                 build_config_profile_defaults_collapsible(c),
                 Label("Build", classes=_SECTION_LABEL_CLASSES),
-                self._field_row("git remote", "build_git_remote", build.git_remote),
-                self._field_row("git branch", "build_git_branch", build.git_branch),
+                field_row(
+                    "git remote",
+                    "build_git_remote",
+                    build.git_remote,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
+                ),
+                field_row(
+                    "git branch",
+                    "build_git_branch",
+                    build.git_branch,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
+                ),
                 Label("Smoke Probes (seconds)", classes=_SECTION_LABEL_CLASSES),
-                self._field_row(
+                field_row(
                     "listen timeout",
                     "smoke_listen_timeout_s",
                     str(smoke.listen_timeout_s),
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
                 ),
-                self._field_row(
+                field_row(
                     "http request timeout",
                     "smoke_http_request_timeout_s",
                     str(smoke.http_request_timeout_s),
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
                 ),
-                self._field_row(
+                field_row(
                     "first token timeout",
                     "smoke_first_token_timeout_s",
                     str(smoke.first_token_timeout_s),
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
                 ),
-                self._field_row(
+                field_row(
                     "total chat timeout",
                     "smoke_total_chat_timeout_s",
                     str(smoke.total_chat_timeout_s),
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
                 ),
                 Label("Logging", classes=_SECTION_LABEL_CLASSES),
                 self._log_level_select("stderr level", "log_stderr_level", c.log_stderr_level),
@@ -222,18 +284,6 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _field_row(self, label: str, field_id: str, value: str) -> Widget:
-        """Build a labelled input row for one config field."""
-        return Horizontal(
-            Label(f"{label}:", classes="form-label config-field-label"),
-            Input(
-                value=value,
-                id=f"cfg-{field_id}",
-                classes="form-input config-input",
-            ),
-            classes="form-row config-row",
-        )
 
     def _log_level_select(self, label: str, select_id: str, value: str) -> Widget:
         """Build a labelled Select widget for log level selection."""

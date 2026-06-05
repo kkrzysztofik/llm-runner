@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Collapsible, Input, Label, ListItem, ListView, Select
@@ -17,6 +16,7 @@ from llama_manager.config.spec_decode import SpeculativeDecodingConfig
 from llama_manager.model_index import ModelIndexEntry
 
 from .form_widgets import (
+    MODAL_CANCEL_BINDINGS,
     REASONING_FORMAT_CHOICES,
     REASONING_MODE_CHOICES,
     ROW_SELECT_CLASSES,
@@ -104,10 +104,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         self._config = config
         self._selected_model_path: str = profile.model if profile else ""
 
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
-        Binding("ctrl+c", "cancel", "Cancel"),
-    ]
+    BINDINGS = MODAL_CANCEL_BINDINGS
 
     CSS = """
     .profile-dialog {

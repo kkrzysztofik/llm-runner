@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import Checkbox, Collapsible, Input, Label, Select
 
 if TYPE_CHECKING:
     from llama_manager.config import Config
+
+MODAL_CANCEL_BINDINGS: list[Binding] = [
+    Binding("escape", "cancel", "Cancel"),
+    Binding("ctrl+c", "cancel", "Cancel"),
+]
 
 CACHE_TYPE_CHOICES: tuple[tuple[str, str], ...] = (
     ("q8_0", "q8_0"),
