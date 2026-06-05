@@ -1,14 +1,10 @@
 """Tests for slot_lockfile module."""
 
-import os
-import signal
-import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
-
-from llama_manager.config import Config, ErrorDetail
+from llama_manager.config import ErrorDetail
+from llama_manager.config.enums import ErrorCode
 
 
 class TestAcquireSlotLock:
@@ -16,9 +12,7 @@ class TestAcquireSlotLock:
 
     def test_acquire_creates_lock(self, tmp_path: Path) -> None:
         """Should create lockfile and return path."""
-        with patch(
-            "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir"
-        ) as mock_resolve:
+        with patch("llama_manager.orchestration.slot_lockfile.resolve_runtime_dir") as mock_resolve:
             mock_resolve.return_value = tmp_path
             from llama_manager.orchestration.slot_lockfile import acquire_slot_lock
 
@@ -29,9 +23,7 @@ class TestAcquireSlotLock:
 
     def test_acquire_uses_current_pid_when_none(self, tmp_path: Path) -> None:
         """Should use current PID when server_pid is None."""
-        with patch(
-            "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir"
-        ) as mock_resolve:
+        with patch("llama_manager.orchestration.slot_lockfile.resolve_runtime_dir") as mock_resolve:
             mock_resolve.return_value = tmp_path
             from llama_manager.orchestration.slot_lockfile import acquire_slot_lock
 
@@ -46,9 +38,7 @@ class TestReleaseSlotLock:
         lockfile = tmp_path / "slot-test-slot.lock"
         lockfile.write_text('{"pid": 12345, "port": 8080}')
 
-        with patch(
-            "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir"
-        ) as mock_resolve:
+        with patch("llama_manager.orchestration.slot_lockfile.resolve_runtime_dir") as mock_resolve:
             mock_resolve.return_value = tmp_path
             from llama_manager.orchestration.slot_lockfile import release_slot_lock
 
@@ -62,9 +52,7 @@ class TestCheckLockStale:
 
     def test_no_lockfile_returns_false(self, tmp_path: Path) -> None:
         """Should return False when no lockfile exists."""
-        with patch(
-            "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir"
-        ) as mock_resolve:
+        with patch("llama_manager.orchestration.slot_lockfile.resolve_runtime_dir") as mock_resolve:
             mock_resolve.return_value = tmp_path
             from llama_manager.orchestration.slot_lockfile import check_lock_stale
 
@@ -77,9 +65,7 @@ class TestCheckLockStale:
         lockfile = tmp_path / "slot-test-slot.lock"
         lockfile.write_text('{"pid": 12345, "port": 8080, "started_at": 1234567890}')
 
-        with patch(
-            "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir"
-        ) as mock_resolve:
+        with patch("llama_manager.orchestration.slot_lockfile.resolve_runtime_dir") as mock_resolve:
             mock_resolve.return_value = tmp_path
             with patch(
                 "llama_manager.orchestration.slot_lockfile.verify_shutdown_ownership"
@@ -96,9 +82,7 @@ class TestCheckLockStale:
         lockfile = tmp_path / "slot-test-slot.lock"
         lockfile.write_text('{"pid": 12345, "port": 8080, "started_at": 1234567890}')
 
-        with patch(
-            "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir"
-        ) as mock_resolve:
+        with patch("llama_manager.orchestration.slot_lockfile.resolve_runtime_dir") as mock_resolve:
             mock_resolve.return_value = tmp_path
             with patch(
                 "llama_manager.orchestration.slot_lockfile.verify_shutdown_ownership"
@@ -112,71 +96,61 @@ class TestCheckLockStale:
 
                     assert result is True
 
-    def test_shutdown_with_valid_lock_exits_quickly(
-        self, tmp_path: Path
-    ) -> None:
+    def test_shutdown_with_valid_lock_exits_quickly(self, tmp_path: Path) -> None:
         """Should return True when process exits during SIGTERM wait."""
         lockfile = tmp_path / "slot-test-slot.lock"
         lockfile.write_text('{"pid": 12345, "port": 8080, "started_at": 1234567890}')
 
-        with patch(
-            "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir"
-        ) as mock_resolve:
+        with patch("llama_manager.orchestration.slot_lockfile.resolve_runtime_dir") as mock_resolve:
             mock_resolve.return_value = tmp_path
-            with patch(
-                "llama_manager.orchestration.slot_lockfile.verify_shutdown_ownership"
-            ) as mock_verify:
-                with patch("llama_manager.orchestration.slot_lockfile.os.kill"):
-                    with patch(
-                        "llama_manager.orchestration.slot_lockfile.psutil.pid_exists"
-                    ) as mock_exists:
-                        mock_verify.return_value = True
-                        mock_exists.return_value = False
-                        from llama_manager.orchestration.slot_lockfile import shutdown_slot
+            with (
+                patch(
+                    "llama_manager.orchestration.slot_lockfile.verify_shutdown_ownership"
+                ) as mock_verify,
+                patch("llama_manager.orchestration.slot_lockfile.os.kill"),
+                patch("llama_manager.orchestration.slot_lockfile.psutil.pid_exists") as mock_exists,
+            ):
+                mock_verify.return_value = True
+                mock_exists.return_value = False
+                from llama_manager.orchestration.slot_lockfile import shutdown_slot
 
-                        result = shutdown_slot("test-slot")
+                result = shutdown_slot("test-slot")
 
-                        assert result is True
+                assert result is True
 
     def test_shutdown_returns_false_after_timeout(self, tmp_path: Path) -> None:
         """Should return False when process survives SIGKILL wait."""
         lockfile = tmp_path / "slot-test-slot.lock"
         lockfile.write_text('{"pid": 12345, "port": 8080, "started_at": 1234567890}')
 
-        with patch(
-            "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir"
-        ) as mock_resolve:
+        with patch("llama_manager.orchestration.slot_lockfile.resolve_runtime_dir") as mock_resolve:
             mock_resolve.return_value = tmp_path
-            with patch(
-                "llama_manager.orchestration.slot_lockfile.verify_shutdown_ownership"
-            ) as mock_verify:
-                with patch("llama_manager.orchestration.slot_lockfile.os.kill"):
-                    with patch(
-                        "llama_manager.orchestration.slot_lockfile.psutil.pid_exists"
-                    ) as mock_exists:
-                        with patch(
-                            "llama_manager.orchestration.slot_lockfile.time.monotonic"
-                        ) as mock_time:
-                            with patch(
-                                "llama_manager.orchestration.slot_lockfile.time.sleep"
-                            ):
-                                mock_verify.return_value = True
-                                mock_exists.return_value = True
-                                mock_time.side_effect = [
-                                    0,
-                                    0.1,
-                                    10.1,
-                                    10.1,
-                                    10.2,
-                                    15.2,
-                                ]
-                                from llama_manager.orchestration.slot_lockfile import (
-                                    shutdown_slot,
-                                )
+            with (
+                patch(
+                    "llama_manager.orchestration.slot_lockfile.verify_shutdown_ownership"
+                ) as mock_verify,
+                patch("llama_manager.orchestration.slot_lockfile.os.kill"),
+                patch("llama_manager.orchestration.slot_lockfile.psutil.pid_exists") as mock_exists,
+                patch("llama_manager.orchestration.slot_lockfile.time.monotonic") as mock_time,
+                patch("llama_manager.orchestration.slot_lockfile.time.sleep"),
+            ):
+                mock_verify.return_value = True
+                mock_exists.return_value = True
+                mock_time.side_effect = [
+                    0,
+                    0.1,
+                    10.1,
+                    10.1,
+                    10.2,
+                    15.2,
+                ]
+                from llama_manager.orchestration.slot_lockfile import (
+                    shutdown_slot,
+                )
 
-                                result = shutdown_slot("test-slot", timeout=10.0)
+                result = shutdown_slot("test-slot", timeout=10.0)
 
-                                assert result is False
+                assert result is False
 
 
 class TestCheckLockStaleErrorDetail:
@@ -184,15 +158,11 @@ class TestCheckLockStaleErrorDetail:
 
     def test_error_detail_returns_false(self, tmp_path: Path) -> None:
         """Should return False when read_lock returns ErrorDetail."""
-        with patch(
-            "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir"
-        ) as mock_resolve:
+        with patch("llama_manager.orchestration.slot_lockfile.resolve_runtime_dir") as mock_resolve:
             mock_resolve.return_value = tmp_path
-            with patch(
-                "llama_manager.orchestration.slot_lockfile.read_lock"
-            ) as mock_read:
+            with patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read:
                 mock_read.return_value = ErrorDetail(
-                    error_code="INVALID", why_blocked="bad lock"
+                    error_code=ErrorCode.CONFIG_ERROR, why_blocked="bad lock"
                 )
                 from llama_manager.orchestration.slot_lockfile import check_lock_stale
 
@@ -206,15 +176,11 @@ class TestShutdownSlotErrorDetail:
 
     def test_error_detail_returns_true(self, tmp_path: Path) -> None:
         """Should return True when read_lock returns ErrorDetail."""
-        with patch(
-            "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir"
-        ) as mock_resolve:
+        with patch("llama_manager.orchestration.slot_lockfile.resolve_runtime_dir") as mock_resolve:
             mock_resolve.return_value = tmp_path
-            with patch(
-                "llama_manager.orchestration.slot_lockfile.read_lock"
-            ) as mock_read:
+            with patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read:
                 mock_read.return_value = ErrorDetail(
-                    error_code="INVALID", why_blocked="bad lock"
+                    error_code=ErrorCode.CONFIG_ERROR, why_blocked="bad lock"
                 )
                 from llama_manager.orchestration.slot_lockfile import shutdown_slot
 
