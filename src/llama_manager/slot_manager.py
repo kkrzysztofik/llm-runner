@@ -85,6 +85,40 @@ def remove_slot_runtime_state(alias: str, state: dict[str, Any]) -> None:
     state["slots"][:] = [slot for slot in state["slots"] if slot.slot_id != alias]
 
 
+def remove_profile_slot(
+    alias: str,
+    configs: list[ServerConfig],
+    gpu_indices: list[int],
+    gpu_stats: list[GPUStats],
+    log_buffers: dict[str, LogBuffer],
+    server_manager: ServerManager,
+    state: dict[str, Any],
+) -> tuple[bool, list[str], dict[str, Any]]:
+    """Stop and remove one live profile slot from dashboard runtime state."""
+    existing_index = next(
+        (idx for idx, existing_cfg in enumerate(configs) if existing_cfg.alias == alias),
+        None,
+    )
+    if existing_index is None:
+        return False, [f"Unable to remove '{alias}': slot not found"], state
+
+    if not server_manager.shutdown_slot(alias):
+        return (
+            False,
+            [f"Unable to remove '{alias}': shutdown verification failed"],
+            state,
+        )
+
+    del configs[existing_index]
+    if existing_index < len(gpu_indices):
+        del gpu_indices[existing_index]
+    if existing_index < len(gpu_stats):
+        del gpu_stats[existing_index]
+    log_buffers.pop(alias, None)
+    remove_slot_runtime_state(alias, state)
+    return True, [f"Removed slot '{alias}'"], state
+
+
 def register_and_start_slot(
     cfg: ServerConfig,
     server_manager: ServerManager,

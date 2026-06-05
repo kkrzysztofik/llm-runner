@@ -1,4 +1,5 @@
 AddSlotModal,
+RemoveSlotModal,
 AboutModal,
 ConfigModal,
 ConfirmModal {
@@ -149,6 +150,15 @@ Select.config-select > SelectCurrent.-has-value Static#label {
 }
 
 .add-slot-label {
+    width: 18;
+}
+
+.remove-slot-dialog {
+    width: 70%;
+    max-width: 95%;
+}
+
+.remove-slot-label {
     width: 18;
 }
 

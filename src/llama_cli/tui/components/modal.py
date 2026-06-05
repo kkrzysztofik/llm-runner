@@ -7,6 +7,67 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select
 
 
+class RemoveSlotModal(ModalScreen[str | None]):
+    """Modal selector for removing a live slot."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("ctrl+c", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, slot_options: list[tuple[str, str]]) -> None:
+        super().__init__()
+        if not slot_options:
+            raise ValueError("slot_options must not be empty")
+        self._slot_options = slot_options
+
+    def compose(self) -> ComposeResult:
+        yield Container(
+            Label("Remove Slot", id="remove-slot-title", classes="modal-title"),
+            Horizontal(
+                Label("Slot", classes="form-label remove-slot-label"),
+                Select(
+                    options=self._slot_options,
+                    allow_blank=False,
+                    value=self._slot_options[0][1],
+                    prompt="Choose a slot",
+                    id="remove-slot-alias",
+                    classes="form-input remove-slot-input config-select",
+                ),
+                classes="form-row remove-slot-row",
+            ),
+            Horizontal(
+                Button("Cancel", id="cancel-remove-slot", classes="modal-button-cancel"),
+                Button(
+                    "Remove Slot",
+                    id="submit-remove-slot",
+                    classes="modal-button-danger",
+                ),
+                id="remove-slot-actions",
+                classes="modal-actions",
+            ),
+            id="remove-slot-dialog",
+            classes="modal-dialog remove-slot-dialog",
+        )
+
+    def on_mount(self) -> None:
+        self.query_one("#remove-slot-alias", Select).focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel-remove-slot":
+            self.dismiss(None)
+            return
+        if event.button.id == "submit-remove-slot":
+            self.dismiss(self._selected_alias())
+
+    def _selected_alias(self) -> str:
+        selected_alias = self.query_one("#remove-slot-alias", Select).value
+        return "" if selected_alias == Select.BLANK else str(selected_alias)
+
+
 class AddSlotModal(ModalScreen[dict[str, str] | None]):
     """Modal form for adding a new slot.
 

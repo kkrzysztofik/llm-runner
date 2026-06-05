@@ -24,7 +24,7 @@ from llama_manager.config import ServerConfig
 from .components.about_modal import AboutModal
 from .components.build import BuildModalScreen
 from .components.config_modal import ConfigModal, ConfigPayload
-from .components.modal import AddSlotModal
+from .components.modal import AddSlotModal, RemoveSlotModal
 from .components.server_column import ServerColumnPanel
 from .components.server_log import ServerLogPanel
 from .components.slot_profile_modal import SlotProfileModal, SlotProfilePayload
@@ -61,7 +61,7 @@ def _profile_options_cached(
 
 
 _RISK_HIDDEN_ACTIONS = frozenset(
-    {"refresh_dashboard", "add_slot", "build", "open_config", "about"},
+    {"refresh_dashboard", "add_slot", "remove_slot", "build", "open_config", "about"},
 )
 _NORMAL_HIDDEN_ACTIONS = frozenset({"confirm", "reject"})
 
@@ -88,6 +88,7 @@ class DashboardApp(App[None]):
         Binding("r", "refresh_dashboard", "Refresh"),
         Binding("b", "build", "Build"),
         Binding("a", "add_slot", "Add Slot"),
+        Binding("d", "remove_slot", "Remove Slot"),
         Binding("c", "open_config", "Config"),
         Binding("p", "manage_profiles", "Profiles"),
         Binding("h", "about", "About"),
@@ -105,6 +106,7 @@ class DashboardApp(App[None]):
         self._profile_cache_config_id: int | None = None
         self._last_model_index_notice_scanned = 0
         self._gpu_stats_refresh_active = False
+        self._pending_remove_slot_alias: str | None = None
         self.last_build_backend: str = "sycl"
 
     def compose(self) -> ComposeResult:
@@ -248,6 +250,19 @@ class DashboardApp(App[None]):
         self.push_screen(
             AddSlotModal(profile_options=self._build_profile_options()),
             self._handle_add_slot_modal_result,
+        )
+
+    def action_remove_slot(self) -> None:
+        """Open the live-slot removal flow."""
+        slot_options = [
+            (f"{cfg.alias} ({cfg.device}:{cfg.port})", cfg.alias) for cfg in self.controller.configs
+        ]
+        if not slot_options:
+            self.notify("No slots configured to remove", title="Slot", severity="warning")
+            return
+        self.push_screen(
+            RemoveSlotModal(slot_options=slot_options),
+            self._handle_remove_slot_modal_result,
         )
 
     def action_open_config(self) -> None:
@@ -521,6 +536,62 @@ class DashboardApp(App[None]):
         else:
             self.notify("Adding slot…", title="Slot", severity="information")
             self._run_add_slot(result)
+
+    def _handle_remove_slot_modal_result(self, alias: str | None) -> None:
+        if not alias:
+            return
+
+        from .components.confirm_modal import ConfirmModal
+
+        self._pending_remove_slot_alias = alias
+        self.push_screen(
+            ConfirmModal(
+                title="Remove Slot",
+                message=f"Remove slot '{alias}'? This will stop the server.",
+            ),
+            self._handle_remove_slot_confirm,
+        )
+
+    def _handle_remove_slot_confirm(self, confirmed: bool | None) -> None:
+        alias = self._pending_remove_slot_alias
+        self._pending_remove_slot_alias = None
+        if not confirmed or alias is None:
+            return
+        self.notify("Removing slot…", title="Slot", severity="information")
+        self._run_remove_slot(alias)
+
+    @work(thread=True)
+    def _run_remove_slot(self, alias: str) -> None:
+        """Stop and remove a live slot off the UI thread."""
+        error: str | None = None
+        success = False
+        try:
+            success = self.controller.remove_live_slot(alias)
+        except Exception as exc:
+            logger.exception("_run_remove_slot: unhandled exception")
+            error = f"Remove slot failed: {exc}"
+        self.call_from_thread(self._finish_remove_slot, alias, error, success)
+
+    async def _finish_remove_slot(
+        self,
+        alias: str,
+        error: str | None = None,
+        success: bool = False,
+    ) -> None:
+        """Refresh dashboard state after background slot removal completes."""
+        if error:
+            self.notify(error, title="Remove Slot", severity="error")
+        elif success:
+            self.notify(f"Slot '{alias}' removed", title="Slot", severity="information")
+        else:
+            self.notify(
+                f"Failed to remove slot '{alias}'",
+                title="Remove Slot",
+                severity="error",
+            )
+
+        await self._reconcile_server_log_panels()
+        self.refresh_dashboard()
 
     def _handle_build_modal_result(self, result: BuildWizardResult | None) -> None:
         if result is None:

@@ -408,6 +408,36 @@ class DashboardController:
         }
         return success, messages
 
+    def remove_live_slot(self, alias: str) -> bool:
+        """Stop and remove one live slot from dashboard runtime state."""
+        from llama_manager.slot_manager import remove_profile_slot
+
+        state = {
+            "log_buffers": self.log_buffers,
+            "server_processes": self.server_processes,
+            "slot_states": self.slot_states,
+            "unsaved_slots": self.unsaved_slots,
+            "slots": self.slots,
+        }
+        success, messages, _updated_state = remove_profile_slot(
+            alias,
+            self.configs,
+            self.gpu_indices,
+            self.gpu_stats,
+            self.log_buffers,
+            self.server_manager,
+            state,
+        )
+        for msg in messages:
+            self._push_status_message(msg)
+        active_aliases = {cfg.alias for cfg in self.configs}
+        self.model.stale_warnings = {
+            stale_alias: warning
+            for stale_alias, warning in self.model.stale_warnings.items()
+            if stale_alias in active_aliases
+        }
+        return success
+
     def add_slot_from_form(self, values: dict[str, str]) -> bool:
         """Create or replace a slot from modal profile selection."""
         logger.debug(
