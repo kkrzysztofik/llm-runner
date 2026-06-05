@@ -52,9 +52,10 @@ def mock_model_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def sample_config(tmp_path: Path, mock_model_dir: Path) -> MagicMock:
-    """Return a Config mock with models_dir pointing to mock_model_dir."""
+    """Return a Config mock with paths.models_dir pointing to mock_model_dir."""
     cfg = MagicMock(spec=Config)
-    cfg.models_dir = str(mock_model_dir)
+    cfg.paths = MagicMock()
+    cfg.paths.models_dir = str(mock_model_dir)
     cfg.gguf_metadata_prefix_cap_bytes = 1024
     cfg.gguf_metadata_parse_timeout_s = 1.0
     return cfg
@@ -75,7 +76,8 @@ def test_returns_path_under_xdg_cache(tmp_xdg_config: Path) -> None:
     from llama_manager.config.defaults import Config
 
     cfg = MagicMock(spec=Config)
-    cfg.models_dir = str(tmp_xdg_config / "models")
+    cfg.paths = MagicMock()
+    cfg.paths.models_dir = str(tmp_xdg_config / "models")
 
     idx_path = model_index_path(cfg)
     assert str(idx_path).endswith("llm-runner/model-index.json")
@@ -88,7 +90,8 @@ def test_creates_parent_dir(tmp_xdg_config: Path) -> None:
     from llama_manager.config.defaults import Config
 
     cfg = MagicMock(spec=Config)
-    cfg.models_dir = str(tmp_xdg_config / "models")
+    cfg.paths = MagicMock()
+    cfg.paths.models_dir = str(tmp_xdg_config / "models")
 
     idx_path = model_index_path(cfg)
     assert idx_path.parent.exists()
@@ -404,7 +407,7 @@ def test_refresh_parse_error_uses_filename_metadata(
     models_dir.mkdir()
     model_path = models_dir / "Qwen3-0.8B-UD-Q8_K_XL.gguf"
     model_path.write_bytes(b"broken")
-    sample_config.models_dir = str(models_dir)
+    sample_config.paths.models_dir = str(models_dir)
 
     with patch(
         "llama_manager.model_index._extract_model_index_metadata",
@@ -424,7 +427,7 @@ def test_refresh_missing_dir_returns_empty(
     sample_config: MagicMock,
 ) -> None:
     """refresh_model_index should return empty when models_dir doesn't exist."""
-    sample_config.models_dir = str(tmp_xdg_config / "nonexistent")
+    sample_config.paths.models_dir = str(tmp_xdg_config / "nonexistent")
     entries, total, errors = refresh_model_index(sample_config)
     assert entries == []
     assert total == 0

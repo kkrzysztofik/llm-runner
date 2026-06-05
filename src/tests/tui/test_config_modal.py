@@ -9,6 +9,7 @@ Covers:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock
@@ -18,11 +19,130 @@ from textual.app import App
 from textual.widgets import Button, Input
 
 from llama_cli.tui.components.config_modal import ConfigModal, ConfigPayload
-from llama_manager.config import Config
+from llama_manager.config.defaults import (
+    BuildPipelineConfig,
+    Config,
+    DeploymentConfig,
+    PathsConfig,
+    ServerDefaultsConfig,
+    SmokeConfig,
+)
+
+# Explicit mapping from test's default_* field names to server_defaults attrs.
+_DEFAULT_TO_SERVER_DEFAULTS: dict[str, str] = {
+    "default_profile_port": "port",
+    "default_profile_ctx_size": "ctx_size",
+    "default_profile_ubatch_size": "ubatch_size",
+    "default_profile_threads": "threads",
+    "default_profile_n_gpu_layers": "n_gpu_layers_profile",
+    "default_bind_address": "bind_address",
+    "default_batch_size": "batch_size",
+    "default_poll_ms": "poll_ms",
+    "default_n_predict": "n_predict",
+    "default_parallel": "parallel",
+    "default_threads_batch": "threads_batch",
+    "default_profile_cache_type_k": "cache_type_k",
+    "default_profile_cache_type_v": "cache_type_v",
+    "default_reasoning_mode": "reasoning_mode",
+    "default_reasoning_format": "reasoning_format",
+    "default_reasoning_budget": "reasoning_budget",
+    "default_use_jinja": "use_jinja",
+    "default_profile_chat_template_kwargs": "chat_template_kwargs",
+    "default_mmproj": "mmproj",
+    "default_spec_type": "spec_type",
+    "default_spec_ngram_size_n": "spec_ngram_size_n",
+    "default_draft_min": "draft_min",
+    "default_draft_max": "draft_max",
+    "default_spec_draft_n_max": "spec_draft_n_max",
+    "default_spec_draft_p_min": "spec_draft_p_min",
+    "default_spec_draft_cache_type_k": "spec_draft_cache_type_k",
+    "default_spec_draft_cache_type_v": "spec_draft_cache_type_v",
+    "default_spec_draft_device": "spec_draft_device",
+}
+
+# Fields that belong in each sub-dataclass (after stripping prefix).
+_PATHS_FIELDS = frozenset(
+    {
+        "llama_cpp_root",
+        "models_dir",
+        "llama_server_bin_intel",
+        "llama_server_bin_nvidia",
+        "xdg_cache_base",
+        "xdg_state_base",
+        "xdg_data_base",
+    }
+)
+_DEPLOYMENT_FIELDS = frozenset(
+    {
+        "host",
+        "model_summary_balanced",
+        "model_summary_fast",
+        "model_qwen35",
+        "model_qwen35_both",
+        "summary_balanced_port",
+        "summary_fast_port",
+        "qwen35_port",
+        "summary_balanced_chat_template_kwargs",
+        "summary_fast_chat_template_kwargs",
+    }
+)
+_BUILD_FIELDS = frozenset(
+    {
+        "git_remote",
+        "git_branch",
+        "retry_attempts",
+        "retry_delay",
+        "max_reports",
+        "output_truncate_bytes",
+        "args_default",
+        "toolchain_timeout_seconds",
+    }
+)
+_SMOKE_FIELDS = frozenset(
+    {
+        "listen_timeout_s",
+        "http_request_timeout_s",
+        "inter_slot_delay_s",
+        "max_tokens",
+        "prompt",
+        "skip_models_discovery",
+        "api_key",
+        "first_token_timeout_s",
+        "total_chat_timeout_s",
+    }
+)
+_TOP_LEVEL_FIELDS = frozenset(
+    {
+        "profile_staleness_days",
+        "server_binary_version",
+        "gguf_metadata_prefix_cap_bytes",
+        "gguf_metadata_parse_timeout_s",
+        "tui_launch_timeout_s",
+        "tui_refresh_interval_ms",
+        "probe_latency_threshold_s",
+        "lock_stale_threshold_s",
+        "log_file_level",
+        "log_stderr_level",
+    }
+)
 
 
 def _make_config(**overrides: object) -> Config:
-    """Create a Config with sensible defaults, overridden by *overrides*."""
+    """Create a Config with nested sub-dataclasses, overridden by *overrides*.
+
+    Test overrides use flat prefixed keys (e.g. ``build_git_remote``,
+    ``smoke_listen_timeout_s``, ``default_batch_size``) which are routed
+    into the correct sub-dataclass.  Sub-dataclasses are always created
+    (with defaults) and overridden via ``dataclasses.replace()``.
+    """
+    paths_kw: dict[str, object] = {}
+    deployment_kw: dict[str, object] = {}
+    build_kw: dict[str, object] = {}
+    smoke_kw: dict[str, object] = {}
+    server_defaults_kw: dict[str, object] = {}
+    top_level_kw: dict[str, Any] = {}
+
+    # Test defaults — overridden by caller-supplied kwargs.
     defaults: dict[str, object] = {
         "llama_cpp_root": "/opt/llama.cpp",
         "models_dir": "/data/models",
@@ -37,16 +157,16 @@ def _make_config(**overrides: object) -> Config:
         "smoke_total_chat_timeout_s": 300,
         "profile_staleness_days": 7,
         "build_retry_attempts": 3,
-        "build_retry_delay": 5.0,
+        "build_retry_delay": 5,
         "server_binary_version": "v1.0.0",
         "xdg_cache_base": "/tmp/llm-runner-cache",
         "xdg_state_base": "/tmp/llm-runner-state",
         "xdg_data_base": "/tmp/llm-runner-data",
         "build_max_reports": 5,
         "build_output_truncate_bytes": 1048576,
-        "toolchain_timeout_seconds": 600,
+        "build_toolchain_timeout_seconds": 600,
         "smoke_inter_slot_delay_s": 2,
-        "smoke_max_tokens": 128,
+        "smoke_max_tokens": 16,
         "smoke_prompt": "hello",
         "smoke_skip_models_discovery": False,
         "smoke_api_key": "",
@@ -58,7 +178,52 @@ def _make_config(**overrides: object) -> Config:
         "lock_stale_threshold_s": 300,
     }
     defaults.update(overrides)
-    return Config(**defaults)  # type: ignore[arg-type]
+
+    for k, v in defaults.items():
+        # default_* -> server_defaults (with explicit name mapping)
+        if k.startswith("default_") and k in _DEFAULT_TO_SERVER_DEFAULTS:
+            server_defaults_kw[_DEFAULT_TO_SERVER_DEFAULTS[k]] = v
+        # build_* -> build (strip prefix)
+        elif k.startswith("build_"):
+            stripped = k[len("build_") :]
+            if stripped in _BUILD_FIELDS:
+                build_kw[stripped] = v
+            else:
+                top_level_kw[k] = v
+        # smoke_* -> smoke (strip prefix)
+        elif k.startswith("smoke_"):
+            stripped = k[len("smoke_") :]
+            if stripped in _SMOKE_FIELDS:
+                smoke_kw[stripped] = v
+            else:
+                top_level_kw[k] = v
+        # Known paths fields
+        elif k in _PATHS_FIELDS:
+            paths_kw[k] = v
+        # Known deployment fields
+        elif k in _DEPLOYMENT_FIELDS:
+            deployment_kw[k] = v
+        # Known top-level fields
+        elif k in _TOP_LEVEL_FIELDS:
+            top_level_kw[k] = v
+        # Anything else -> server_defaults (best-effort)
+        else:
+            server_defaults_kw[k] = v
+
+    # Always create sub-dataclasses (with defaults), overriding via replace().
+    cfg = Config(
+        paths=replace(PathsConfig(), **paths_kw) if paths_kw else PathsConfig(),
+        deployment=replace(DeploymentConfig(), **deployment_kw)
+        if deployment_kw
+        else DeploymentConfig(),
+        build=replace(BuildPipelineConfig(), **build_kw) if build_kw else BuildPipelineConfig(),
+        smoke=replace(SmokeConfig(), **smoke_kw) if smoke_kw else SmokeConfig(),
+        server_defaults=replace(ServerDefaultsConfig(), **server_defaults_kw)
+        if server_defaults_kw
+        else ServerDefaultsConfig(),
+        **top_level_kw,
+    )
+    return cfg
 
 
 class ConfigModalHostApp(App[None]):

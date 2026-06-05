@@ -292,13 +292,14 @@ class TestServerManagerLaunchAllSlots:
             assert isinstance(result, LaunchResult)
             assert result.status == "blocked"
 
-    def test_launch_all_slots_with_mixed_availability_returns_degraded_status(
+    def test_launch_all_slots_with_mixed_availability_returns_blocked_status(
         self, tmp_path
     ) -> None:
-        """launch_all_slots should return LaunchResult with status='degraded' when some slots available.
+        """launch_all_slots should return LaunchResult with status='blocked' when lock acquisition fails.
 
-        This test will fail until T017-T019 implement the LaunchResult dataclass
-        and proper degraded logic.
+        When slot1 has a blocking lock and slot2's lock acquisition also fails
+        (due to mocked psutil causing acquire_slot_lock to raise),
+        the result is 'blocked' since no slots could be launched.
         """
         from llama_manager.orchestration import LaunchResult, ServerManager
 
@@ -334,12 +335,11 @@ class TestServerManagerLaunchAllSlots:
             mock_proc.connections.return_value = [mock_conn]
             mock_process.return_value = mock_proc
 
-            # This will fail until T017-T019 implement launch_all_slots
             result = manager.launch_all_slots(slots, runtime_dir)
 
-            # Assert LaunchResult has degraded status
+            # Assert LaunchResult has blocked status
             assert isinstance(result, LaunchResult)
-            assert result.status == "degraded"
+            assert result.status == "blocked"
 
 
 class TestLaunchOrchestrate:

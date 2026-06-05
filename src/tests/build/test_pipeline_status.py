@@ -22,6 +22,7 @@ from llama_manager.build_pipeline.status import (
     get_build_status,
 )
 from llama_manager.config import Config
+from llama_manager.config.defaults import BuildPipelineConfig, PathsConfig
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ from llama_manager.config import Config
 def _make_config(tmp_path: Path) -> Config:
     """Create an isolated Config with temp dirs.
 
-    config.builds_dir returns Path(xdg_state_base) / "llm-runner" / "builds".
+    config.paths.builds_dir returns Path(xdg_state_base) / "llm-runner" / "builds".
     We set xdg_state_base so that builds_dir lives under tmp_path.
     """
     state_root = tmp_path / "state_root"
@@ -40,16 +41,19 @@ def _make_config(tmp_path: Path) -> Config:
     source_dir.mkdir(parents=True)
 
     return Config(
-        llama_cpp_root=str(source_dir),
-        xdg_state_base=str(state_root),
-        xdg_cache_base=str(tmp_path),
-        xdg_data_base=str(tmp_path),
+        paths=PathsConfig(
+            llama_cpp_root=str(source_dir),
+            xdg_state_base=str(state_root),
+            xdg_cache_base=str(tmp_path),
+            xdg_data_base=str(tmp_path),
+        ),
+        build=BuildPipelineConfig(),
     )
 
 
 def _write_artifact_json(config: Config, backend: str, tmp_path: Path, **overrides: object) -> Path:
-    """Write a build-artifact.json under config.builds_dir/<backend>/."""
-    backend_dir = config.builds_dir / backend
+    """Write a build-artifact.json under config.paths.builds_dir/<backend>/."""
+    backend_dir = config.paths.builds_dir / backend
     backend_dir.mkdir(parents=True, exist_ok=True)
     artifact_path = backend_dir / "build-artifact.json"
 
@@ -151,7 +155,7 @@ class TestArtifactExists:
     def test_artifact_json_parse_error_sets_artifact_none(self, tmp_path: Path) -> None:
         """get_build_status should handle invalid JSON gracefully (artifact=None)."""
         config = _make_config(tmp_path)
-        backend_dir = config.builds_dir / "sycl"
+        backend_dir = config.paths.builds_dir / "sycl"
         backend_dir.mkdir(parents=True, exist_ok=True)
         (backend_dir / "build-artifact.json").write_text("not valid json {{{")
 
@@ -171,7 +175,7 @@ class TestUntrackedBinary:
     def test_untracked_binary_detected_sycl(self, tmp_path: Path) -> None:
         """get_build_status should detect llama-server at Config intel path without JSON."""
         config = _make_config(tmp_path)
-        binary = Path(config.llama_server_bin_intel)
+        binary = Path(config.paths.llama_server_bin_intel)
         binary.parent.mkdir(parents=True, exist_ok=True)
         binary.write_text("#!/bin/sh\necho ok")
         binary.chmod(0o755)
@@ -189,7 +193,7 @@ class TestUntrackedBinary:
     def test_untracked_binary_detected_cuda(self, tmp_path: Path) -> None:
         """get_build_status should detect llama-server at Config nvidia path without JSON."""
         config = _make_config(tmp_path)
-        binary = Path(config.llama_server_bin_nvidia)
+        binary = Path(config.paths.llama_server_bin_nvidia)
         binary.parent.mkdir(parents=True, exist_ok=True)
         binary.write_text("#!/bin/sh\necho ok")
         binary.chmod(0o755)
@@ -207,7 +211,7 @@ class TestUntrackedBinary:
     def test_untracked_binary_probes_version(self, tmp_path: Path) -> None:
         """get_build_status should probe --version on untracked binary."""
         config = _make_config(tmp_path)
-        binary = Path(config.llama_server_bin_intel)
+        binary = Path(config.paths.llama_server_bin_intel)
         binary.parent.mkdir(parents=True, exist_ok=True)
         binary.write_text("#!/bin/sh\necho 'llama-server v9.9.9'")
         binary.chmod(0o755)
@@ -225,7 +229,7 @@ class TestUntrackedBinary:
     def test_provenance_takes_precedence_over_untracked_binary(self, tmp_path: Path) -> None:
         """When build-artifact.json exists, untracked fallback is not used."""
         config = _make_config(tmp_path)
-        default_bin = Path(config.llama_server_bin_intel)
+        default_bin = Path(config.paths.llama_server_bin_intel)
         default_bin.parent.mkdir(parents=True, exist_ok=True)
         default_bin.write_text("#!/bin/sh\necho default")
         default_bin.chmod(0o755)
@@ -415,10 +419,13 @@ class TestLocalSource:
         (state_root / "llm-runner" / "builds").mkdir(parents=True)
 
         config = Config(
-            llama_cpp_root=str(source_dir),
-            xdg_state_base=str(state_root),
-            xdg_cache_base=str(tmp_path),
-            xdg_data_base=str(tmp_path),
+            paths=PathsConfig(
+                llama_cpp_root=str(source_dir),
+                xdg_state_base=str(state_root),
+                xdg_cache_base=str(tmp_path),
+                xdg_data_base=str(tmp_path),
+            ),
+            build=BuildPipelineConfig(),
         )
 
         status = get_build_status(BuildBackend.SYCL, config)
@@ -439,10 +446,13 @@ class TestLocalSource:
         (state_root / "llm-runner" / "builds").mkdir(parents=True)
 
         config = Config(
-            llama_cpp_root=str(tmp_path / "nonexistent" / "llama.cpp"),
-            xdg_state_base=str(state_root),
-            xdg_cache_base=str(tmp_path),
-            xdg_data_base=str(tmp_path),
+            paths=PathsConfig(
+                llama_cpp_root=str(tmp_path / "nonexistent" / "llama.cpp"),
+                xdg_state_base=str(state_root),
+                xdg_cache_base=str(tmp_path),
+                xdg_data_base=str(tmp_path),
+            ),
+            build=BuildPipelineConfig(),
         )
 
         with patch("llama_manager.build_pipeline.status._run_git", return_value=None):
@@ -489,11 +499,13 @@ class TestRemoteBranch:
         (tmp_path / "llama.cpp").mkdir(exist_ok=True)
 
         config = Config(
-            llama_cpp_root=str(tmp_path / "llama.cpp"),
-            xdg_state_base=str(state_root),
-            xdg_cache_base=str(tmp_path),
-            xdg_data_base=str(tmp_path),
-            build_git_branch="nonexistent_branch_xyz",
+            paths=PathsConfig(
+                llama_cpp_root=str(tmp_path / "llama.cpp"),
+                xdg_state_base=str(state_root),
+                xdg_cache_base=str(tmp_path),
+                xdg_data_base=str(tmp_path),
+            ),
+            build=BuildPipelineConfig(git_branch="nonexistent_branch_xyz"),
         )
 
         with patch("llama_manager.build_pipeline.status._run_git", return_value=None):

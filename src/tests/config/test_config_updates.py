@@ -15,45 +15,45 @@ class TestApplyConfigUpdates:
 
         result = apply_config_updates(
             cfg,
-            {"host": "0.0.0.0"},
+            {"deployment.host": "0.0.0.0"},
             persist=False,
         )
 
         assert result.success is True
-        assert "host" in result.updated_fields
-        assert cfg.host == "0.0.0.0"
+        assert "deployment.host" in result.updated_fields
+        assert cfg.deployment.host == "0.0.0.0"
         assert result.errors == []
 
     def test_integer_field_coercion(self) -> None:
         """Integer fields should be coerced from string input."""
         cfg = Config()
-        original = cfg.smoke_listen_timeout_s
+        original = cfg.smoke.listen_timeout_s
 
         result = apply_config_updates(
             cfg,
-            {"smoke_listen_timeout_s": "300"},
+            {"smoke.listen_timeout_s": "300"},
             persist=False,
         )
 
         assert result.success is True
-        assert cfg.smoke_listen_timeout_s == 300
-        assert cfg.smoke_listen_timeout_s != original
+        assert cfg.smoke.listen_timeout_s == 300
+        assert cfg.smoke.listen_timeout_s != original
 
     def test_invalid_integer_field_errors(self) -> None:
         """Invalid integer fields should produce errors."""
         cfg = Config()
-        original_timeout = cfg.smoke_listen_timeout_s
+        original_timeout = cfg.smoke.listen_timeout_s
 
         result = apply_config_updates(
             cfg,
-            {"smoke_listen_timeout_s": "not-a-number"},
+            {"smoke.listen_timeout_s": "not-a-number"},
             persist=False,
         )
 
         assert result.success is False
         assert len(result.errors) > 0
         assert "Invalid value" in result.errors[0]
-        assert cfg.smoke_listen_timeout_s == original_timeout  # unchanged
+        assert cfg.smoke.listen_timeout_s == original_timeout  # unchanged
 
     def test_unknown_fields_ignored(self) -> None:
         """Unknown fields should be silently ignored."""
@@ -76,18 +76,18 @@ class TestApplyConfigUpdates:
         result = apply_config_updates(
             cfg,
             {
-                "host": "0.0.0.0",
-                "smoke_listen_timeout_s": "600",
-                "models_dir": "/custom/models",
+                "deployment.host": "0.0.0.0",
+                "smoke.listen_timeout_s": "600",
+                "paths.models_dir": "/custom/models",
             },
             persist=False,
         )
 
         assert result.success is True
         assert len(result.updated_fields) == 3
-        assert cfg.host == "0.0.0.0"
-        assert cfg.smoke_listen_timeout_s == 600
-        assert cfg.models_dir == "/custom/models"
+        assert cfg.deployment.host == "0.0.0.0"
+        assert cfg.smoke.listen_timeout_s == 600
+        assert cfg.paths.models_dir == "/custom/models"
 
     def test_persist_false_skips_file_write(self, tmp_path: Path) -> None:
         """persist=False should not write to disk."""
@@ -95,7 +95,7 @@ class TestApplyConfigUpdates:
 
         with patch("llama_manager.config.persistence.config_file_path") as mock_path:
             mock_path.return_value = tmp_path / "config.toml"
-            result = apply_config_updates(cfg, {"host": "0.0.0.0"}, persist=False)
+            result = apply_config_updates(cfg, {"deployment.host": "0.0.0.0"}, persist=False)
 
         assert result.success is True
         assert not (tmp_path / "config.toml").exists()
@@ -106,7 +106,7 @@ class TestApplyConfigUpdates:
 
         with patch("llama_manager.config.persistence.config_file_path") as mock_path:
             mock_path.return_value = tmp_path / "config.toml"
-            result = apply_config_updates(cfg, {"host": "0.0.0.0"}, persist=True)
+            result = apply_config_updates(cfg, {"deployment.host": "0.0.0.0"}, persist=True)
 
         assert result.success is True
         assert (tmp_path / "config.toml").exists()
@@ -127,13 +127,13 @@ class TestApplyConfigUpdates:
 
         result = apply_config_updates(
             cfg,
-            {"host": "192.168.1.1"},
+            {"deployment.host": "192.168.1.1"},
             persist=False,
         )
 
         assert result.success is True
-        assert isinstance(cfg.host, str)
-        assert cfg.host == "192.168.1.1"
+        assert isinstance(cfg.deployment.host, str)
+        assert cfg.deployment.host == "192.168.1.1"
 
     def test_profile_default_fields_coerced(self) -> None:
         """Profile launch defaults should coerce numeric and bool fields."""
@@ -142,37 +142,37 @@ class TestApplyConfigUpdates:
         result = apply_config_updates(
             cfg,
             {
-                "default_batch_size": "1024",
-                "default_poll_ms": "0",
-                "default_parallel": "4",
-                "default_use_jinja": True,
-                "default_spec_draft_p_min": "0.25",
+                "server_defaults.batch_size": "1024",
+                "server_defaults.poll_ms": "0",
+                "server_defaults.parallel": "4",
+                "server_defaults.use_jinja": True,
+                "server_defaults.spec_draft_p_min": "0.25",
             },
             persist=False,
         )
 
         assert result.success is True
-        assert cfg.default_batch_size == 1024
-        assert cfg.default_poll_ms == 0
-        assert cfg.default_parallel == 4
-        assert cfg.default_use_jinja is True
-        assert cfg.default_spec_draft_p_min == 0.25
+        assert cfg.server_defaults.batch_size == 1024
+        assert cfg.server_defaults.poll_ms == 0
+        assert cfg.server_defaults.parallel == 4
+        assert cfg.server_defaults.use_jinja is True
+        assert cfg.server_defaults.spec_draft_p_min == 0.25
 
     def test_invalid_float_field_errors(self) -> None:
         """Invalid float fields should produce errors."""
         cfg = Config()
-        original = cfg.default_spec_draft_p_min
+        original = cfg.server_defaults.spec_draft_p_min
 
         result = apply_config_updates(
             cfg,
-            {"default_spec_draft_p_min": "not-a-float"},
+            {"server_defaults.spec_draft_p_min": "not-a-float"},
             persist=False,
         )
 
         assert result.success is False
         assert len(result.errors) > 0
         assert "Invalid value" in result.errors[0]
-        assert cfg.default_spec_draft_p_min == original
+        assert cfg.server_defaults.spec_draft_p_min == original
 
     def test_bool_field_from_string(self) -> None:
         """Bool fields should coerce common truthy strings."""
@@ -180,12 +180,12 @@ class TestApplyConfigUpdates:
 
         result = apply_config_updates(
             cfg,
-            {"default_use_jinja": "yes"},
+            {"server_defaults.use_jinja": "yes"},
             persist=False,
         )
 
         assert result.success is True
-        assert cfg.default_use_jinja is True
+        assert cfg.server_defaults.use_jinja is True
 
     def test_bool_field_from_non_string(self) -> None:
         """Bool fields should coerce non-string truthy values."""
@@ -193,12 +193,12 @@ class TestApplyConfigUpdates:
 
         result = apply_config_updates(
             cfg,
-            {"default_use_jinja": 1},
+            {"server_defaults.use_jinja": 1},
             persist=False,
         )
 
         assert result.success is True
-        assert cfg.default_use_jinja is True
+        assert cfg.server_defaults.use_jinja is True
 
     def test_bool_field_rejects_invalid_token(self) -> None:
         """Bool fields should reject unrecognized string tokens."""
@@ -206,13 +206,13 @@ class TestApplyConfigUpdates:
 
         result = apply_config_updates(
             cfg,
-            {"default_use_jinja": "tru"},
+            {"server_defaults.use_jinja": "tru"},
             persist=False,
         )
 
         assert result.success is False
-        assert any("default_use_jinja" in err for err in result.errors)
-        assert cfg.default_use_jinja is False
+        assert any("server_defaults.use_jinja" in err for err in result.errors)
+        assert cfg.server_defaults.use_jinja is False
 
     def test_persist_oserror_appends_error(self, tmp_path: Path) -> None:
         """OSError during persist should append an error message."""
@@ -224,7 +224,7 @@ class TestApplyConfigUpdates:
                 "llama_manager.config.persistence.save_config_to_file",
                 side_effect=OSError("disk full"),
             ):
-                result = apply_config_updates(cfg, {"host": "0.0.0.0"}, persist=True)
+                result = apply_config_updates(cfg, {"deployment.host": "0.0.0.0"}, persist=True)
 
         assert result.success is False
         assert any("Config save failed" in err for err in result.errors)

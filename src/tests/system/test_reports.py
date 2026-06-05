@@ -605,7 +605,8 @@ class TestWriteFailureReport:
         """write_failure_report should use Config().reports_dir when report_dir not provided."""
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
-            mock_config_instance.reports_dir = tmp_path
+            mock_config_instance.paths = MagicMock()
+            mock_config_instance.paths.reports_dir = tmp_path
             mock_config.return_value = mock_config_instance
             report = write_failure_report(
                 build_artifact_json="{}",
@@ -705,7 +706,10 @@ class TestRotateReports:
         # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
-            mock_config_instance.reports_dir = reports_path
+            mock_config_instance.paths = MagicMock()
+            mock_config_instance.paths.reports_dir = reports_path
+            mock_config_instance.build = MagicMock()
+            mock_config_instance.build.max_reports = 10
             mock_config.return_value = mock_config_instance
             # Should not raise
             rotate_reports(mock_config_instance)
@@ -722,8 +726,10 @@ class TestRotateReports:
         # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
-            mock_config_instance.reports_dir = tmp_path
-            mock_config_instance.build_max_reports = 10
+            mock_config_instance.paths = MagicMock()
+            mock_config_instance.paths.reports_dir = tmp_path
+            mock_config_instance.build = MagicMock()
+            mock_config_instance.build.max_reports = 10
             mock_config.return_value = mock_config_instance
             rotate_reports(mock_config_instance)
 
@@ -748,8 +754,10 @@ class TestRotateReports:
         # Mock Config class properly - patch where it's used, not where it's defined
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
-            mock_config_instance.reports_dir = tmp_path
-            mock_config_instance.build_max_reports = 10
+            mock_config_instance.paths = MagicMock()
+            mock_config_instance.paths.reports_dir = tmp_path
+            mock_config_instance.build = MagicMock()
+            mock_config_instance.build.max_reports = 10
             mock_config.return_value = mock_config_instance
             rotate_reports(mock_config_instance)
 
@@ -771,8 +779,10 @@ class TestRotateReports:
         # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
-            mock_config_instance.reports_dir = tmp_path
-            mock_config_instance.build_max_reports = 3
+            mock_config_instance.paths = MagicMock()
+            mock_config_instance.paths.reports_dir = tmp_path
+            mock_config_instance.build = MagicMock()
+            mock_config_instance.build.max_reports = 3
             mock_config.return_value = mock_config_instance
             rotate_reports(mock_config_instance)
 
@@ -793,8 +803,10 @@ class TestRotateReports:
         # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
-            mock_config_instance.reports_dir = tmp_path
-            mock_config_instance.build_max_reports = 2
+            mock_config_instance.paths = MagicMock()
+            mock_config_instance.paths.reports_dir = tmp_path
+            mock_config_instance.build = MagicMock()
+            mock_config_instance.build.max_reports = 2
             mock_config.return_value = mock_config_instance
             # Should not raise
             rotate_reports(mock_config_instance)
@@ -819,8 +831,10 @@ class TestRotateReports:
         # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
-            mock_config_instance.reports_dir = tmp_path
-            mock_config_instance.build_max_reports = 3
+            mock_config_instance.paths = MagicMock()
+            mock_config_instance.paths.reports_dir = tmp_path
+            mock_config_instance.build = MagicMock()
+            mock_config_instance.build.max_reports = 3
             mock_config.return_value = mock_config_instance
             rotate_reports(mock_config_instance)
 
@@ -867,8 +881,10 @@ class TestRotateReports:
         # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
-            mock_config_instance.reports_dir = tmp_path
-            mock_config_instance.build_max_reports = 2
+            mock_config_instance.paths = MagicMock()
+            mock_config_instance.paths.reports_dir = tmp_path
+            mock_config_instance.build = MagicMock()
+            mock_config_instance.build.max_reports = 2
             mock_config.return_value = mock_config_instance
 
             # Should not raise on invalid directories
@@ -888,8 +904,10 @@ class TestRotateReports:
         # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
-            mock_config_instance.reports_dir = tmp_path
-            mock_config_instance.build_max_reports = 10
+            mock_config_instance.paths = MagicMock()
+            mock_config_instance.paths.reports_dir = tmp_path
+            mock_config_instance.build = MagicMock()
+            mock_config_instance.build.max_reports = 10
             mock_config.return_value = mock_config_instance
 
             # Should not raise on empty directory
@@ -910,8 +928,10 @@ class TestRotateReports:
         # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
-            mock_config_instance.reports_dir = tmp_path
-            mock_config_instance.build_max_reports = 5
+            mock_config_instance.paths = MagicMock()
+            mock_config_instance.paths.reports_dir = tmp_path
+            mock_config_instance.build = MagicMock()
+            mock_config_instance.build.max_reports = 5
             mock_config.return_value = mock_config_instance
 
             rotate_reports(mock_config_instance)
@@ -934,8 +954,10 @@ class TestRotateReports:
         # Mock Config class properly - patch where it's used
         with patch("llama_manager.config.Config") as mock_config:
             mock_config_instance = MagicMock()
-            mock_config_instance.reports_dir = tmp_path
-            mock_config_instance.build_max_reports = 0
+            mock_config_instance.paths = MagicMock()
+            mock_config_instance.paths.reports_dir = tmp_path
+            mock_config_instance.build = MagicMock()
+            mock_config_instance.build.max_reports = 0
             mock_config.return_value = mock_config_instance
 
             rotate_reports(mock_config_instance)
@@ -1089,8 +1111,10 @@ class TestLogMutatingAction:
         """log_mutating_action should create log file in XDG state home."""
         # Mock Config instance to use tmp_path
         mock_config = MagicMock()
-        mock_config.xdg_state_base = str(tmp_path)
-        mock_config.build_output_truncate_bytes = 8192
+        mock_config.paths = MagicMock()
+        mock_config.paths.xdg_state_base = str(tmp_path)
+        mock_config.build = MagicMock()
+        mock_config.build.output_truncate_bytes = 8192
 
         with patch("llama_manager.config.Config", return_value=mock_config):
             log_mutating_action(
@@ -1106,8 +1130,10 @@ class TestLogMutatingAction:
     def test_log_mutating_action_writes_entry(self, tmp_path: Path) -> None:
         """log_mutating_action should write entry to log file."""
         mock_config = MagicMock()
-        mock_config.xdg_state_base = str(tmp_path)
-        mock_config.build_output_truncate_bytes = 8192
+        mock_config.paths = MagicMock()
+        mock_config.paths.xdg_state_base = str(tmp_path)
+        mock_config.build = MagicMock()
+        mock_config.build.output_truncate_bytes = 8192
 
         with patch("llama_manager.config.Config", return_value=mock_config):
             _ = log_mutating_action(
@@ -1128,8 +1154,10 @@ class TestLogMutatingAction:
     def test_log_mutating_action_redacts_sensitive(self, tmp_path: Path) -> None:
         """log_mutating_action should redact sensitive information."""
         mock_config = MagicMock()
-        mock_config.xdg_state_base = str(tmp_path)
-        mock_config.build_output_truncate_bytes = 8192
+        mock_config.paths = MagicMock()
+        mock_config.paths.xdg_state_base = str(tmp_path)
+        mock_config.build = MagicMock()
+        mock_config.build.output_truncate_bytes = 8192
 
         with patch("llama_manager.config.Config", return_value=mock_config):
             entry = log_mutating_action(
@@ -1149,10 +1177,12 @@ class TestLogMutatingAction:
         assert entry.redaction_applied is True
 
     def test_log_mutating_action_truncates_output(self, tmp_path: Path) -> None:
-        """log_mutating_action should truncate output to Config.build_output_truncate_bytes."""
+        """log_mutating_action should truncate output to Config.build.output_truncate_bytes."""
         mock_config = MagicMock()
-        mock_config.xdg_state_base = str(tmp_path)
-        mock_config.build_output_truncate_bytes = 8192
+        mock_config.paths = MagicMock()
+        mock_config.paths.xdg_state_base = str(tmp_path)
+        mock_config.build = MagicMock()
+        mock_config.build.output_truncate_bytes = 8192
 
         with patch("llama_manager.config.Config", return_value=mock_config):
             # Create very long output
@@ -1173,8 +1203,10 @@ class TestLogMutatingAction:
         working_dir.mkdir()
 
         mock_config = MagicMock()
-        mock_config.xdg_state_base = str(tmp_path)
-        mock_config.build_output_truncate_bytes = 8192
+        mock_config.paths = MagicMock()
+        mock_config.paths.xdg_state_base = str(tmp_path)
+        mock_config.build = MagicMock()
+        mock_config.build.output_truncate_bytes = 8192
 
         with patch("llama_manager.config.Config", return_value=mock_config):
             _entry = log_mutating_action(
@@ -1189,8 +1221,10 @@ class TestLogMutatingAction:
     def test_log_mutating_action_failure(self, tmp_path: Path) -> None:
         """log_mutating_action should handle failed commands."""
         mock_config = MagicMock()
-        mock_config.xdg_state_base = str(tmp_path)
-        mock_config.build_output_truncate_bytes = 8192
+        mock_config.paths = MagicMock()
+        mock_config.paths.xdg_state_base = str(tmp_path)
+        mock_config.build = MagicMock()
+        mock_config.build.output_truncate_bytes = 8192
 
         with patch("llama_manager.config.Config", return_value=mock_config):
             entry = log_mutating_action(
@@ -1210,8 +1244,10 @@ class TestLogMutatingAction:
     def test_log_mutating_action_multiple_entries(self, tmp_path: Path) -> None:
         """log_mutating_action should append multiple entries to log."""
         mock_config = MagicMock()
-        mock_config.xdg_state_base = str(tmp_path)
-        mock_config.build_output_truncate_bytes = 8192
+        mock_config.paths = MagicMock()
+        mock_config.paths.xdg_state_base = str(tmp_path)
+        mock_config.build = MagicMock()
+        mock_config.build.output_truncate_bytes = 8192
 
         with patch("llama_manager.config.Config", return_value=mock_config):
             # First entry

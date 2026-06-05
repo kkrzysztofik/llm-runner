@@ -50,45 +50,51 @@ from tests.support.helpers import valid_artifact_data
 class TestConfig:
     def test_defaults_are_set(self) -> None:
         cfg = Config()
-        assert cfg.host == "127.0.0.1"
-        assert cfg.summary_balanced_port == 8080
-        assert cfg.summary_fast_port == 8082
-        assert cfg.qwen35_port == 8081
+        assert cfg.deployment.host == "127.0.0.1"
+        assert cfg.deployment.summary_balanced_port == 8080
+        assert cfg.deployment.summary_fast_port == 8082
+        assert cfg.deployment.qwen35_port == 8081
 
     def test_ports_are_distinct_by_default(self) -> None:
         cfg = Config()
-        ports = {cfg.summary_balanced_port, cfg.summary_fast_port, cfg.qwen35_port}
+        ports = {
+            cfg.deployment.summary_balanced_port,
+            cfg.deployment.summary_fast_port,
+            cfg.deployment.qwen35_port,
+        }
         assert len(ports) == 3, "Default ports must all be different"
 
     def test_default_ctx_sizes_are_positive(self) -> None:
         cfg = Config()
-        assert cfg.default_ctx_size_summary > 0
-        assert cfg.default_ctx_size_qwen35 > 0
+        assert cfg.server_defaults.ctx_size_summary > 0
+        assert cfg.server_defaults.ctx_size_qwen35 > 0
 
     def test_default_threads_are_positive(self) -> None:
         cfg = Config()
-        assert cfg.default_threads_summary_balanced > 0
-        assert cfg.default_threads_summary_fast > 0
-        assert cfg.default_threads_qwen35 > 0
+        assert cfg.server_defaults.threads_summary_balanced > 0
+        assert cfg.server_defaults.threads_summary_fast > 0
+        assert cfg.server_defaults.threads_qwen35 > 0
 
     def test_llama_cpp_root_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.llama_cpp_root should default to ~/.cache/llm-runner/llama.cpp."""
+        """Config.paths.llama_cpp_root should default to ~/.cache/llm-runner/llama.cpp."""
         monkeypatch.delenv("LLAMA_CPP_ROOT", raising=False)
         monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
         cfg = Config()
         expected = Path.home() / ".cache" / "llm-runner" / "llama.cpp"
-        assert cfg.llama_cpp_root == str(expected)
-        assert cfg.llama_server_bin_intel == str(expected / "build" / "bin" / "llama-server")
-        assert cfg.llama_server_bin_nvidia == str(expected / "build_cuda" / "bin" / "llama-server")
+        assert cfg.paths.llama_cpp_root == str(expected)
+        assert cfg.paths.llama_server_bin_intel == str(expected / "build" / "bin" / "llama-server")
+        assert cfg.paths.llama_server_bin_nvidia == str(
+            expected / "build_cuda" / "bin" / "llama-server"
+        )
 
     def test_llama_cpp_root_with_xdg_cache_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.llama_cpp_root should respect XDG_CACHE_HOME by default."""
+        """Config.paths.llama_cpp_root should respect XDG_CACHE_HOME by default."""
         monkeypatch.delenv("LLAMA_CPP_ROOT", raising=False)
         custom_cache = "/custom/cache"
         monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
         cfg = Config()
         expected = Path(custom_cache) / "llm-runner" / "llama.cpp"
-        assert cfg.llama_cpp_root == str(expected)
+        assert cfg.paths.llama_cpp_root == str(expected)
 
     def test_llama_cpp_root_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """LLAMA_CPP_ROOT should override the XDG cache default."""
@@ -96,85 +102,85 @@ class TestConfig:
         monkeypatch.setenv("LLAMA_CPP_ROOT", custom_root)
         monkeypatch.setenv("XDG_CACHE_HOME", "/ignored/cache")
         cfg = Config()
-        assert cfg.llama_cpp_root == custom_root
-        assert cfg.llama_server_bin_intel == str(
+        assert cfg.paths.llama_cpp_root == custom_root
+        assert cfg.paths.llama_server_bin_intel == str(
             Path(custom_root) / "build" / "bin" / "llama-server"
         )
-        assert cfg.llama_server_bin_nvidia == str(
+        assert cfg.paths.llama_server_bin_nvidia == str(
             Path(custom_root) / "build_cuda" / "bin" / "llama-server"
         )
 
     def test_venv_path_default(self) -> None:
-        """Config.venv_path should return Path to ~/.cache/llm-runner/venv by default."""
+        """Config.paths.venv_path should return Path to ~/.cache/llm-runner/venv by default."""
         cfg = Config()
         expected = Path.home() / ".cache" / "llm-runner" / "venv"
-        assert cfg.venv_path == expected
-        assert isinstance(cfg.venv_path, Path)
+        assert cfg.paths.venv_path == expected
+        assert isinstance(cfg.paths.venv_path, Path)
 
     def test_venv_path_with_xdg_cache_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.venv_path should respect XDG_CACHE_HOME environment variable."""
+        """Config.paths.venv_path should respect XDG_CACHE_HOME environment variable."""
         custom_cache = "/custom/cache"
         monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
         cfg = Config()
         expected = Path(custom_cache) / "llm-runner" / "venv"
-        assert cfg.venv_path == expected
+        assert cfg.paths.venv_path == expected
 
     def test_builds_dir_default(self) -> None:
-        """Config.builds_dir should return Path to ~/.local/state/llm-runner/builds by default."""
+        """Config.paths.builds_dir should return Path to ~/.local/state/llm-runner/builds by default."""
         cfg = Config()
         expected = Path.home() / ".local" / "state" / "llm-runner" / "builds"
-        assert cfg.builds_dir == expected
-        assert isinstance(cfg.builds_dir, Path)
+        assert cfg.paths.builds_dir == expected
+        assert isinstance(cfg.paths.builds_dir, Path)
 
     def test_builds_dir_with_xdg_state_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.builds_dir should respect XDG_STATE_HOME environment variable."""
+        """Config.paths.builds_dir should respect XDG_STATE_HOME environment variable."""
         custom_state = "/custom/state"
         monkeypatch.setenv("XDG_STATE_HOME", custom_state)
         cfg = Config()
         expected = Path(custom_state) / "llm-runner" / "builds"
-        assert cfg.builds_dir == expected
+        assert cfg.paths.builds_dir == expected
 
     def test_reports_dir_default(self) -> None:
-        """Config.reports_dir should return Path to ~/.local/share/llm-runner/reports by default."""
+        """Config.paths.reports_dir should return Path to ~/.local/share/llm-runner/reports by default."""
         cfg = Config()
         expected = Path.home() / ".local" / "share" / "llm-runner" / "reports"
-        assert cfg.reports_dir == expected
-        assert isinstance(cfg.reports_dir, Path)
+        assert cfg.paths.reports_dir == expected
+        assert isinstance(cfg.paths.reports_dir, Path)
 
     def test_reports_dir_with_xdg_data_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.reports_dir should respect XDG_DATA_HOME environment variable."""
+        """Config.paths.reports_dir should respect XDG_DATA_HOME environment variable."""
         custom_data = "/custom/data"
         monkeypatch.setenv("XDG_DATA_HOME", custom_data)
         cfg = Config()
         expected = Path(custom_data) / "llm-runner" / "reports"
-        assert cfg.reports_dir == expected
+        assert cfg.paths.reports_dir == expected
 
     def test_build_lock_path_default(self) -> None:
-        """Config.build_lock_path should return Path to ~/.cache/llm-runner/.build.lock by default."""
+        """Config.paths.build_lock_path should return Path to ~/.cache/llm-runner/.build.lock by default."""
         cfg = Config()
         expected = Path.home() / ".cache" / "llm-runner" / ".build.lock"
-        assert cfg.build_lock_path == expected
-        assert isinstance(cfg.build_lock_path, Path)
+        assert cfg.paths.build_lock_path == expected
+        assert isinstance(cfg.paths.build_lock_path, Path)
 
     def test_build_lock_path_with_xdg_cache_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.build_lock_path should respect XDG_CACHE_HOME environment variable."""
+        """Config.paths.build_lock_path should respect XDG_CACHE_HOME environment variable."""
         custom_cache = "/custom/cache"
         monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
         cfg = Config()
         expected = Path(custom_cache) / "llm-runner" / ".build.lock"
-        assert cfg.build_lock_path == expected
+        assert cfg.paths.build_lock_path == expected
 
     def test_xdg_paths_are_under_xdg_base_directories(self) -> None:
         """All XDG paths should be under their respective base directories."""
         cfg = Config()
         # venv_path should be under xdg_cache_base
-        assert str(cfg.venv_path).startswith(str(Path(cfg.xdg_cache_base)))
+        assert str(cfg.paths.venv_path).startswith(str(Path(cfg.paths.xdg_cache_base)))
         # builds_dir should be under xdg_state_base (per specs/002-build-setup/data-model.md)
-        assert str(cfg.builds_dir).startswith(str(Path(cfg.xdg_state_base)))
+        assert str(cfg.paths.builds_dir).startswith(str(Path(cfg.paths.xdg_state_base)))
         # reports_dir should be under xdg_data_base
-        assert str(cfg.reports_dir).startswith(str(Path(cfg.xdg_data_base)))
+        assert str(cfg.paths.reports_dir).startswith(str(Path(cfg.paths.xdg_data_base)))
         # build_lock_path should be under xdg_cache_base (per spec FR-004.4)
-        assert str(cfg.build_lock_path).startswith(str(Path(cfg.xdg_cache_base)))
+        assert str(cfg.paths.build_lock_path).startswith(str(Path(cfg.paths.xdg_cache_base)))
 
 
 class TestServerConfig:
@@ -2193,7 +2199,7 @@ def test_non_whitelisted_profile_keys_ignored() -> None:
     # threads should be applied (whitelisted)
     assert result.threads == 32
     # port should NOT be overridden by profile (not whitelisted)
-    assert result.port == defaults.summary_balanced_port
+    assert result.port == defaults.server_defaults.port
     # device should NOT be overridden by profile (not whitelisted)
     assert result.device == ""
 

@@ -16,7 +16,7 @@ from llama_manager.build_pipeline.orchestration import (
     _merge_config_overrides,
     run_build_for_backend,
 )
-from llama_manager.config import Config
+from llama_manager.config import BuildPipelineConfig, Config, PathsConfig
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -24,10 +24,13 @@ from llama_manager.config import Config
 def _make_app_config(tmp_path: Path) -> Config:
     """Create an isolated Config for orchestration tests."""
     return Config(
-        llama_cpp_root=str(tmp_path / "llama.cpp"),
-        xdg_state_base=str(tmp_path),
-        xdg_cache_base=str(tmp_path),
-        xdg_data_base=str(tmp_path),
+        paths=PathsConfig(
+            llama_cpp_root=str(tmp_path / "llama.cpp"),
+            xdg_state_base=str(tmp_path),
+            xdg_cache_base=str(tmp_path),
+            xdg_data_base=str(tmp_path),
+        ),
+        build=BuildPipelineConfig(),
     )
 
 
@@ -257,7 +260,7 @@ class TestRunBuildForBackend:
 
         # Verify BuildPipeline was created with correct config
         call_kwargs = mock_pipeline_cls.call_args[0][0]
-        assert call_kwargs.output_dir == config.builds_dir / "sycl"
+        assert call_kwargs.output_dir == config.paths.builds_dir / "sycl"
         assert call_kwargs.backend == BuildBackend.SYCL
 
     def test_output_dir_is_backend_scoped_cuda(self, tmp_path: Path) -> None:
@@ -284,7 +287,7 @@ class TestRunBuildForBackend:
             )
 
         call_kwargs = mock_pipeline_cls.call_args[0][0]
-        assert call_kwargs.output_dir == config.builds_dir / "cuda"
+        assert call_kwargs.output_dir == config.paths.builds_dir / "cuda"
         assert call_kwargs.backend == BuildBackend.CUDA
 
     def test_build_dir_is_correct_for_backend(self, tmp_path: Path) -> None:
@@ -301,7 +304,7 @@ class TestRunBuildForBackend:
 
             call_kwargs = mock_cls.call_args[0][0]
             # SYCL build_dir: source_dir/build
-            assert call_kwargs.build_dir == Path(config.llama_cpp_root) / "build"
+            assert call_kwargs.build_dir == Path(config.paths.llama_cpp_root) / "build"
 
         with patch("llama_manager.build_pipeline.orchestration.BuildPipeline") as mock_cls:
             mock_pipeline = MagicMock()
@@ -312,7 +315,7 @@ class TestRunBuildForBackend:
 
             call_kwargs = mock_cls.call_args[0][0]
             # CUDA build_dir: source_dir/build_cuda
-            assert call_kwargs.build_dir == Path(config.llama_cpp_root) / "build_cuda"
+            assert call_kwargs.build_dir == Path(config.paths.llama_cpp_root) / "build_cuda"
 
     def test_config_overrides_passed_to_pipeline(self, tmp_path: Path) -> None:
         """run_build_for_backend should merge config_overrides before creating pipeline."""
@@ -346,7 +349,7 @@ class TestRunBuildForBackend:
         assert call_kwargs.git_branch == "custom-branch"
         assert call_kwargs.retry_attempts == 1
         # But derived fields should NOT be overridden
-        assert call_kwargs.source_dir == Path(config.llama_cpp_root)
+        assert call_kwargs.source_dir == Path(config.paths.llama_cpp_root)
         assert call_kwargs.backend == BuildBackend.SYCL
 
     def test_unsupported_backend_raises(self, tmp_path: Path) -> None:

@@ -757,7 +757,7 @@ class TestResolveTuiModeConfigs:
 
         assert len(configs) == 1
         assert configs[0].alias == "summary-balanced"
-        assert configs[0].port == cfg.summary_balanced_port
+        assert configs[0].port == cfg.deployment.summary_balanced_port
 
     def test_resolve_mode_configs_single_port_override(self) -> None:
         """_resolve_tui_mode_configs should apply single port override."""
@@ -797,7 +797,7 @@ class TestResolveTuiModeConfigs:
         configs = _resolve_tui_mode_configs("both", cfg, parsed)
 
         assert len(configs) == 2
-        assert configs[0].port == cfg.summary_balanced_port  # First port stays default
+        assert configs[0].port == cfg.deployment.summary_balanced_port  # First port stays default
         assert configs[1].port == 8081
 
 
@@ -898,7 +898,7 @@ def test_tui_run_keeps_acknowledged_risk_prompt_active() -> None:
 
 
 def test_dry_run_prompts_for_risky_operation_with_exact_prompt() -> None:
-    from llama_manager import DryRunResult
+    from llama_manager.dry_run import DryRunResult
 
     mock_result = DryRunResult(
         mode="summary-balanced",
@@ -931,7 +931,7 @@ def test_dry_run_invalid_mode_exits_with_usage_error(capsys: pytest.CaptureFixtu
 
 
 def test_dry_run_exits_when_backend_validation_fails() -> None:
-    from llama_manager import DryRunResult
+    from llama_manager.dry_run import DryRunResult
 
     mock_result = DryRunResult(
         mode="summary-fast",

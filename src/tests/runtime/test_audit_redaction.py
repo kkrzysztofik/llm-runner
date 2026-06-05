@@ -1532,46 +1532,46 @@ class TestFullLifecycleAndShutdown:
 
 
 class TestVerifyShutdownOwnership:
-    """Tests for the _verify_shutdown_ownership helper function."""
+    """Tests for the verify_shutdown_ownership helper function."""
 
     def test_verify_returns_false_when_pid_does_not_exist(self) -> None:
-        """_verify_shutdown_ownership should return False when PID doesn't exist."""
-        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
+        """verify_shutdown_ownership should return False when PID doesn't exist."""
+        from llama_manager.orchestration.lockfile import verify_shutdown_ownership
 
         with patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=False):
-            result = _verify_shutdown_ownership(99999, 8080)
+            result = verify_shutdown_ownership(99999, 8080)
 
         assert result is False
 
     def test_verify_returns_false_when_process_creation_fails(self) -> None:
-        """_verify_shutdown_ownership should return False on NoSuchProcess."""
-        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
+        """verify_shutdown_ownership should return False on NoSuchProcess."""
+        from llama_manager.orchestration.lockfile import verify_shutdown_ownership
 
         with (
             patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
             patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_proc,
         ):
             mock_proc.side_effect = psutil.NoSuchProcess(pid=99999)
-            result = _verify_shutdown_ownership(99999, 8080)
+            result = verify_shutdown_ownership(99999, 8080)
 
         assert result is False
 
     def test_verify_returns_false_on_access_denied(self) -> None:
-        """_verify_shutdown_ownership should return False on AccessDenied."""
-        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
+        """verify_shutdown_ownership should return False on AccessDenied."""
+        from llama_manager.orchestration.lockfile import verify_shutdown_ownership
 
         with (
             patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
             patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_proc,
         ):
             mock_proc.side_effect = psutil.AccessDenied(pid=99999)
-            result = _verify_shutdown_ownership(99999, 8080)
+            result = verify_shutdown_ownership(99999, 8080)
 
         assert result is False
 
     def test_verify_returns_false_when_port_mismatch(self) -> None:
-        """_verify_shutdown_ownership should return False when port doesn't match."""
-        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
+        """verify_shutdown_ownership should return False when port doesn't match."""
+        from llama_manager.orchestration.lockfile import verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 4444  # Not 8080
@@ -1584,13 +1584,13 @@ class TestVerifyShutdownOwnership:
                 return_value=[mock_conn],
             ),
         ):
-            result = _verify_shutdown_ownership(99999, 8080)
+            result = verify_shutdown_ownership(99999, 8080)
 
         assert result is False
 
     def test_verify_returns_false_when_uid_mismatch(self) -> None:
-        """_verify_shutdown_ownership should return False when UID doesn't match."""
-        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
+        """verify_shutdown_ownership should return False when UID doesn't match."""
+        from llama_manager.orchestration.lockfile import verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 8080
@@ -1607,13 +1607,13 @@ class TestVerifyShutdownOwnership:
             ),
         ):
             mock_proc.return_value.uids.return_value = mock_uids
-            result = _verify_shutdown_ownership(99999, 8080)
+            result = verify_shutdown_ownership(99999, 8080)
 
         assert result is False
 
     def test_verify_returns_true_when_port_and_uid_match(self) -> None:
-        """_verify_shutdown_ownership should return True when port + UID match."""
-        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
+        """verify_shutdown_ownership should return True when port + UID match."""
+        from llama_manager.orchestration.lockfile import verify_shutdown_ownership
 
         mock_conn = MagicMock()
         mock_conn.laddr.port = 8080
@@ -1630,13 +1630,13 @@ class TestVerifyShutdownOwnership:
             ),
         ):
             mock_proc.return_value.uids.return_value = mock_uids
-            result = _verify_shutdown_ownership(99999, 8080)
+            result = verify_shutdown_ownership(99999, 8080)
 
         assert result is True
 
     def test_verify_net_connections_access_denied_returns_false(self) -> None:
-        """_verify_shutdown_ownership returns False on net_connections AccessDenied."""
-        from llama_manager.orchestration.lockfile import _verify_shutdown_ownership
+        """verify_shutdown_ownership returns False on net_connections AccessDenied."""
+        from llama_manager.orchestration.lockfile import verify_shutdown_ownership
 
         with (
             patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
@@ -1645,7 +1645,7 @@ class TestVerifyShutdownOwnership:
                 side_effect=psutil.AccessDenied(pid=99999),
             ),
         ):
-            result = _verify_shutdown_ownership(99999, 8080)
+            result = verify_shutdown_ownership(99999, 8080)
 
         assert result is False
 

@@ -19,7 +19,7 @@ from llama_cli.tui.components.slot_profile_modal import (
 from llama_cli.tui.components.slot_profile_modal import (
     _parse_n_gpu_layers,
 )
-from llama_manager.config import Config
+from llama_manager.config import Config, ServerDefaultsConfig
 from llama_manager.config.profiles import SlotProfileSpec as RunProfileSpec
 from llama_manager.model_index import ModelIndexEntry
 
@@ -116,7 +116,7 @@ def test_compose_prefill_from_profile() -> None:
 
 
 def test_compose_prefill_from_config() -> None:
-    config = Config(default_batch_size=1024, default_poll_ms=0)
+    config = Config(server_defaults=ServerDefaultsConfig(batch_size=1024, poll_ms=0))
     modal = RunProfileModal(config=config)
     prefill = modal._compose_prefill()
     assert prefill["batch-size"] == "1024"
@@ -714,13 +714,15 @@ async def test_modal_model_selection_keeps_selected_path_in_filter() -> None:
 async def test_create_modal_prefills_from_config() -> None:
     """Create mode should prefill advanced fields from Config defaults."""
     config = Config(
-        default_batch_size=1024,
-        default_poll_ms=0,
-        default_n_predict=8192,
-        default_parallel=2,
-        default_profile_cache_type_k="f16",
-        default_reasoning_mode="off",
-        default_use_jinja=True,
+        server_defaults=ServerDefaultsConfig(
+            batch_size=1024,
+            poll_ms=0,
+            n_predict=8192,
+            parallel=2,
+            cache_type_k="f16",
+            reasoning_mode="off",
+            use_jinja=True,
+        )
     )
     modal = RunProfileModal(config=config)
     app = App[None]()
@@ -749,7 +751,7 @@ async def test_select_displays_current_value_in_control() -> None:
     """Select widgets should render the chosen option inside the control."""
     from textual.widgets import Static
 
-    config = Config(default_profile_cache_type_k="f16", default_reasoning_mode="off")
+    config = Config(server_defaults=ServerDefaultsConfig(cache_type_k="f16", reasoning_mode="off"))
     modal = RunProfileModal(config=config)
     app = App[None]()
 

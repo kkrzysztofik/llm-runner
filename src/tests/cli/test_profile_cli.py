@@ -346,8 +346,8 @@ def _build_test_registry(
     Returns a tuple of (mock config, registry) where the mock Config
     has all the attributes needed by cmd_profile.
     """
-    from llama_manager import (
-        Config,
+    from llama_manager import Config
+    from llama_manager.config import (
         SlotProfileRegistry,
         SlotProfileSpec,
     )
@@ -357,83 +357,83 @@ def _build_test_registry(
 
     # Create a real Config with test values
     cfg = Config()
-    cfg.model_summary_balanced = str(tmp_path / "model_summary.gguf")
-    cfg.model_summary_fast = str(tmp_path / "model_fast.gguf")
-    cfg.model_qwen35 = str(tmp_path / "model_qwen35.gguf")
-    cfg.summary_balanced_port = summary_port
-    cfg.summary_fast_port = fast_port
-    cfg.qwen35_port = qwen35_port
-    cfg.default_threads_summary_balanced = 8
-    cfg.default_threads_summary_fast = 4
-    cfg.default_threads_qwen35 = 16
-    cfg.default_ctx_size_summary = 32768
-    cfg.default_ubatch_size_summary_balanced = 1024
-    cfg.default_ubatch_size_summary_fast = 512
-    cfg.default_ubatch_size_qwen35 = 2048
-    cfg.default_cache_type_summary_k = "q8_0"
-    cfg.default_cache_type_summary_v = "q8_0"
-    cfg.default_cache_type_qwen35_k = "q8_0"
-    cfg.default_cache_type_qwen35_v = "q8_0"
-    cfg.default_n_gpu_layers = 99
-    cfg.default_n_gpu_layers_qwen35 = "all"
+    cfg.deployment.model_summary_balanced = str(tmp_path / "model_summary.gguf")
+    cfg.deployment.model_summary_fast = str(tmp_path / "model_fast.gguf")
+    cfg.deployment.model_qwen35 = str(tmp_path / "model_qwen35.gguf")
+    cfg.deployment.summary_balanced_port = summary_port
+    cfg.deployment.summary_fast_port = fast_port
+    cfg.deployment.qwen35_port = qwen35_port
+    cfg.server_defaults.threads_summary_balanced = 8
+    cfg.server_defaults.threads_summary_fast = 4
+    cfg.server_defaults.threads_qwen35 = 16
+    cfg.server_defaults.ctx_size_summary = 32768
+    cfg.server_defaults.ubatch_size_summary_balanced = 1024
+    cfg.server_defaults.ubatch_size_summary_fast = 512
+    cfg.server_defaults.ubatch_size_qwen35 = 2048
+    cfg.server_defaults.cache_type_summary_k = "q8_0"
+    cfg.server_defaults.cache_type_summary_v = "q8_0"
+    cfg.server_defaults.cache_type_qwen35_k = "q8_0"
+    cfg.server_defaults.cache_type_qwen35_v = "q8_0"
+    cfg.server_defaults.n_gpu_layers = 99
+    cfg.server_defaults.n_gpu_layers_qwen35 = "all"
     cfg.server_binary_version = "1.18.0"
-    cfg.llama_server_bin_intel = str(tmp_path / "llama-server")
-    cfg.llama_server_bin_nvidia = str(tmp_path / "llama-server-cuda")
-    cfg.summary_balanced_chat_template_kwargs = ""
-    cfg.summary_fast_chat_template_kwargs = ""
+    cfg.paths.llama_server_bin_intel = str(tmp_path / "llama-server")
+    cfg.paths.llama_server_bin_nvidia = str(tmp_path / "llama-server-cuda")
+    cfg.deployment.summary_balanced_chat_template_kwargs = ""
+    cfg.deployment.summary_fast_chat_template_kwargs = ""
 
     registry = SlotProfileRegistry(
         profiles=(
             SlotProfileSpec(
                 profile_id="summary-balanced",
                 description="Run summary-balanced model on Intel SYCL.",
-                model=cfg.model_summary_balanced,
+                model=cfg.deployment.model_summary_balanced,
                 alias="summary-balanced",
                 device="SYCL0",
                 port=summary_port,
-                ctx_size=cfg.default_ctx_size_summary,
-                ubatch_size=cfg.default_ubatch_size_summary_balanced,
-                threads=cfg.default_threads_summary_balanced,
+                ctx_size=cfg.server_defaults.ctx_size_summary,
+                ubatch_size=cfg.server_defaults.ubatch_size_summary_balanced,
+                threads=cfg.server_defaults.threads_summary_balanced,
                 reasoning_mode="off",
                 reasoning_format="deepseek",
-                chat_template_kwargs=cfg.summary_balanced_chat_template_kwargs,
+                chat_template_kwargs=cfg.deployment.summary_balanced_chat_template_kwargs,
                 use_jinja=True,
-                cache_type_k=cfg.default_cache_type_summary_k,
-                cache_type_v=cfg.default_cache_type_summary_v,
+                cache_type_k=cfg.server_defaults.cache_type_summary_k,
+                cache_type_v=cfg.server_defaults.cache_type_summary_v,
                 backend="llama_cpp",
             ),
             SlotProfileSpec(
                 profile_id="summary-fast",
                 description="Run summary-fast model on Intel SYCL.",
-                model=cfg.model_summary_fast,
+                model=cfg.deployment.model_summary_fast,
                 alias="summary-fast",
                 device="SYCL0",
                 port=fast_port,
-                ctx_size=cfg.default_ctx_size_summary,
-                ubatch_size=cfg.default_ubatch_size_summary_fast,
-                threads=cfg.default_threads_summary_fast,
+                ctx_size=cfg.server_defaults.ctx_size_summary,
+                ubatch_size=cfg.server_defaults.ubatch_size_summary_fast,
+                threads=cfg.server_defaults.threads_summary_fast,
                 reasoning_mode="off",
                 reasoning_format="deepseek",
-                chat_template_kwargs=cfg.summary_fast_chat_template_kwargs,
+                chat_template_kwargs=cfg.deployment.summary_fast_chat_template_kwargs,
                 use_jinja=True,
-                cache_type_k=cfg.default_cache_type_summary_k,
-                cache_type_v=cfg.default_cache_type_summary_v,
+                cache_type_k=cfg.server_defaults.cache_type_summary_k,
+                cache_type_v=cfg.server_defaults.cache_type_summary_v,
                 backend="llama_cpp",
             ),
             SlotProfileSpec(
                 profile_id="qwen35",
                 description="Run qwen35-coding model on NVIDIA CUDA.",
-                model=cfg.model_qwen35,
+                model=cfg.deployment.model_qwen35,
                 alias="qwen35-coding",
                 device="",
                 port=qwen35_port,
-                ctx_size=cfg.default_ctx_size_qwen35,
-                ubatch_size=cfg.default_ubatch_size_qwen35,
-                threads=cfg.default_threads_qwen35,
-                cache_type_k=cfg.default_cache_type_qwen35_k,
-                cache_type_v=cfg.default_cache_type_qwen35_v,
-                n_gpu_layers=cfg.default_n_gpu_layers_qwen35,
-                server_bin=cfg.llama_server_bin_nvidia,
+                ctx_size=cfg.server_defaults.ctx_size_qwen35,
+                ubatch_size=cfg.server_defaults.ubatch_size_qwen35,
+                threads=cfg.server_defaults.threads_qwen35,
+                cache_type_k=cfg.server_defaults.cache_type_qwen35_k,
+                cache_type_v=cfg.server_defaults.cache_type_qwen35_v,
+                n_gpu_layers=cfg.server_defaults.n_gpu_layers_qwen35,
+                server_bin=cfg.paths.llama_server_bin_nvidia,
                 backend="llama_cpp",
             ),
         ),
@@ -446,21 +446,21 @@ def _populate_profile_mock_defaults(mock_cfg: Any, tmp_path: Path) -> None:
     """Populate a mock Config with the standard profile test defaults."""
     profiles_dir = tmp_path / "profiles"
     profiles_dir.mkdir(parents=True, exist_ok=True)
-    mock_cfg.profiles_dir = profiles_dir
-    mock_cfg.summary_balanced_port = 8080
-    mock_cfg.summary_fast_port = 8082
-    mock_cfg.qwen35_port = 8081
-    mock_cfg.default_threads_summary_balanced = 8
-    mock_cfg.default_ctx_size_summary = 16144
-    mock_cfg.default_ubatch_size_summary_balanced = 1024
-    mock_cfg.default_cache_type_summary_k = "q8_0"
-    mock_cfg.default_cache_type_summary_v = "q8_0"
-    mock_cfg.default_n_gpu_layers = 99
-    mock_cfg.default_n_gpu_layers_qwen35 = "all"
+    mock_cfg.paths.profiles_dir = profiles_dir
+    mock_cfg.deployment.summary_balanced_port = 8080
+    mock_cfg.deployment.summary_fast_port = 8082
+    mock_cfg.deployment.qwen35_port = 8081
+    mock_cfg.server_defaults.threads_summary_balanced = 8
+    mock_cfg.server_defaults.ctx_size_summary = 16144
+    mock_cfg.server_defaults.ubatch_size_summary_balanced = 1024
+    mock_cfg.server_defaults.cache_type_summary_k = "q8_0"
+    mock_cfg.server_defaults.cache_type_summary_v = "q8_0"
+    mock_cfg.server_defaults.n_gpu_layers = 99
+    mock_cfg.server_defaults.n_gpu_layers_qwen35 = "all"
     mock_cfg.server_binary_version = "1.18.0"
-    mock_cfg.model_summary_balanced = str(tmp_path / "model.gguf")
-    mock_cfg.llama_server_bin_intel = str(tmp_path / "llama-server")
-    mock_cfg.llama_server_bin_nvidia = ""
+    mock_cfg.deployment.model_summary_balanced = str(tmp_path / "model.gguf")
+    mock_cfg.paths.llama_server_bin_intel = str(tmp_path / "llama-server")
+    mock_cfg.paths.llama_server_bin_nvidia = ""
 
 
 @contextmanager
@@ -500,26 +500,26 @@ def _build_mock_config(
             cuda_bin.chmod(0o755)
 
         cfg = mock_cfg_cls.return_value
-        cfg.model_summary_balanced = str(tmp_path / "model.gguf")
-        cfg.summary_balanced_port = 8080
-        cfg.default_threads_summary_balanced = 8
-        cfg.default_ctx_size_summary = 16144
-        cfg.default_ubatch_size_summary_balanced = 1024
-        cfg.default_cache_type_summary_k = "q8_0"
-        cfg.default_cache_type_summary_v = "q8_0"
-        cfg.default_n_gpu_layers_qwen35 = "all"
-        cfg.default_n_gpu_layers = 99
+        cfg.deployment.model_summary_balanced = str(tmp_path / "model.gguf")
+        cfg.deployment.summary_balanced_port = 8080
+        cfg.server_defaults.threads_summary_balanced = 8
+        cfg.server_defaults.ctx_size_summary = 16144
+        cfg.server_defaults.ubatch_size_summary_balanced = 1024
+        cfg.server_defaults.cache_type_summary_k = "q8_0"
+        cfg.server_defaults.cache_type_summary_v = "q8_0"
+        cfg.server_defaults.n_gpu_layers_qwen35 = "all"
+        cfg.server_defaults.n_gpu_layers = 99
         cfg.server_binary_version = "1.18.0"
-        cfg.profiles_dir = profiles_dir
-        cfg.llama_server_bin_intel = str(server_bin)
-        cfg.llama_server_bin_nvidia = str(tmp_path / "cuda-server") if cuda_exists else ""
+        cfg.paths.profiles_dir = profiles_dir
+        cfg.paths.llama_server_bin_intel = str(server_bin)
+        cfg.paths.llama_server_bin_nvidia = str(tmp_path / "cuda-server") if cuda_exists else ""
 
         # Build a real registry for _resolve_slot_server_config
         _, registry = _build_test_registry(
             tmp_path,
-            summary_port=cfg.summary_balanced_port,
-            fast_port=cfg.summary_balanced_port + 2,
-            qwen35_port=cfg.summary_balanced_port + 1,
+            summary_port=cfg.deployment.summary_balanced_port,
+            fast_port=cfg.deployment.summary_balanced_port + 2,
+            qwen35_port=cfg.deployment.summary_balanced_port + 1,
         )
 
         yield mock_cfg_cls.return_value, str(bench_bin), profiles_dir, registry
@@ -1133,10 +1133,9 @@ class TestCheckSlotLockfile:
         from unittest.mock import MagicMock
 
         from llama_cli.commands.profile import _check_slot_lockfile
-        from llama_manager import Config
 
-        config = MagicMock(spec=Config)
-        config.profiles_dir = tmp_path / "profiles"
+        config = MagicMock()
+        config.paths.profiles_dir = tmp_path / "profiles"
         emitted: list[str] = []
         _check_slot_lockfile("slot0", config, emitted.append)
         assert emitted == []
@@ -1145,15 +1144,14 @@ class TestCheckSlotLockfile:
         from unittest.mock import MagicMock
 
         from llama_cli.commands.profile import _check_slot_lockfile
-        from llama_manager import Config
 
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
         lock = runtime_dir / "slot0.lock"
         lock.write_text("")
 
-        config = MagicMock(spec=Config)
-        config.profiles_dir = runtime_dir / "profiles"
+        config = MagicMock()
+        config.paths.profiles_dir = runtime_dir / "profiles"
         emitted: list[str] = []
         _check_slot_lockfile("slot0", config, emitted.append)
         assert any("lockfile" in m for m in emitted)
@@ -1162,13 +1160,12 @@ class TestCheckSlotLockfile:
         from unittest.mock import MagicMock
 
         from llama_cli.commands.profile import _check_slot_lockfile
-        from llama_manager import Config
 
-        config = MagicMock(spec=Config)
+        config = MagicMock()
         # Make profiles_dir.parent raise OSError
         profiles_dir_mock = MagicMock()
         profiles_dir_mock.parent.__truediv__ = MagicMock(side_effect=OSError("disk error"))
-        config.profiles_dir = profiles_dir_mock
+        config.paths.profiles_dir = profiles_dir_mock
         # Should not raise
         _check_slot_lockfile("slot0", config, lambda msg: None)
 

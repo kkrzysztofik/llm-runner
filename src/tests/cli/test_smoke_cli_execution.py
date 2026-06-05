@@ -511,12 +511,12 @@ class TestParseArgsNonePath:
         config = Config()
         smoke_cfg = create_smoke_config(config)
 
-        assert smoke_cfg.inter_slot_delay_s == config.smoke_inter_slot_delay_s
-        assert smoke_cfg.listen_timeout_s == config.smoke_listen_timeout_s
-        assert smoke_cfg.http_request_timeout_s == config.smoke_http_request_timeout_s
-        assert smoke_cfg.max_tokens == config.smoke_max_tokens
-        assert smoke_cfg.prompt == config.smoke_prompt
-        assert smoke_cfg.skip_models_discovery == config.smoke_skip_models_discovery
+        assert smoke_cfg.inter_slot_delay_s == config.smoke.inter_slot_delay_s
+        assert smoke_cfg.listen_timeout_s == config.smoke.listen_timeout_s
+        assert smoke_cfg.http_request_timeout_s == config.smoke.http_request_timeout_s
+        assert smoke_cfg.max_tokens == config.smoke.max_tokens
+        assert smoke_cfg.prompt == config.smoke.prompt
+        assert smoke_cfg.skip_models_discovery == config.smoke.skip_models_discovery
         assert smoke_cfg.api_key == ""
         assert smoke_cfg.model_id_override is None
 
@@ -543,7 +543,7 @@ class TestParseArgsNonePath:
         from llama_manager.config import Config, create_smoke_config
 
         config = Config()
-        config.smoke_api_key = "from-config"
+        config.smoke.api_key = "from-config"
         smoke_cfg = create_smoke_config(config, api_key="from-cli")
 
         assert smoke_cfg.api_key == "from-cli"
@@ -553,7 +553,7 @@ class TestParseArgsNonePath:
         from llama_manager.config import Config, create_smoke_config
 
         config = Config()
-        config.smoke_api_key = "from-config"
+        config.smoke.api_key = "from-config"
         smoke_cfg = create_smoke_config(config, api_key="")
 
         assert smoke_cfg.api_key == "from-config"
@@ -994,11 +994,11 @@ class TestBuildSmokeConfig:
         smoke_cfg = _build_smoke_config(parsed)
 
         cfg = Config()
-        assert smoke_cfg.api_key == cfg.smoke_api_key
-        assert smoke_cfg.inter_slot_delay_s == cfg.smoke_inter_slot_delay_s
-        assert smoke_cfg.listen_timeout_s == cfg.smoke_listen_timeout_s
-        assert smoke_cfg.max_tokens == cfg.smoke_max_tokens
-        assert smoke_cfg.prompt == cfg.smoke_prompt
+        assert smoke_cfg.api_key == cfg.smoke.api_key
+        assert smoke_cfg.inter_slot_delay_s == cfg.smoke.inter_slot_delay_s
+        assert smoke_cfg.listen_timeout_s == cfg.smoke.listen_timeout_s
+        assert smoke_cfg.max_tokens == cfg.smoke.max_tokens
+        assert smoke_cfg.prompt == cfg.smoke.prompt
 
     def test_build_smoke_config_empty_prompt_not_overridden(self) -> None:
         """Empty CLI prompt should not override the default prompt."""
@@ -1009,7 +1009,7 @@ class TestBuildSmokeConfig:
         smoke_cfg = _build_smoke_config(parsed)
 
         cfg = Config()
-        assert smoke_cfg.prompt == cfg.smoke_prompt
+        assert smoke_cfg.prompt == cfg.smoke.prompt
 
 
 # ---------------------------------------------------------------------------
