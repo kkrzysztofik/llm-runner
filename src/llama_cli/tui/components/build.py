@@ -664,7 +664,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             Horizontal(
                 Static("  Default flags:", classes="build-option-label"),
                 Static(
-                    f" {' '.join(get_cmake_flags(BuildBackend(backend)))}",
+                    f" {' '.join(get_cmake_flags(BuildBackend(backend), ''))}",
                     classes="build-option-value",
                 ),
                 classes="build-option-row build-option-row-flags",

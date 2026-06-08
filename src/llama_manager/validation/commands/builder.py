@@ -139,7 +139,6 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         str(cfg.n_predict),
         "--parallel",
         str(cfg.parallel),
-        "--mmap",
         "--host",
         cfg.bind_address,
         "--port",
@@ -170,6 +169,18 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         cmd.extend(["--reasoning-budget", spec.reasoning_budget])
     if cfg.use_jinja:
         cmd.append("--jinja")
+    if cfg.kv_unified:
+        cmd.append("--kv-unified")
+    if not cfg.mmproj_offload:
+        cmd.append("--no-mmproj-offload")
+    if cfg.mmap:
+        cmd.append("--mmap")
+    if not cfg.mmap:
+        cmd.append("--no-mmap")
+    if cfg.mlock:
+        cmd.append("--mlock")
+    if cfg.no_host_buffer:
+        cmd.append("--no-host")
 
     return cmd
 
@@ -191,18 +202,31 @@ def _append_speculative_flags(cmd: list[str], cfg: ServerConfig) -> None:
             ]
         )
         return
-    if spec.spec_type != "draft-mtp":
+    if spec.spec_type not in ("draft-mtp", "dflash"):
         return
-    cmd.extend(["--spec-type", "draft-mtp", "--spec-draft-n-max", str(spec.spec_draft_n_max)])
-    if spec.spec_draft_p_min > 0:
-        cmd.extend(["--spec-draft-p-min", str(spec.spec_draft_p_min)])
-    # llama-server flags omit "cache" (--spec-draft-type-k/v), unlike field names.
-    if spec.spec_draft_cache_type_k:
-        cmd.extend(["--spec-draft-type-k", spec.spec_draft_cache_type_k])
-    if spec.spec_draft_cache_type_v:
-        cmd.extend(["--spec-draft-type-v", spec.spec_draft_cache_type_v])
-    if spec.spec_draft_device:
-        cmd.extend(["--spec-draft-device", spec.spec_draft_device])
+    if spec.spec_type == "draft-mtp":
+        cmd.extend(["--spec-type", "draft-mtp", "--spec-draft-n-max", str(spec.spec_draft_n_max)])
+        if spec.spec_draft_p_min > 0:
+            cmd.extend(["--spec-draft-p-min", str(spec.spec_draft_p_min)])
+        # llama-server flags omit "cache" (--spec-draft-type-k/v), unlike field names.
+        if spec.spec_draft_cache_type_k:
+            cmd.extend(["--spec-draft-type-k", spec.spec_draft_cache_type_k])
+        if spec.spec_draft_cache_type_v:
+            cmd.extend(["--spec-draft-type-v", spec.spec_draft_cache_type_v])
+        if spec.spec_draft_device:
+            cmd.extend(["--spec-draft-device", spec.spec_draft_device])
+        return
+    if spec.spec_type == "dflash":
+        cmd.extend(["--spec-type", "dflash"])
+        if spec.spec_draft_model:
+            cmd.extend(["--spec-draft-model", spec.spec_draft_model])
+        if spec.spec_draft_hf:
+            cmd.extend(["--spec-draft-hf", spec.spec_draft_hf])
+        if spec.spec_draft_ngl:
+            cmd.extend(["--spec-draft-ngl", str(spec.spec_draft_ngl)])
+        if spec.spec_dflash_cross_ctx > 0:
+            cmd.extend(["--spec-dflash-cross-ctx", str(spec.spec_dflash_cross_ctx)])
+        return
 
 
 def sort_validation_errors(

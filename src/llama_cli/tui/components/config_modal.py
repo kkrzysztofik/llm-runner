@@ -31,6 +31,7 @@ class ConfigPayload:
     llama_server_bin_intel: str = ""
     llama_server_bin_nvidia: str = ""
     host: str = ""
+    build_source_flavor: str = ""
     build_git_remote: str = ""
     build_git_branch: str = ""
     smoke_listen_timeout_s: str = ""
@@ -67,6 +68,15 @@ class ConfigPayload:
     default_spec_draft_cache_type_k: str = ""
     default_spec_draft_cache_type_v: str = ""
     default_spec_draft_device: str = ""
+    default_spec_draft_model: str = ""
+    default_spec_draft_hf: str = ""
+    default_spec_draft_ngl: str = ""
+    default_spec_dflash_cross_ctx: str = ""
+    default_kv_unified: bool = False
+    default_mmproj_offload: bool = True
+    default_mmap: bool = True
+    default_mlock: bool = False
+    default_no_host_buffer: bool = False
     restart: bool = False
     clean_cache: bool = False
 
@@ -77,6 +87,7 @@ class ConfigPayload:
             "paths.llama_server_bin_intel": self.llama_server_bin_intel,
             "paths.llama_server_bin_nvidia": self.llama_server_bin_nvidia,
             "deployment.host": self.host,
+            "build.source_flavor": self.build_source_flavor,
             "build.git_remote": self.build_git_remote,
             "build.git_branch": self.build_git_branch,
             "smoke.listen_timeout_s": self.smoke_listen_timeout_s,
@@ -113,6 +124,15 @@ class ConfigPayload:
             "server_defaults.spec_draft_cache_type_k": self.default_spec_draft_cache_type_k,
             "server_defaults.spec_draft_cache_type_v": self.default_spec_draft_cache_type_v,
             "server_defaults.spec_draft_device": self.default_spec_draft_device,
+            "server_defaults.spec_draft_model": self.default_spec_draft_model,
+            "server_defaults.spec_draft_hf": self.default_spec_draft_hf,
+            "server_defaults.spec_draft_ngl": self.default_spec_draft_ngl,
+            "server_defaults.spec_dflash_cross_ctx": self.default_spec_dflash_cross_ctx,
+            "server_defaults.kv_unified": self.default_kv_unified,
+            "server_defaults.mmproj_offload": self.default_mmproj_offload,
+            "server_defaults.mmap": self.default_mmap,
+            "server_defaults.mlock": self.default_mlock,
+            "server_defaults.no_host_buffer": self.default_no_host_buffer,
         }
 
 
@@ -206,6 +226,15 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                 ),
                 build_config_profile_defaults_collapsible(c),
                 Label("Build", classes=_SECTION_LABEL_CLASSES),
+                field_row(
+                    "source flavor",
+                    "build_source_flavor",
+                    build.source_flavor,
+                    id_prefix="cfg",
+                    label_classes="form-label config-field-label",
+                    input_classes="form-input config-input",
+                    row_classes="form-row config-row",
+                ),
                 field_row(
                     "git remote",
                     "build_git_remote",
@@ -318,6 +347,7 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                 "#cfg-llama_server_bin_nvidia", Input
             ).value.strip(),
             host=self.query_one("#cfg-host", Input).value.strip(),
+            build_source_flavor=self.query_one("#cfg-build_source_flavor", Input).value.strip(),
             build_git_remote=self.query_one("#cfg-build_git_remote", Input).value.strip(),
             build_git_branch=self.query_one("#cfg-build_git_branch", Input).value.strip(),
             smoke_listen_timeout_s=self.query_one(
@@ -394,6 +424,21 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             default_spec_draft_device=self.query_one(
                 "#cfg-default_spec_draft_device", Input
             ).value.strip(),
+            default_spec_draft_model=self.query_one(
+                "#cfg-default_spec_draft_model", Input
+            ).value.strip(),
+            default_spec_draft_hf=self.query_one("#cfg-default_spec_draft_hf", Input).value.strip(),
+            default_spec_draft_ngl=self.query_one(
+                "#cfg-default_spec_draft_ngl", Input
+            ).value.strip(),
+            default_spec_dflash_cross_ctx=self.query_one(
+                "#cfg-default_spec_dflash_cross_ctx", Input
+            ).value.strip(),
+            default_kv_unified=self.query_one("#cfg-default_kv_unified", Checkbox).value,
+            default_mmproj_offload=self.query_one("#cfg-default_mmproj_offload", Checkbox).value,
+            default_mmap=self.query_one("#cfg-default_mmap", Checkbox).value,
+            default_mlock=self.query_one("#cfg-default_mlock", Checkbox).value,
+            default_no_host_buffer=self.query_one("#cfg-default_no_host_buffer", Checkbox).value,
         )
 
     # ------------------------------------------------------------------

@@ -19,6 +19,7 @@ from llama_manager.build_pipeline import (
     BuildPipeline,
     BuildResult,
 )
+from llama_manager.build_pipeline.models import SOURCE_FLAVOR_DEFAULTS
 from llama_manager.config import Config
 
 
@@ -106,15 +107,22 @@ Examples:
     )
 
     parser.add_argument(
+        "--source-flavor",
+        default="upstream",
+        choices=list(SOURCE_FLAVOR_DEFAULTS.keys()),
+        help="Source flavor (default: upstream)",
+    )
+
+    parser.add_argument(
         "--git-remote",
-        default="https://github.com/ggerganov/llama.cpp.git",
-        help="Git remote URL for llama.cpp (default: official repo)",
+        default=None,
+        help="Git remote URL for llama.cpp (overrides source-flavor; default: from flavor)",
     )
 
     parser.add_argument(
         "--git-branch",
-        default="master",
-        help="Git branch to checkout (default: master)",
+        default=None,
+        help="Git branch to checkout (overrides source-flavor; default: from flavor)",
     )
 
     parser.add_argument(
@@ -224,13 +232,18 @@ def _create_build_config(
     Returns:
         Configured BuildConfig instance
     """
+    # Resolve source_flavor to remote URL and branch
+    flavor_remote, flavor_branch = SOURCE_FLAVOR_DEFAULTS.get(args.source_flavor, ("", ""))
+    git_remote_url = args.git_remote or flavor_remote
+    git_branch = args.git_branch or flavor_branch
+
     return BuildConfig(
         backend=backend,
         source_dir=source_dir,
         build_dir=build_dir,
         output_dir=output_dir,
-        git_remote_url=args.git_remote,
-        git_branch=args.git_branch,
+        git_remote_url=git_remote_url,
+        git_branch=git_branch,
         shallow_clone=not args.no_shallow_clone,
         jobs=args.jobs,
         retry_attempts=args.retry_attempts,

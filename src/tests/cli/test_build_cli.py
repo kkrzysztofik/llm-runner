@@ -101,10 +101,10 @@ class TestParseBuildArgs:
         assert args.git_commit == "abc123def"
 
     def test_parse_default_git_options(self) -> None:
-        """parse_build_args should use default git remote and branch."""
+        """parse_build_args git defaults are None — resolved from flavor in _create_build_config."""
         args = parse_build_args(["sycl"])
-        assert args.git_remote == "https://github.com/ggerganov/llama.cpp.git"
-        assert args.git_branch == "master"
+        assert args.git_remote is None
+        assert args.git_branch is None
 
     def test_parse_short_jobs_flag(self) -> None:
         """parse_build_args should parse -j flag."""

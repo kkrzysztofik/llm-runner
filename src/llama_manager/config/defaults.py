@@ -86,6 +86,7 @@ class PathsConfig:
 class BuildPipelineConfig:
     """llama.cpp build pipeline settings."""
 
+    source_flavor: str = "upstream"
     git_remote: str = "https://github.com/ggerganov/llama.cpp.git"
     git_branch: str = "master"
     retry_attempts: int = 3
@@ -167,6 +168,17 @@ class ServerDefaultsConfig:
     spec_draft_cache_type_k: str = ""
     spec_draft_cache_type_v: str = ""
     spec_draft_device: str = ""
+    spec_draft_model: str = ""
+    spec_draft_hf: str = ""
+    spec_draft_ngl: int | str = ""
+    spec_dflash_cross_ctx: int = 0
+
+    # -- BeeLlama runtime defaults --
+    kv_unified: bool = False
+    mmproj_offload: bool = True
+    mmap: bool = True
+    mlock: bool = False
+    no_host_buffer: bool = False
 
     @property
     def spec_decode(self) -> SpeculativeDecodingConfig:
@@ -180,6 +192,10 @@ class ServerDefaultsConfig:
             spec_draft_cache_type_k=self.spec_draft_cache_type_k,
             spec_draft_cache_type_v=self.spec_draft_cache_type_v,
             spec_draft_device=self.spec_draft_device,
+            spec_draft_model=self.spec_draft_model,
+            spec_draft_hf=self.spec_draft_hf,
+            spec_draft_ngl=self.spec_draft_ngl,
+            spec_dflash_cross_ctx=self.spec_dflash_cross_ctx,
             reasoning_mode=self.reasoning_mode,
             reasoning_format=self.reasoning_format,
             reasoning_budget=self.reasoning_budget,
@@ -196,6 +212,10 @@ class ServerDefaultsConfig:
         self.spec_draft_cache_type_k = value.spec_draft_cache_type_k
         self.spec_draft_cache_type_v = value.spec_draft_cache_type_v
         self.spec_draft_device = value.spec_draft_device
+        self.spec_draft_model = value.spec_draft_model
+        self.spec_draft_hf = value.spec_draft_hf
+        self.spec_draft_ngl = value.spec_draft_ngl
+        self.spec_dflash_cross_ctx = value.spec_dflash_cross_ctx
         self.reasoning_mode = value.reasoning_mode
         self.reasoning_format = value.reasoning_format
         self.reasoning_budget = value.reasoning_budget

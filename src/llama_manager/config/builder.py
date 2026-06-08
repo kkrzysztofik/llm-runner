@@ -151,6 +151,11 @@ def _profile_to_config_data(profile: SlotProfileSpec) -> dict[str, Any]:
         "parallel": profile.parallel,
         "threads_batch": profile.threads_batch,
         "mmproj": profile.mmproj,
+        "kv_unified": profile.kv_unified,
+        "mmproj_offload": profile.mmproj_offload,
+        "mmap": profile.mmap,
+        "mlock": profile.mlock,
+        "no_host_buffer": profile.no_host_buffer,
     }
 
 
@@ -182,6 +187,11 @@ def _config_data_to_server_config(data: dict[str, Any]) -> ServerConfig:
         parallel=int(config_data.get("parallel", 4)),
         threads_batch=int(config_data.get("threads_batch", 0)),
         mmproj=str(config_data.get("mmproj", "")),
+        kv_unified=bool(config_data.get("kv_unified", False)),
+        mmproj_offload=bool(config_data.get("mmproj_offload", True)),
+        mmap=bool(config_data.get("mmap", True)),
+        mlock=bool(config_data.get("mlock", False)),
+        no_host_buffer=bool(config_data.get("no_host_buffer", False)),
         spec_decode=SpeculativeDecodingConfig(
             spec_type=str(spec_data.get("spec_type", "")),
             spec_ngram_size_n=int(spec_data.get("spec_ngram_size_n", 0)),
@@ -192,6 +202,10 @@ def _config_data_to_server_config(data: dict[str, Any]) -> ServerConfig:
             spec_draft_cache_type_k=str(spec_data.get("spec_draft_cache_type_k", "")),
             spec_draft_cache_type_v=str(spec_data.get("spec_draft_cache_type_v", "")),
             spec_draft_device=str(spec_data.get("spec_draft_device", "")),
+            spec_draft_model=str(spec_data.get("spec_draft_model", "")),
+            spec_draft_hf=str(spec_data.get("spec_draft_hf", "")),
+            spec_draft_ngl=spec_data.get("spec_draft_ngl", ""),
+            spec_dflash_cross_ctx=int(spec_data.get("spec_dflash_cross_ctx", 0)),
             reasoning_mode=str(spec_data.get("reasoning_mode", "auto")),
             reasoning_format=str(spec_data.get("reasoning_format", "none")),
             reasoning_budget=str(spec_data.get("reasoning_budget", "")),

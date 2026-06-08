@@ -527,13 +527,13 @@ class TestConfigureStageCmakeFlags:
         from llama_manager.build_pipeline.stages.configure import get_cmake_flags
 
         # Test SYCL backend
-        cmake_args = get_cmake_flags(BuildBackend.SYCL)
+        cmake_args = get_cmake_flags(BuildBackend.SYCL, "")
         assert "-DGGML_SYCL=ON" in cmake_args
         assert "-DCMAKE_C_COMPILER=icx" in cmake_args
         assert "-DCMAKE_CXX_COMPILER=icpx" in cmake_args
 
         # Test CUDA backend
-        cmake_args_cuda = get_cmake_flags(BuildBackend.CUDA)
+        cmake_args_cuda = get_cmake_flags(BuildBackend.CUDA, "")
         assert "-DGGML_CUDA=ON" in cmake_args_cuda
 
     def test_configure_stage_failure_includes_cmake_diagnostics(self, tmp_path: Path) -> None:
@@ -1455,8 +1455,15 @@ class TestUpdateSources:
 
         ctx = _BuildContext(config=config, dry_run=False, build_start_time=0.0)
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+        def _subprocess_side_effect(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args", [])
+            if cmd == ["git", "remote", "get-url", "origin"]:
+                return Mock(
+                    returncode=0, stdout="https://github.com/ggerganov/llama.cpp\n", stderr=""
+                )
+            return Mock(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=_subprocess_side_effect) as mock_run:
             progress = run_clone(ctx)
 
         assert progress.status == "success"

@@ -67,6 +67,11 @@ class ServerConfig:
     threads_batch: int = 0
     mmproj: str = ""
     spec_decode: SpeculativeDecodingConfig = field(default_factory=SpeculativeDecodingConfig)
+    kv_unified: bool = False
+    mmproj_offload: bool = True
+    mmap: bool = True
+    mlock: bool = False
+    no_host_buffer: bool = False
 
     def __init__(
         self,
@@ -107,6 +112,15 @@ class ServerConfig:
         reasoning_mode: str | None = None,
         reasoning_format: str | None = None,
         reasoning_budget: str | None = None,
+        spec_draft_model: str | None = None,
+        spec_draft_hf: str | None = None,
+        spec_draft_ngl: int | str | None = None,
+        spec_dflash_cross_ctx: int | None = None,
+        kv_unified: bool | None = None,
+        mmproj_offload: bool | None = None,
+        mmap: bool | None = None,
+        mlock: bool | None = None,
+        no_host_buffer: bool | None = None,
     ) -> None:
         self.model = model
         self.alias = alias
@@ -146,6 +160,10 @@ class ServerConfig:
             "reasoning_mode": reasoning_mode,
             "reasoning_format": reasoning_format,
             "reasoning_budget": reasoning_budget,
+            "spec_draft_model": spec_draft_model,
+            "spec_draft_hf": spec_draft_hf,
+            "spec_draft_ngl": spec_draft_ngl,
+            "spec_dflash_cross_ctx": spec_dflash_cross_ctx,
         }
         active_overrides = {
             key: value for key, value in spec_overrides.items() if value is not None
@@ -153,6 +171,16 @@ class ServerConfig:
         if active_overrides:
             base = self.spec_decode.__dict__ | active_overrides
             self.spec_decode = SpeculativeDecodingConfig(**base)
+        if kv_unified is not None:
+            self.kv_unified = kv_unified
+        if mmproj_offload is not None:
+            self.mmproj_offload = mmproj_offload
+        if mmap is not None:
+            self.mmap = mmap
+        if mlock is not None:
+            self.mlock = mlock
+        if no_host_buffer is not None:
+            self.no_host_buffer = no_host_buffer
         self.__post_init__()
 
     def __post_init__(self) -> None:
@@ -223,6 +251,22 @@ class ServerConfig:
     @property
     def spec_draft_device(self) -> str:
         return self.spec_decode.spec_draft_device
+
+    @property
+    def spec_draft_model(self) -> str:
+        return self.spec_decode.spec_draft_model
+
+    @property
+    def spec_draft_hf(self) -> str:
+        return self.spec_decode.spec_draft_hf
+
+    @property
+    def spec_draft_ngl(self) -> int | str:
+        return self.spec_decode.spec_draft_ngl
+
+    @property
+    def spec_dflash_cross_ctx(self) -> int:
+        return self.spec_decode.spec_dflash_cross_ctx
 
 
 @dataclass

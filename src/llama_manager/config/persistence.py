@@ -223,6 +223,7 @@ _INT_FIELDS: frozenset[str] = frozenset(
         "server_defaults.draft_min",
         "server_defaults.draft_max",
         "server_defaults.spec_draft_n_max",
+        "server_defaults.spec_dflash_cross_ctx",
         "deployment.summary_balanced_port",
         "deployment.summary_fast_port",
         "deployment.qwen35_port",
@@ -231,7 +232,16 @@ _INT_FIELDS: frozenset[str] = frozenset(
 
 _FLOAT_FIELDS: frozenset[str] = frozenset({"server_defaults.spec_draft_p_min"})
 
-_BOOL_FIELDS: frozenset[str] = frozenset({"server_defaults.use_jinja"})
+_BOOL_FIELDS: frozenset[str] = frozenset(
+    {
+        "server_defaults.use_jinja",
+        "server_defaults.kv_unified",
+        "server_defaults.mmproj_offload",
+        "server_defaults.mmap",
+        "server_defaults.mlock",
+        "server_defaults.no_host_buffer",
+    }
+)
 
 
 @dataclasses.dataclass

@@ -43,6 +43,11 @@ class SlotProfileSpec:
     threads_batch: int = 0
     mmproj: str = ""
     spec_decode: SpeculativeDecodingConfig = field(default_factory=SpeculativeDecodingConfig)
+    kv_unified: bool = False
+    mmproj_offload: bool = True
+    mmap: bool = True
+    mlock: bool = False
+    no_host_buffer: bool = False
 
     def __init__(
         self,
@@ -85,6 +90,15 @@ class SlotProfileSpec:
         reasoning_mode: str | None = None,
         reasoning_format: str | None = None,
         reasoning_budget: str | None = None,
+        spec_draft_model: str | None = None,
+        spec_draft_hf: str | None = None,
+        spec_draft_ngl: int | str | None = None,
+        spec_dflash_cross_ctx: int | None = None,
+        kv_unified: bool | None = None,
+        mmproj_offload: bool | None = None,
+        mmap: bool | None = None,
+        mlock: bool | None = None,
+        no_host_buffer: bool | None = None,
     ) -> None:
         object.__setattr__(self, "profile_id", profile_id)
         object.__setattr__(self, "model", model)
@@ -126,6 +140,10 @@ class SlotProfileSpec:
             "reasoning_mode": reasoning_mode,
             "reasoning_format": reasoning_format,
             "reasoning_budget": reasoning_budget,
+            "spec_draft_model": spec_draft_model,
+            "spec_draft_hf": spec_draft_hf,
+            "spec_draft_ngl": spec_draft_ngl,
+            "spec_dflash_cross_ctx": spec_dflash_cross_ctx,
         }
         active_overrides = {
             key: value for key, value in spec_overrides.items() if value is not None
@@ -136,6 +154,15 @@ class SlotProfileSpec:
                 object.__setattr__(self, "spec_decode", SpeculativeDecodingConfig(**base))
             except ValueError as exc:
                 raise SlotProfileError(str(exc)) from exc
+        object.__setattr__(self, "kv_unified", kv_unified if kv_unified is not None else False)
+        object.__setattr__(
+            self, "mmproj_offload", mmproj_offload if mmproj_offload is not None else True
+        )
+        object.__setattr__(self, "mmap", mmap if mmap is not None else True)
+        object.__setattr__(self, "mlock", mlock if mlock is not None else False)
+        object.__setattr__(
+            self, "no_host_buffer", no_host_buffer if no_host_buffer is not None else False
+        )
         self.__post_init__()
 
     def __post_init__(self) -> None:
@@ -217,6 +244,22 @@ class SlotProfileSpec:
     @property
     def spec_draft_device(self) -> str:
         return self.spec_decode.spec_draft_device
+
+    @property
+    def spec_draft_model(self) -> str:
+        return self.spec_decode.spec_draft_model
+
+    @property
+    def spec_draft_hf(self) -> str:
+        return self.spec_decode.spec_draft_hf
+
+    @property
+    def spec_draft_ngl(self) -> int | str:
+        return self.spec_decode.spec_draft_ngl
+
+    @property
+    def spec_dflash_cross_ctx(self) -> int:
+        return self.spec_decode.spec_dflash_cross_ctx
 
 
 @dataclass(frozen=True, slots=True)

@@ -8,6 +8,12 @@ from typing import Any, ClassVar, Final, Literal
 
 BUILD_CANCELLED_MESSAGE: Final[str] = "Build cancelled"
 
+# Source flavor defaults — (remote URL, default branch)
+SOURCE_FLAVOR_DEFAULTS: Final[dict[str, tuple[str, str]]] = {
+    "upstream": ("https://github.com/ggerganov/llama.cpp.git", "master"),
+    "beellama": ("https://github.com/Anbeeld/beellama.cpp.git", "main"),
+}
+
 
 class BuildBackend(StrEnum):
     """Supported build backends"""

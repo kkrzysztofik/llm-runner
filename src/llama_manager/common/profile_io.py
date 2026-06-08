@@ -108,6 +108,23 @@ def _profile_lines(profile: dict[str, Any]) -> list[str]:
             f"spec_draft_cache_type_k = {json.dumps(profile.get('spec_draft_cache_type_k', ''))}",
             f"spec_draft_cache_type_v = {json.dumps(profile.get('spec_draft_cache_type_v', ''))}",
             f"spec_draft_device = {json.dumps(profile.get('spec_draft_device', ''))}",
+            f"spec_draft_model = {json.dumps(profile.get('spec_draft_model', ''))}",
+            f"spec_draft_hf = {json.dumps(profile.get('spec_draft_hf', ''))}",
+        ]
+    )
+    spec_draft_ngl = profile.get("spec_draft_ngl", "")
+    if isinstance(spec_draft_ngl, str):
+        lines.append(f"spec_draft_ngl = {json.dumps(spec_draft_ngl)}")
+    else:
+        lines.append(f"spec_draft_ngl = {int(spec_draft_ngl)}")
+    lines.extend(
+        [
+            f"spec_dflash_cross_ctx = {int(profile.get('spec_dflash_cross_ctx', 0))}",
+            f"kv_unified = {str(profile.get('kv_unified', False)).lower()}",
+            f"mmproj_offload = {str(profile.get('mmproj_offload', True)).lower()}",
+            f"mmap = {str(profile.get('mmap', True)).lower()}",
+            f"mlock = {str(profile.get('mlock', False)).lower()}",
+            f"no_host_buffer = {str(profile.get('no_host_buffer', False)).lower()}",
         ]
     )
     return lines

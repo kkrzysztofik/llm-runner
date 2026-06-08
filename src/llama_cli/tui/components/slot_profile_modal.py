@@ -69,6 +69,15 @@ class SlotProfilePayload:
     spec_draft_cache_type_k: str = ""
     spec_draft_cache_type_v: str = ""
     spec_draft_device: str = ""
+    spec_draft_model: str = ""
+    spec_draft_hf: str = ""
+    spec_draft_ngl: int | str = ""
+    spec_dflash_cross_ctx: int = 0
+    kv_unified: bool = False
+    mmproj_offload: bool = True
+    mmap: bool = True
+    mlock: bool = False
+    no_host_buffer: bool = False
     save_and_add_slot: bool = False
     original_profile_id: str = ""  # filled for edits
 
@@ -321,6 +330,15 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "spec-draft-cache-type-k": spec_decode.spec_draft_cache_type_k,
             "spec-draft-cache-type-v": spec_decode.spec_draft_cache_type_v,
             "spec-draft-device": spec_decode.spec_draft_device,
+            "spec-draft-model": spec_decode.spec_draft_model,
+            "spec-draft-hf": spec_decode.spec_draft_hf,
+            "spec-draft-ngl": str(spec_decode.spec_draft_ngl),
+            "spec-dflash-cross-ctx": str(spec_decode.spec_dflash_cross_ctx),
+            "kv-unified": "true" if spec.kv_unified else "false",
+            "mmproj-offload": "true" if spec.mmproj_offload else "false",
+            "mmap": "true" if spec.mmap else "false",
+            "mlock": "true" if spec.mlock else "false",
+            "no-host-buffer": "true" if spec.no_host_buffer else "false",
         }
 
     def action_cancel(self) -> None:
@@ -389,6 +407,15 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
                 self.query_one("#profile-spec-draft-cache-type-v", Select).value or ""
             ),
             spec_draft_device=self.query_one("#profile-spec-draft-device", Input).value.strip(),
+            spec_draft_model=self.query_one("#profile-spec-draft-model", Input).value.strip(),
+            spec_draft_hf=self.query_one("#profile-spec-draft-hf", Input).value.strip(),
+            spec_draft_ngl=self.query_one("#profile-spec-draft-ngl", Input).value.strip() or "",
+            spec_dflash_cross_ctx=self._parse_int("profile-spec-dflash-cross-ctx", 0),
+            kv_unified=self.query_one("#profile-kv-unified", Checkbox).value,
+            mmproj_offload=self.query_one("#profile-mmproj-offload", Checkbox).value,
+            mmap=self.query_one("#profile-mmap", Checkbox).value,
+            mlock=self.query_one("#profile-mlock", Checkbox).value,
+            no_host_buffer=self.query_one("#profile-no-host-buffer", Checkbox).value,
             save_and_add_slot=save_and_add_slot,
             original_profile_id=(self._profile.profile_id if self._profile else ""),
         )
@@ -485,6 +512,27 @@ def _build_advanced_fields(prefill: dict[str, str]) -> Collapsible:
         field_row("Reasoning Budget", "reasoning-budget", prefill.get("reasoning-budget", "")),
         checkbox_row("Use Jinja", "use-jinja", use_jinja),
         field_row("MMProj (optional)", "mmproj", prefill.get("mmproj", "")),
+        checkbox_row(
+            "Unified KV",
+            "kv-unified",
+            prefill.get("kv-unified", "false").lower() in ("1", "true", "yes", "on"),
+        ),
+        checkbox_row(
+            "MMProj Offload",
+            "mmproj-offload",
+            prefill.get("mmproj-offload", "true").lower() in ("1", "true", "yes", "on"),
+        ),
+        checkbox_row(
+            "MMap", "mmap", prefill.get("mmap", "true").lower() in ("1", "true", "yes", "on")
+        ),
+        checkbox_row(
+            "MLock", "mlock", prefill.get("mlock", "false").lower() in ("1", "true", "yes", "on")
+        ),
+        checkbox_row(
+            "No Host Buffer",
+            "no-host-buffer",
+            prefill.get("no-host-buffer", "false").lower() in ("1", "true", "yes", "on"),
+        ),
         title="Advanced",
         collapsed=True,
         id="profile-advanced-collapsible",
@@ -524,6 +572,27 @@ def _build_speculative_fields(prefill: dict[str, str]) -> Collapsible:
             allow_empty=True,
         ),
         field_row("Draft Device", "spec-draft-device", prefill.get("spec-draft-device", "")),
+        field_row(
+            "Draft Model (DFlash)",
+            "spec-draft-model",
+            prefill.get("spec-draft-model", ""),
+        ),
+        field_row(
+            "Draft HF Repo (DFlash)",
+            "spec-draft-hf",
+            prefill.get("spec-draft-hf", ""),
+        ),
+        field_row(
+            "Draft GPU Layers (DFlash)",
+            "spec-draft-ngl",
+            prefill.get("spec-draft-ngl", ""),
+        ),
+        field_row(
+            "DFlash Cross Ctx",
+            "spec-dflash-cross-ctx",
+            prefill.get("spec-dflash-cross-ctx", "0"),
+            type="number",
+        ),
         title="Speculative decoding",
         collapsed=True,
         classes="profile-advanced-options profile-speculative-options",
@@ -666,5 +735,14 @@ def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -
             spec_draft_cache_type_k=payload.spec_draft_cache_type_k,
             spec_draft_cache_type_v=payload.spec_draft_cache_type_v,
             spec_draft_device=payload.spec_draft_device,
+            spec_draft_model=payload.spec_draft_model,
+            spec_draft_hf=payload.spec_draft_hf,
+            spec_draft_ngl=payload.spec_draft_ngl,
+            spec_dflash_cross_ctx=payload.spec_dflash_cross_ctx,
         ),
+        kv_unified=payload.kv_unified,
+        mmproj_offload=payload.mmproj_offload,
+        mmap=payload.mmap,
+        mlock=payload.mlock,
+        no_host_buffer=payload.no_host_buffer,
     )

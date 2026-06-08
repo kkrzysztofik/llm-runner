@@ -647,3 +647,162 @@ def test_load_hidden_builtin_profile_ids_empty_when_no_file(
 
     hidden = load_hidden_builtin_profile_ids()
     assert hidden == set()
+
+
+# ---------------------------------------------------------------------------
+# DFlash round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_roundtrip_dflash_fields(xdg_config_home: Path) -> None:
+    """TOML store round-trips DFlash fields."""
+    from llama_manager.config import SpeculativeDecodingConfig
+
+    profile = RunProfileSpec(
+        profile_id="dflash-test",
+        model="/models/target.gguf",
+        alias="dflash-test",
+        device="CUDA:0",
+        port=8082,
+        ctx_size=65536,
+        ubatch_size=512,
+        threads=8,
+        spec_decode=SpeculativeDecodingConfig(
+            spec_type="dflash",
+            spec_draft_model="/models/draft.gguf",
+            spec_draft_ngl="all",
+            spec_dflash_cross_ctx=512,
+            reasoning_mode="on",
+            reasoning_format="deepseek",
+        ),
+        kv_unified=True,
+        mmproj_offload=True,
+        mmap=False,
+        mlock=True,
+        no_host_buffer=True,
+        backend="llama_cpp",
+    )
+    # Save and load
+    save_custom_run_profile(profile)
+    loaded = load_custom_run_profiles()
+    assert len(loaded) == 1
+    lp = loaded[0]
+    assert lp.spec_decode.spec_type == "dflash"
+    assert lp.spec_decode.spec_draft_model == "/models/draft.gguf"
+    assert lp.spec_decode.spec_draft_ngl == "all"
+    assert lp.spec_decode.spec_dflash_cross_ctx == 512
+    assert lp.spec_decode.reasoning_mode == "on"
+    assert lp.spec_decode.reasoning_format == "deepseek"
+    assert lp.kv_unified is True
+    assert lp.mmproj_offload is True
+    assert lp.mmap is False
+    assert lp.mlock is True
+    assert lp.no_host_buffer is True
+
+
+def test_roundtrip_dflash_hf_draft(xdg_config_home: Path) -> None:
+    """TOML store round-trips DFlash with HF draft."""
+    from llama_manager.config import SpeculativeDecodingConfig
+
+    profile = RunProfileSpec(
+        profile_id="dflash-hf-test",
+        model="/models/target.gguf",
+        alias="dflash-hf",
+        device="CUDA:0",
+        port=8083,
+        ctx_size=32768,
+        ubatch_size=256,
+        threads=4,
+        spec_decode=SpeculativeDecodingConfig(
+            spec_type="dflash",
+            spec_draft_hf="Anbeeld/Qwen3.6-27B-DFlash-GGUF:IQ4_XS",
+            spec_draft_ngl=32,
+        ),
+        backend="llama_cpp",
+    )
+    save_custom_run_profile(profile)
+    loaded = load_custom_run_profiles()
+    assert len(loaded) == 1
+    lp = loaded[0]
+    assert lp.spec_decode.spec_type == "dflash"
+    assert lp.spec_decode.spec_draft_hf == "Anbeeld/Qwen3.6-27B-DFlash-GGUF:IQ4_XS"
+    assert lp.spec_decode.spec_draft_ngl == 32
+    assert lp.spec_decode.spec_draft_model == ""
+
+
+def test_roundtrip_smaller_model_flags(xdg_config_home: Path) -> None:
+    """TOML store round-trips BeeLlama smaller-model flags."""
+    profile = RunProfileSpec(
+        profile_id="beellama-test",
+        model="/models/small.gguf",
+        alias="beellama",
+        device="CUDA:0",
+        port=8084,
+        ctx_size=131072,
+        ubatch_size=1024,
+        threads=16,
+        kv_unified=True,
+        mmproj_offload=False,
+        mmap=False,
+        mlock=True,
+        no_host_buffer=True,
+        backend="llama_cpp",
+    )
+    save_custom_run_profile(profile)
+    loaded = load_custom_run_profiles()
+    assert len(loaded) == 1
+    lp = loaded[0]
+    assert lp.kv_unified is True
+    assert lp.mmproj_offload is False
+    assert lp.mmap is False
+    assert lp.mlock is True
+    assert lp.no_host_buffer is True
+
+
+def test_roundtrip_dflash_with_all_smaller_model_flags(xdg_config_home: Path) -> None:
+    """TOML store round-trips DFlash + all BeeLlama flags."""
+    from llama_manager.config import SpeculativeDecodingConfig
+
+    profile = RunProfileSpec(
+        profile_id="dflash-full-test",
+        model="/models/target.gguf",
+        alias="dflash-full",
+        device="CUDA:0",
+        port=8085,
+        ctx_size=131072,
+        ubatch_size=1024,
+        threads=16,
+        spec_decode=SpeculativeDecodingConfig(
+            spec_type="dflash",
+            spec_draft_model="/models/draft.gguf",
+            spec_draft_ngl="all",
+            spec_dflash_cross_ctx=1024,
+            reasoning_mode="on",
+            reasoning_format="deepseek",
+            reasoning_budget="8192",
+        ),
+        kv_unified=True,
+        mmproj_offload=True,
+        mmap=False,
+        mlock=True,
+        no_host_buffer=True,
+        backend="llama_cpp",
+    )
+    save_custom_run_profile(profile)
+    loaded = load_custom_run_profiles()
+    assert len(loaded) == 1
+    lp = loaded[0]
+    # DFlash fields
+    assert lp.spec_decode.spec_type == "dflash"
+    assert lp.spec_decode.spec_draft_model == "/models/draft.gguf"
+    assert lp.spec_decode.spec_draft_ngl == "all"
+    assert lp.spec_decode.spec_dflash_cross_ctx == 1024
+    assert lp.spec_decode.reasoning_mode == "on"
+    assert lp.spec_decode.reasoning_format == "deepseek"
+    assert lp.spec_decode.reasoning_budget == "8192"
+    # BeeLlama flags
+    assert lp.kv_unified is True
+    assert lp.mmproj_offload is True
+    assert lp.mmap is False
+    assert lp.mlock is True
+    assert lp.no_host_buffer is True
