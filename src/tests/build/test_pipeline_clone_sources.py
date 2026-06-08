@@ -907,7 +907,7 @@ class TestBuildEnvCmd:
             wrapped = get_build_env_cmd(cmd, config.backend)
             assert wrapped[0] == "bash"
             assert wrapped[1] == "-c"
-            assert f'source "{fake_setvars}"' in wrapped[2]
+            assert f'source "{fake_setvars}" --force' in wrapped[2]
             assert "cmake --build" in wrapped[2]
 
     def test_get_build_env_cmd_shell_quotes_user_paths(self, tmp_path: Path) -> None:

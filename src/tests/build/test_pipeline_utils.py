@@ -6,6 +6,8 @@ import signal
 import threading
 from unittest.mock import MagicMock, call, patch
 
+import pytest
+
 from llama_manager.build_pipeline.models import BuildBackend
 from llama_manager.build_pipeline.utils import (
     _cancel_requested,
@@ -47,7 +49,22 @@ class TestGetBuildEnvCmd:
         assert result[0] == "bash"
         assert result[1] == "-c"
         assert "setvars.sh" in result[2]
+        assert "--force" in result[2]
         assert "cmake" in result[2]
+
+    def test_sycl_setvars_force_when_setvars_completed_inherited(self) -> None:
+        """Inherited SETVARS_COMPLETED must not make setvars exit 3 during builds."""
+        import os
+        import subprocess
+
+        if not __import__("pathlib").Path("/opt/intel/oneapi/setvars.sh").exists():
+            pytest.skip("oneAPI setvars.sh not installed")
+
+        cmd = get_build_env_cmd(["cmake", "--version"], BuildBackend.SYCL)
+        env = os.environ.copy()
+        env["SETVARS_COMPLETED"] = "1"
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        assert proc.returncode == 0, proc.stdout
 
 
 # ── _format_command ────────────────────────────────────────────────────────

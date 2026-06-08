@@ -33,8 +33,10 @@ def get_build_env_cmd(cmd: list[str], backend: BuildBackend) -> list[str]:
     """Wrap a command with the Intel oneAPI environment when building for SYCL.
 
     Sources ``/opt/intel/oneapi/setvars.sh`` via ``bash -c`` so that Intel
-    compilers and libraries are on PATH. Returns the command unchanged for
-    non-SYCL backends or when the script is missing.
+    compilers and libraries are on PATH. Uses ``--force`` because build
+    subprocesses inherit ``SETVARS_COMPLETED=1`` from an already-initialized
+    parent shell and setvars otherwise exits 3 without re-sourcing. Returns the
+    command unchanged for non-SYCL backends or when the script is missing.
     """
     if backend != BuildBackend.SYCL:
         return cmd
@@ -44,7 +46,7 @@ def get_build_env_cmd(cmd: list[str], backend: BuildBackend) -> list[str]:
     return [
         "bash",
         "-c",
-        f'source "{_INTEL_SETVARS_SH}" && {cmd_str}',
+        f'source "{_INTEL_SETVARS_SH}" --force && {cmd_str}',
     ]
 
 
