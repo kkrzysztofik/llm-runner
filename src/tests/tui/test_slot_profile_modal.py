@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from textual.app import App
-from textual.widgets import Button, Checkbox, Collapsible, Input, ListView, Select
+from textual.widgets import Button, Checkbox, Collapsible, Input, Label, ListView, Select
 
 from llama_cli.tui.components.slot_profile_modal import (
     SlotProfileModal as RunProfileModal,
@@ -667,6 +667,46 @@ async def test_modal_model_picker_mounts_search_and_list() -> None:
         assert len(list(model_list.children)) == 1
         assert model_row.has_class("profile-row")
         assert picker.has_class("profile-model-picker")
+
+
+@pytest.mark.anyio
+async def test_modal_model_picker_shows_relative_model_path() -> None:
+    """Indexed model labels should include the path relative to Config.models_dir."""
+    entry = _make_model_index_entry("/models/unsloth/Qwen3/test.gguf")
+    config = Config()
+    config.paths.models_dir = "/models"
+    modal = RunProfileModal(model_index=[entry], config=config)
+    app = App[None]()
+
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+
+        model_list = modal.query_one("#profile-model-list", ListView)
+        item = list(model_list.children)[0]
+        assert item.query_one(Label).content == "unsloth/Qwen3/test.gguf (Q4_K_M)"
+
+
+@pytest.mark.anyio
+async def test_modal_model_picker_filters_auxiliary_ggufs() -> None:
+    """MMProj and DFlash GGUF files should not appear in the primary model selector."""
+    modal = RunProfileModal(
+        model_index=[
+            _make_model_index_entry("/models/valid/model.gguf"),
+            _make_model_index_entry("/models/valid/mmproj-model.gguf"),
+            _make_model_index_entry("/models/valid/model-DFlash.gguf"),
+        ]
+    )
+    app = App[None]()
+
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+
+        model_list = modal.query_one("#profile-model-list", ListView)
+        items = list(model_list.children)
+        assert len(items) == 1
+        assert items[0].query_one(Label).content == "model.gguf (Q4_K_M)"
 
 
 @pytest.mark.anyio

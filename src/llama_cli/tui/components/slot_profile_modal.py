@@ -109,7 +109,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         super().__init__()
         self._profile = profile
         self._edit_source = edit_source or ""
-        self._model_index = model_index or []
+        self._model_index = _visible_model_index(model_index or [])
         self._config = config
         self._selected_model_path: str = profile.model if profile else ""
 
@@ -208,6 +208,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             _build_form_fields(
                 prefill=self._compose_prefill(),
                 model_index=self._model_index,
+                config=self._config,
             ),
             Horizontal(
                 Button("Cancel", id="cancel-profile", classes="modal-button-cancel"),
@@ -237,7 +238,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         label_widget = item.query_one(Label)
 
         for entry in self._model_index:
-            entry_label = f"{Path(entry.path).name} ({entry.quantization_type or '?'})"
+            entry_label = _model_option_label(entry, self._config)
             if label_widget.content == entry_label:
                 self._selected_model_path = entry.path
                 self.query_one("#profile-model-search", Input).value = entry.path
@@ -263,9 +264,10 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
 
         for entry in self._model_index:
             filename = Path(entry.path).name
-            label = f"{filename} ({entry.quantization_type or '?'})"
+            label = _model_option_label(entry, self._config)
             search_text = (
-                f"{entry.path} {filename} {entry.quantization_type or ''} "
+                f"{entry.path} {filename} {_relative_model_path(entry.path, self._config)} "
+                f"{entry.quantization_type or ''} "
                 f"{entry.architecture or ''}"
             )
             if query in search_text.lower():
@@ -444,13 +446,14 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
 def _build_form_fields(
     prefill: dict[str, str] | None = None,
     model_index: list[ModelIndexEntry] | None = None,
+    config: Config | None = None,
 ) -> Container:
     """Build the scrollable form body for the profile modal."""
     p = prefill or {}
     return Container(
         field_row("Profile ID", "profile-id", p.get("profile-id", "")),
         field_row("Display Label", "label", p.get("label", "")),
-        _model_row(model_index or [], p.get("model", "")),
+        _model_row(model_index or [], p.get("model", ""), config),
         _device_row(p.get("device", "CUDA:0")),
         field_row("Context Size", "ctx-size", p.get("ctx-size", ""), type="number"),
         _build_advanced_fields(p),
@@ -624,8 +627,10 @@ def _device_row(current_value: str = "CUDA:0") -> Horizontal:
 def _model_row(
     index: list[ModelIndexEntry],
     prefill_path: str = "",
+    config: Config | None = None,
 ) -> Horizontal:
     """Build the model selection row with search input and indexed model list."""
+    index = _visible_model_index(index)
     search_placeholder = (
         "No indexed models found. Type path manually..."
         if not index
@@ -634,8 +639,7 @@ def _model_row(
     items: list[ListItem] = []
     if index:
         for entry in index:
-            filename = Path(entry.path).name
-            label = f"{filename} ({entry.quantization_type or '?'})"
+            label = _model_option_label(entry, config)
             items.append(ListItem(Label(label, classes="profile-model-option")))
 
     return Horizontal(
@@ -665,6 +669,36 @@ def _selected_model_text(path: str) -> str:
     if not path:
         return "Selected: (none)"
     return f"Selected: {Path(path).name}"
+
+
+def _visible_model_index(index: list[ModelIndexEntry]) -> list[ModelIndexEntry]:
+    """Return model entries intended for direct model selection."""
+    return [entry for entry in index if not _is_auxiliary_gguf(entry.path)]
+
+
+def _is_auxiliary_gguf(path: str) -> bool:
+    """Detect GGUF files that should not be selectable as primary models."""
+    normalized = Path(path).as_posix().lower()
+    return "mmproj" in normalized or "dflash" in normalized
+
+
+def _model_option_label(entry: ModelIndexEntry, config: Config | None = None) -> str:
+    """Format an indexed model option with a disambiguating path."""
+    rel_path = _relative_model_path(entry.path, config)
+    return f"{rel_path} ({entry.quantization_type or '?'})"
+
+
+def _relative_model_path(path: str, config: Config | None = None) -> str:
+    """Return the model path relative to the configured model base when possible."""
+    model_path = Path(path)
+    if config:
+        try:
+            return (
+                model_path.resolve().relative_to(Path(config.paths.models_dir).resolve()).as_posix()
+            )
+        except ValueError:
+            pass
+    return model_path.name
 
 
 def _model_detail_parts(entry: ModelIndexEntry) -> list[str]:
