@@ -30,6 +30,8 @@ def _merge_config_overrides(base: BuildConfig, overrides: BuildConfig) -> BuildC
     - update_sources
     - git_commit
     - build_timeout_seconds
+    - clean_cache
+    - build_args
     """
     overridable: list[str] = [
         "git_remote_url",
@@ -41,21 +43,23 @@ def _merge_config_overrides(base: BuildConfig, overrides: BuildConfig) -> BuildC
         "update_sources",
         "git_commit",
         "build_timeout_seconds",
+        "clean_cache",
+        "build_args",
     ]
-    kwargs: dict = {}
-    for field_name in overridable:
-        val = getattr(overrides, field_name, None)
-        # Skip None and empty strings so resolved flavor values are preserved
-        if val is not None and val != "":
-            kwargs[field_name] = val
-    # Start from base fields, then overlay overrides
-    base_dict = {
+    # Start from base fields, then overlay non-empty overrides
+    base_dict: dict = {
         "backend": base.backend,
         "source_dir": base.source_dir,
         "build_dir": base.build_dir,
         "output_dir": base.output_dir,
     }
-    base_dict.update(kwargs)
+    for field_name in overridable:
+        base_dict[field_name] = getattr(base, field_name)
+    for field_name in overridable:
+        val = getattr(overrides, field_name, None)
+        # Skip None and empty strings so resolved flavor values are preserved
+        if val is not None and val != "":
+            base_dict[field_name] = val
     return BuildConfig(**base_dict)
 
 

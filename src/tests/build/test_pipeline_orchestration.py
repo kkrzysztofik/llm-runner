@@ -222,6 +222,34 @@ class TestMergeConfigOverrides:
 
         assert merged.update_sources is False
 
+    def test_config_overrides_preserves_flavor_git_remote_when_override_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """TUI overrides use empty git_remote_url to keep flavor-resolved base URL."""
+        base = BuildConfig(
+            backend=BuildBackend.CUDA,
+            source_dir=tmp_path / "source",
+            build_dir=tmp_path / "build",
+            output_dir=tmp_path / "output",
+            git_remote_url="https://github.com/Anbeeld/beellama.cpp.git",
+            git_branch="main",
+        )
+        overrides = BuildConfig(
+            backend=BuildBackend.CUDA,
+            source_dir=tmp_path / "ignored",
+            build_dir=tmp_path / "ignored",
+            output_dir=tmp_path / "ignored",
+            git_remote_url="",
+            git_branch="main",
+            jobs=8,
+        )
+
+        merged = _merge_config_overrides(base, overrides)
+
+        assert merged.git_remote_url == "https://github.com/Anbeeld/beellama.cpp.git"
+        assert merged.git_branch == "main"
+        assert merged.jobs == 8
+
 
 # ── run_build_for_backend tests ──────────────────────────────────────────────
 
