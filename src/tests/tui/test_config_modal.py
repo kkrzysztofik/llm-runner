@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from textual.app import App
-from textual.widgets import Button, Input
+from textual.widgets import Button, Input, Select
 
 from llama_cli.tui.components.config_modal import ConfigModal, ConfigPayload
 from llama_manager.config.defaults import (
@@ -88,6 +88,7 @@ _DEPLOYMENT_FIELDS = frozenset(
 )
 _BUILD_FIELDS = frozenset(
     {
+        "source_flavor",
         "git_remote",
         "git_branch",
         "retry_attempts",
@@ -251,6 +252,7 @@ class TestConfigModalCollectValues:
         assert payload.llama_server_bin_intel == "/opt/llama.cpp/build/bin/llama-server"
         assert payload.llama_server_bin_nvidia == "/opt/llama.cpp/build_cuda/bin/llama-server"
         assert payload.host == "127.0.0.1"
+        assert payload.build_source_flavor == "upstream"
         assert payload.build_git_remote == "https://github.com/ggerganov/llama.cpp"
         assert payload.build_git_branch == "master"
         assert payload.smoke_listen_timeout_s == "30"
@@ -507,6 +509,23 @@ class TestConfigModalComposition:
             assert cancel is not None
             assert save is not None
             assert save_restart is not None
+
+    @pytest.mark.anyio
+    async def test_source_flavor_uses_select(self) -> None:
+        """Source flavor should be a Select with upstream and beellama choices."""
+        config = _make_config(build_source_flavor="beellama")
+        modal = ConfigModal(config)
+        app = ConfigModalHostApp()
+        async with app.run_test() as pilot:
+            await app.push_screen(modal)
+            await pilot.pause()
+            flavor_select = modal.query_one("#cfg-build_source_flavor", Select)
+
+        assert flavor_select.value == "beellama"
+        assert {option[1] for option in flavor_select._options} == {
+            "upstream",
+            "beellama",
+        }
 
     @pytest.mark.anyio
     async def test_first_field_has_focus(self) -> None:

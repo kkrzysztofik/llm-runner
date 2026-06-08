@@ -8,6 +8,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Input, Label, Select
 
+from llama_manager.build_pipeline.models import SOURCE_FLAVOR_DEFAULTS
 from llama_manager.config import Config
 
 from .form_widgets import (
@@ -226,15 +227,7 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                 ),
                 build_config_profile_defaults_collapsible(c),
                 Label("Build", classes=_SECTION_LABEL_CLASSES),
-                field_row(
-                    "source flavor",
-                    "build_source_flavor",
-                    build.source_flavor,
-                    id_prefix="cfg",
-                    label_classes="form-label config-field-label",
-                    input_classes="form-input config-input",
-                    row_classes="form-row config-row",
-                ),
+                self._source_flavor_select(build.source_flavor),
                 field_row(
                     "git remote",
                     "build_git_remote",
@@ -314,6 +307,24 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _source_flavor_select(self, value: str) -> Widget:
+        """Build a labelled Select widget for llama.cpp source flavor."""
+        flavors = list(SOURCE_FLAVOR_DEFAULTS)
+        if value and value not in SOURCE_FLAVOR_DEFAULTS:
+            flavors.append(value)
+        choices = tuple((flavor, flavor) for flavor in flavors)
+        return select_row(
+            "source flavor",
+            "build_source_flavor",
+            choices,
+            value or "upstream",
+            id_prefix="cfg",
+            allow_blank=False,
+            label_classes="form-label config-field-label",
+            input_classes=CONFIG_SELECT_CLASSES,
+            row_classes=CONFIG_ROW_SELECT_CLASSES,
+        )
+
     def _log_level_select(self, label: str, select_id: str, value: str) -> Widget:
         """Build a labelled Select widget for log level selection."""
         choices = (
@@ -347,7 +358,9 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                 "#cfg-llama_server_bin_nvidia", Input
             ).value.strip(),
             host=self.query_one("#cfg-host", Input).value.strip(),
-            build_source_flavor=self.query_one("#cfg-build_source_flavor", Input).value.strip(),
+            build_source_flavor=str(
+                self.query_one("#cfg-build_source_flavor", Select).value or "upstream"
+            ),
             build_git_remote=self.query_one("#cfg-build_git_remote", Input).value.strip(),
             build_git_branch=self.query_one("#cfg-build_git_branch", Input).value.strip(),
             smoke_listen_timeout_s=self.query_one(
