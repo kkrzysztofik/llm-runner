@@ -27,7 +27,6 @@ from textual.widgets import (
     Collapsible,
     Input,
     LoadingIndicator,
-    ProgressBar,
     RadioButton,
     RadioSet,
     RichLog,
@@ -386,7 +385,6 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         self._btn_cancel: Button | None = None
         self._btn_done: Button | None = None
         self._btn_stop: Button | None = None
-        self._progress_bar: ProgressBar | None = None
         self._build_message: Static | None = None
         self._build_log: RichLog | None = None
         self._retry_info: Static | None = None
@@ -830,9 +828,6 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         msg = Static(f"Building {backend.upper()}...", classes="build-message")
         self._build_message = msg
 
-        pb = ProgressBar(id="build-progress", total=100, show_eta=False)
-        self._progress_bar = pb
-
         if self._build_log is not None:
             log = self._build_log
         else:
@@ -854,7 +849,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         actions = Horizontal(self._btn_stop, classes="modal-actions")
 
         parent.mount(
-            Container(title, msg, pb, log, retry, actions, classes="build-wizard-step-building")
+            Container(title, msg, log, retry, actions, classes="build-wizard-step-building")
         )
 
     # -- Step 5: Result ----------------------------------------------------
@@ -1057,10 +1052,6 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             self._build_log.write(
                 _rich_build_stage_line(status_tag, progress.stage, progress.message)
             )
-
-        if self._progress_bar is not None and self._progress_bar.is_mounted:
-            pct = int(progress.progress_percent)
-            self._progress_bar.update(total=100, progress=max(0, min(100, pct)))
 
         if self._retry_info is None or not self._retry_info.is_mounted:
             return
