@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shlex
@@ -27,6 +28,8 @@ MSG_SOURCES_NOT_GIT_REPO = (
 # Intel oneAPI environment setup script (default install location)
 _INTEL_SETVARS_SH = Path("/opt/intel/oneapi/setvars.sh")
 _MAX_OUTPUT_SUMMARY_LINES = 12
+# After cancel, stop waiting for cmake/ninja/nvcc beyond this (compile stage only).
+CANCEL_KILL_TIMEOUT_SECONDS = 15.0
 
 
 def get_build_env_cmd(cmd: list[str], backend: BuildBackend) -> list[str]:
@@ -221,11 +224,26 @@ def _wait_for_process_exit(
     cancel_event: threading.Event | None,
     stdout_t: threading.Thread,
     stderr_t: threading.Thread,
+    cancel_kill_timeout_seconds: float | None = None,
 ) -> int | None:
-    """Wait for process exit. Return -1 on timeout, else None (caller reads returncode)."""
+    """Wait for process exit.
+
+    Return -1 on build timeout, -2 when cancel kill timeout elapses, else None.
+    """
+    cancel_kill_deadline: float | None = None
     while proc.poll() is None:
         if _cancel_requested(cancel_event):
             terminate_process_tree(proc, use_process_group=True)
+            if cancel_kill_timeout_seconds is not None:
+                if cancel_kill_deadline is None:
+                    cancel_kill_deadline = time.monotonic() + cancel_kill_timeout_seconds
+                elif time.monotonic() >= cancel_kill_deadline:
+                    terminate_process_tree(proc, use_process_group=True)
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        proc.wait(timeout=5)
+                    stdout_t.join(timeout=5)
+                    stderr_t.join(timeout=5)
+                    return -2
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             terminate_process_tree(proc, use_process_group=True)
@@ -247,6 +265,7 @@ def run_command_with_cancel(
     set_active_proc: Callable[[subprocess.Popen[str] | None], None] | None = None,
     timeout_seconds: float,
     line_callback: Callable[[str], None] | None = None,
+    cancel_kill_timeout_seconds: float | None = None,
 ) -> tuple[int, str, str]:
     """Run a command; terminate the process tree when *cancel_event* is set."""
     # Check for pre-existing cancellation before spawning
@@ -276,6 +295,7 @@ def run_command_with_cancel(
                 cancel_event=cancel_event,
                 stdout_t=stdout_t,
                 stderr_t=stderr_t,
+                cancel_kill_timeout_seconds=cancel_kill_timeout_seconds,
             )
             if timed_out is not None:
                 return timed_out, "\n".join(stdout_lines), "\n".join(stderr_lines)

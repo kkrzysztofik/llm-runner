@@ -206,7 +206,7 @@ class TestConfigureStageEdgeCases:
         for backend in (BuildBackend.SYCL, BuildBackend.CUDA):
             flags = get_cmake_flags(backend, "")
             assert "-DBUILD_SERVER=ON" in flags
-            assert "-DGGML_NATIVE=OFF" in flags
+            assert "-DGGML_NATIVE=ON" in flags
 
 
 # ── build stage edge cases ───────────────────────────────────────────────────

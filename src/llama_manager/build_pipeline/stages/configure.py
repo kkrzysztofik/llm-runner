@@ -140,7 +140,7 @@ def get_cmake_flags(backend: BuildBackend, git_remote_url: str = "") -> list[str
     """Return CMake flags for the specified backend."""
     flags = [
         "-DBUILD_SERVER=ON",
-        "-DGGML_NATIVE=OFF",
+        "-DGGML_NATIVE=ON",
     ]
     if backend == BuildBackend.SYCL:
         flags.extend(
@@ -156,7 +156,6 @@ def get_cmake_flags(backend: BuildBackend, git_remote_url: str = "") -> list[str
         if "beellama" in git_remote_url.lower():
             flags.extend(
                 [
-                    "-DGGML_NATIVE=ON",
                     "-DGGML_CUDA_FA=ON",
                     "-DGGML_CUDA_FA_ALL_QUANTS=ON",
                 ]
