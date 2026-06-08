@@ -811,6 +811,67 @@ async def test_select_displays_current_value_in_control() -> None:
 
 
 @pytest.mark.anyio
+async def test_speculative_fields_hidden_when_spec_type_empty() -> None:
+    """Only the spec type selector should show when speculative decoding is disabled."""
+    modal = RunProfileModal()
+    app = App[None]()
+
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+
+        rows = modal.query(".profile-spec-field")
+        assert rows
+        assert all(str(row.styles.display) == "none" for row in rows)
+
+
+@pytest.mark.anyio
+async def test_speculative_fields_follow_selected_spec_type() -> None:
+    """Speculative options should match the fields emitted for each spec type."""
+    modal = RunProfileModal()
+    app = App[None]()
+
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+
+        expected = {
+            "ngram-mod": {
+                "spec-ngram-size-n",
+                "draft-min",
+                "draft-max",
+            },
+            "draft-mtp": {
+                "spec-draft-n-max",
+                "spec-draft-p-min",
+                "spec-draft-cache-type-k",
+                "spec-draft-cache-type-v",
+                "spec-draft-device",
+            },
+            "dflash": {
+                "spec-draft-model",
+                "spec-draft-hf",
+                "spec-draft-ngl",
+                "spec-dflash-cross-ctx",
+            },
+        }
+        spec_type = modal.query_one("#profile-spec-type", Select)
+
+        for selected, visible_ids in expected.items():
+            spec_type.value = selected
+            await pilot.pause()
+
+            for field_id in visible_ids:
+                row = modal.query_one(f".profile-spec-field-{field_id}")
+                assert str(row.styles.display) == "block"
+
+            hidden_ids = set().union(*expected.values()) - visible_ids
+            for field_id in hidden_ids:
+                row = modal.query_one(f".profile-spec-field-{field_id}")
+                assert str(row.styles.display) == "none"
+
+
+@pytest.mark.anyio
 async def test_modal_cancel_button_dismisses_none() -> None:
     modal = RunProfileModal()
     result_holder: list[object] = []

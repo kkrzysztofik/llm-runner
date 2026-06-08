@@ -19,6 +19,7 @@ from .form_widgets import (
     MODAL_CANCEL_BINDINGS,
     REASONING_FORMAT_CHOICES,
     REASONING_MODE_CHOICES,
+    ROW_CLASSES,
     ROW_SELECT_CLASSES,
     SELECT_CLASSES,
     SPEC_TYPE_CHOICES,
@@ -28,6 +29,38 @@ from .form_widgets import (
     field_row,
     select_row,
 )
+
+_SPEC_FIELD_IDS = (
+    "spec-ngram-size-n",
+    "draft-min",
+    "draft-max",
+    "spec-draft-n-max",
+    "spec-draft-p-min",
+    "spec-draft-cache-type-k",
+    "spec-draft-cache-type-v",
+    "spec-draft-device",
+    "spec-draft-model",
+    "spec-draft-hf",
+    "spec-draft-ngl",
+    "spec-dflash-cross-ctx",
+)
+
+_SPEC_FIELDS_BY_TYPE = {
+    "ngram-mod": ("spec-ngram-size-n", "draft-min", "draft-max"),
+    "draft-mtp": (
+        "spec-draft-n-max",
+        "spec-draft-p-min",
+        "spec-draft-cache-type-k",
+        "spec-draft-cache-type-v",
+        "spec-draft-device",
+    ),
+    "dflash": (
+        "spec-draft-model",
+        "spec-draft-hf",
+        "spec-draft-ngl",
+        "spec-dflash-cross-ctx",
+    ),
+}
 
 
 @dataclass
@@ -231,6 +264,9 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
 
     def on_mount(self) -> None:
         self.query_one("#profile-profile-id", Input).focus()
+        self._set_speculative_field_visibility(
+            str(self.query_one("#profile-spec-type", Select).value or "")
+        )
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle model selection from the list view."""
@@ -276,6 +312,11 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         if query and ("/" in query or "\\" in query or query.endswith(".gguf")):
             self._selected_model_path = event.value
 
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Update dependent form fields when select values change."""
+        if event.select.id == "profile-spec-type":
+            self._set_speculative_field_visibility(str(event.value or ""))
+
     def _update_selected_model(self, entry: ModelIndexEntry) -> None:
         """Show model selection and metadata in stable plain labels."""
         self.query_one("#profile-selected-model", Label).update(_selected_model_text(entry.path))
@@ -283,6 +324,13 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         parts = _model_detail_parts(entry)
         details.update("  |  ".join(parts))
         details.styles.display = "block" if parts else "none"
+
+    def _set_speculative_field_visibility(self, spec_type: str) -> None:
+        """Show only speculative decoding fields used by the selected spec type."""
+        visible = set(_SPEC_FIELDS_BY_TYPE.get(spec_type, ()))
+        for field_id in _SPEC_FIELD_IDS:
+            for row in self.query(f".profile-spec-field-{field_id}"):
+                row.styles.display = "block" if field_id in visible else "none"
 
     def _compose_prefill(self) -> dict[str, str]:
         if self._profile:
@@ -552,54 +600,90 @@ def _build_speculative_fields(prefill: dict[str, str]) -> Collapsible:
             "spec-ngram-size-n",
             prefill.get("spec-ngram-size-n", "0"),
             type="number",
+            row_classes=_spec_field_row_classes("spec-ngram-size-n"),
         ),
-        field_row("Draft Min", "draft-min", prefill.get("draft-min", "0"), type="number"),
-        field_row("Draft Max", "draft-max", prefill.get("draft-max", "0"), type="number"),
+        field_row(
+            "Draft Min",
+            "draft-min",
+            prefill.get("draft-min", "0"),
+            type="number",
+            row_classes=_spec_field_row_classes("draft-min"),
+        ),
+        field_row(
+            "Draft Max",
+            "draft-max",
+            prefill.get("draft-max", "0"),
+            type="number",
+            row_classes=_spec_field_row_classes("draft-max"),
+        ),
         field_row(
             "Draft N Max (MTP)",
             "spec-draft-n-max",
             prefill.get("spec-draft-n-max", "0"),
             type="number",
+            row_classes=_spec_field_row_classes("spec-draft-n-max"),
         ),
-        field_row("Draft P Min (MTP)", "spec-draft-p-min", prefill.get("spec-draft-p-min", "0")),
+        field_row(
+            "Draft P Min (MTP)",
+            "spec-draft-p-min",
+            prefill.get("spec-draft-p-min", "0"),
+            row_classes=_spec_field_row_classes("spec-draft-p-min"),
+        ),
         cache_type_row(
             "Draft Cache K",
             "spec-draft-cache-type-k",
             prefill.get("spec-draft-cache-type-k", ""),
             allow_empty=True,
+            row_classes=_spec_field_row_classes("spec-draft-cache-type-k", select=True),
         ),
         cache_type_row(
             "Draft Cache V",
             "spec-draft-cache-type-v",
             prefill.get("spec-draft-cache-type-v", ""),
             allow_empty=True,
+            row_classes=_spec_field_row_classes("spec-draft-cache-type-v", select=True),
         ),
-        field_row("Draft Device", "spec-draft-device", prefill.get("spec-draft-device", "")),
+        field_row(
+            "Draft Device",
+            "spec-draft-device",
+            prefill.get("spec-draft-device", ""),
+            row_classes=_spec_field_row_classes("spec-draft-device"),
+        ),
         field_row(
             "Draft Model (DFlash)",
             "spec-draft-model",
             prefill.get("spec-draft-model", ""),
+            row_classes=_spec_field_row_classes("spec-draft-model"),
         ),
         field_row(
             "Draft HF Repo (DFlash)",
             "spec-draft-hf",
             prefill.get("spec-draft-hf", ""),
+            row_classes=_spec_field_row_classes("spec-draft-hf"),
         ),
         field_row(
             "Draft GPU Layers (DFlash)",
             "spec-draft-ngl",
             prefill.get("spec-draft-ngl", ""),
+            row_classes=_spec_field_row_classes("spec-draft-ngl"),
         ),
         field_row(
             "DFlash Cross Ctx",
             "spec-dflash-cross-ctx",
             prefill.get("spec-dflash-cross-ctx", "0"),
             type="number",
+            row_classes=_spec_field_row_classes("spec-dflash-cross-ctx"),
         ),
         title="Speculative decoding",
         collapsed=True,
         classes="profile-advanced-options profile-speculative-options",
     )
+
+
+def _spec_field_row_classes(field_id: str, *, select: bool = False) -> str:
+    """Return row classes for a spec-dependent field."""
+    base = ROW_SELECT_CLASSES if select else ROW_CLASSES
+    return f"{base} profile-spec-field profile-spec-field-{field_id}"
 
 
 def _device_row(current_value: str = "CUDA:0") -> Horizontal:
