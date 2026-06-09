@@ -479,16 +479,15 @@ class TestDashboardAppAddSlotFlow:
         assert finish_args[2] is True
         assert finish_args[3] == ["Validated", "Slot added"]
 
-    @pytest.mark.anyio
-    async def test_add_slot_startup_callback_refreshes_dashboard(self) -> None:
+    def test_add_slot_startup_callback_refreshes_dashboard(self) -> None:
         controller = _make_controller()
         app = DashboardApp(controller)
-        app._reconcile_server_log_panels = AsyncMock()  # type: ignore[method-assign]
+        app.view_model.mark_slot_launching = MagicMock()  # type: ignore[method-assign]
         app.refresh_dashboard = MagicMock()  # type: ignore[method-assign]
 
-        await app._refresh_add_slot_startup()
+        app._refresh_add_slot_startup("test-alias")
 
-        app._reconcile_server_log_panels.assert_awaited_once()  # type: ignore[attr-defined]
+        app.view_model.mark_slot_launching.assert_called_once_with("test-alias")  # type: ignore[attr-defined]
         app.refresh_dashboard.assert_called_once()
 
     @pytest.mark.anyio

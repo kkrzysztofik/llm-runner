@@ -456,7 +456,9 @@ class DashboardApp(App[None]):
                 success, apply_messages = self.controller.apply_add_slot_from_form(
                     new_cfg,
                     profile_id,
-                    startup_callback=lambda: self.call_from_thread(self._refresh_add_slot_startup),
+                    startup_callback=lambda: self.call_from_thread(
+                        self._refresh_add_slot_startup, new_cfg.alias
+                    ),
                 )
                 messages.extend(apply_messages)
         except Exception as exc:
@@ -471,9 +473,9 @@ class DashboardApp(App[None]):
             messages,
         )
 
-    async def _refresh_add_slot_startup(self) -> None:
+    def _refresh_add_slot_startup(self, alias: str) -> None:
         """Refresh the dashboard after a slot enters launching state."""
-        await self._reconcile_server_log_panels()
+        self.view_model.mark_slot_launching(alias)
         self.refresh_dashboard()
 
     async def _finish_add_slot(

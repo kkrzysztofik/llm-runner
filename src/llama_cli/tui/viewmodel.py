@@ -37,6 +37,7 @@ class DashboardViewModel:
 
     def __init__(self, model: DashboardModel) -> None:
         self.model = model
+        self._deferred_resolve: set[str] = set()
 
     def command_menu(self) -> CommandMenuState:
         return CommandMenuState(
@@ -193,9 +194,16 @@ class DashboardViewModel:
             for profile in registry.profiles
         ]
 
+    def mark_slot_launching(self, alias: str) -> None:
+        """Hold LAUNCHING display for one refresh cycle after process starts."""
+        self._deferred_resolve.add(alias)
+
     def _resolve_slot_status(self, alias: str) -> str:
         state = self.model.slot_states.get(alias, SlotState.OFFLINE.value)
         proc = self.model.server_processes.get(alias)
+        if state == SlotState.RUNNING.value and alias in self._deferred_resolve:
+            self._deferred_resolve.discard(alias)
+            return SlotState.LAUNCHING.value
         return resolve_slot_runtime_status(state, proc)
 
     @staticmethod
