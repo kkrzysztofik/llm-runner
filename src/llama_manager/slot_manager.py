@@ -108,11 +108,11 @@ def remove_profile_slot(
             state,
         )
 
+    if len(configs) != len(gpu_indices) or len(configs) != len(gpu_stats):
+        raise RuntimeError("slot runtime lists must remain length-synchronized")
     del configs[existing_index]
-    if existing_index < len(gpu_indices):
-        del gpu_indices[existing_index]
-    if existing_index < len(gpu_stats):
-        del gpu_stats[existing_index]
+    del gpu_indices[existing_index]
+    del gpu_stats[existing_index]
     log_buffers.pop(alias, None)
     remove_slot_runtime_state(alias, state)
     return True, [f"Removed slot '{alias}'"], state

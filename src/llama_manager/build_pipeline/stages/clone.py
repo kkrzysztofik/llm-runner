@@ -84,8 +84,8 @@ def check_remote_mismatch(source_dir: Path, expected_remote: str) -> str | None:
                 f"but the selected flavor expects '{expected_remote}'. "
                 f"Remove the source directory or change the source flavor."
             )
-    except subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError:
-        pass
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+        logger.debug("[clone] unable to read git remote origin: %s", e)
     return None
 
 

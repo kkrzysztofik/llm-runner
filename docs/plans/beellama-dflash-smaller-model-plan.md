@@ -1,9 +1,13 @@
 # BeeLlama DFlash Smaller-Model Plan
 
+Status: Retrospective
+
+BeeLlama llama.cpp source flavor and DFlash smaller-VRAM profile support are implemented; this document records the completed work and acceptance shape.
+
 ## Summary
 
-Add BeeLlama as a selectable llama.cpp source flavor and add DFlash launch support for
-smaller, lower-VRAM profiles. The implementation should support a user-supplied target GGUF
+Added BeeLlama as a selectable llama.cpp source flavor and DFlash launch support for
+smaller, lower-VRAM profiles. The implementation supports a user-supplied target GGUF
 and either a local DFlash draft GGUF or BeeLlama's Hugging Face draft resolver.
 
 Default smaller-model guidance:

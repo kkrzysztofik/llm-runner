@@ -175,7 +175,7 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         cmd.append("--no-mmproj-offload")
     if cfg.mmap:
         cmd.append("--mmap")
-    if not cfg.mmap:
+    else:
         cmd.append("--no-mmap")
     if cfg.mlock:
         cmd.append("--mlock")
