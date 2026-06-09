@@ -471,8 +471,9 @@ class DashboardApp(App[None]):
             messages,
         )
 
-    def _refresh_add_slot_startup(self) -> None:
+    async def _refresh_add_slot_startup(self) -> None:
         """Refresh the dashboard after a slot enters launching state."""
+        await self._reconcile_server_log_panels()
         self.refresh_dashboard()
 
     async def _finish_add_slot(
