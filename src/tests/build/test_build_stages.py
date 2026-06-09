@@ -166,7 +166,7 @@ class TestConfigureStageEdgeCases:
 
     def test_configure_cuda_flags(self) -> None:
         """get_cmake_flags should include CUDA flag."""
-        flags = get_cmake_flags(BuildBackend.CUDA)
+        flags = get_cmake_flags(BuildBackend.CUDA, "")
         assert "-DGGML_CUDA=ON" in flags
         assert "-DBUILD_SERVER=ON" in flags
 
@@ -204,7 +204,7 @@ class TestConfigureStageEdgeCases:
     def test_configure_base_flags_always_present(self) -> None:
         """Base cmake flags should always be present regardless of backend."""
         for backend in (BuildBackend.SYCL, BuildBackend.CUDA):
-            flags = get_cmake_flags(backend)
+            flags = get_cmake_flags(backend, "")
             assert "-DBUILD_SERVER=ON" in flags
             assert "-DGGML_NATIVE=OFF" in flags
 

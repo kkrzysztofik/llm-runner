@@ -7,7 +7,6 @@ from typing import Any
 
 from .common.profile_io import read_profile_toml, write_profile_toml
 from .config.profiles import SlotProfileSpec
-from .config.spec_decode import SpeculativeDecodingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +146,15 @@ def _profile_to_dict(profile: SlotProfileSpec) -> dict[str, Any]:
         "spec_draft_cache_type_k": spec.spec_draft_cache_type_k,
         "spec_draft_cache_type_v": spec.spec_draft_cache_type_v,
         "spec_draft_device": spec.spec_draft_device,
+        "spec_draft_model": spec.spec_draft_model,
+        "spec_draft_hf": spec.spec_draft_hf,
+        "spec_draft_ngl": spec.spec_draft_ngl,
+        "spec_dflash_cross_ctx": spec.spec_dflash_cross_ctx,
+        "kv_unified": profile.kv_unified,
+        "mmproj_offload": profile.mmproj_offload,
+        "mmap": profile.mmap,
+        "mlock": profile.mlock,
+        "no_host_buffer": profile.no_host_buffer,
     }
 
 
@@ -179,20 +187,27 @@ def _profile_from_dict(data: dict[str, Any]) -> SlotProfileSpec:
         parallel=int(data.get("parallel", 4)),
         threads_batch=int(data.get("threads_batch", 0)),
         mmproj=data.get("mmproj", ""),
-        spec_decode=SpeculativeDecodingConfig(
-            reasoning_mode=data.get("reasoning_mode", "auto"),
-            reasoning_format=data.get("reasoning_format", "none"),
-            reasoning_budget=data.get("reasoning_budget", ""),
-            spec_type=data.get("spec_type", ""),
-            spec_ngram_size_n=int(data.get("spec_ngram_size_n", 0)),
-            draft_min=int(data.get("draft_min", 0)),
-            draft_max=int(data.get("draft_max", 0)),
-            spec_draft_n_max=int(data.get("spec_draft_n_max", 0)),
-            spec_draft_p_min=float(data.get("spec_draft_p_min", 0.0)),
-            spec_draft_cache_type_k=data.get("spec_draft_cache_type_k", ""),
-            spec_draft_cache_type_v=data.get("spec_draft_cache_type_v", ""),
-            spec_draft_device=data.get("spec_draft_device", ""),
-        ),
+        reasoning_mode=data.get("reasoning_mode", "auto"),
+        reasoning_format=data.get("reasoning_format", "none"),
+        reasoning_budget=data.get("reasoning_budget", ""),
+        spec_type=data.get("spec_type", ""),
+        spec_ngram_size_n=int(data.get("spec_ngram_size_n", 0)),
+        draft_min=int(data.get("draft_min", 0)),
+        draft_max=int(data.get("draft_max", 0)),
+        spec_draft_n_max=int(data.get("spec_draft_n_max", 0)),
+        spec_draft_p_min=float(data.get("spec_draft_p_min", 0.0)),
+        spec_draft_cache_type_k=data.get("spec_draft_cache_type_k", ""),
+        spec_draft_cache_type_v=data.get("spec_draft_cache_type_v", ""),
+        spec_draft_device=data.get("spec_draft_device", ""),
+        spec_draft_model=data.get("spec_draft_model", ""),
+        spec_draft_hf=data.get("spec_draft_hf", ""),
+        spec_draft_ngl=data.get("spec_draft_ngl", ""),
+        spec_dflash_cross_ctx=int(data.get("spec_dflash_cross_ctx", 0)),
+        kv_unified=data.get("kv_unified", False),
+        mmproj_offload=data.get("mmproj_offload", True),
+        mmap=data.get("mmap", True),
+        mlock=data.get("mlock", False),
+        no_host_buffer=data.get("no_host_buffer", False),
     )
 
 

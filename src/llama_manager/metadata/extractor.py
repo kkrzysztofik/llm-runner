@@ -21,7 +21,7 @@ def _parse_gguf_in_thread(
     result is ready.
     """
     try:
-        reader_result = _try_gguf_reader(model_path, prefix_cap_bytes, cancel_event)
+        reader_result = _try_gguf_reader(model_path)
 
         if cancel_event.is_set():
             return

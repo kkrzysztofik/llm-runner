@@ -10,7 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ..config import Config
-from .models import BuildBackend, BuildConfig, BuildProgress, BuildResult
+from .models import SOURCE_FLAVOR_DEFAULTS, BuildBackend, BuildConfig, BuildProgress, BuildResult
 from .pipeline import BuildPipeline
 
 
@@ -30,6 +30,8 @@ def _merge_config_overrides(base: BuildConfig, overrides: BuildConfig) -> BuildC
     - update_sources
     - git_commit
     - build_timeout_seconds
+    - clean_cache
+    - build_args
     """
     overridable: list[str] = [
         "git_remote_url",
@@ -41,20 +43,23 @@ def _merge_config_overrides(base: BuildConfig, overrides: BuildConfig) -> BuildC
         "update_sources",
         "git_commit",
         "build_timeout_seconds",
+        "clean_cache",
+        "build_args",
     ]
-    kwargs: dict = {}
-    for field_name in overridable:
-        val = getattr(overrides, field_name, None)
-        if val is not None:
-            kwargs[field_name] = val
-    # Start from base fields, then overlay overrides
-    base_dict = {
+    # Start from base fields, then overlay non-empty overrides
+    base_dict: dict = {
         "backend": base.backend,
         "source_dir": base.source_dir,
         "build_dir": base.build_dir,
         "output_dir": base.output_dir,
     }
-    base_dict.update(kwargs)
+    for field_name in overridable:
+        base_dict[field_name] = getattr(base, field_name)
+    for field_name in overridable:
+        val = getattr(overrides, field_name, None)
+        # Skip None and empty strings so resolved flavor values are preserved
+        if val is not None and val != "":
+            base_dict[field_name] = val
     return BuildConfig(**base_dict)
 
 
@@ -97,13 +102,20 @@ def run_build_for_backend(
     output_dir = config.paths.builds_dir / backend
 
     build_backend = BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA
+
+    # Resolve source_flavor to remote URL and branch
+    flavor = config.build.source_flavor
+    flavor_remote, flavor_branch = SOURCE_FLAVOR_DEFAULTS.get(flavor, ("", ""))
+    git_remote_url = config.build.git_remote or flavor_remote
+    git_branch = config.build.git_branch or flavor_branch
+
     build_config = BuildConfig(
         backend=build_backend,
         source_dir=source_dir,
         build_dir=build_dir,
         output_dir=output_dir,
-        git_remote_url=config.build.git_remote,
-        git_branch=config.build.git_branch,
+        git_remote_url=git_remote_url,
+        git_branch=git_branch,
         shallow_clone=getattr(config, "build_shallow_clone", True),
         retry_attempts=config.build.retry_attempts,
         retry_delay=config.build.retry_delay,

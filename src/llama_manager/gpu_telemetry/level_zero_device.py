@@ -104,59 +104,80 @@ def _discover_level_zero_devices(lib: ctypes.CDLL) -> list[_LevelZeroDevice]:
     if lib.zesInit(0) != _ZE_RESULT_SUCCESS:
         return []
 
-    driver_count = ctypes.c_uint32(0)
-    if lib.zesDriverGet(ctypes.byref(driver_count), None) != _ZE_RESULT_SUCCESS:
-        return []
-    if driver_count.value <= 0:
-        return []
-
-    drivers = (ctypes.c_void_p * driver_count.value)()
-    if lib.zesDriverGet(ctypes.byref(driver_count), drivers) != _ZE_RESULT_SUCCESS:
+    drivers = _fetch_drivers(lib)
+    if drivers is None:
         return []
 
     devices: list[_LevelZeroDevice] = []
-    for driver in drivers[: driver_count.value]:
-        device_count = ctypes.c_uint32(0)
-        if lib.zesDeviceGet(driver, ctypes.byref(device_count), None) != _ZE_RESULT_SUCCESS:
-            continue
-        if device_count.value <= 0:
-            continue
-        device_handles = (ctypes.c_void_p * device_count.value)()
-        if (
-            lib.zesDeviceGet(driver, ctypes.byref(device_count), device_handles)
-            != _ZE_RESULT_SUCCESS
-        ):
-            continue
-
-        for handle in device_handles[: device_count.value]:
-            ext_props = _ZesDeviceExtProperties()
-            ext_props.stype = _ZES_STRUCTURE_TYPE_DEVICE_EXT_PROPERTIES
-            props = _ZesDeviceProperties()
-            props.stype = _ZES_STRUCTURE_TYPE_DEVICE_PROPERTIES
-            props.pNext = ctypes.cast(ctypes.pointer(ext_props), ctypes.c_void_p)
-            if lib.zesDeviceGetProperties(handle, ctypes.byref(props)) != _ZE_RESULT_SUCCESS:
-                continue
-
-            pci_bdf: str | None = None
-            pci_props = _ZesPciProperties()
-            pci_props.stype = _ZES_STRUCTURE_TYPE_PCI_PROPERTIES
-            if lib.zesDevicePciGetProperties(handle, ctypes.byref(pci_props)) == _ZE_RESULT_SUCCESS:
-                pci_bdf = _pci_bdf(pci_props.address)
-
-            name = _decode_c_string(props.modelName) or _decode_c_string(props.core.name)
-            uuid = ext_props.uuid if isinstance(ext_props.uuid, _ZeDeviceUuid) else props.core.uuid
-            devices.append(
-                _LevelZeroDevice(
-                    handle=handle,
-                    ordinal=len(devices),
-                    name=name or "Intel GPU",
-                    vendor_id=int(props.core.vendorId),
-                    device_id=int(props.core.deviceId),
-                    pci_bdf=pci_bdf,
-                    uuid=_uuid_to_string(uuid),
-                )
-            )
+    for driver in drivers:
+        for handle in _fetch_device_handles(lib, driver):
+            device = _build_device_from_handle(lib, handle, ordinal=len(devices))
+            if device is not None:
+                devices.append(device)
     return devices
+
+
+def _fetch_drivers(lib: ctypes.CDLL) -> list[ctypes.c_void_p] | None:
+    driver_count = ctypes.c_uint32(0)
+    if lib.zesDriverGet(ctypes.byref(driver_count), None) != _ZE_RESULT_SUCCESS:
+        return None
+    if driver_count.value <= 0:
+        return None
+    drivers = (ctypes.c_void_p * driver_count.value)()
+    if lib.zesDriverGet(ctypes.byref(driver_count), drivers) != _ZE_RESULT_SUCCESS:
+        return None
+    return list(drivers[: driver_count.value])
+
+
+def _fetch_device_handles(lib: ctypes.CDLL, driver: ctypes.c_void_p) -> list[ctypes.c_void_p]:
+    device_count = ctypes.c_uint32(0)
+    if lib.zesDeviceGet(driver, ctypes.byref(device_count), None) != _ZE_RESULT_SUCCESS:
+        return []
+    if device_count.value <= 0:
+        return []
+    device_handles = (ctypes.c_void_p * device_count.value)()
+    if lib.zesDeviceGet(driver, ctypes.byref(device_count), device_handles) != _ZE_RESULT_SUCCESS:
+        return []
+    return list(device_handles[: device_count.value])
+
+
+def _build_device_from_handle(
+    lib: ctypes.CDLL, handle: ctypes.c_void_p, ordinal: int
+) -> _LevelZeroDevice | None:
+    ext_props = _ZesDeviceExtProperties()
+    ext_props.stype = _ZES_STRUCTURE_TYPE_DEVICE_EXT_PROPERTIES
+    props = _ZesDeviceProperties()
+    props.stype = _ZES_STRUCTURE_TYPE_DEVICE_PROPERTIES
+    props.pNext = ctypes.cast(ctypes.pointer(ext_props), ctypes.c_void_p)
+    if lib.zesDeviceGetProperties(handle, ctypes.byref(props)) != _ZE_RESULT_SUCCESS:
+        return None
+
+    return _LevelZeroDevice(
+        handle=handle,
+        ordinal=ordinal,
+        name=_device_name(props) or "Intel GPU",
+        vendor_id=int(props.core.vendorId),
+        device_id=int(props.core.deviceId),
+        pci_bdf=_read_pci_bdf(lib, handle),
+        uuid=_read_device_uuid(props, ext_props),
+    )
+
+
+def _device_name(props) -> str | None:
+    return _decode_c_string(props.modelName) or _decode_c_string(props.core.name)
+
+
+def _read_pci_bdf(lib: ctypes.CDLL, handle: ctypes.c_void_p) -> str | None:
+    pci_props = _ZesPciProperties()
+    pci_props.stype = _ZES_STRUCTURE_TYPE_PCI_PROPERTIES
+    if lib.zesDevicePciGetProperties(handle, ctypes.byref(pci_props)) != _ZE_RESULT_SUCCESS:
+        return None
+    return _pci_bdf(pci_props.address)
+
+
+def _read_device_uuid(props, ext_props) -> str:
+    uuid = ext_props.uuid if isinstance(ext_props.uuid, _ZeDeviceUuid) else props.core.uuid
+    return _uuid_to_string(uuid)
 
 
 def _select_level_zero_device(
@@ -172,15 +193,20 @@ def _select_level_zero_device(
         for device in devices:
             if device.device_id == selector.device_id:
                 return device
-    intel_devices = [
-        device
-        for device in devices
-        if device.vendor_id == (selector.vendor_id or INTEL_VENDOR_ID)
-        or "intel" in device.name.lower()
-        or "arc" in device.name.lower()
-        or "battlemage" in device.name.lower()
-    ]
-    candidates = intel_devices or devices
+    candidates = _intel_candidate_devices(devices, selector) or devices
     if 0 <= selector.ordinal < len(candidates):
         return candidates[selector.ordinal]
     return candidates[0] if candidates else None
+
+
+def _intel_candidate_devices(
+    devices: list[_LevelZeroDevice], selector: GpuTelemetrySelector
+) -> list[_LevelZeroDevice]:
+    intel_vendor = selector.vendor_id or INTEL_VENDOR_ID
+    intel_tokens = ("intel", "arc", "battlemage")
+    return [
+        device
+        for device in devices
+        if device.vendor_id == intel_vendor
+        or any(token in device.name.lower() for token in intel_tokens)
+    ]

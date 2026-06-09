@@ -5,7 +5,6 @@ and reused without importing Rich, Textual, or other UI libraries.
 """
 
 import logging
-from collections.abc import Callable
 from typing import Any
 
 from .config import Config, ModelSlot, ServerConfig, SlotState
@@ -85,6 +84,40 @@ def remove_slot_runtime_state(alias: str, state: dict[str, Any]) -> None:
     state["slots"][:] = [slot for slot in state["slots"] if slot.slot_id != alias]
 
 
+def remove_profile_slot(
+    alias: str,
+    configs: list[ServerConfig],
+    gpu_indices: list[int],
+    gpu_stats: list[GPUStats],
+    log_buffers: dict[str, LogBuffer],
+    server_manager: ServerManager,
+    state: dict[str, Any],
+) -> tuple[bool, list[str], dict[str, Any]]:
+    """Stop and remove one live profile slot from dashboard runtime state."""
+    existing_index = next(
+        (idx for idx, existing_cfg in enumerate(configs) if existing_cfg.alias == alias),
+        None,
+    )
+    if existing_index is None:
+        return False, [f"Unable to remove '{alias}': slot not found"], state
+
+    if not server_manager.shutdown_slot(alias):
+        return (
+            False,
+            [f"Unable to remove '{alias}': shutdown verification failed"],
+            state,
+        )
+
+    if len(configs) != len(gpu_indices) or len(configs) != len(gpu_stats):
+        raise RuntimeError("slot runtime lists must remain length-synchronized")
+    del configs[existing_index]
+    del gpu_indices[existing_index]
+    del gpu_stats[existing_index]
+    log_buffers.pop(alias, None)
+    remove_slot_runtime_state(alias, state)
+    return True, [f"Removed slot '{alias}'"], state
+
+
 def register_and_start_slot(
     cfg: ServerConfig,
     server_manager: ServerManager,
@@ -135,7 +168,6 @@ def upsert_profile_slot(
     gpu_stats: list[GPUStats],
     server_manager: ServerManager,
     state: dict[str, Any],
-    make_collector: Callable[[int], Callable[[], dict[str, Any]]],
 ) -> tuple[bool, list[str], dict[str, Any]]:
     """Add a profile slot or replace an existing slot on the same device.
 
@@ -147,8 +179,6 @@ def upsert_profile_slot(
         gpu_stats: Parallel list of ``GPUStats`` for *configs*.
         server_manager: Active ``ServerManager`` instance.
         state: Mutable runtime-state dictionary.
-        make_collector: Factory that returns a GPU collector callable for a
-            given device index.
 
     Returns:
         ``(success, messages, updated_state)``.
@@ -248,7 +278,6 @@ def add_slot_from_form(
     gpu_stats: list[GPUStats],
     server_manager: ServerManager,
     state: dict[str, Any],
-    make_collector: Callable[[int], Callable[[], dict[str, Any]]],
     registry: SlotProfileRegistry | None = None,
 ) -> tuple[bool, list[str], dict[str, Any]]:
     """Create or replace a slot from modal form values.
@@ -261,13 +290,12 @@ def add_slot_from_form(
         gpu_stats: Parallel list of ``GPUStats`` for *configs*.
         server_manager: Active ``ServerManager`` instance.
         state: Mutable runtime-state dictionary.
-        make_collector: Factory that returns a GPU collector callable for a
-            given device index.
         registry: Optional pre-built ``SlotProfileRegistry``. When omitted,
             a fresh registry is created via ``create_default_profile_registry``.
 
     Returns:
         ``(success, messages, updated_state)``.
+
     """
     success, messages, profile_id, new_cfg = compute_add_slot_from_form(
         values,
@@ -285,7 +313,6 @@ def add_slot_from_form(
         gpu_stats,
         server_manager,
         state,
-        make_collector,
     )
     messages.extend(upsert_messages)
     return success, messages, state

@@ -8,6 +8,8 @@
 | `Missing CUDA tools: …` | nvcc not installed | [workstation-setup.md](workstation-setup.md) §3 |
 | `Failed to acquire build lock` | Another build running | Wait, or remove stale lock (below) |
 | Configure fails: `icpx` not found | `setvars.sh` not sourced and not wrapped | Install oneAPI; confirm `/opt/intel/oneapi/setvars.sh` exists |
+| Configure fails: exit 3, `setvars.sh` usage in stdout | Parent env has `SETVARS_COMPLETED=1`; setvars refuses re-source | Fixed in pipeline via `source setvars.sh --force`; or `unset SETVARS_COMPLETED` before building |
+| Stop hangs on “Stopping build…” during compile | Cancel waits on cmake/ninja/nvcc exit; no UI watchdog | Compile stage uses 15s cancel kill timeout (`CANCEL_KILL_TIMEOUT_SECONDS`); wizard then shows “Build cancelled” |
 | Clone fails, then “sources already exist” | Offline continue with partial tree | Fix network or use valid existing clone |
 | Build succeeds but launch can't find binary | Wrong `LLAMA_CPP_ROOT` vs actual build dir | [paths-and-artifacts.md](paths-and-artifacts.md) |
 | Second build behaves oddly | Stale `CMakeCache.txt` with `--no-update-sources` | Remove `build/` or `build_cuda/` |

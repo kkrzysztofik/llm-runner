@@ -100,7 +100,6 @@ def test_add_slot_with_custom_registry(
         gpu_stats=[],
         server_manager=mock_server_manager,
         state=base_state,
-        make_collector=mock_make_collector,
         registry=custom_registry,
     )
 
@@ -141,7 +140,6 @@ def test_add_slot_with_custom_registry_rejects_unknown_profile(
         gpu_stats=[],
         server_manager=mock_server_manager,
         state=base_state,
-        make_collector=mock_make_collector,
         registry=custom_registry,
     )
 
@@ -181,7 +179,6 @@ def test_add_slot_with_custom_registry_port_override(
         gpu_stats=[],
         server_manager=mock_server_manager,
         state=base_state,
-        make_collector=mock_make_collector,
         registry=custom_registry,
     )
 
@@ -209,7 +206,6 @@ def test_add_slot_without_registry_uses_defaults(
         gpu_stats=[],
         server_manager=mock_server_manager,
         state=base_state,
-        make_collector=mock_make_collector,
         registry=None,
     )
 
@@ -232,7 +228,6 @@ def test_add_slot_without_registry_rejects_unknown_builtin(
         gpu_stats=[],
         server_manager=mock_server_manager,
         state=base_state,
-        make_collector=mock_make_collector,
         registry=None,
     )
 
@@ -256,7 +251,6 @@ def test_add_slot_empty_profile_requires_registry(
         gpu_stats=[],
         server_manager=mock_server_manager,
         state=base_state,
-        make_collector=mock_make_collector,
         registry=None,
     )
 
@@ -280,7 +274,6 @@ def test_add_slot_whitespace_profile_requires_registry(
         gpu_stats=[],
         server_manager=mock_server_manager,
         state=base_state,
-        make_collector=mock_make_collector,
         registry=None,
     )
 

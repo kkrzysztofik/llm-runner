@@ -15,6 +15,7 @@ import pytest
 from textual.css.query import NoMatches
 
 from llama_cli.tui.components.build import BuildModalScreen
+from llama_cli.tui.components.modal import RemoveSlotModal
 from llama_cli.tui.textual_app import (
     DashboardApp,
     _profile_options_cached,
@@ -509,6 +510,105 @@ class TestDashboardAppAddSlotFlow:
         finish_args = finish_calls[0][1]
         assert finish_args[1] == "Add slot failed: boom"
         assert finish_args[2] is False
+
+
+class TestDashboardAppRemoveSlotFlow:
+    """Tests for live-slot removal flow."""
+
+    def _stub_finish_remove_slot_ui(self, app: DashboardApp) -> None:
+        app._reconcile_server_log_panels = AsyncMock()  # type: ignore[method-assign]
+        app.refresh_dashboard = MagicMock()  # type: ignore[method-assign]
+
+    def test_action_remove_slot_rejects_empty_config_list(self) -> None:
+        controller = _make_controller()
+        controller.configs = []
+        app = DashboardApp(controller)
+        app.notify = MagicMock()  # type: ignore[method-assign]
+        app.push_screen = MagicMock()  # type: ignore[method-assign]
+
+        app.action_remove_slot()
+
+        app.notify.assert_called_once_with(
+            "No slots configured to remove",
+            title="Slot",
+            severity="warning",
+        )
+        app.push_screen.assert_not_called()
+
+    def test_action_remove_slot_opens_selector(self) -> None:
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app.push_screen = MagicMock()  # type: ignore[method-assign]
+
+        app.action_remove_slot()
+
+        screen = app.push_screen.call_args.args[0]
+        assert isinstance(screen, RemoveSlotModal)
+        assert app.push_screen.call_args.args[1] == app._handle_remove_slot_modal_result
+
+    def test_remove_slot_modal_cancel_does_nothing(self) -> None:
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app.push_screen = MagicMock()  # type: ignore[method-assign]
+        app._run_remove_slot = MagicMock()  # type: ignore[method-assign]
+
+        app._handle_remove_slot_modal_result(None)
+
+        app.push_screen.assert_not_called()
+        app._run_remove_slot.assert_not_called()  # type: ignore[attr-defined]
+
+    def test_remove_slot_confirm_starts_worker(self) -> None:
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app.notify = MagicMock()  # type: ignore[method-assign]
+        app._run_remove_slot = MagicMock()  # type: ignore[method-assign]
+        app._pending_remove_slot_alias = "slot0"
+
+        app._handle_remove_slot_confirm(True)
+
+        app.notify.assert_called_once_with(
+            "Removing slot…",
+            title="Slot",
+            severity="information",
+        )
+        app._run_remove_slot.assert_called_once_with("slot0")  # type: ignore[attr-defined]
+
+    def test_run_remove_slot_calls_controller(self) -> None:
+        controller = _make_controller()
+        controller.remove_live_slot.return_value = True
+        app = DashboardApp(controller)
+        captured: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        def _capture_finish(fn: object, *args: object, **kwargs: object) -> None:
+            captured.append((fn, args, kwargs))
+
+        app.call_from_thread = _capture_finish  # type: ignore[method-assign]
+
+        DashboardApp._run_remove_slot.__wrapped__(app, "slot0")  # type: ignore[attr-defined]
+
+        controller.remove_live_slot.assert_called_once_with("slot0")
+        finish_calls = [
+            call for call in captured if getattr(call[0], "__name__", "") == "_finish_remove_slot"
+        ]
+        assert len(finish_calls) == 1
+        assert finish_calls[0][1] == ("slot0", None, True)
+
+    @pytest.mark.anyio
+    async def test_finish_remove_slot_reconciles_and_refreshes(self) -> None:
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        self._stub_finish_remove_slot_ui(app)
+        app.notify = MagicMock()  # type: ignore[method-assign]
+
+        await app._finish_remove_slot("slot0", success=True)
+
+        app.notify.assert_called_once_with(
+            "Slot 'slot0' removed",
+            title="Slot",
+            severity="information",
+        )
+        app._reconcile_server_log_panels.assert_awaited_once()  # type: ignore[attr-defined]
+        app.refresh_dashboard.assert_called_once()  # type: ignore[attr-defined]
 
 
 class TestDashboardAppProfileModalResult:

@@ -169,8 +169,6 @@ def _detect_tokenizer_type_from_reader(
 
 def _try_gguf_reader(
     model_path: str,
-    prefix_cap_bytes: int,
-    cancel_event: Event | None = None,
 ) -> tuple[dict[str, ReaderField], int] | None:
     """Try to read GGUF file using the gguf library's GGUFReader.
 
@@ -183,7 +181,6 @@ def _try_gguf_reader(
 
     Args:
         model_path: Path to the GGUF file.
-        prefix_cap_bytes: Maximum bytes to read from the file.
 
     Returns:
         A tuple of (fields_dict, version) or None on failure.

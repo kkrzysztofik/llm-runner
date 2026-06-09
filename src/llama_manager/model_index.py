@@ -46,7 +46,7 @@ def _extract_metadata_worker(
                 ),
             )
         )
-    except BaseException as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         result_queue.put(("error", f"{type(exc).__name__}: {exc}"))
 
 
@@ -132,11 +132,14 @@ def model_index_path(config: Config) -> Path:
     directory if needed.
 
     Args:
-        config: The application Config instance.
+        config: The application Config instance. Currently unused — retained
+            so callers can pass their Config consistently. Will become
+            meaningful when the index location becomes config-driven.
 
     Returns:
         Path object pointing at the index JSON file.
     """
+    del config  # reserved for future config-driven path resolution
     xdg_cache = os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))
     idx_dir = Path(xdg_cache) / "llm-runner"
     idx_dir.mkdir(parents=True, exist_ok=True)
@@ -211,141 +214,20 @@ def refresh_model_index(
         logger.debug("models_dir %s not a directory, skipping index", config.paths.models_dir)
         return ([], 0, 0)
 
-    old_index = load_model_index(config)
-    # Build lookup by absolute path for fast mtime comparison
-    old_lookup: dict[str, ModelIndexEntry] = {e.path: e for e in old_index}
+    old_lookup = _build_old_lookup(config)
+    unique_files = _collect_unique_gguf_files(models_dir)
+    _log_scan_start(config, len(unique_files), len(old_lookup))
 
-    entries: list[ModelIndexEntry] = []
-    total_scanned = 0
-    error_count = 0
-
-    # Collect all gguf files (case-insensitive) so we can check cancel before each parse
-    gguf_files: list[Path] = sorted(
-        p for p in models_dir.rglob("*") if p.is_file() and p.name.lower().endswith(".gguf")
+    entries, total_scanned, error_count = _scan_all_files(
+        config,
+        unique_files,
+        old_lookup,
+        cancel_event,
+        progress_callback,
+        progressive,
     )
-    unique_files: list[Path] = []
-    seen: set[str] = set()
-    for p in gguf_files:
-        if not p.is_file():
-            continue
-        key = str(p.resolve())
-        if key not in seen:
-            seen.add(key)
-            unique_files.append(p)
 
-    if not old_lookup:
-        logger.info(
-            "model index: cache empty — full rescan of %d GGUF file(s) in %s",
-            len(unique_files),
-            config.paths.models_dir,
-        )
-    else:
-        logger.info(
-            "model index: scanning %d GGUF file(s) in %s (cache: %d entries)",
-            len(unique_files),
-            config.paths.models_dir,
-            len(old_lookup),
-        )
-
-    for file_path in unique_files:
-        if cancel_event is not None and cancel_event.is_set():
-            break
-
-        abs_path = str(file_path.resolve())
-        mtime_iso = _file_mtime_iso(abs_path)
-        file_size = file_path.stat().st_size
-
-        # Skip if mtime matches cached entry
-        if abs_path in old_lookup and old_lookup[abs_path].mtime_iso == mtime_iso:
-            entries.append(old_lookup[abs_path])
-            total_scanned += 1
-            logger.debug("model index: cache hit %s", abs_path)
-            if progress_callback is not None:
-                _emit_model_index_progress(
-                    config,
-                    entries,
-                    total_scanned,
-                    len(unique_files),
-                    error_count,
-                    progress_callback,
-                    progressive=progressive,
-                )
-            continue
-
-        # Extract metadata (may fail) — uses subprocess for isolation
-        try:
-            meta: GGUFMetadataRecord = _extract_model_index_metadata(
-                abs_path,
-                prefix_cap_bytes=config.gguf_metadata_prefix_cap_bytes,
-                parse_timeout_s=config.gguf_metadata_parse_timeout_s,
-            )
-            entries.append(
-                ModelIndexEntry(
-                    path=abs_path,
-                    normalized_stem=meta.normalized_stem,
-                    general_name=meta.general_name,
-                    architecture=meta.architecture,
-                    file_type=meta.file_type,
-                    quantization_type=meta.quantization_type,
-                    context_length=meta.context_length,
-                    max_context_length=meta.max_context_length or meta.context_length,
-                    embedding_length=meta.embedding_length,
-                    block_count=meta.block_count,
-                    file_size_bytes=file_size,
-                    parse_error=None,
-                    mtime_iso=mtime_iso,
-                )
-            )
-            logger.info(
-                "model index: parsed %s — name=%s arch=%s quant=%s ctx=%s emb=%s blocks=%s",
-                abs_path,
-                meta.general_name or meta.normalized_stem,
-                meta.architecture or "unknown",
-                meta.quantization_type or "?",
-                meta.context_length or "?",
-                meta.embedding_length or "?",
-                meta.block_count or "?",
-            )
-        except Exception as exc:
-            error_count += 1
-            logger.warning(
-                "model index: parse failed for %s: %s; falling back to filename metadata",
-                abs_path,
-                exc,
-            )
-            fallback_meta = _metadata_from_filename(abs_path, file_path.stem)
-            entries.append(
-                ModelIndexEntry(
-                    path=abs_path,
-                    normalized_stem=fallback_meta.normalized_stem,
-                    general_name=None,
-                    architecture=fallback_meta.architecture,
-                    file_type=None,
-                    quantization_type=fallback_meta.quantization_type,
-                    context_length=None,
-                    max_context_length=None,
-                    embedding_length=None,
-                    block_count=None,
-                    file_size_bytes=file_size,
-                    parse_error=str(exc),
-                    mtime_iso=mtime_iso,
-                )
-            )
-
-        total_scanned += 1
-        _emit_model_index_progress(
-            config,
-            entries,
-            total_scanned,
-            len(unique_files),
-            error_count,
-            progress_callback,
-            progressive=progressive,
-        )
-
-    # Sort by normalized_stem alphabetically
     entries.sort(key=lambda e: e.normalized_stem)
-
     _write_model_index(config, entries)
 
     logger.info(
@@ -355,6 +237,217 @@ def refresh_model_index(
         error_count,
     )
     return (entries, total_scanned, error_count)
+
+
+def _build_old_lookup(config: Config) -> dict[str, ModelIndexEntry]:
+    return {e.path: e for e in load_model_index(config)}
+
+
+def _collect_unique_gguf_files(models_dir: Path) -> list[Path]:
+    gguf_files: list[Path] = sorted(
+        p for p in models_dir.rglob("*") if p.is_file() and p.name.lower().endswith(".gguf")
+    )
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for p in gguf_files:
+        if not p.is_file():
+            continue
+        key = str(p.resolve())
+        if key not in seen:
+            seen.add(key)
+            unique.append(p)
+    return unique
+
+
+def _log_scan_start(config: Config, total_files: int, cache_size: int) -> None:
+    if not cache_size:
+        logger.info(
+            "model index: cache empty — full rescan of %d GGUF file(s) in %s",
+            total_files,
+            config.paths.models_dir,
+        )
+    else:
+        logger.info(
+            "model index: scanning %d GGUF file(s) in %s (cache: %d entries)",
+            total_files,
+            config.paths.models_dir,
+            cache_size,
+        )
+
+
+def _scan_all_files(
+    config: Config,
+    unique_files: list[Path],
+    old_lookup: dict[str, ModelIndexEntry],
+    cancel_event: Event | None,
+    progress_callback: ModelIndexProgressCallback | None,
+    progressive: bool,
+) -> tuple[list[ModelIndexEntry], int, int]:
+    entries: list[ModelIndexEntry] = []
+    total_scanned = 0
+    error_count = 0
+    for file_path in unique_files:
+        if cancel_event is not None and cancel_event.is_set():
+            break
+        total_scanned, error_count = _scan_one_file(
+            config,
+            file_path,
+            old_lookup,
+            entries,
+            total_scanned,
+            error_count,
+            progress_callback,
+            progressive,
+            unique_files,
+        )
+    return entries, total_scanned, error_count
+
+
+def _scan_one_file(
+    config: Config,
+    file_path: Path,
+    old_lookup: dict[str, ModelIndexEntry],
+    entries: list[ModelIndexEntry],
+    total_scanned: int,
+    error_count: int,
+    progress_callback: ModelIndexProgressCallback | None,
+    progressive: bool,
+    unique_files: list[Path],
+) -> tuple[int, int]:
+    abs_path = str(file_path.resolve())
+    mtime_iso = _file_mtime_iso(abs_path)
+    file_size = file_path.stat().st_size
+
+    cached = old_lookup.get(abs_path)
+    if cached is not None and cached.mtime_iso == mtime_iso:
+        entries.append(cached)
+        total_scanned += 1
+        logger.debug("model index: cache hit %s", abs_path)
+        _emit_model_index_progress(
+            config,
+            entries,
+            total_scanned,
+            len(unique_files),
+            error_count,
+            progress_callback,
+            progressive=progressive,
+        )
+        return total_scanned, error_count
+
+    error_count = _extract_or_fallback(
+        config,
+        abs_path,
+        file_path,
+        mtime_iso,
+        file_size,
+        entries,
+        error_count,
+    )
+
+    total_scanned += 1
+    _emit_model_index_progress(
+        config,
+        entries,
+        total_scanned,
+        len(unique_files),
+        error_count,
+        progress_callback,
+        progressive=progressive,
+    )
+    return total_scanned, error_count
+
+
+def _extract_or_fallback(
+    config: Config,
+    abs_path: str,
+    file_path: Path,
+    mtime_iso: str,
+    file_size: int,
+    entries: list[ModelIndexEntry],
+    error_count: int,
+) -> int:
+    try:
+        meta: GGUFMetadataRecord = _extract_model_index_metadata(
+            abs_path,
+            prefix_cap_bytes=config.gguf_metadata_prefix_cap_bytes,
+            parse_timeout_s=config.gguf_metadata_parse_timeout_s,
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        error_count += 1
+        logger.warning(
+            "model index: parse failed for %s: %s; falling back to filename metadata",
+            abs_path,
+            exc,
+        )
+        _append_fallback_entry(entries, abs_path, file_path, mtime_iso, file_size, str(exc))
+        return error_count
+
+    _append_parsed_entry(entries, abs_path, mtime_iso, file_size, meta)
+    return error_count
+
+
+def _append_parsed_entry(
+    entries: list[ModelIndexEntry],
+    abs_path: str,
+    mtime_iso: str,
+    file_size: int,
+    meta: GGUFMetadataRecord,
+) -> None:
+    entries.append(
+        ModelIndexEntry(
+            path=abs_path,
+            normalized_stem=meta.normalized_stem,
+            general_name=meta.general_name,
+            architecture=meta.architecture,
+            file_type=meta.file_type,
+            quantization_type=meta.quantization_type,
+            context_length=meta.context_length,
+            max_context_length=meta.max_context_length or meta.context_length,
+            embedding_length=meta.embedding_length,
+            block_count=meta.block_count,
+            file_size_bytes=file_size,
+            parse_error=None,
+            mtime_iso=mtime_iso,
+        )
+    )
+    logger.info(
+        "model index: parsed %s — name=%s arch=%s quant=%s ctx=%s emb=%s blocks=%s",
+        abs_path,
+        meta.general_name or meta.normalized_stem,
+        meta.architecture or "unknown",
+        meta.quantization_type or "?",
+        meta.context_length or "?",
+        meta.embedding_length or "?",
+        meta.block_count or "?",
+    )
+
+
+def _append_fallback_entry(
+    entries: list[ModelIndexEntry],
+    abs_path: str,
+    file_path: Path,
+    mtime_iso: str,
+    file_size: int,
+    parse_error: str,
+) -> None:
+    fallback_meta = _metadata_from_filename(abs_path, file_path.stem)
+    entries.append(
+        ModelIndexEntry(
+            path=abs_path,
+            normalized_stem=fallback_meta.normalized_stem,
+            general_name=None,
+            architecture=fallback_meta.architecture,
+            file_type=None,
+            quantization_type=fallback_meta.quantization_type,
+            context_length=None,
+            max_context_length=None,
+            embedding_length=None,
+            block_count=None,
+            file_size_bytes=file_size,
+            parse_error=parse_error,
+            mtime_iso=mtime_iso,
+        )
+    )
 
 
 def _emit_model_index_progress(

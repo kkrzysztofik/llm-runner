@@ -8,6 +8,7 @@ from loguru import logger
 from .._context import _BuildContext
 from ..models import BUILD_CANCELLED_MESSAGE, BuildProgress
 from ..utils import (
+    CANCEL_KILL_TIMEOUT_SECONDS,
     _cancel_requested,
     _format_command,
     _format_command_failure,
@@ -98,6 +99,7 @@ def _run_build_subprocess(
         set_active_proc=lambda proc: setattr(ctx, "active_proc", proc),
         timeout_seconds=float(ctx.config.build_timeout_seconds),
         line_callback=emit_line,
+        cancel_kill_timeout_seconds=CANCEL_KILL_TIMEOUT_SECONDS,
     )
     duration = _format_duration(time.monotonic() - started_at)
 

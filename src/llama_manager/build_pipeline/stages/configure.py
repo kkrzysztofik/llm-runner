@@ -43,7 +43,7 @@ def run_configure(ctx: _BuildContext) -> BuildProgress:
         progress.progress_percent = 50
         return progress
 
-    cmake_args = get_cmake_flags(ctx.config.backend)
+    cmake_args = get_cmake_flags(ctx.config.backend, ctx.config.git_remote_url)
     if ctx.config.build_args:
         cmake_args.extend(ctx.config.build_args)
     logger.debug("[configure] cmake_flags=%s", cmake_args)
@@ -136,11 +136,12 @@ def run_configure(ctx: _BuildContext) -> BuildProgress:
     return progress
 
 
-def get_cmake_flags(backend: BuildBackend) -> list[str]:
+def get_cmake_flags(backend: BuildBackend, git_remote_url: str = "") -> list[str]:
     """Return CMake flags for the specified backend."""
+    is_beellama_cuda = backend == BuildBackend.CUDA and "beellama" in git_remote_url.lower()
     flags = [
         "-DBUILD_SERVER=ON",
-        "-DGGML_NATIVE=OFF",
+        "-DGGML_NATIVE=ON" if is_beellama_cuda else "-DGGML_NATIVE=OFF",
     ]
     if backend == BuildBackend.SYCL:
         flags.extend(
@@ -152,4 +153,11 @@ def get_cmake_flags(backend: BuildBackend) -> list[str]:
         )
     elif backend == BuildBackend.CUDA:
         flags.append(f"-D{BuildConfig.GGML_CUDA}=ON")
+        if is_beellama_cuda:
+            flags.extend(
+                [
+                    "-DGGML_CUDA_FA=ON",
+                    "-DGGML_CUDA_FA_ALL_QUANTS=ON",
+                ]
+            )
     return flags

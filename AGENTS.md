@@ -425,7 +425,7 @@ specs/001-m4-op-hardening/plan.md
 - Logo wordmark block letters must read **LLM**, not LIM—verify spacing in `_LLM_BLOCK` / `LLM_RUNNER_LOGO` when refining the mascot.
 - TUI header logo: R2-D2-inspired mascot, horizontal rainbow on the LLM wordmark, no separate "runner" label under the robot; robot height should match the wordmark block.
 - Run profile create/edit: keep port, ubatch size, GPU layers, threads, and server binary in a collapsed **Advanced** section by default.
-- When adding profile/server fields, align with `run_opencode_models.sh`; expose global defaults in the Config modal; use Select/Checkbox for enumerated values and Input for freeform or wide numeric ranges.
+- When adding profile/server fields, align with `run_opencode_models.sh`; expose global defaults in the Config modal; use Select/Checkbox for enumerated values (e.g. Config modal `source flavor` from `SOURCE_FLAVOR_DEFAULTS`: `upstream`, `beellama`) and Input for freeform or wide numeric ranges; keep `git_remote`/`git_branch` as Inputs for manual overrides.
 - Textual `Select` in profile/config modals: style `SelectCurrent` via `profile-select`/`config-select` so the chosen value renders inside the control at Input height; do not add summary-label workarounds beside Select widgets.
 
 ## Learned Workspace Facts
@@ -436,9 +436,9 @@ specs/001-m4-op-hardening/plan.md
 - When `BuildConfig.jobs` is unset, `cmake --build` uses `-j` from `os.cpu_count()`.
 - SYCL `llama-server --version` probes need oneAPI via `get_build_env_cmd()` in `build_pipeline/utils.py` (sources `/opt/intel/oneapi/setvars.sh` when present).
 - Build wizard “Artifact” means provenance JSON at `builds_dir/{sycl|cuda}/build-artifact.json`; untracked binaries fall back to `llama_server_bin_intel` / `llama_server_bin_nvidia` on Config.
+- `SOURCE_FLAVOR_DEFAULTS` in `build_pipeline/models.py` maps `upstream` / `beellama` to git remote URLs and branches; Config modal source-flavor Select and build orchestration resolve URLs from it. TUI build wizard passes empty `git_remote_url` in `config_overrides` to keep flavor-resolved URLs—`_merge_config_overrides` must seed all base `BuildConfig` fields before applying non-empty overrides.
 - Default runtime binaries live under `llama_cpp_root`: SYCL at `build/bin/llama-server`, CUDA at `build_cuda/bin/llama-server`; provenance JSON lives under XDG state `builds_dir`.
-- `LLM_RUNNER_LOGO` and `DigitalClockWidget` live in `digital_clock.py`; `DateTimeWidget` mounts the logo with `markup=True` (rainbow `_LLM_BLOCK`, R2-D2 `_ROBOT_BLOCK`); layout is logo | spacer | date + `Digits`.
+- `LLM_RUNNER_LOGO` and `DigitalClockWidget` live in `digital_clock.py`; `DateTimeWidget` mounts logo left (rainbow `_LLM_BLOCK`, R2-D2 `_ROBOT_BLOCK`, `markup=True`) with date + `Digits` on the right; clock ticks on 1s `set_interval` (not the dashboard 250ms loop); date uses `%a %Y-%m-%d`.
 - TUI bottom bar: Textual built-in `Footer` (`show_command_palette=False`) in `textual_app.py`, with `check_action` + `refresh_bindings` for mode-aware bindings (replaced `CommandMenu`).
 - Bare `llm-runner` / `parse_args([])` launches standalone TUI via `_default_tui_namespace()` in `cli_parser.py`; `_normalize_main_args` must not strip bare run-group names as the program name.
 - Run profile Advanced fields live in a collapsed Textual `Collapsible` in `run_profile_modal.py` (pattern/CSS from build wizard via `.profile-advanced-options`).
-- `DigitalClockWidget` updates time on a 1s `set_interval` tick, not the dashboard’s 250ms recompose loop; date label uses `%a %Y-%m-%d` via `DateTimeSnapshot`.

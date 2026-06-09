@@ -63,9 +63,43 @@ def source_exists(source_dir: Path) -> bool:
     return any(source_dir.iterdir())
 
 
+def check_remote_mismatch(source_dir: Path, expected_remote: str) -> str | None:
+    """Check if an existing git repo's remote matches the expected remote.
+
+    Returns an error message if there's a mismatch, or None if OK.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=str(source_dir),
+            timeout=10,
+        )
+        actual_remote = result.stdout.strip()
+        if actual_remote != expected_remote:
+            return (
+                f"Source directory contains a git checkout from '{actual_remote}', "
+                f"but the selected flavor expects '{expected_remote}'. "
+                f"Remove the source directory or change the source flavor."
+            )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+        logger.debug("[clone] unable to read git remote origin: %s", e)
+    return None
+
+
 def _handle_existing_source(ctx: _BuildContext, progress: BuildProgress) -> BuildProgress | None:
     """Return a BuildProgress to skip clone, or None to proceed with cloning."""
+    # Only check remote mismatch for actual git repos
     if is_git_repo(ctx.config.source_dir):
+        mismatch = check_remote_mismatch(ctx.config.source_dir, ctx.config.git_remote_url)
+        if mismatch is not None:
+            logger.error("[clone] %s", mismatch)
+            progress.status = "failed"
+            progress.message = mismatch
+            progress.progress_percent = 20
+            return progress
         if ctx.config.update_sources:
             logger.info("[clone] source exists and update_sources=True; updating existing clone")
             return _update_sources(ctx, progress)

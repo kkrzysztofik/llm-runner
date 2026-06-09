@@ -64,7 +64,7 @@ def _iter_device_roots(device: _LevelZeroDevice) -> list[str]:
     except OSError:
         drm_entries = []
     for entry in drm_entries:
-        if not (entry.startswith("card") or entry.startswith("renderD")):
+        if not entry.startswith(("card", "renderD")):
             continue
         if entry.startswith("card") and "-" in entry:
             continue
@@ -101,26 +101,9 @@ def _iter_hwmon_paths(device: _LevelZeroDevice) -> list[str]:
 
 
 def _read_hwmon_temperature(hwmon_path: str) -> float | None:
-    name = (_safe_read_text(os.path.join(hwmon_path, "name")) or "").lower()
-    if name and name not in _INTEL_HWMON_NAMES:
+    if not _is_intel_hwmon(hwmon_path):
         return None
-    readings: list[tuple[str, float]] = []
-    try:
-        entries = sorted(os.listdir(hwmon_path))
-    except OSError:
-        return None
-    for entry in entries:
-        if not entry.startswith("temp") or not entry.endswith("_input"):
-            continue
-        index = entry.removeprefix("temp").removesuffix("_input")
-        raw_value = _safe_read_int(os.path.join(hwmon_path, entry))
-        if raw_value is None:
-            continue
-        temp = _normalize_temp(raw_value)
-        if temp is None:
-            continue
-        label = (_safe_read_text(os.path.join(hwmon_path, f"temp{index}_label")) or "").lower()
-        readings.append((label, temp))
+    readings = _collect_hwmon_temp_readings(hwmon_path)
     if not readings:
         return None
     for preferred in _PREFERRED_TEMP_LABELS:
@@ -130,7 +113,50 @@ def _read_hwmon_temperature(hwmon_path: str) -> float | None:
     return max(temp for _, temp in readings)
 
 
+def _is_intel_hwmon(hwmon_path: str) -> bool:
+    name = (_safe_read_text(os.path.join(hwmon_path, "name")) or "").lower()
+    return not name or name in _INTEL_HWMON_NAMES
+
+
+def _collect_hwmon_temp_readings(hwmon_path: str) -> list[tuple[str, float]]:
+    readings: list[tuple[str, float]] = []
+    entries = _list_hwmon_entries(hwmon_path)
+    for entry in entries:
+        reading = _read_single_temp_entry(hwmon_path, entry)
+        if reading is not None:
+            readings.append(reading)
+    return readings
+
+
+def _list_hwmon_entries(hwmon_path: str) -> list[str]:
+    try:
+        return sorted(os.listdir(hwmon_path))
+    except OSError:
+        return []
+
+
+def _read_single_temp_entry(hwmon_path: str, entry: str) -> tuple[str, float] | None:
+    if not entry.startswith("temp") or not entry.endswith("_input"):
+        return None
+    index = entry.removeprefix("temp").removesuffix("_input")
+    raw_value = _safe_read_int(os.path.join(hwmon_path, entry))
+    if raw_value is None:
+        return None
+    temp = _normalize_temp(raw_value)
+    if temp is None:
+        return None
+    label = (_safe_read_text(os.path.join(hwmon_path, f"temp{index}_label")) or "").lower()
+    return (label, temp)
+
+
 def _iter_drm_paths(device: _LevelZeroDevice) -> list[str]:
+    paths: list[str] = []
+    paths.extend(_drm_paths_from_device_roots(device))
+    paths.extend(_drm_paths_from_class_drm(device))
+    return _unique_paths(paths)
+
+
+def _drm_paths_from_device_roots(device: _LevelZeroDevice) -> list[str]:
     paths: list[str] = []
     for root in _iter_device_roots(device):
         drm_root = os.path.join(root, "drm")
@@ -139,14 +165,18 @@ def _iter_drm_paths(device: _LevelZeroDevice) -> list[str]:
         except OSError:
             continue
         for entry in entries:
-            if entry.startswith("card") and "-" not in entry:
-                path = os.path.join(drm_root, entry)
-                if os.path.isdir(path):
-                    paths.append(path)
+            path = _drm_dir_path(drm_root, entry)
+            if path is not None:
+                paths.append(path)
+    return paths
+
+
+def _drm_paths_from_class_drm(device: _LevelZeroDevice) -> list[str]:
     try:
         entries = sorted(os.listdir(_SYS_CLASS_DRM))
     except OSError:
-        entries = []
+        return []
+    paths: list[str] = []
     for entry in entries:
         if not entry.startswith("card") or "-" in entry:
             continue
@@ -154,7 +184,16 @@ def _iter_drm_paths(device: _LevelZeroDevice) -> list[str]:
         device_path = os.path.join(path, "device")
         if os.path.exists(device_path) and _device_root_matches(device_path, device):
             paths.append(path)
-    return _unique_paths(paths)
+    return paths
+
+
+def _drm_dir_path(drm_root: str, entry: str) -> str | None:
+    if not entry.startswith("card") or "-" in entry:
+        return None
+    path = os.path.join(drm_root, entry)
+    if os.path.isdir(path):
+        return path
+    return None
 
 
 def _unique_paths(paths: list[str]) -> list[str]:

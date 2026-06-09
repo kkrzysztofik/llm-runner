@@ -1,6 +1,7 @@
 """Dashboard controller for the Textual TUI."""
 
 import contextlib
+import json
 import logging
 import signal
 import threading
@@ -396,7 +397,6 @@ class DashboardController:
             self.gpu_stats,
             self.server_manager,
             state,
-            self._make_collector,
         )
         for msg in messages:
             self._push_status_message(msg)
@@ -407,6 +407,36 @@ class DashboardController:
             if alias in active_aliases
         }
         return success, messages
+
+    def remove_live_slot(self, alias: str) -> bool:
+        """Stop and remove one live slot from dashboard runtime state."""
+        from llama_manager.slot_manager import remove_profile_slot
+
+        state = {
+            "log_buffers": self.log_buffers,
+            "server_processes": self.server_processes,
+            "slot_states": self.slot_states,
+            "unsaved_slots": self.unsaved_slots,
+            "slots": self.slots,
+        }
+        success, messages, _updated_state = remove_profile_slot(
+            alias,
+            self.configs,
+            self.gpu_indices,
+            self.gpu_stats,
+            self.log_buffers,
+            self.server_manager,
+            state,
+        )
+        for msg in messages:
+            self._push_status_message(msg)
+        active_aliases = {cfg.alias for cfg in self.configs}
+        self.model.stale_warnings = {
+            stale_alias: warning
+            for stale_alias, warning in self.model.stale_warnings.items()
+            if stale_alias in active_aliases
+        }
+        return success
 
     def add_slot_from_form(self, values: dict[str, str]) -> bool:
         """Create or replace a slot from modal profile selection."""
@@ -612,66 +642,20 @@ class DashboardController:
         Returns:
             True if the profile was updated successfully, False otherwise.
         """
-        import json
+        ok, profile_id = self._validate_slot_profile_payload(payload, require_device=True)
+        if not ok:
+            return False
 
         from llama_manager.slot_profile_store import upsert_custom_slot_profile
 
-        profile_id = payload.profile_id.strip().lower().replace(" ", "-")
-        if not profile_id:
-            self._push_status_message("Profile ID is required")
+        spec = self._payload_to_spec(profile_id, payload)
+        if spec is None:
             return False
 
-        if not payload.device:
-            self._push_status_message("Device is required")
-            return False
-
-        if not payload.model:
-            self._push_status_message("Model path is required")
-            return False
-
-        if not (1024 <= payload.port <= 65535):
-            self._push_status_message("Port must be between 1024 and 65535")
-            return False
-
-        if payload.ctx_size <= 0 or payload.ubatch_size <= 0 or payload.threads <= 0:
-            self._push_status_message("ctx_size, ubatch_size, and threads must be positive")
-            return False
-
-        ngl = payload.n_gpu_layers
-        if ngl != "all":
-            try:
-                ngl_int = int(ngl)
-                if ngl_int < 0:
-                    self._push_status_message("n_gpu_layers must be >= 0 or 'all'")
-                    return False
-            except ValueError, TypeError:
-                self._push_status_message("n_gpu_layers must be an integer or 'all'")
-                return False
-
-        ctk = payload.chat_template_kwargs
-        if ctk:
-            try:
-                if isinstance(ctk, str):
-                    json.loads(ctk)
-            except json.JSONDecodeError, TypeError:
-                self._push_status_message("chat_template_kwargs must be valid JSON")
-                return False
-
-        from .components.slot_profile_modal import payload_to_slot_profile_spec
-
-        try:
-            spec = payload_to_slot_profile_spec(profile_id, payload)
-        except ValueError as exc:
-            self._push_status_message(str(exc))
-            return False
-
-        try:
-            upsert_custom_slot_profile(original_profile_id, spec)
-            self._push_status_message(f"Profile '{profile_id}' updated")
-            return True
-        except ValueError as exc:
-            self._push_status_message(str(exc))
-            return False
+        return self._save_profile_with_status(
+            lambda: upsert_custom_slot_profile(original_profile_id, spec),
+            success_message=f"Profile '{profile_id}' updated",
+        )
 
     def delete_slot_profile(self, profile_id: str) -> bool:
         """Delete/hide a slot profile. Returns True if successful.
@@ -684,7 +668,6 @@ class DashboardController:
         """
         from llama_manager.slot_profile_store import delete_custom_slot_profile
 
-        # Check if in use
         if self.is_profile_in_use(profile_id):
             self._push_status_message(f"Cannot delete '{profile_id}': in use by running slot")
             return False
@@ -692,14 +675,15 @@ class DashboardController:
         builtin_ids = self._builtin_profile_ids()
         try:
             result = delete_custom_slot_profile(profile_id, builtin_ids)
-            if result:
-                self._push_status_message(f"Profile '{profile_id}' deleted")
-            else:
-                self._push_status_message(f"Profile '{profile_id}' not found")
-            return result
         except Exception as exc:
             self._push_status_message(f"Error deleting profile: {exc}")
             return False
+
+        if result:
+            self._push_status_message(f"Profile '{profile_id}' deleted")
+        else:
+            self._push_status_message(f"Profile '{profile_id}' not found")
+        return result
 
     def save_slot_profile_from_form(self, payload: SlotProfilePayload) -> bool:
         """Save a custom slot profile from the modal form payload.
@@ -710,74 +694,109 @@ class DashboardController:
         Returns:
             True if the profile was saved successfully, False otherwise.
         """
-        import json
+        ok, profile_id = self._validate_slot_profile_payload(payload, require_device=False)
+        if not ok:
+            return False
 
         from llama_manager.slot_profile_store import save_custom_slot_profile
 
-        profile_id = payload.profile_id.strip().lower().replace(" ", "-")
-        if not profile_id:
-            self._push_status_message("Profile ID is required")
-            return False
-
-        if not payload.model:
-            self._push_status_message("Model path is required")
-            return False
-
-        if not (1024 <= payload.port <= 65535):
-            self._push_status_message("Port must be between 1024 and 65535")
-            return False
-
-        if payload.ctx_size <= 0 or payload.ubatch_size <= 0 or payload.threads <= 0:
-            self._push_status_message("ctx_size, ubatch_size, and threads must be positive")
-            return False
-
-        ngl = payload.n_gpu_layers
-        if ngl != "all":
-            try:
-                ngl_int = int(ngl)
-                if ngl_int < 0:
-                    self._push_status_message("n_gpu_layers must be >= 0 or 'all'")
-                    return False
-            except ValueError, TypeError:
-                self._push_status_message("n_gpu_layers must be an integer or 'all'")
-                return False
-
-        ctk = payload.chat_template_kwargs
-        if ctk:
-            try:
-                if isinstance(ctk, str):
-                    json.loads(ctk)
-            except json.JSONDecodeError, TypeError:
-                self._push_status_message("chat_template_kwargs must be valid JSON")
-                return False
-
-        # Reject duplicate profile_id against any existing profile (built-in or custom)
-        from llama_manager.config.builder import create_tui_profile_registry
-
-        registry = create_tui_profile_registry(self.config)
-        existing_ids = {p.profile_id for p in registry.profiles}
-        if profile_id in existing_ids:
+        if self._profile_id_exists(profile_id):
             self._push_status_message(f"Profile ID '{profile_id}' already exists")
             return False
 
-        if not payload.device:
-            self._push_status_message("Device is required")
+        spec = self._payload_to_spec(profile_id, payload)
+        if spec is None:
             return False
 
+        return self._save_profile_with_status(
+            lambda: save_custom_slot_profile(spec),
+            success_message=None,
+        )
+
+    def _validate_slot_profile_payload(
+        self, payload: SlotProfilePayload, *, require_device: bool
+    ) -> tuple[bool, str]:
+        """Validate the common shape of a slot-profile modal payload.
+
+        Returns (ok, normalized_profile_id). The id is normalised
+        (lowercase, spaces→dashes) and returned even on failure so callers
+        can reuse it in error messages.
+        """
+        profile_id = payload.profile_id.strip().lower().replace(" ", "-")
+        if not profile_id:
+            self._push_status_message("Profile ID is required")
+            return False, profile_id
+
+        if require_device and not payload.device:
+            self._push_status_message("Device is required")
+            return False, profile_id
+
+        if not payload.model:
+            self._push_status_message("Model path is required")
+            return False, profile_id
+
+        if not (1024 <= payload.port <= 65535):
+            self._push_status_message("Port must be between 1024 and 65535")
+            return False, profile_id
+
+        if payload.ctx_size <= 0 or payload.ubatch_size <= 0 or payload.threads <= 0:
+            self._push_status_message("ctx_size, ubatch_size, and threads must be positive")
+            return False, profile_id
+
+        if not self._validate_n_gpu_layers(payload.n_gpu_layers):
+            return False, profile_id
+
+        if not self._validate_chat_template_kwargs(payload.chat_template_kwargs):
+            return False, profile_id
+
+        return True, profile_id
+
+    @staticmethod
+    def _validate_n_gpu_layers(ngl: int | str) -> bool:
+        """Return True when *ngl* is 'all' or a non-negative integer."""
+        if ngl == "all":
+            return True
+        try:
+            ngl_int = int(ngl)
+        except TypeError, ValueError:
+            return False
+        return ngl_int >= 0
+
+    @staticmethod
+    def _validate_chat_template_kwargs(ctk: str) -> bool:
+        """Return True when *ctk* is empty, a non-string, or valid JSON."""
+        if not ctk or not isinstance(ctk, str):
+            return True
+        try:
+            json.loads(ctk)
+        except TypeError, ValueError:
+            return False
+        return True
+
+    def _profile_id_exists(self, profile_id: str) -> bool:
+        from llama_manager.config.builder import create_tui_profile_registry
+
+        registry = create_tui_profile_registry(self.config)
+        return any(p.profile_id == profile_id for p in registry.profiles)
+
+    def _payload_to_spec(self, profile_id: str, payload: SlotProfilePayload):
         from .components.slot_profile_modal import payload_to_slot_profile_spec
 
         try:
-            spec = payload_to_slot_profile_spec(profile_id, payload)
+            return payload_to_slot_profile_spec(profile_id, payload)
         except ValueError as exc:
             self._push_status_message(str(exc))
-            return False
+            return None
 
+    def _save_profile_with_status(self, save_fn, *, success_message: str | None) -> bool:
         try:
-            save_custom_slot_profile(spec)
-            return True
+            save_fn()
         except ValueError as exc:
             self._push_status_message(str(exc))
             return False
+        if success_message:
+            self._push_status_message(success_message)
+        return True
 
     def _handle_build_progress(self, progress: BuildProgress) -> None:
         """Handle build progress updates from pipeline.

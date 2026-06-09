@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from llama_cli.tui import DashboardController
-from llama_manager import SlotState
+from llama_manager import ModelSlot, SlotState
 from tests.support.helpers import make_server_config
 
 if TYPE_CHECKING:
@@ -316,6 +316,52 @@ class TestControllerSlotTransition:
         controller.handle_slot_transition("slot0", SlotState.RUNNING)
 
         # Should not raise
+
+
+class TestControllerRemoveLiveSlot:
+    """Tests for DashboardController.remove_live_slot."""
+
+    def test_remove_live_slot_success_updates_state_and_status(self) -> None:
+        controller = _make_controller()
+        controller.model.server_manager = MagicMock()
+        controller.model.server_manager.shutdown_slot.return_value = True
+        controller.model.server_processes = {"slot0": MagicMock()}
+        controller.model.slot_states = {"slot0": SlotState.RUNNING.value}
+        controller.model.unsaved_slots = {"slot0"}
+        controller.model.slots = [ModelSlot(slot_id="slot0", model_path="/m/slot0.gguf", port=8080)]
+        controller.model.stale_warnings = {"slot0": "stale"}
+
+        success = controller.remove_live_slot("slot0")
+
+        assert success is True
+        assert controller.configs == []
+        assert controller.gpu_indices == []
+        assert controller.gpu_stats == []
+        assert controller.log_buffers == {}
+        assert controller.server_processes == {}
+        assert controller.slot_states == {}
+        assert controller.unsaved_slots == set()
+        assert controller.slots == []
+        assert controller.model.stale_warnings == {}
+        assert any(msg == "Removed slot 'slot0'" for _, msg in controller._status_messages)
+
+    def test_remove_live_slot_failure_leaves_state_intact(self) -> None:
+        controller = _make_controller()
+        controller.model.server_manager = MagicMock()
+        controller.model.server_manager.shutdown_slot.return_value = False
+        original_configs = list(controller.configs)
+        original_gpu_indices = list(controller.gpu_indices)
+        original_gpu_stats = list(controller.gpu_stats)
+        original_log_buffers = dict(controller.log_buffers)
+
+        success = controller.remove_live_slot("slot0")
+
+        assert success is False
+        assert controller.configs == original_configs
+        assert controller.gpu_indices == original_gpu_indices
+        assert controller.gpu_stats == original_gpu_stats
+        assert controller.log_buffers == original_log_buffers
+        assert any("shutdown verification failed" in msg for _, msg in controller._status_messages)
 
 
 class TestControllerBuildLifecycle:

@@ -44,13 +44,29 @@ SENSITIVE_KEY_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"(?i)\b[A-Z0-9_]*(?<![A-Z0-9])(?:KEY|TOKEN|SECRET|PASSWORD|AUTH|AUTH_HEADER)(?:_[0-9A-Z]+)*(?![A-Z0-9])",
 )
 
-# Pattern for ``KEY=value`` pairs in log-stream lines.
+# Pattern for ``KEY=value`` pairs in log-stream lines — unquoted values.
 # Preserves the key name; only the value is replaced.
-# Handles both quoted values (e.g. API_KEY="ab c") and unquoted values (e.g. API_KEY=abc123).
-# Quoted branches accept backslash-escaped characters so e.g. "val\"ue" is fully captured.
 # Example: ``API_KEY=abc123`` → ``API_KEY=[REDACTED]``
-_LOG_SENSITIVE_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r'(\b[A-Z0-9_]*(?<![A-Z0-9])(?:AUTH_HEADER|AUTH|KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*)=("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|\S+)',
+_LOG_SENSITIVE_UNQUOTED_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(\b[A-Z0-9_]*(?<![A-Z0-9])(?:AUTH_HEADER|AUTH|KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*)="
+    r"(\S+)",
+    re.IGNORECASE,
+)
+
+# Pattern for ``KEY="quoted value"`` in log-stream lines.
+# Accepts backslash-escaped characters so e.g. ``val\"ue`` is fully captured.
+# Example: ``API_KEY="ab c"`` → ``API_KEY=[REDACTED]``
+_LOG_SENSITIVE_DOUBLE_QUOTED_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(\b[A-Z0-9_]*(?<![A-Z0-9])(?:AUTH_HEADER|AUTH|KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*)="
+    r'"(?:[^"\\]|\\.)*"',
+    re.IGNORECASE,
+)
+
+# Pattern for ``KEY='single-quoted value'`` in log-stream lines.
+# Example: ``API_KEY='ab c'`` → ``API_KEY=[REDACTED]``
+_LOG_SENSITIVE_SINGLE_QUOTED_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(\b[A-Z0-9_]*(?<![A-Z0-9])(?:AUTH_HEADER|AUTH|KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*)="
+    r"'(?:[^'\\]|\\.)*'",
     re.IGNORECASE,
 )
 
@@ -111,6 +127,22 @@ def redact_env_value(env_value: str, env_key: str) -> str:
     return env_value
 
 
+def _redact_log_key_value(line: str) -> str:
+    """Apply the three ``KEY=value`` redaction patterns in order."""
+    line = _LOG_SENSITIVE_DOUBLE_QUOTED_PATTERN.sub(rf"\1={REDACTED_VALUE}", line)
+    line = _LOG_SENSITIVE_SINGLE_QUOTED_PATTERN.sub(rf"\1={REDACTED_VALUE}", line)
+    return _LOG_SENSITIVE_UNQUOTED_PATTERN.sub(rf"\1={REDACTED_VALUE}", line)
+
+
+def _log_sensitive_match(text: str) -> re.Match[str] | None:
+    """Return the first match of any ``KEY=value`` sensitive pattern."""
+    return (
+        _LOG_SENSITIVE_DOUBLE_QUOTED_PATTERN.search(text)
+        or _LOG_SENSITIVE_SINGLE_QUOTED_PATTERN.search(text)
+        or _LOG_SENSITIVE_UNQUOTED_PATTERN.search(text)
+    )
+
+
 def redact_log_line(line: str) -> str:
     """Redact sensitive ``KEY=value`` pairs from a single log line.
 
@@ -122,7 +154,7 @@ def redact_log_line(line: str) -> str:
     Returns:
         Log line with sensitive values replaced by ``[REDACTED]``.
     """
-    return _LOG_SENSITIVE_PATTERN.sub(rf"\1={REDACTED_VALUE}", line)
+    return _redact_log_key_value(line)
 
 
 def safe_log(template: Template) -> str:  # pyright: ignore[reportInvalidTypeForm]
@@ -154,7 +186,7 @@ def safe_log(template: Template) -> str:  # pyright: ignore[reportInvalidTypeFor
             raw = str(part.value)
             expr_name: str = part.expression  # type: ignore[reportAttributeAccessIssue]
             redacted = is_sensitive_key(expr_name) or bool(
-                _LOG_SENSITIVE_PATTERN.search(f"{expr_name}={raw}")
+                _log_sensitive_match(f"{expr_name}={raw}")
             )
             parts.append(REDACTED_VALUE if redacted else raw)
         else:

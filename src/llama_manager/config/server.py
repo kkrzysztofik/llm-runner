@@ -5,14 +5,18 @@ from dataclasses import dataclass, field
 
 from ..common.validators import validate_port_range
 from .errors import ErrorCode, ErrorDetail
-from .spec_decode import SpeculativeDecodingConfig
+from .spec_decode import (
+    SpeculativeDecodingConfig,
+    SpeculativeDecodingFieldsMixin,
+    resolve_speculative_decoding_config,
+)
 
 # Regex pattern for slot ID normalization: strip, lowercase, allow only a-z0-9_-
 _SLOT_ID_PATTERN = re.compile(r"[^a-z0-9_-]")
 
 
 @dataclass
-class ServerConfig:
+class ServerConfig(SpeculativeDecodingFieldsMixin):
     """Configuration for a single llama.cpp server instance.
 
     Each instance targets a specific GPU device and loads a specific model.
@@ -67,8 +71,13 @@ class ServerConfig:
     threads_batch: int = 0
     mmproj: str = ""
     spec_decode: SpeculativeDecodingConfig = field(default_factory=SpeculativeDecodingConfig)
+    kv_unified: bool = False
+    mmproj_offload: bool = True
+    mmap: bool = True
+    mlock: bool = False
+    no_host_buffer: bool = False
 
-    def __init__(
+    def __init__(  # noqa: S107 - intentional explicit init with spec-decode overrides
         self,
         model: str,
         alias: str,
@@ -107,6 +116,15 @@ class ServerConfig:
         reasoning_mode: str | None = None,
         reasoning_format: str | None = None,
         reasoning_budget: str | None = None,
+        spec_draft_model: str | None = None,
+        spec_draft_hf: str | None = None,
+        spec_draft_ngl: int | str | None = None,
+        spec_dflash_cross_ctx: int | None = None,
+        kv_unified: bool | None = None,
+        mmproj_offload: bool | None = None,
+        mmap: bool | None = None,
+        mlock: bool | None = None,
+        no_host_buffer: bool | None = None,
     ) -> None:
         self.model = model
         self.alias = alias
@@ -132,27 +150,17 @@ class ServerConfig:
         self.parallel = parallel
         self.threads_batch = threads_batch
         self.mmproj = mmproj
-        self.spec_decode = spec_decode or SpeculativeDecodingConfig()
-        spec_overrides = {
-            "spec_type": spec_type,
-            "spec_ngram_size_n": spec_ngram_size_n,
-            "draft_min": draft_min,
-            "draft_max": draft_max,
-            "spec_draft_n_max": spec_draft_n_max,
-            "spec_draft_p_min": spec_draft_p_min,
-            "spec_draft_cache_type_k": spec_draft_cache_type_k,
-            "spec_draft_cache_type_v": spec_draft_cache_type_v,
-            "spec_draft_device": spec_draft_device,
-            "reasoning_mode": reasoning_mode,
-            "reasoning_format": reasoning_format,
-            "reasoning_budget": reasoning_budget,
-        }
-        active_overrides = {
-            key: value for key, value in spec_overrides.items() if value is not None
-        }
-        if active_overrides:
-            base = self.spec_decode.__dict__ | active_overrides
-            self.spec_decode = SpeculativeDecodingConfig(**base)
+        self.spec_decode = resolve_speculative_decoding_config(spec_decode, locals())
+        if kv_unified is not None:
+            self.kv_unified = kv_unified
+        if mmproj_offload is not None:
+            self.mmproj_offload = mmproj_offload
+        if mmap is not None:
+            self.mmap = mmap
+        if mlock is not None:
+            self.mlock = mlock
+        if no_host_buffer is not None:
+            self.no_host_buffer = no_host_buffer
         self.__post_init__()
 
     def __post_init__(self) -> None:
@@ -170,59 +178,6 @@ class ServerConfig:
             raise ValueError("threads_batch must be non-negative")
         if not isinstance(self.spec_decode, SpeculativeDecodingConfig):
             raise ValueError("spec_decode must be a SpeculativeDecodingConfig")
-
-    def __getattribute__(self, name: str) -> object:
-        if name in SpeculativeDecodingConfig.__dataclass_fields__:
-            return getattr(object.__getattribute__(self, "spec_decode"), name)
-        return object.__getattribute__(self, name)
-
-    @property
-    def reasoning_mode(self) -> str:
-        return self.spec_decode.reasoning_mode
-
-    @property
-    def reasoning_format(self) -> str:
-        return self.spec_decode.reasoning_format
-
-    @property
-    def reasoning_budget(self) -> str:
-        return self.spec_decode.reasoning_budget
-
-    @property
-    def spec_type(self) -> str:
-        return self.spec_decode.spec_type
-
-    @property
-    def spec_ngram_size_n(self) -> int:
-        return self.spec_decode.spec_ngram_size_n
-
-    @property
-    def draft_min(self) -> int:
-        return self.spec_decode.draft_min
-
-    @property
-    def draft_max(self) -> int:
-        return self.spec_decode.draft_max
-
-    @property
-    def spec_draft_n_max(self) -> int:
-        return self.spec_decode.spec_draft_n_max
-
-    @property
-    def spec_draft_p_min(self) -> float:
-        return self.spec_decode.spec_draft_p_min
-
-    @property
-    def spec_draft_cache_type_k(self) -> str:
-        return self.spec_decode.spec_draft_cache_type_k
-
-    @property
-    def spec_draft_cache_type_v(self) -> str:
-        return self.spec_decode.spec_draft_cache_type_v
-
-    @property
-    def spec_draft_device(self) -> str:
-        return self.spec_decode.spec_draft_device
 
 
 @dataclass

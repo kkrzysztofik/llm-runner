@@ -26,6 +26,7 @@ from llama_manager.slot_manager import (
     gpu_index_for_config,
     normalize_slot_port,
     register_and_start_slot,
+    remove_profile_slot,
     remove_slot_runtime_state,
     upsert_profile_slot,
 )
@@ -220,6 +221,176 @@ class TestRemoveSlotRuntimeState:
 
 
 # =============================================================================
+# remove_profile_slot
+# =============================================================================
+
+
+class TestRemoveProfileSlot:
+    def test_removes_target_slot_and_parallel_state(self) -> None:
+        configs = [
+            _make_config(alias="a", device="SYCL0", port=8080),
+            _make_config(alias="b", device="CUDA0", port=8081),
+        ]
+        gpu_indices = [0, 1]
+        gpu_stats = [
+            GPUStats(0, collector=_make_collector(0)),
+            GPUStats(1, collector=_make_collector(1)),
+        ]
+        log_buffers = {"a": LogBuffer(), "b": LogBuffer()}
+        server_manager = MagicMock()
+        server_manager.shutdown_slot.return_value = True
+        state = _make_state(
+            log_buffers=log_buffers,
+            server_processes={"a": MagicMock(), "b": MagicMock()},
+            slot_states={"a": SlotState.RUNNING.value, "b": SlotState.RUNNING.value},
+            unsaved_slots={"a", "b"},
+            slots=[
+                ModelSlot(slot_id="a", model_path="/m/a.gguf", port=8080),
+                ModelSlot(slot_id="b", model_path="/m/b.gguf", port=8081),
+            ],
+        )
+
+        success, messages, updated_state = remove_profile_slot(
+            "a",
+            configs,
+            gpu_indices,
+            gpu_stats,
+            log_buffers,
+            server_manager,
+            state,
+        )
+
+        assert success is True
+        assert updated_state is state
+        assert [cfg.alias for cfg in configs] == ["b"]
+        assert gpu_indices == [1]
+        assert len(gpu_stats) == 1
+        assert "a" not in log_buffers
+        assert "a" not in state["server_processes"]
+        assert "a" not in state["slot_states"]
+        assert "a" not in state["unsaved_slots"]
+        assert [slot.slot_id for slot in state["slots"]] == ["b"]
+        assert messages == ["Removed slot 'a'"]
+        server_manager.shutdown_slot.assert_called_once_with("a")
+
+    def test_missing_alias_returns_failure_without_mutation(self) -> None:
+        configs = [_make_config(alias="a")]
+        gpu_indices = [0]
+        gpu_stats = [GPUStats(0, collector=_make_collector(0))]
+        log_buffers = {"a": LogBuffer()}
+        server_manager = MagicMock()
+        state = _make_state(
+            log_buffers=log_buffers,
+            server_processes={"a": MagicMock()},
+            slot_states={"a": SlotState.RUNNING.value},
+            unsaved_slots={"a"},
+            slots=[ModelSlot(slot_id="a", model_path="/m/a.gguf", port=8080)],
+        )
+        original_state = {
+            "log_buffers": dict(state["log_buffers"]),
+            "server_processes": dict(state["server_processes"]),
+            "slot_states": dict(state["slot_states"]),
+            "unsaved_slots": set(state["unsaved_slots"]),
+            "slots": list(state["slots"]),
+        }
+
+        success, messages, updated_state = remove_profile_slot(
+            "missing",
+            configs,
+            gpu_indices,
+            gpu_stats,
+            log_buffers,
+            server_manager,
+            state,
+        )
+
+        assert success is False
+        assert updated_state is state
+        assert [cfg.alias for cfg in configs] == ["a"]
+        assert gpu_indices == [0]
+        assert len(gpu_stats) == 1
+        assert state == original_state
+        assert "slot not found" in messages[-1]
+        server_manager.shutdown_slot.assert_not_called()
+
+    def test_shutdown_failure_returns_failure_without_mutation(self) -> None:
+        configs = [_make_config(alias="a")]
+        gpu_indices = [0]
+        gpu_stats = [GPUStats(0, collector=_make_collector(0))]
+        log_buffers = {"a": LogBuffer()}
+        server_manager = MagicMock()
+        server_manager.shutdown_slot.return_value = False
+        state = _make_state(
+            log_buffers=log_buffers,
+            server_processes={"a": MagicMock()},
+            slot_states={"a": SlotState.RUNNING.value},
+            unsaved_slots={"a"},
+            slots=[ModelSlot(slot_id="a", model_path="/m/a.gguf", port=8080)],
+        )
+        original_state = {
+            "log_buffers": dict(state["log_buffers"]),
+            "server_processes": dict(state["server_processes"]),
+            "slot_states": dict(state["slot_states"]),
+            "unsaved_slots": set(state["unsaved_slots"]),
+            "slots": list(state["slots"]),
+        }
+
+        success, messages, updated_state = remove_profile_slot(
+            "a",
+            configs,
+            gpu_indices,
+            gpu_stats,
+            log_buffers,
+            server_manager,
+            state,
+        )
+
+        assert success is False
+        assert updated_state is state
+        assert [cfg.alias for cfg in configs] == ["a"]
+        assert gpu_indices == [0]
+        assert len(gpu_stats) == 1
+        assert state == original_state
+        assert "shutdown verification failed" in messages[-1]
+        server_manager.shutdown_slot.assert_called_once_with("a")
+
+    def test_removing_final_slot_leaves_empty_runtime_lists(self) -> None:
+        configs = [_make_config(alias="a")]
+        gpu_indices = [0]
+        gpu_stats = [GPUStats(0, collector=_make_collector(0))]
+        log_buffers = {"a": LogBuffer()}
+        server_manager = MagicMock()
+        server_manager.shutdown_slot.return_value = True
+        state = _make_state(
+            log_buffers=log_buffers,
+            server_processes={"a": MagicMock()},
+            slot_states={"a": SlotState.RUNNING.value},
+            unsaved_slots={"a"},
+            slots=[ModelSlot(slot_id="a", model_path="/m/a.gguf", port=8080)],
+        )
+
+        success, _messages, _updated_state = remove_profile_slot(
+            "a",
+            configs,
+            gpu_indices,
+            gpu_stats,
+            log_buffers,
+            server_manager,
+            state,
+        )
+
+        assert success is True
+        assert configs == []
+        assert gpu_indices == []
+        assert gpu_stats == []
+        assert log_buffers == {}
+        assert state["server_processes"] == {}
+        assert state["slot_states"] == {}
+        assert state["unsaved_slots"] == set()
+        assert state["slots"] == []
+
+
+# =============================================================================
 # register_and_start_slot
 # =============================================================================
 
@@ -290,7 +461,6 @@ class TestUpsertProfileSlot:
             gpu_stats,
             server_manager,
             state,
-            _make_collector,
         )
 
         assert success is True
@@ -326,7 +496,6 @@ class TestUpsertProfileSlot:
             gpu_stats,
             server_manager,
             state,
-            _make_collector,
         )
 
         assert success is True
@@ -355,7 +524,6 @@ class TestUpsertProfileSlot:
             gpu_stats,
             server_manager,
             state,
-            _make_collector,
         )
 
         assert success is False
@@ -379,7 +547,6 @@ class TestAddSlotFromForm:
             gpu_stats=[],
             server_manager=MagicMock(),
             state=_make_state(),
-            make_collector=_make_collector,
         )
         assert success is False
         assert any("Profile is required" in m for m in messages)
@@ -408,7 +575,6 @@ class TestAddSlotFromForm:
             gpu_stats=[],
             server_manager=server_manager,
             state=state,
-            make_collector=_make_collector,
         )
 
         assert success is True
@@ -444,7 +610,6 @@ class TestAddSlotFromForm:
             gpu_stats=[],
             server_manager=server_manager,
             state=state,
-            make_collector=_make_collector,
         )
 
         assert success is True
@@ -476,7 +641,6 @@ class TestAddSlotFromForm:
             gpu_stats=[],
             server_manager=MagicMock(),
             state=state,
-            make_collector=_make_collector,
         )
 
         assert success is False

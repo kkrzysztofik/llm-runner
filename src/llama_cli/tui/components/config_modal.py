@@ -8,6 +8,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Input, Label, Select
 
+from llama_manager.build_pipeline.models import SOURCE_FLAVOR_DEFAULTS
 from llama_manager.config import Config
 
 from .form_widgets import (
@@ -20,6 +21,9 @@ from .form_widgets import (
 )
 
 _SECTION_LABEL_CLASSES = "form-section-label config-section-label"
+_FIELD_LABEL_CLASSES = "form-label config-field-label"
+_FIELD_INPUT_CLASSES = "form-input config-input"
+_FIELD_ROW_CLASSES = "form-row config-row"
 
 
 @dataclass
@@ -31,6 +35,7 @@ class ConfigPayload:
     llama_server_bin_intel: str = ""
     llama_server_bin_nvidia: str = ""
     host: str = ""
+    build_source_flavor: str = ""
     build_git_remote: str = ""
     build_git_branch: str = ""
     smoke_listen_timeout_s: str = ""
@@ -67,6 +72,15 @@ class ConfigPayload:
     default_spec_draft_cache_type_k: str = ""
     default_spec_draft_cache_type_v: str = ""
     default_spec_draft_device: str = ""
+    default_spec_draft_model: str = ""
+    default_spec_draft_hf: str = ""
+    default_spec_draft_ngl: str = ""
+    default_spec_dflash_cross_ctx: str = ""
+    default_kv_unified: bool = False
+    default_mmproj_offload: bool = True
+    default_mmap: bool = True
+    default_mlock: bool = False
+    default_no_host_buffer: bool = False
     restart: bool = False
     clean_cache: bool = False
 
@@ -77,6 +91,7 @@ class ConfigPayload:
             "paths.llama_server_bin_intel": self.llama_server_bin_intel,
             "paths.llama_server_bin_nvidia": self.llama_server_bin_nvidia,
             "deployment.host": self.host,
+            "build.source_flavor": self.build_source_flavor,
             "build.git_remote": self.build_git_remote,
             "build.git_branch": self.build_git_branch,
             "smoke.listen_timeout_s": self.smoke_listen_timeout_s,
@@ -113,6 +128,15 @@ class ConfigPayload:
             "server_defaults.spec_draft_cache_type_k": self.default_spec_draft_cache_type_k,
             "server_defaults.spec_draft_cache_type_v": self.default_spec_draft_cache_type_v,
             "server_defaults.spec_draft_device": self.default_spec_draft_device,
+            "server_defaults.spec_draft_model": self.default_spec_draft_model,
+            "server_defaults.spec_draft_hf": self.default_spec_draft_hf,
+            "server_defaults.spec_draft_ngl": self.default_spec_draft_ngl,
+            "server_defaults.spec_dflash_cross_ctx": self.default_spec_dflash_cross_ctx,
+            "server_defaults.kv_unified": self.default_kv_unified,
+            "server_defaults.mmproj_offload": self.default_mmproj_offload,
+            "server_defaults.mmap": self.default_mmap,
+            "server_defaults.mlock": self.default_mlock,
+            "server_defaults.no_host_buffer": self.default_no_host_buffer,
         }
 
 
@@ -153,27 +177,27 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                     "llama_cpp_root",
                     paths.llama_cpp_root,
                     id_prefix="cfg",
-                    label_classes="form-label config-field-label",
-                    input_classes="form-input config-input",
-                    row_classes="form-row config-row",
+                    label_classes=_FIELD_LABEL_CLASSES,
+                    input_classes=_FIELD_INPUT_CLASSES,
+                    row_classes=_FIELD_ROW_CLASSES,
                 ),
                 field_row(
                     "models directory",
                     "models_dir",
                     paths.models_dir,
                     id_prefix="cfg",
-                    label_classes="form-label config-field-label",
-                    input_classes="form-input config-input",
-                    row_classes="form-row config-row",
+                    label_classes=_FIELD_LABEL_CLASSES,
+                    input_classes=_FIELD_INPUT_CLASSES,
+                    row_classes=_FIELD_ROW_CLASSES,
                 ),
                 Horizontal(
-                    Label("Model Cache:", classes="form-label config-field-label"),
+                    Label("Model Cache:", classes=_FIELD_LABEL_CLASSES),
                     Button(
                         "Clean Model Cache",
                         id="clean-model-cache",
                         classes="modal-button-danger",
                     ),
-                    classes="form-row config-row config-action-row",
+                    classes=f"{_FIELD_ROW_CLASSES} config-action-row",
                 ),
                 Label("Binary Paths", classes=_SECTION_LABEL_CLASSES),
                 field_row(
@@ -181,18 +205,18 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                     "llama_server_bin_intel",
                     paths.llama_server_bin_intel,
                     id_prefix="cfg",
-                    label_classes="form-label config-field-label",
-                    input_classes="form-input config-input",
-                    row_classes="form-row config-row",
+                    label_classes=_FIELD_LABEL_CLASSES,
+                    input_classes=_FIELD_INPUT_CLASSES,
+                    row_classes=_FIELD_ROW_CLASSES,
                 ),
                 field_row(
                     "llama-server (NVIDIA/CUDA)",
                     "llama_server_bin_nvidia",
                     paths.llama_server_bin_nvidia,
                     id_prefix="cfg",
-                    label_classes="form-label config-field-label",
-                    input_classes="form-input config-input",
-                    row_classes="form-row config-row",
+                    label_classes=_FIELD_LABEL_CLASSES,
+                    input_classes=_FIELD_INPUT_CLASSES,
+                    row_classes=_FIELD_ROW_CLASSES,
                 ),
                 Label("Network", classes=_SECTION_LABEL_CLASSES),
                 field_row(
@@ -200,29 +224,30 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                     "host",
                     deployment.host,
                     id_prefix="cfg",
-                    label_classes="form-label config-field-label",
-                    input_classes="form-input config-input",
-                    row_classes="form-row config-row",
+                    label_classes=_FIELD_LABEL_CLASSES,
+                    input_classes=_FIELD_INPUT_CLASSES,
+                    row_classes=_FIELD_ROW_CLASSES,
                 ),
                 build_config_profile_defaults_collapsible(c),
                 Label("Build", classes=_SECTION_LABEL_CLASSES),
+                self._source_flavor_select(build.source_flavor),
                 field_row(
                     "git remote",
                     "build_git_remote",
                     build.git_remote,
                     id_prefix="cfg",
-                    label_classes="form-label config-field-label",
-                    input_classes="form-input config-input",
-                    row_classes="form-row config-row",
+                    label_classes=_FIELD_LABEL_CLASSES,
+                    input_classes=_FIELD_INPUT_CLASSES,
+                    row_classes=_FIELD_ROW_CLASSES,
                 ),
                 field_row(
                     "git branch",
                     "build_git_branch",
                     build.git_branch,
                     id_prefix="cfg",
-                    label_classes="form-label config-field-label",
-                    input_classes="form-input config-input",
-                    row_classes="form-row config-row",
+                    label_classes=_FIELD_LABEL_CLASSES,
+                    input_classes=_FIELD_INPUT_CLASSES,
+                    row_classes=_FIELD_ROW_CLASSES,
                 ),
                 Label("Smoke Probes (seconds)", classes=_SECTION_LABEL_CLASSES),
                 field_row(
@@ -230,36 +255,36 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                     "smoke_listen_timeout_s",
                     str(smoke.listen_timeout_s),
                     id_prefix="cfg",
-                    label_classes="form-label config-field-label",
-                    input_classes="form-input config-input",
-                    row_classes="form-row config-row",
+                    label_classes=_FIELD_LABEL_CLASSES,
+                    input_classes=_FIELD_INPUT_CLASSES,
+                    row_classes=_FIELD_ROW_CLASSES,
                 ),
                 field_row(
                     "http request timeout",
                     "smoke_http_request_timeout_s",
                     str(smoke.http_request_timeout_s),
                     id_prefix="cfg",
-                    label_classes="form-label config-field-label",
-                    input_classes="form-input config-input",
-                    row_classes="form-row config-row",
+                    label_classes=_FIELD_LABEL_CLASSES,
+                    input_classes=_FIELD_INPUT_CLASSES,
+                    row_classes=_FIELD_ROW_CLASSES,
                 ),
                 field_row(
                     "first token timeout",
                     "smoke_first_token_timeout_s",
                     str(smoke.first_token_timeout_s),
                     id_prefix="cfg",
-                    label_classes="form-label config-field-label",
-                    input_classes="form-input config-input",
-                    row_classes="form-row config-row",
+                    label_classes=_FIELD_LABEL_CLASSES,
+                    input_classes=_FIELD_INPUT_CLASSES,
+                    row_classes=_FIELD_ROW_CLASSES,
                 ),
                 field_row(
                     "total chat timeout",
                     "smoke_total_chat_timeout_s",
                     str(smoke.total_chat_timeout_s),
                     id_prefix="cfg",
-                    label_classes="form-label config-field-label",
-                    input_classes="form-input config-input",
-                    row_classes="form-row config-row",
+                    label_classes=_FIELD_LABEL_CLASSES,
+                    input_classes=_FIELD_INPUT_CLASSES,
+                    row_classes=_FIELD_ROW_CLASSES,
                 ),
                 Label("Logging", classes=_SECTION_LABEL_CLASSES),
                 self._log_level_select("stderr level", "log_stderr_level", c.log_stderr_level),
@@ -285,6 +310,24 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _source_flavor_select(self, value: str) -> Widget:
+        """Build a labelled Select widget for llama.cpp source flavor."""
+        flavors = list(SOURCE_FLAVOR_DEFAULTS)
+        if value and value not in SOURCE_FLAVOR_DEFAULTS:
+            flavors.append(value)
+        choices = tuple((flavor, flavor) for flavor in flavors)
+        return select_row(
+            "source flavor",
+            "build_source_flavor",
+            choices,
+            value or "upstream",
+            id_prefix="cfg",
+            allow_blank=False,
+            label_classes=_FIELD_LABEL_CLASSES,
+            input_classes=CONFIG_SELECT_CLASSES,
+            row_classes=CONFIG_ROW_SELECT_CLASSES,
+        )
+
     def _log_level_select(self, label: str, select_id: str, value: str) -> Widget:
         """Build a labelled Select widget for log level selection."""
         choices = (
@@ -301,7 +344,7 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             value,
             id_prefix="cfg",
             allow_blank=False,
-            label_classes="form-label config-field-label",
+            label_classes=_FIELD_LABEL_CLASSES,
             input_classes=CONFIG_SELECT_CLASSES,
             row_classes=CONFIG_ROW_SELECT_CLASSES,
         )
@@ -318,6 +361,9 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                 "#cfg-llama_server_bin_nvidia", Input
             ).value.strip(),
             host=self.query_one("#cfg-host", Input).value.strip(),
+            build_source_flavor=str(
+                self.query_one("#cfg-build_source_flavor", Select).value or "upstream"
+            ),
             build_git_remote=self.query_one("#cfg-build_git_remote", Input).value.strip(),
             build_git_branch=self.query_one("#cfg-build_git_branch", Input).value.strip(),
             smoke_listen_timeout_s=self.query_one(
@@ -394,6 +440,21 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             default_spec_draft_device=self.query_one(
                 "#cfg-default_spec_draft_device", Input
             ).value.strip(),
+            default_spec_draft_model=self.query_one(
+                "#cfg-default_spec_draft_model", Input
+            ).value.strip(),
+            default_spec_draft_hf=self.query_one("#cfg-default_spec_draft_hf", Input).value.strip(),
+            default_spec_draft_ngl=self.query_one(
+                "#cfg-default_spec_draft_ngl", Input
+            ).value.strip(),
+            default_spec_dflash_cross_ctx=self.query_one(
+                "#cfg-default_spec_dflash_cross_ctx", Input
+            ).value.strip(),
+            default_kv_unified=self.query_one("#cfg-default_kv_unified", Checkbox).value,
+            default_mmproj_offload=self.query_one("#cfg-default_mmproj_offload", Checkbox).value,
+            default_mmap=self.query_one("#cfg-default_mmap", Checkbox).value,
+            default_mlock=self.query_one("#cfg-default_mlock", Checkbox).value,
+            default_no_host_buffer=self.query_one("#cfg-default_no_host_buffer", Checkbox).value,
         )
 
     # ------------------------------------------------------------------

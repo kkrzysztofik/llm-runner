@@ -19,6 +19,11 @@ from ...config import (
 # Doctor diagnostics (T069)
 # ---------------------------------------------------------------------------
 
+_SPEC_TYPE_FLAG: Final = "--spec-type"
+_SPEC_TYPE_DFLASH: Final = "dflash"
+_SPEC_TYPE_DRAFT_MTP: Final = "draft-mtp"
+_SPEC_TYPE_NGRAM_MOD: Final = "ngram-mod"
+
 
 @dataclass
 class DoctorCheckResult:
@@ -139,7 +144,6 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         str(cfg.n_predict),
         "--parallel",
         str(cfg.parallel),
-        "--mmap",
         "--host",
         cfg.bind_address,
         "--port",
@@ -152,7 +156,13 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
     if cfg.mmproj:
         cmd.extend(["--mmproj", cfg.mmproj])
     _append_speculative_flags(cmd, cfg)
+    _append_optional_server_flags(cmd, cfg)
 
+    return cmd
+
+
+def _append_optional_server_flags(cmd: list[str], cfg: ServerConfig) -> None:
+    """Append non-required server flags."""
     spec = cfg.spec_decode
     if cfg.main_gpu != 0:
         cmd.extend(["--main-gpu", str(cfg.main_gpu)])
@@ -170,30 +180,53 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         cmd.extend(["--reasoning-budget", spec.reasoning_budget])
     if cfg.use_jinja:
         cmd.append("--jinja")
-
-    return cmd
+    if cfg.kv_unified:
+        cmd.append("--kv-unified")
+    if not cfg.mmproj_offload:
+        cmd.append("--no-mmproj-offload")
+    if cfg.mmap:
+        cmd.append("--mmap")
+    else:
+        cmd.append("--no-mmap")
+    if cfg.mlock:
+        cmd.append("--mlock")
+    if cfg.no_host_buffer:
+        cmd.append("--no-host")
 
 
 def _append_speculative_flags(cmd: list[str], cfg: ServerConfig) -> None:
     """Append llama-server speculative decoding flags when configured."""
     spec = cfg.spec_decode
-    if spec.spec_type == "ngram-mod":
-        cmd.extend(
-            [
-                "--spec-type",
-                "ngram-mod",
-                "--spec-ngram-size-n",
-                str(spec.spec_ngram_size_n),
-                "--draft-min",
-                str(spec.draft_min),
-                "--draft-max",
-                str(spec.draft_max),
-            ]
-        )
+    if spec.spec_type == _SPEC_TYPE_NGRAM_MOD:
+        _append_ngram_speculative_flags(cmd, spec)
         return
-    if spec.spec_type != "draft-mtp":
+    if spec.spec_type not in (_SPEC_TYPE_DRAFT_MTP, _SPEC_TYPE_DFLASH):
         return
-    cmd.extend(["--spec-type", "draft-mtp", "--spec-draft-n-max", str(spec.spec_draft_n_max)])
+    if spec.spec_type == _SPEC_TYPE_DRAFT_MTP:
+        _append_draft_mtp_flags(cmd, spec)
+        return
+    _append_dflash_flags(cmd, spec)
+
+
+def _append_ngram_speculative_flags(cmd: list[str], spec: Any) -> None:
+    cmd.extend(
+        [
+            _SPEC_TYPE_FLAG,
+            _SPEC_TYPE_NGRAM_MOD,
+            "--spec-ngram-size-n",
+            str(spec.spec_ngram_size_n),
+            "--draft-min",
+            str(spec.draft_min),
+            "--draft-max",
+            str(spec.draft_max),
+        ]
+    )
+
+
+def _append_draft_mtp_flags(cmd: list[str], spec: Any) -> None:
+    cmd.extend(
+        [_SPEC_TYPE_FLAG, _SPEC_TYPE_DRAFT_MTP, "--spec-draft-n-max", str(spec.spec_draft_n_max)]
+    )
     if spec.spec_draft_p_min > 0:
         cmd.extend(["--spec-draft-p-min", str(spec.spec_draft_p_min)])
     # llama-server flags omit "cache" (--spec-draft-type-k/v), unlike field names.
@@ -203,6 +236,18 @@ def _append_speculative_flags(cmd: list[str], cfg: ServerConfig) -> None:
         cmd.extend(["--spec-draft-type-v", spec.spec_draft_cache_type_v])
     if spec.spec_draft_device:
         cmd.extend(["--spec-draft-device", spec.spec_draft_device])
+
+
+def _append_dflash_flags(cmd: list[str], spec: Any) -> None:
+    cmd.extend([_SPEC_TYPE_FLAG, _SPEC_TYPE_DFLASH])
+    if spec.spec_draft_model:
+        cmd.extend(["--spec-draft-model", spec.spec_draft_model])
+    if spec.spec_draft_hf:
+        cmd.extend(["--spec-draft-hf", spec.spec_draft_hf])
+    if spec.spec_draft_ngl:
+        cmd.extend(["--spec-draft-ngl", str(spec.spec_draft_ngl)])
+    if spec.spec_dflash_cross_ctx > 0:
+        cmd.extend(["--spec-dflash-cross-ctx", str(spec.spec_dflash_cross_ctx)])
 
 
 def sort_validation_errors(
@@ -225,7 +270,6 @@ def sort_validation_errors(
 def build_dry_run_slot_payload(
     cfg: ServerConfig,
     slot_id: str,
-    bind_address: str = "127.0.0.1",
     validation_results: DryRunValidationSummary | None = None,
     warnings: list[str] | None = None,
 ) -> DryRunSlotPayload:
@@ -331,29 +375,42 @@ def _parse_device_details(device: str) -> tuple[str | None, str]:
         return (None, device)
 
     if lower.startswith("cuda:"):
-        parts = normalized.split(":", maxsplit=1)
-        if len(parts) == 2 and parts[1]:
-            return (parts[1], "NVIDIA GPU")
-        return (None, device)
+        return _cuda_device_details(normalized)
 
     if upper.startswith("SYCL"):
-        if ":" in normalized:
-            parts = normalized.split(":")
-            if len(parts) >= 3:
-                return (f"{parts[1]}:{parts[2]}", f"SYCL Device {parts[1]}")
-            if len(parts) > 1:
-                return (":".join(parts[1:]), device)
-        ordinal = normalized[4:]
-        return (ordinal or "0", "Intel SYCL GPU")
+        return _sycl_device_details(normalized)
 
     if lower.startswith("sycl:"):
+        return _sycl_dotted_device_details(normalized)
+
+    return (None, device)
+
+
+def _cuda_device_details(normalized: str) -> tuple[str | None, str]:
+    parts = normalized.split(":", maxsplit=1)
+    if len(parts) == 2 and parts[1]:
+        return (parts[1], "NVIDIA GPU")
+    return (None, normalized)
+
+
+def _sycl_device_details(normalized: str) -> tuple[str, str]:
+    if ":" in normalized:
         parts = normalized.split(":")
         if len(parts) >= 3:
             return (f"{parts[1]}:{parts[2]}", f"SYCL Device {parts[1]}")
         if len(parts) > 1:
-            return (":".join(parts[1:]), device)
+            return (":".join(parts[1:]), normalized)
+    ordinal = normalized[4:]
+    return (ordinal or "0", "Intel SYCL GPU")
 
-    return (None, device)
+
+def _sycl_dotted_device_details(normalized: str) -> tuple[str | None, str]:
+    parts = normalized.split(":")
+    if len(parts) >= 3:
+        return (f"{parts[1]}:{parts[2]}", f"SYCL Device {parts[1]}")
+    if len(parts) > 1:
+        return (":".join(parts[1:]), normalized)
+    return (None, normalized)
 
 
 def _get_lspci_output() -> str | None:

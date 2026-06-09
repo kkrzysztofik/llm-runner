@@ -17,4 +17,4 @@ repos:
     hooks:
       - id: pip-audit
         args: [--progress-spinner, "off"]
-        additional_dependencies: ["pip>=26.1", "urllib3>=2.7.0"]
+        additional_dependencies: ["pip>=26.1.2", "urllib3>=2.7.0"]

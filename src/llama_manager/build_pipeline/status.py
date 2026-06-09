@@ -10,7 +10,7 @@ from pathlib import Path
 from loguru import logger
 
 from ..config import Config
-from .models import BuildArtifact, BuildBackend
+from .models import SOURCE_FLAVOR_DEFAULTS, BuildArtifact, BuildBackend
 from .utils import get_build_env_cmd
 
 
@@ -203,9 +203,12 @@ def _source_git_info(
     return source_exists, source_is_repo, source_branch, source_head_sha, source_remote_url
 
 
-def _fetch_remote_branch_sha(config: Config) -> str | None:
-    remote_url = config.build.git_remote
-    branch = config.build.git_branch
+def _resolve_configured_source(config: Config) -> tuple[str, str]:
+    flavor_remote, flavor_branch = SOURCE_FLAVOR_DEFAULTS.get(config.build.source_flavor, ("", ""))
+    return config.build.git_remote or flavor_remote, config.build.git_branch or flavor_branch
+
+
+def _fetch_remote_branch_sha(remote_url: str, branch: str) -> str | None:
     logger.debug("[status] querying remote %s for refs/heads/%s", remote_url, branch)
     ls_remote_output = _run_git(
         ["ls-remote", remote_url, f"refs/heads/{branch}"],
@@ -249,8 +252,8 @@ def get_build_status(backend: BuildBackend, config: Config) -> BuildStatus:
     source_exists, source_is_repo, source_branch, source_head_sha, source_remote_url = (
         _source_git_info(source_dir)
     )
-    branch = config.build.git_branch
-    remote_branch_sha = _fetch_remote_branch_sha(config)
+    _remote_url, branch = _resolve_configured_source(config)
+    remote_branch_sha = _fetch_remote_branch_sha(_remote_url, branch)
 
     return BuildStatus(
         backend=backend,

@@ -23,8 +23,19 @@ _nvtop_fallback_logged: set[int] = set()
 
 def collect_nvidia_smi_stats(selector: GpuTelemetrySelector) -> dict[str, Any] | None:
     """Collect NVIDIA stats using nvidia-smi by CUDA ordinal."""
+    result = _run_nvidia_smi()
+    if result is None:
+        return None
+    for line in result.stdout.splitlines():
+        stats = _parse_nvidia_smi_line(line, selector)
+        if stats is not None:
+            return with_host_stats(stats)
+    return None
+
+
+def _run_nvidia_smi() -> subprocess.CompletedProcess[str] | None:
     try:
-        result = subprocess.run(
+        return subprocess.run(
             [
                 "nvidia-smi",
                 "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,"
@@ -37,40 +48,44 @@ def collect_nvidia_smi_stats(selector: GpuTelemetrySelector) -> dict[str, Any] |
         )
     except OSError, subprocess.TimeoutExpired:
         return None
-    if result.returncode != 0:
+
+
+def _parse_nvidia_smi_line(line: str, selector: GpuTelemetrySelector) -> dict[str, Any] | None:
+    parts = [part.strip() for part in line.split(",")]
+    if len(parts) < 7:
         return None
-    for line in result.stdout.splitlines():
-        parts = [part.strip() for part in line.split(",")]
-        if len(parts) < 7:
-            continue
-        try:
-            index = int(parts[0])
-        except ValueError:
-            continue
-        if index != selector.ordinal:
-            continue
-        used_mib = parse_float(parts[3])
-        total_mib = parse_float(parts[4])
-        mem_pct = (
-            100.0 * used_mib / total_mib
-            if used_mib is not None and total_mib is not None and total_mib > 0
-            else None
-        )
-        stats = {
-            "device": parts[1] or f"NVIDIA GPU {index}",
-            "gpu_util": format_percent(parse_float(parts[2])),
-            "mem_util": format_percent(mem_pct),
-            "vram": (
-                f"{used_mib / 1024:.1f}G/{total_mib / 1024:.1f}G"
-                if used_mib is not None and total_mib is not None
-                else "N/A"
-            ),
-            "temp": format_temp(parse_float(parts[5])),
-            "power": format_power(parse_float(parts[6])),
-            "source": "nvidia-smi",
-        }
-        return with_host_stats(stats)
-    return None
+    try:
+        index = int(parts[0])
+    except ValueError:
+        return None
+    if index != selector.ordinal:
+        return None
+    return _nvidia_smi_stats_from_parts(parts, index)
+
+
+def _nvidia_smi_stats_from_parts(parts: list[str], index: int) -> dict[str, Any]:
+    used_mib = parse_float(parts[3])
+    total_mib = parse_float(parts[4])
+    mem_pct = (
+        100.0 * used_mib / total_mib
+        if used_mib is not None and total_mib is not None and total_mib > 0
+        else None
+    )
+    return {
+        "device": parts[1] or f"NVIDIA GPU {index}",
+        "gpu_util": format_percent(parse_float(parts[2])),
+        "mem_util": format_percent(mem_pct),
+        "vram": _format_nvidia_vram(used_mib, total_mib),
+        "temp": format_temp(parse_float(parts[5])),
+        "power": format_power(parse_float(parts[6])),
+        "source": "nvidia-smi",
+    }
+
+
+def _format_nvidia_vram(used_mib: float | None, total_mib: float | None) -> str:
+    if used_mib is None or total_mib is None:
+        return "N/A"
+    return f"{used_mib / 1024:.1f}G/{total_mib / 1024:.1f}G"
 
 
 def collect_xpu_smi_stats(selector: GpuTelemetrySelector) -> dict[str, Any] | None:

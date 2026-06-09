@@ -255,6 +255,142 @@ class TestBuildServerCmd:
         assert cmd[cmd.index("--spec-draft-type-v") + 1] == "f16"
         assert cmd[cmd.index("--spec-draft-device") + 1] == "CUDA:1"
 
+    def test_dflash_local_draft_flags(self) -> None:
+        """DFlash with local draft model emits correct flags."""
+        cmd = build_server_cmd(
+            self._minimal_cfg(
+                spec_type="dflash",
+                spec_draft_model="/models/draft.gguf",
+                spec_draft_ngl="all",
+                spec_dflash_cross_ctx=512,
+            )
+        )
+        assert "--spec-type" in cmd
+        assert "dflash" in cmd
+        assert "--spec-draft-model" in cmd
+        assert "/models/draft.gguf" in cmd
+        assert "--spec-draft-ngl" in cmd
+        assert "all" in cmd
+        assert "--spec-dflash-cross-ctx" in cmd
+        assert "512" in cmd
+
+    def test_dflash_hf_draft_flags(self) -> None:
+        """DFlash with HF draft emits --spec-draft-hf."""
+        cmd = build_server_cmd(
+            self._minimal_cfg(
+                spec_type="dflash",
+                spec_draft_hf="Anbeeld/Qwen3.6-27B-DFlash-GGUF:IQ4_XS",
+            )
+        )
+        assert "--spec-draft-hf" in cmd
+        assert "Anbeeld/Qwen3.6-27B-DFlash-GGUF:IQ4_XS" in cmd
+
+    def test_dflash_int_draft_ngl(self) -> None:
+        """DFlash with integer spec_draft_ngl emits numeric value."""
+        cmd = build_server_cmd(
+            self._minimal_cfg(
+                spec_type="dflash",
+                spec_draft_model="/models/draft.gguf",
+                spec_draft_ngl=42,
+            )
+        )
+        assert cmd[cmd.index("--spec-draft-ngl") + 1] == "42"
+
+    def test_dflash_omits_zero_cross_ctx(self) -> None:
+        """DFlash omits --spec-dflash-cross-ctx when value is 0."""
+        cmd = build_server_cmd(
+            self._minimal_cfg(
+                spec_type="dflash",
+                spec_draft_model="/models/draft.gguf",
+                spec_dflash_cross_ctx=0,
+            )
+        )
+        assert "--spec-dflash-cross-ctx" not in cmd
+
+    def test_dflash_reasoning_flags(self) -> None:
+        """DFlash with reasoning mode/format emits reasoning flags."""
+        cmd = build_server_cmd(
+            self._minimal_cfg(
+                spec_type="dflash",
+                spec_draft_model="/models/draft.gguf",
+                reasoning_mode="on",
+                reasoning_format="deepseek",
+            )
+        )
+        assert "--reasoning" in cmd
+        assert "on" in cmd
+        assert "--reasoning-format" in cmd
+        assert "deepseek" in cmd
+
+    def test_smaller_model_kv_unified_flag(self) -> None:
+        """--kv-unified flag is emitted when kv_unified is True."""
+        cmd = build_server_cmd(self._minimal_cfg(kv_unified=True))
+        assert "--kv-unified" in cmd
+
+    def test_smaller_model_no_kv_unified_by_default(self) -> None:
+        """--kv-unified flag is absent by default."""
+        cmd = build_server_cmd(self._minimal_cfg())
+        assert "--kv-unified" not in cmd
+
+    def test_smaller_model_no_mmap_flag(self) -> None:
+        """--no-mmap flag is emitted when mmap is False."""
+        cmd = build_server_cmd(self._minimal_cfg(mmap=False))
+        assert "--no-mmap" in cmd
+        assert "--mmap" not in cmd
+
+    def test_smaller_model_mmap_flag(self) -> None:
+        """--mmap flag is emitted when mmap is True."""
+        cmd = build_server_cmd(self._minimal_cfg(mmap=True))
+        assert "--mmap" in cmd
+        assert "--no-mmap" not in cmd
+
+    def test_smaller_model_mlock_flag(self) -> None:
+        """--mlock flag is emitted when mlock is True."""
+        cmd = build_server_cmd(self._minimal_cfg(mlock=True))
+        assert "--mlock" in cmd
+
+    def test_smaller_model_no_mlock_by_default(self) -> None:
+        """--mlock flag is absent by default."""
+        cmd = build_server_cmd(self._minimal_cfg())
+        assert "--mlock" not in cmd
+
+    def test_smaller_model_no_host_buffer_flag(self) -> None:
+        """--no-host flag is emitted when no_host_buffer is True."""
+        cmd = build_server_cmd(self._minimal_cfg(no_host_buffer=True))
+        assert "--no-host" in cmd
+
+    def test_smaller_model_no_host_buffer_absent_by_default(self) -> None:
+        """--no-host flag is absent by default."""
+        cmd = build_server_cmd(self._minimal_cfg())
+        assert "--no-host" not in cmd
+
+    def test_smaller_model_mmproj_offload_true(self) -> None:
+        """--no-mmproj-offload is absent when mmproj_offload is True."""
+        cmd = build_server_cmd(self._minimal_cfg(mmproj_offload=True))
+        assert "--no-mmproj-offload" not in cmd
+
+    def test_smaller_model_mmproj_offload_false(self) -> None:
+        """--no-mmproj-offload is emitted when mmproj_offload is False."""
+        cmd = build_server_cmd(self._minimal_cfg(mmproj_offload=False))
+        assert "--no-mmproj-offload" in cmd
+
+    def test_smaller_model_all_flags_combined(self) -> None:
+        """All smaller-model flags can be emitted together."""
+        cmd = build_server_cmd(
+            self._minimal_cfg(
+                kv_unified=True,
+                mmproj_offload=True,
+                mmap=False,
+                mlock=True,
+                no_host_buffer=True,
+            )
+        )
+        assert "--kv-unified" in cmd
+        assert "--no-mmap" in cmd
+        assert "--mlock" in cmd
+        assert "--no-host" in cmd
+        assert "--no-mmproj-offload" not in cmd
+
 
 class TestSortValidationErrors:
     """Tests for deterministic sorting of validation errors (T003)."""

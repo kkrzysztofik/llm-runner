@@ -19,6 +19,7 @@ from .form_widgets import (
     MODAL_CANCEL_BINDINGS,
     REASONING_FORMAT_CHOICES,
     REASONING_MODE_CHOICES,
+    ROW_CLASSES,
     ROW_SELECT_CLASSES,
     SELECT_CLASSES,
     SPEC_TYPE_CHOICES,
@@ -28,6 +29,40 @@ from .form_widgets import (
     field_row,
     select_row,
 )
+
+_DEFAULT_DEVICE = "CUDA:0"
+
+_SPEC_FIELD_IDS = (
+    "spec-ngram-size-n",
+    "draft-min",
+    "draft-max",
+    "spec-draft-n-max",
+    "spec-draft-p-min",
+    "spec-draft-cache-type-k",
+    "spec-draft-cache-type-v",
+    "spec-draft-device",
+    "spec-draft-model",
+    "spec-draft-hf",
+    "spec-draft-ngl",
+    "spec-dflash-cross-ctx",
+)
+
+_SPEC_FIELDS_BY_TYPE = {
+    "ngram-mod": ("spec-ngram-size-n", "draft-min", "draft-max"),
+    "draft-mtp": (
+        "spec-draft-n-max",
+        "spec-draft-p-min",
+        "spec-draft-cache-type-k",
+        "spec-draft-cache-type-v",
+        "spec-draft-device",
+    ),
+    "dflash": (
+        "spec-draft-model",
+        "spec-draft-hf",
+        "spec-draft-ngl",
+        "spec-dflash-cross-ctx",
+    ),
+}
 
 
 @dataclass
@@ -44,7 +79,7 @@ class SlotProfilePayload:
     n_gpu_layers: int | str = "all"
     threads: int = 8
     chat_template_kwargs: str = ""
-    device: str = "CUDA:0"
+    device: str = _DEFAULT_DEVICE
     bind_address: str = "127.0.0.1"
     tensor_split: str = ""
     reasoning_mode: str = "auto"
@@ -69,6 +104,15 @@ class SlotProfilePayload:
     spec_draft_cache_type_k: str = ""
     spec_draft_cache_type_v: str = ""
     spec_draft_device: str = ""
+    spec_draft_model: str = ""
+    spec_draft_hf: str = ""
+    spec_draft_ngl: int | str = ""
+    spec_dflash_cross_ctx: int = 0
+    kv_unified: bool = False
+    mmproj_offload: bool = True
+    mmap: bool = True
+    mlock: bool = False
+    no_host_buffer: bool = False
     save_and_add_slot: bool = False
     original_profile_id: str = ""  # filled for edits
 
@@ -100,7 +144,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         super().__init__()
         self._profile = profile
         self._edit_source = edit_source or ""
-        self._model_index = model_index or []
+        self._model_index = _visible_model_index(model_index or [])
         self._config = config
         self._selected_model_path: str = profile.model if profile else ""
 
@@ -199,6 +243,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             _build_form_fields(
                 prefill=self._compose_prefill(),
                 model_index=self._model_index,
+                config=self._config,
             ),
             Horizontal(
                 Button("Cancel", id="cancel-profile", classes="modal-button-cancel"),
@@ -221,6 +266,9 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
 
     def on_mount(self) -> None:
         self.query_one("#profile-profile-id", Input).focus()
+        self._set_speculative_field_visibility(
+            str(self.query_one("#profile-spec-type", Select).value or "")
+        )
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle model selection from the list view."""
@@ -228,7 +276,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         label_widget = item.query_one(Label)
 
         for entry in self._model_index:
-            entry_label = f"{Path(entry.path).name} ({entry.quantization_type or '?'})"
+            entry_label = _model_option_label(entry, self._config)
             if label_widget.content == entry_label:
                 self._selected_model_path = entry.path
                 self.query_one("#profile-model-search", Input).value = entry.path
@@ -254,9 +302,10 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
 
         for entry in self._model_index:
             filename = Path(entry.path).name
-            label = f"{filename} ({entry.quantization_type or '?'})"
+            label = _model_option_label(entry, self._config)
             search_text = (
-                f"{entry.path} {filename} {entry.quantization_type or ''} "
+                f"{entry.path} {filename} {_relative_model_path(entry.path, self._config)} "
+                f"{entry.quantization_type or ''} "
                 f"{entry.architecture or ''}"
             )
             if query in search_text.lower():
@@ -265,6 +314,11 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         if query and ("/" in query or "\\" in query or query.endswith(".gguf")):
             self._selected_model_path = event.value
 
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Update dependent form fields when select values change."""
+        if event.select.id == "profile-spec-type":
+            self._set_speculative_field_visibility(str(event.value or ""))
+
     def _update_selected_model(self, entry: ModelIndexEntry) -> None:
         """Show model selection and metadata in stable plain labels."""
         self.query_one("#profile-selected-model", Label).update(_selected_model_text(entry.path))
@@ -272,6 +326,13 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         parts = _model_detail_parts(entry)
         details.update("  |  ".join(parts))
         details.styles.display = "block" if parts else "none"
+
+    def _set_speculative_field_visibility(self, spec_type: str) -> None:
+        """Show only speculative decoding fields used by the selected spec type."""
+        visible = set(_SPEC_FIELDS_BY_TYPE.get(spec_type, ()))
+        for field_id in _SPEC_FIELD_IDS:
+            for row in self.query(f".profile-spec-field-{field_id}"):
+                row.styles.display = "block" if field_id in visible else "none"
 
     def _compose_prefill(self) -> dict[str, str]:
         if self._profile:
@@ -296,7 +357,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "chat-template-kwargs": (
                 spec.chat_template_kwargs if spec.chat_template_kwargs else "{}"
             ),
-            "device": spec.device or "CUDA:0",
+            "device": spec.device or _DEFAULT_DEVICE,
             "bind-address": spec.bind_address,
             "tensor-split": spec.tensor_split,
             "reasoning-mode": spec_decode.reasoning_mode,
@@ -321,6 +382,15 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "spec-draft-cache-type-k": spec_decode.spec_draft_cache_type_k,
             "spec-draft-cache-type-v": spec_decode.spec_draft_cache_type_v,
             "spec-draft-device": spec_decode.spec_draft_device,
+            "spec-draft-model": spec_decode.spec_draft_model,
+            "spec-draft-hf": spec_decode.spec_draft_hf,
+            "spec-draft-ngl": str(spec_decode.spec_draft_ngl),
+            "spec-dflash-cross-ctx": str(spec_decode.spec_dflash_cross_ctx),
+            "kv-unified": "true" if spec.kv_unified else "false",
+            "mmproj-offload": "true" if spec.mmproj_offload else "false",
+            "mmap": "true" if spec.mmap else "false",
+            "mlock": "true" if spec.mlock else "false",
+            "no-host-buffer": "true" if spec.no_host_buffer else "false",
         }
 
     def action_cancel(self) -> None:
@@ -342,7 +412,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         ngl_val = _parse_n_gpu_layers(ngl_raw)
 
         device_select = self.query_one("#profile-device", Select)
-        device_val = str(device_select.value) if device_select.value else "CUDA:0"
+        device_val = str(device_select.value) if device_select.value else _DEFAULT_DEVICE
 
         return SlotProfilePayload(
             profile_id=self.query_one("#profile-profile-id", Input).value.strip(),
@@ -389,6 +459,15 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
                 self.query_one("#profile-spec-draft-cache-type-v", Select).value or ""
             ),
             spec_draft_device=self.query_one("#profile-spec-draft-device", Input).value.strip(),
+            spec_draft_model=self.query_one("#profile-spec-draft-model", Input).value.strip(),
+            spec_draft_hf=self.query_one("#profile-spec-draft-hf", Input).value.strip(),
+            spec_draft_ngl=self.query_one("#profile-spec-draft-ngl", Input).value.strip() or "",
+            spec_dflash_cross_ctx=self._parse_int("profile-spec-dflash-cross-ctx", 0),
+            kv_unified=self.query_one("#profile-kv-unified", Checkbox).value,
+            mmproj_offload=self.query_one("#profile-mmproj-offload", Checkbox).value,
+            mmap=self.query_one("#profile-mmap", Checkbox).value,
+            mlock=self.query_one("#profile-mlock", Checkbox).value,
+            no_host_buffer=self.query_one("#profile-no-host-buffer", Checkbox).value,
             save_and_add_slot=save_and_add_slot,
             original_profile_id=(self._profile.profile_id if self._profile else ""),
         )
@@ -417,14 +496,15 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
 def _build_form_fields(
     prefill: dict[str, str] | None = None,
     model_index: list[ModelIndexEntry] | None = None,
+    config: Config | None = None,
 ) -> Container:
     """Build the scrollable form body for the profile modal."""
     p = prefill or {}
     return Container(
         field_row("Profile ID", "profile-id", p.get("profile-id", "")),
         field_row("Display Label", "label", p.get("label", "")),
-        _model_row(model_index or [], p.get("model", "")),
-        _device_row(p.get("device", "CUDA:0")),
+        _model_row(model_index or [], p.get("model", ""), config),
+        _device_row(p.get("device", _DEFAULT_DEVICE)),
         field_row("Context Size", "ctx-size", p.get("ctx-size", ""), type="number"),
         _build_advanced_fields(p),
         _build_speculative_fields(p),
@@ -485,6 +565,27 @@ def _build_advanced_fields(prefill: dict[str, str]) -> Collapsible:
         field_row("Reasoning Budget", "reasoning-budget", prefill.get("reasoning-budget", "")),
         checkbox_row("Use Jinja", "use-jinja", use_jinja),
         field_row("MMProj (optional)", "mmproj", prefill.get("mmproj", "")),
+        checkbox_row(
+            "Unified KV",
+            "kv-unified",
+            prefill.get("kv-unified", "false").lower() in ("1", "true", "yes", "on"),
+        ),
+        checkbox_row(
+            "MMProj Offload",
+            "mmproj-offload",
+            prefill.get("mmproj-offload", "true").lower() in ("1", "true", "yes", "on"),
+        ),
+        checkbox_row(
+            "MMap", "mmap", prefill.get("mmap", "true").lower() in ("1", "true", "yes", "on")
+        ),
+        checkbox_row(
+            "MLock", "mlock", prefill.get("mlock", "false").lower() in ("1", "true", "yes", "on")
+        ),
+        checkbox_row(
+            "No Host Buffer",
+            "no-host-buffer",
+            prefill.get("no-host-buffer", "false").lower() in ("1", "true", "yes", "on"),
+        ),
         title="Advanced",
         collapsed=True,
         id="profile-advanced-collapsible",
@@ -501,46 +602,103 @@ def _build_speculative_fields(prefill: dict[str, str]) -> Collapsible:
             "spec-ngram-size-n",
             prefill.get("spec-ngram-size-n", "0"),
             type="number",
+            row_classes=_spec_field_row_classes("spec-ngram-size-n"),
         ),
-        field_row("Draft Min", "draft-min", prefill.get("draft-min", "0"), type="number"),
-        field_row("Draft Max", "draft-max", prefill.get("draft-max", "0"), type="number"),
+        field_row(
+            "Draft Min",
+            "draft-min",
+            prefill.get("draft-min", "0"),
+            type="number",
+            row_classes=_spec_field_row_classes("draft-min"),
+        ),
+        field_row(
+            "Draft Max",
+            "draft-max",
+            prefill.get("draft-max", "0"),
+            type="number",
+            row_classes=_spec_field_row_classes("draft-max"),
+        ),
         field_row(
             "Draft N Max (MTP)",
             "spec-draft-n-max",
             prefill.get("spec-draft-n-max", "0"),
             type="number",
+            row_classes=_spec_field_row_classes("spec-draft-n-max"),
         ),
-        field_row("Draft P Min (MTP)", "spec-draft-p-min", prefill.get("spec-draft-p-min", "0")),
+        field_row(
+            "Draft P Min (MTP)",
+            "spec-draft-p-min",
+            prefill.get("spec-draft-p-min", "0"),
+            row_classes=_spec_field_row_classes("spec-draft-p-min"),
+        ),
         cache_type_row(
             "Draft Cache K",
             "spec-draft-cache-type-k",
             prefill.get("spec-draft-cache-type-k", ""),
             allow_empty=True,
+            row_classes=_spec_field_row_classes("spec-draft-cache-type-k", select=True),
         ),
         cache_type_row(
             "Draft Cache V",
             "spec-draft-cache-type-v",
             prefill.get("spec-draft-cache-type-v", ""),
             allow_empty=True,
+            row_classes=_spec_field_row_classes("spec-draft-cache-type-v", select=True),
         ),
-        field_row("Draft Device", "spec-draft-device", prefill.get("spec-draft-device", "")),
+        field_row(
+            "Draft Device",
+            "spec-draft-device",
+            prefill.get("spec-draft-device", ""),
+            row_classes=_spec_field_row_classes("spec-draft-device"),
+        ),
+        field_row(
+            "Draft Model (DFlash)",
+            "spec-draft-model",
+            prefill.get("spec-draft-model", ""),
+            row_classes=_spec_field_row_classes("spec-draft-model"),
+        ),
+        field_row(
+            "Draft HF Repo (DFlash)",
+            "spec-draft-hf",
+            prefill.get("spec-draft-hf", ""),
+            row_classes=_spec_field_row_classes("spec-draft-hf"),
+        ),
+        field_row(
+            "Draft GPU Layers (DFlash)",
+            "spec-draft-ngl",
+            prefill.get("spec-draft-ngl", ""),
+            row_classes=_spec_field_row_classes("spec-draft-ngl"),
+        ),
+        field_row(
+            "DFlash Cross Ctx",
+            "spec-dflash-cross-ctx",
+            prefill.get("spec-dflash-cross-ctx", "0"),
+            type="number",
+            row_classes=_spec_field_row_classes("spec-dflash-cross-ctx"),
+        ),
         title="Speculative decoding",
         collapsed=True,
         classes="profile-advanced-options profile-speculative-options",
     )
 
 
-def _device_row(current_value: str = "CUDA:0") -> Horizontal:
+def _spec_field_row_classes(field_id: str, *, select: bool = False) -> str:
+    """Return row classes for a spec-dependent field."""
+    base = ROW_SELECT_CLASSES if select else ROW_CLASSES
+    return f"{base} profile-spec-field profile-spec-field-{field_id}"
+
+
+def _device_row(current_value: str = _DEFAULT_DEVICE) -> Horizontal:
     """Build a labelled Select row for device backend assignment."""
     if not current_value:
-        current_value = "CUDA:0"
+        current_value = _DEFAULT_DEVICE
     return Horizontal(
         Label("Device:", classes="form-label profile-field-label"),
         Select(
             value=current_value,
             allow_blank=False,
             options=[
-                ("CUDA:0 — NVIDIA GPU", "CUDA:0"),
+                ("CUDA:0 — NVIDIA GPU", _DEFAULT_DEVICE),
                 ("CUDA:0,1 — NVIDIA GPUs", "CUDA:0,1"),
                 ("CUDA:1 — NVIDIA GPU", "CUDA:1"),
                 ("SYCL0 — Intel Arc GPU", "SYCL0"),
@@ -555,8 +713,10 @@ def _device_row(current_value: str = "CUDA:0") -> Horizontal:
 def _model_row(
     index: list[ModelIndexEntry],
     prefill_path: str = "",
+    config: Config | None = None,
 ) -> Horizontal:
     """Build the model selection row with search input and indexed model list."""
+    index = _visible_model_index(index)
     search_placeholder = (
         "No indexed models found. Type path manually..."
         if not index
@@ -565,8 +725,7 @@ def _model_row(
     items: list[ListItem] = []
     if index:
         for entry in index:
-            filename = Path(entry.path).name
-            label = f"{filename} ({entry.quantization_type or '?'})"
+            label = _model_option_label(entry, config)
             items.append(ListItem(Label(label, classes="profile-model-option")))
 
     return Horizontal(
@@ -596,6 +755,36 @@ def _selected_model_text(path: str) -> str:
     if not path:
         return "Selected: (none)"
     return f"Selected: {Path(path).name}"
+
+
+def _visible_model_index(index: list[ModelIndexEntry]) -> list[ModelIndexEntry]:
+    """Return model entries intended for direct model selection."""
+    return [entry for entry in index if not _is_auxiliary_gguf(entry.path)]
+
+
+def _is_auxiliary_gguf(path: str) -> bool:
+    """Detect GGUF files that should not be selectable as primary models."""
+    normalized = Path(path).as_posix().lower()
+    return "mmproj" in normalized or "dflash" in normalized
+
+
+def _model_option_label(entry: ModelIndexEntry, config: Config | None = None) -> str:
+    """Format an indexed model option with a disambiguating path."""
+    rel_path = _relative_model_path(entry.path, config)
+    return f"{rel_path} ({entry.quantization_type or '?'})"
+
+
+def _relative_model_path(path: str, config: Config | None = None) -> str:
+    """Return the model path relative to the configured model base when possible."""
+    model_path = Path(path)
+    if config:
+        try:
+            return (
+                model_path.resolve().relative_to(Path(config.paths.models_dir).resolve()).as_posix()
+            )
+        except ValueError:
+            pass
+    return model_path.name
 
 
 def _model_detail_parts(entry: ModelIndexEntry) -> list[str]:
@@ -666,5 +855,14 @@ def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -
             spec_draft_cache_type_k=payload.spec_draft_cache_type_k,
             spec_draft_cache_type_v=payload.spec_draft_cache_type_v,
             spec_draft_device=payload.spec_draft_device,
+            spec_draft_model=payload.spec_draft_model,
+            spec_draft_hf=payload.spec_draft_hf,
+            spec_draft_ngl=payload.spec_draft_ngl,
+            spec_dflash_cross_ctx=payload.spec_dflash_cross_ctx,
         ),
+        kv_unified=payload.kv_unified,
+        mmproj_offload=payload.mmproj_offload,
+        mmap=payload.mmap,
+        mlock=payload.mlock,
+        no_host_buffer=payload.no_host_buffer,
     )

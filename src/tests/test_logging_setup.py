@@ -458,13 +458,13 @@ class TestUpdateLevels:
         sinks: dict[int, object] = logger._core.handlers  # type: ignore[attr-defined]
         import sys
 
-        any(
-            getattr(getattr(h, "_name", object()), "__class__", None) is type(None)
-            and getattr(getattr(h, "_sink", None), "_stream", None) is sys.stderr
-            for h in sinks.values()
-        )
+        for h in sinks.values():
+            if (
+                getattr(getattr(h, "_name", object()), "__class__", None) is type(None)
+                and getattr(getattr(h, "_sink", None), "_stream", None) is sys.stderr
+            ):
+                break
         # Whether or not the private introspection works, no exception = pass
-        assert True  # noqa: S101
 
     def test_update_file_level_with_file_sink(self, tmp_path: Path) -> None:
         """update_file_level should update the file sink level without raising."""
