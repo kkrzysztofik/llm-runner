@@ -5,6 +5,7 @@ and reused without importing Rich, Textual, or other UI libraries.
 """
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from .config import Config, ModelSlot, ServerConfig, SlotState
@@ -122,6 +123,7 @@ def register_and_start_slot(
     cfg: ServerConfig,
     server_manager: ServerManager,
     state: dict[str, Any],
+    startup_callback: Callable[[], None] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Register and start one slot.
 
@@ -138,17 +140,22 @@ def register_and_start_slot(
     state["log_buffers"][alias] = LogBuffer(redact_sensitive=True)
     state["unsaved_slots"].add(alias)
     state["slots"].append(ModelSlot(slot_id=alias, model_path=cfg.model, port=cfg.port))
+    state["slot_states"][alias] = SlotState.LAUNCHING.value
 
     log_buffer = state["log_buffers"][alias]
     log_handler = lambda line, buf=log_buffer: buf.add_line(line)  # noqa: E731
+    messages = [f"Slot '{alias}' launching..."]
+    if startup_callback is not None:
+        try:
+            startup_callback()
+        except Exception:
+            logger.exception("slot %s: startup progress callback failed", alias)
     procs = server_manager.start_servers([cfg], {alias: log_handler})
 
-    old_state = state["slot_states"].get(alias)
-    messages: list[str] = []
     if procs:
         state["server_processes"][alias] = procs[0]
         state["slot_states"][alias] = SlotState.RUNNING.value
-        result = compute_slot_transition(alias, old_state, SlotState.RUNNING)
+        result = compute_slot_transition(alias, SlotState.LAUNCHING.value, SlotState.RUNNING)
         if result is not None:
             message, _color = result
             messages.append(message)
@@ -168,6 +175,7 @@ def upsert_profile_slot(
     gpu_stats: list[GPUStats],
     server_manager: ServerManager,
     state: dict[str, Any],
+    startup_callback: Callable[[], None] | None = None,
 ) -> tuple[bool, list[str], dict[str, Any]]:
     """Add a profile slot or replace an existing slot on the same device.
 
@@ -204,7 +212,12 @@ def upsert_profile_slot(
                 gpu_idx, collector=collector_for_config(cfg), selector=selector_for_config(cfg)
             )
         )
-        state, slot_messages = register_and_start_slot(cfg, server_manager, state)
+        state, slot_messages = register_and_start_slot(
+            cfg,
+            server_manager,
+            state,
+            startup_callback=startup_callback,
+        )
         messages.extend(slot_messages)
         messages.append(
             f"Added profile '{profile_id}' as '{cfg.alias}' on {target_device}:{cfg.port}"
@@ -227,7 +240,12 @@ def upsert_profile_slot(
         gpu_idx, collector=collector_for_config(cfg), selector=selector_for_config(cfg)
     )
 
-    state, slot_messages = register_and_start_slot(cfg, server_manager, state)
+    state, slot_messages = register_and_start_slot(
+        cfg,
+        server_manager,
+        state,
+        startup_callback=startup_callback,
+    )
     messages.extend(slot_messages)
     messages.append(
         f"Replaced '{old_alias}' with profile '{profile_id}' as "

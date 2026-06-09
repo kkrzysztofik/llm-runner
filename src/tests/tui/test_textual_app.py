@@ -474,9 +474,19 @@ class TestDashboardAppAddSlotFlow:
 
         controller.apply_add_slot_from_form.assert_called_once()
         controller._push_status_message.assert_called_once_with("Validated")
+        assert "startup_callback" in controller.apply_add_slot_from_form.call_args.kwargs
         finish_args = captured[0][1]
         assert finish_args[2] is True
         assert finish_args[3] == ["Validated", "Slot added"]
+
+    def test_add_slot_startup_callback_refreshes_dashboard(self) -> None:
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app.refresh_dashboard = MagicMock()  # type: ignore[method-assign]
+
+        app._refresh_add_slot_startup()
+
+        app.refresh_dashboard.assert_called_once()
 
     @pytest.mark.anyio
     async def test_finish_add_slot_shows_error(self) -> None:

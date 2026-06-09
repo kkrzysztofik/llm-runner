@@ -378,6 +378,7 @@ class DashboardController:
         self,
         new_cfg: ServerConfig,
         profile_id: str,
+        startup_callback: Callable[[], None] | None = None,
     ) -> tuple[bool, list[str]]:
         """Apply a resolved profile config to dashboard runtime state."""
         from llama_manager.slot_manager import upsert_profile_slot
@@ -397,6 +398,7 @@ class DashboardController:
             self.gpu_stats,
             self.server_manager,
             state,
+            startup_callback=startup_callback,
         )
         for msg in messages:
             self._push_status_message(msg)

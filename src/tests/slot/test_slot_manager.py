@@ -412,7 +412,28 @@ class TestRegisterAndStartSlot:
         assert state["slots"][0].slot_id == "summary"
         assert state["server_processes"]["summary"] is server_manager.start_servers.return_value[0]
         assert state["slot_states"]["summary"] == SlotState.RUNNING.value
-        assert any("launched successfully" in m for m in messages)
+        assert messages[0] == "Slot 'summary' launching..."
+        assert any("Launched" in m for m in messages)
+
+    def test_registers_launching_state_before_starting_process(self) -> None:
+        cfg = _make_config(alias="summary")
+        server_manager = MagicMock()
+        server_manager.start_servers.return_value = [MagicMock()]
+        state = _make_state()
+        observed_states: list[str] = []
+
+        def startup_callback() -> None:
+            observed_states.append(state["slot_states"]["summary"])
+
+        register_and_start_slot(
+            cfg,
+            server_manager,
+            state,
+            startup_callback=startup_callback,
+        )
+
+        assert observed_states == [SlotState.LAUNCHING.value]
+        assert state["slot_states"]["summary"] == SlotState.RUNNING.value
 
     def test_no_process_when_start_servers_returns_empty(self) -> None:
         cfg = _make_config(alias="summary")
@@ -424,6 +445,7 @@ class TestRegisterAndStartSlot:
 
         assert "summary" not in state["server_processes"]
         assert state["slot_states"]["summary"] == SlotState.CRASHED.value
+        assert messages[0] == "Slot 'summary' launching..."
         assert any("failed to start" in m for m in messages)
 
     def test_second_registration_no_first_launch_message(self) -> None:
@@ -434,8 +456,7 @@ class TestRegisterAndStartSlot:
         state = _make_state(slot_states={"summary": SlotState.RUNNING.value})
         updated_state, messages = register_and_start_slot(cfg, server_manager, state)
 
-        # Transition from RUNNING -> RUNNING is unmapped, so no message
-        assert not any("launched successfully" in m for m in messages)
+        assert any("Launched" in m for m in messages)
 
 
 # =============================================================================
@@ -469,6 +490,7 @@ class TestUpsertProfileSlot:
         assert len(gpu_indices) == 1
         assert gpu_indices[0] == 0
         assert len(gpu_stats) == 1
+        assert state["slot_states"]["new"] == SlotState.RUNNING.value
         assert "Added profile 'profile-id'" in messages[-1]
 
     def test_replaces_existing_slot_on_same_device(self) -> None:
