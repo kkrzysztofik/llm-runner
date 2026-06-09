@@ -1,6 +1,8 @@
 """Speculative decoding configuration."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any, cast
 
 
 @dataclass
@@ -71,3 +73,102 @@ class SpeculativeDecodingConfig(dict[str, object]):
                 "spec_dflash_cross_ctx": self.spec_dflash_cross_ctx,
             }
         )
+
+
+SPECULATIVE_DECODING_FIELD_NAMES = frozenset(SpeculativeDecodingConfig.__dataclass_fields__)
+
+
+def resolve_speculative_decoding_config(
+    spec_decode: SpeculativeDecodingConfig | None,
+    values: Mapping[str, Any],
+) -> SpeculativeDecodingConfig:
+    """Build spec-decoding config from an optional base and constructor values."""
+    resolved = spec_decode or SpeculativeDecodingConfig()
+    active_overrides: dict[str, Any] = {
+        key: value
+        for key in SPECULATIVE_DECODING_FIELD_NAMES
+        if (value := values.get(key)) is not None
+    }
+    if not active_overrides:
+        return resolved
+    resolved_values: dict[str, Any] = dict(resolved.__dict__)
+    resolved_values.update(active_overrides)
+    return SpeculativeDecodingConfig(**resolved_values)
+
+
+class SpeculativeDecodingFieldsMixin:
+    """Expose nested spec-decoding fields as direct config attributes."""
+
+    __slots__ = ()
+
+    def __getattribute__(self, name: str) -> object:
+        if name in SPECULATIVE_DECODING_FIELD_NAMES:
+            return getattr(self._spec_decode(), name)
+        return object.__getattribute__(self, name)
+
+    def _spec_decode(self) -> SpeculativeDecodingConfig:
+        return cast(SpeculativeDecodingConfig, object.__getattribute__(self, "spec_decode"))
+
+    @property
+    def reasoning_mode(self) -> str:
+        return self._spec_decode().reasoning_mode
+
+    @property
+    def reasoning_format(self) -> str:
+        return self._spec_decode().reasoning_format
+
+    @property
+    def reasoning_budget(self) -> str:
+        return self._spec_decode().reasoning_budget
+
+    @property
+    def spec_type(self) -> str:
+        return self._spec_decode().spec_type
+
+    @property
+    def spec_ngram_size_n(self) -> int:
+        return self._spec_decode().spec_ngram_size_n
+
+    @property
+    def draft_min(self) -> int:
+        return self._spec_decode().draft_min
+
+    @property
+    def draft_max(self) -> int:
+        return self._spec_decode().draft_max
+
+    @property
+    def spec_draft_n_max(self) -> int:
+        return self._spec_decode().spec_draft_n_max
+
+    @property
+    def spec_draft_p_min(self) -> float:
+        return self._spec_decode().spec_draft_p_min
+
+    @property
+    def spec_draft_cache_type_k(self) -> str:
+        return self._spec_decode().spec_draft_cache_type_k
+
+    @property
+    def spec_draft_cache_type_v(self) -> str:
+        return self._spec_decode().spec_draft_cache_type_v
+
+    @property
+    def spec_draft_device(self) -> str:
+        return self._spec_decode().spec_draft_device
+
+    @property
+    def spec_draft_model(self) -> str:
+        return self._spec_decode().spec_draft_model
+
+    @property
+    def spec_draft_hf(self) -> str:
+        return self._spec_decode().spec_draft_hf
+
+    @property
+    def spec_draft_ngl(self) -> int | str:
+        return self._spec_decode().spec_draft_ngl
+
+    @property
+    def spec_dflash_cross_ctx(self) -> int:
+        return self._spec_decode().spec_dflash_cross_ctx

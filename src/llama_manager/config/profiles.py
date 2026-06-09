@@ -5,7 +5,11 @@ from dataclasses import dataclass, field
 
 from ..common.text import sanitize_filename_component
 from ..common.validators import validate_port_range
-from .spec_decode import SpeculativeDecodingConfig
+from .spec_decode import (
+    SpeculativeDecodingConfig,
+    SpeculativeDecodingFieldsMixin,
+    resolve_speculative_decoding_config,
+)
 
 
 class SlotProfileError(ValueError):
@@ -13,7 +17,7 @@ class SlotProfileError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class SlotProfileSpec:
+class SlotProfileSpec(SpeculativeDecodingFieldsMixin):
     """Typed data definition for one launchable llama-server slot profile."""
 
     profile_id: str
@@ -126,34 +130,11 @@ class SlotProfileSpec:
         object.__setattr__(self, "parallel", parallel)
         object.__setattr__(self, "threads_batch", threads_batch)
         object.__setattr__(self, "mmproj", mmproj)
-        object.__setattr__(self, "spec_decode", spec_decode or SpeculativeDecodingConfig())
-        spec_overrides = {
-            "spec_type": spec_type,
-            "spec_ngram_size_n": spec_ngram_size_n,
-            "draft_min": draft_min,
-            "draft_max": draft_max,
-            "spec_draft_n_max": spec_draft_n_max,
-            "spec_draft_p_min": spec_draft_p_min,
-            "spec_draft_cache_type_k": spec_draft_cache_type_k,
-            "spec_draft_cache_type_v": spec_draft_cache_type_v,
-            "spec_draft_device": spec_draft_device,
-            "reasoning_mode": reasoning_mode,
-            "reasoning_format": reasoning_format,
-            "reasoning_budget": reasoning_budget,
-            "spec_draft_model": spec_draft_model,
-            "spec_draft_hf": spec_draft_hf,
-            "spec_draft_ngl": spec_draft_ngl,
-            "spec_dflash_cross_ctx": spec_dflash_cross_ctx,
-        }
-        active_overrides = {
-            key: value for key, value in spec_overrides.items() if value is not None
-        }
-        if active_overrides:
-            base = self.spec_decode.__dict__ | active_overrides
-            try:
-                object.__setattr__(self, "spec_decode", SpeculativeDecodingConfig(**base))
-            except ValueError as exc:
-                raise SlotProfileError(str(exc)) from exc
+        try:
+            resolved_spec_decode = resolve_speculative_decoding_config(spec_decode, locals())
+        except ValueError as exc:
+            raise SlotProfileError(str(exc)) from exc
+        object.__setattr__(self, "spec_decode", resolved_spec_decode)
         object.__setattr__(self, "kv_unified", kv_unified if kv_unified is not None else False)
         object.__setattr__(
             self, "mmproj_offload", mmproj_offload if mmproj_offload is not None else True
@@ -191,75 +172,6 @@ class SlotProfileSpec:
             raise SlotProfileError("n_gpu_layers must be non-negative")
         if isinstance(self.n_gpu_layers, str):
             _require_text(self.n_gpu_layers, "n_gpu_layers")
-
-    def __getattribute__(self, name: str) -> object:
-        if name in SpeculativeDecodingConfig.__dataclass_fields__:
-            return getattr(object.__getattribute__(self, "spec_decode"), name)
-        return object.__getattribute__(self, name)
-
-    @property
-    def reasoning_mode(self) -> str:
-        return self.spec_decode.reasoning_mode
-
-    @property
-    def reasoning_format(self) -> str:
-        return self.spec_decode.reasoning_format
-
-    @property
-    def reasoning_budget(self) -> str:
-        return self.spec_decode.reasoning_budget
-
-    @property
-    def spec_type(self) -> str:
-        return self.spec_decode.spec_type
-
-    @property
-    def spec_ngram_size_n(self) -> int:
-        return self.spec_decode.spec_ngram_size_n
-
-    @property
-    def draft_min(self) -> int:
-        return self.spec_decode.draft_min
-
-    @property
-    def draft_max(self) -> int:
-        return self.spec_decode.draft_max
-
-    @property
-    def spec_draft_n_max(self) -> int:
-        return self.spec_decode.spec_draft_n_max
-
-    @property
-    def spec_draft_p_min(self) -> float:
-        return self.spec_decode.spec_draft_p_min
-
-    @property
-    def spec_draft_cache_type_k(self) -> str:
-        return self.spec_decode.spec_draft_cache_type_k
-
-    @property
-    def spec_draft_cache_type_v(self) -> str:
-        return self.spec_decode.spec_draft_cache_type_v
-
-    @property
-    def spec_draft_device(self) -> str:
-        return self.spec_decode.spec_draft_device
-
-    @property
-    def spec_draft_model(self) -> str:
-        return self.spec_decode.spec_draft_model
-
-    @property
-    def spec_draft_hf(self) -> str:
-        return self.spec_decode.spec_draft_hf
-
-    @property
-    def spec_draft_ngl(self) -> int | str:
-        return self.spec_decode.spec_draft_ngl
-
-    @property
-    def spec_dflash_cross_ctx(self) -> int:
-        return self.spec_decode.spec_dflash_cross_ctx
 
 
 @dataclass(frozen=True, slots=True)
