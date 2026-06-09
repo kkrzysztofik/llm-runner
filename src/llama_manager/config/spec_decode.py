@@ -27,31 +27,7 @@ class SpeculativeDecodingConfig(dict[str, object]):
     spec_dflash_cross_ctx: int = 0
 
     def __post_init__(self) -> None:
-        if self.spec_ngram_size_n < 0:
-            raise ValueError("spec_ngram_size_n must be non-negative")
-        if self.draft_min < 0:
-            raise ValueError("draft_min must be non-negative")
-        if self.draft_max < 0:
-            raise ValueError("draft_max must be non-negative")
-        if self.draft_min > self.draft_max:
-            raise ValueError("draft_min must be <= draft_max")
-        if self.spec_draft_n_max < 0:
-            raise ValueError("spec_draft_n_max must be non-negative")
-        if self.spec_draft_p_min < 0.0:
-            raise ValueError("spec_draft_p_min must be non-negative")
-        if self.spec_draft_p_min > 1.0:
-            raise ValueError("spec_draft_p_min must be <= 1.0")
-        if self.spec_type not in ("", "ngram-mod", "draft-mtp", "dflash"):
-            raise ValueError("spec_type must be '', 'ngram-mod', 'draft-mtp', or 'dflash'")
-        if self.spec_type == "dflash":
-            if not self.spec_draft_model and not self.spec_draft_hf:
-                raise ValueError(
-                    "spec_draft_model or spec_draft_hf required when spec_type is 'dflash'"
-                )
-            if self.spec_draft_model and self.spec_draft_hf:
-                raise ValueError("spec_draft_model and spec_draft_hf are mutually exclusive")
-        if self.spec_dflash_cross_ctx < 0:
-            raise ValueError("spec_dflash_cross_ctx must be non-negative")
+        _validate_speculative_decoding(self)
         self.clear()
         self.update(
             {
@@ -73,6 +49,36 @@ class SpeculativeDecodingConfig(dict[str, object]):
                 "spec_dflash_cross_ctx": self.spec_dflash_cross_ctx,
             }
         )
+
+
+def _validate_speculative_decoding(config: SpeculativeDecodingConfig) -> None:
+    if config.spec_ngram_size_n < 0:
+        raise ValueError("spec_ngram_size_n must be non-negative")
+    if config.draft_min < 0:
+        raise ValueError("draft_min must be non-negative")
+    if config.draft_max < 0:
+        raise ValueError("draft_max must be non-negative")
+    if config.draft_min > config.draft_max:
+        raise ValueError("draft_min must be <= draft_max")
+    if config.spec_draft_n_max < 0:
+        raise ValueError("spec_draft_n_max must be non-negative")
+    if config.spec_draft_p_min < 0.0:
+        raise ValueError("spec_draft_p_min must be non-negative")
+    if config.spec_draft_p_min > 1.0:
+        raise ValueError("spec_draft_p_min must be <= 1.0")
+    if config.spec_type not in ("", "ngram-mod", "draft-mtp", "dflash"):
+        raise ValueError("spec_type must be '', 'ngram-mod', 'draft-mtp', or 'dflash'")
+    if config.spec_type == "dflash":
+        _validate_dflash_config(config)
+    if config.spec_dflash_cross_ctx < 0:
+        raise ValueError("spec_dflash_cross_ctx must be non-negative")
+
+
+def _validate_dflash_config(config: SpeculativeDecodingConfig) -> None:
+    if not config.spec_draft_model and not config.spec_draft_hf:
+        raise ValueError("spec_draft_model or spec_draft_hf required when spec_type is 'dflash'")
+    if config.spec_draft_model and config.spec_draft_hf:
+        raise ValueError("spec_draft_model and spec_draft_hf are mutually exclusive")
 
 
 SPECULATIVE_DECODING_FIELD_NAMES = frozenset(SpeculativeDecodingConfig.__dataclass_fields__)

@@ -19,6 +19,11 @@ from ...config import (
 # Doctor diagnostics (T069)
 # ---------------------------------------------------------------------------
 
+_SPEC_TYPE_FLAG: Final = "--spec-type"
+_SPEC_TYPE_DFLASH: Final = "dflash"
+_SPEC_TYPE_DRAFT_MTP: Final = "draft-mtp"
+_SPEC_TYPE_NGRAM_MOD: Final = "ngram-mod"
+
 
 @dataclass
 class DoctorCheckResult:
@@ -151,7 +156,13 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
     if cfg.mmproj:
         cmd.extend(["--mmproj", cfg.mmproj])
     _append_speculative_flags(cmd, cfg)
+    _append_optional_server_flags(cmd, cfg)
 
+    return cmd
+
+
+def _append_optional_server_flags(cmd: list[str], cfg: ServerConfig) -> None:
+    """Append non-required server flags."""
     spec = cfg.spec_decode
     if cfg.main_gpu != 0:
         cmd.extend(["--main-gpu", str(cfg.main_gpu)])
@@ -182,51 +193,61 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
     if cfg.no_host_buffer:
         cmd.append("--no-host")
 
-    return cmd
-
 
 def _append_speculative_flags(cmd: list[str], cfg: ServerConfig) -> None:
     """Append llama-server speculative decoding flags when configured."""
     spec = cfg.spec_decode
-    if spec.spec_type == "ngram-mod":
-        cmd.extend(
-            [
-                "--spec-type",
-                "ngram-mod",
-                "--spec-ngram-size-n",
-                str(spec.spec_ngram_size_n),
-                "--draft-min",
-                str(spec.draft_min),
-                "--draft-max",
-                str(spec.draft_max),
-            ]
-        )
+    if spec.spec_type == _SPEC_TYPE_NGRAM_MOD:
+        _append_ngram_speculative_flags(cmd, spec)
         return
-    if spec.spec_type not in ("draft-mtp", "dflash"):
+    if spec.spec_type not in (_SPEC_TYPE_DRAFT_MTP, _SPEC_TYPE_DFLASH):
         return
-    if spec.spec_type == "draft-mtp":
-        cmd.extend(["--spec-type", "draft-mtp", "--spec-draft-n-max", str(spec.spec_draft_n_max)])
-        if spec.spec_draft_p_min > 0:
-            cmd.extend(["--spec-draft-p-min", str(spec.spec_draft_p_min)])
-        # llama-server flags omit "cache" (--spec-draft-type-k/v), unlike field names.
-        if spec.spec_draft_cache_type_k:
-            cmd.extend(["--spec-draft-type-k", spec.spec_draft_cache_type_k])
-        if spec.spec_draft_cache_type_v:
-            cmd.extend(["--spec-draft-type-v", spec.spec_draft_cache_type_v])
-        if spec.spec_draft_device:
-            cmd.extend(["--spec-draft-device", spec.spec_draft_device])
+    if spec.spec_type == _SPEC_TYPE_DRAFT_MTP:
+        _append_draft_mtp_flags(cmd, spec)
         return
-    if spec.spec_type == "dflash":
-        cmd.extend(["--spec-type", "dflash"])
-        if spec.spec_draft_model:
-            cmd.extend(["--spec-draft-model", spec.spec_draft_model])
-        if spec.spec_draft_hf:
-            cmd.extend(["--spec-draft-hf", spec.spec_draft_hf])
-        if spec.spec_draft_ngl:
-            cmd.extend(["--spec-draft-ngl", str(spec.spec_draft_ngl)])
-        if spec.spec_dflash_cross_ctx > 0:
-            cmd.extend(["--spec-dflash-cross-ctx", str(spec.spec_dflash_cross_ctx)])
-        return
+    _append_dflash_flags(cmd, spec)
+
+
+def _append_ngram_speculative_flags(cmd: list[str], spec: Any) -> None:
+    cmd.extend(
+        [
+            _SPEC_TYPE_FLAG,
+            _SPEC_TYPE_NGRAM_MOD,
+            "--spec-ngram-size-n",
+            str(spec.spec_ngram_size_n),
+            "--draft-min",
+            str(spec.draft_min),
+            "--draft-max",
+            str(spec.draft_max),
+        ]
+    )
+
+
+def _append_draft_mtp_flags(cmd: list[str], spec: Any) -> None:
+    cmd.extend(
+        [_SPEC_TYPE_FLAG, _SPEC_TYPE_DRAFT_MTP, "--spec-draft-n-max", str(spec.spec_draft_n_max)]
+    )
+    if spec.spec_draft_p_min > 0:
+        cmd.extend(["--spec-draft-p-min", str(spec.spec_draft_p_min)])
+    # llama-server flags omit "cache" (--spec-draft-type-k/v), unlike field names.
+    if spec.spec_draft_cache_type_k:
+        cmd.extend(["--spec-draft-type-k", spec.spec_draft_cache_type_k])
+    if spec.spec_draft_cache_type_v:
+        cmd.extend(["--spec-draft-type-v", spec.spec_draft_cache_type_v])
+    if spec.spec_draft_device:
+        cmd.extend(["--spec-draft-device", spec.spec_draft_device])
+
+
+def _append_dflash_flags(cmd: list[str], spec: Any) -> None:
+    cmd.extend([_SPEC_TYPE_FLAG, _SPEC_TYPE_DFLASH])
+    if spec.spec_draft_model:
+        cmd.extend(["--spec-draft-model", spec.spec_draft_model])
+    if spec.spec_draft_hf:
+        cmd.extend(["--spec-draft-hf", spec.spec_draft_hf])
+    if spec.spec_draft_ngl:
+        cmd.extend(["--spec-draft-ngl", str(spec.spec_draft_ngl)])
+    if spec.spec_dflash_cross_ctx > 0:
+        cmd.extend(["--spec-dflash-cross-ctx", str(spec.spec_dflash_cross_ctx)])
 
 
 def sort_validation_errors(

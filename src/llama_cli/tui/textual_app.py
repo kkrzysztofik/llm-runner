@@ -64,6 +64,7 @@ _RISK_HIDDEN_ACTIONS = frozenset(
     {"refresh_dashboard", "add_slot", "remove_slot", "build", "open_config", "about"},
 )
 _NORMAL_HIDDEN_ACTIONS = frozenset({"confirm", "reject"})
+_REMOVE_SLOT_TITLE = "Remove Slot"
 
 
 class DashboardApp(App[None]):
@@ -88,7 +89,7 @@ class DashboardApp(App[None]):
         Binding("r", "refresh_dashboard", "Refresh"),
         Binding("b", "build", "Build"),
         Binding("a", "add_slot", "Add Slot"),
-        Binding("d", "remove_slot", "Remove Slot"),
+        Binding("d", "remove_slot", _REMOVE_SLOT_TITLE),
         Binding("c", "open_config", "Config"),
         Binding("p", "manage_profiles", "Profiles"),
         Binding("h", "about", "About"),
@@ -546,7 +547,7 @@ class DashboardApp(App[None]):
         self._pending_remove_slot_alias = alias
         self.push_screen(
             ConfirmModal(
-                title="Remove Slot",
+                title=_REMOVE_SLOT_TITLE,
                 message=f"Remove slot '{alias}'? This will stop the server.",
             ),
             self._handle_remove_slot_confirm,
@@ -580,13 +581,13 @@ class DashboardApp(App[None]):
     ) -> None:
         """Refresh dashboard state after background slot removal completes."""
         if error:
-            self.notify(error, title="Remove Slot", severity="error")
+            self.notify(error, title=_REMOVE_SLOT_TITLE, severity="error")
         elif success:
             self.notify(f"Slot '{alias}' removed", title="Slot", severity="information")
         else:
             self.notify(
                 f"Failed to remove slot '{alias}'",
-                title="Remove Slot",
+                title=_REMOVE_SLOT_TITLE,
                 severity="error",
             )
 
