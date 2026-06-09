@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
 from textual.css.query import NoMatches
-from textual.widgets import Footer
+from textual.widgets import Footer, Static
 
 if TYPE_CHECKING:
     from .controller import DashboardController
@@ -33,7 +33,7 @@ from .components.system_health import (
     SystemInfoWidget,
 )
 from .components.system_status import SystemStatusWidget
-from .types import BuildWizardResult
+from .types import BuildWizardResult, ServerColumnState
 
 _CONTENT_CONTAINER_ID = "#content"
 
@@ -508,28 +508,7 @@ class DashboardApp(App[None]):
         elif success and notify_message:
             logger.debug("_finish_add_slot: success=%s notify=%r", success, notify_message)
             self.notify(notify_message, severity="information")
-        reconcile_start = time.perf_counter()
-        logger.debug("_finish_add_slot: reconcile panels start")
-        await self._reconcile_server_log_panels()
-        logger.debug(
-            "_finish_add_slot: reconcile panels complete duration_ms=%.1f",
-            (time.perf_counter() - reconcile_start) * 1000,
-        )
-        try:
-            container = self.query_one(_CONTENT_CONTAINER_ID)
-            panel_count_after = len(list(container.query(ServerLogPanel)))
-        except NoMatches:
-            panel_count_after = -1
-        logger.debug(
-            "_finish_add_slot: panels_after=%d — calling refresh_dashboard",
-            panel_count_after,
-        )
-        refresh_start = time.perf_counter()
-        self.refresh_dashboard()
-        logger.debug(
-            "_finish_add_slot: refresh_dashboard returned duration_ms=%.1f",
-            (time.perf_counter() - refresh_start) * 1000,
-        )
+        await self._recompose_slots()
 
     def _handle_add_slot_modal_result(self, result: dict[str, str] | None) -> None:
         if result is None:
@@ -592,8 +571,7 @@ class DashboardApp(App[None]):
                 severity="error",
             )
 
-        await self._reconcile_server_log_panels()
-        self.refresh_dashboard()
+        await self._recompose_slots()
 
     def _handle_build_modal_result(self, result: BuildWizardResult | None) -> None:
         if result is None:
@@ -675,22 +653,20 @@ class DashboardApp(App[None]):
         self.refresh_dashboard()
 
     def refresh_dashboard(self) -> None:
+        """Lightweight periodic refresh — update text/CSS, no full recompose.
+
+        Full recompose via ``_recompose_slots`` is only called when the
+        slot count changes (add/remove).
+        """
         start = time.perf_counter()
         if not self.controller.running:
             logger.info("refresh_dashboard: controller stopped, exiting app")
             self.exit()
             return
 
-        panel_count = len(list(self.query(ServerLogPanel)))
-        logger.debug(
-            "refresh_dashboard: start panels=%d configs=%d",
-            panel_count,
-            len(self.controller.configs),
-        )
         self._emit_status_toasts()
 
-        # Refresh each leaf widget.  SystemStatusWidget and SystemHealthWidget
-        # use compose(), so their children own their own repaints.
+        # System-health widgets — recompose is fast and keeps CPU/mem live.
         for widget_type in (CPUUsageWidget, MemorySwapWidget, SystemInfoWidget):
             with contextlib.suppress(NoMatches):
                 widget_start = time.perf_counter()
@@ -700,20 +676,49 @@ class DashboardApp(App[None]):
                     widget_type.__name__,
                     (time.perf_counter() - widget_start) * 1000,
                 )
+
+        # Server log panels — lightweight text/CSS updates only.
         for panel in self.query(ServerLogPanel):
             panel_start = time.perf_counter()
-            panel.refresh(recompose=True)
+            state = self._panel_state(panel)
+            if state is not None:
+                self._update_panel_widgets(panel, state)
             logger.debug(
-                "refresh_dashboard: refreshed ServerLogPanel slot_index=%s duration_ms=%.1f",
+                "refresh_dashboard: updated ServerLogPanel slot_index=%s duration_ms=%.1f",
                 getattr(panel, "_slot_index", "unknown"),
                 (time.perf_counter() - panel_start) * 1000,
             )
+
         self.refresh_bindings()
         logger.debug(
             "refresh_dashboard: complete panels=%d duration_ms=%.1f",
-            panel_count,
+            len(list(self.query(ServerLogPanel))),
             (time.perf_counter() - start) * 1000,
         )
+
+    def _panel_state(self, panel: ServerLogPanel) -> ServerColumnState | None:
+        """Get current display state for a panel."""
+
+        try:
+            state = self.view_model.column(panel._slot_index)
+            return state
+        except Exception:
+            return None
+
+    def _update_panel_widgets(self, panel: ServerLogPanel, state: ServerColumnState) -> None:
+        """Update status badge and log content on an existing panel."""
+        with contextlib.suppress(NoMatches):
+            status_widget = cast(Static, panel.query_one(".server-column-status"))
+            status_widget.update(state.status.upper())
+            status_widget.classes = f"server-column-status {state.status_class}"
+        with contextlib.suppress(NoMatches):
+            log_widget = cast(Static, panel.query_one(".server-log-content"))
+            log_widget.update(state.logs_text)
+
+    async def _recompose_slots(self) -> None:
+        """Full recompose — call when slot count changes (add/remove)."""
+        await self._reconcile_server_log_panels()
+        self.refresh_dashboard()
 
     def _emit_status_toasts(self) -> None:
         notices = self.view_model.system_notices()
