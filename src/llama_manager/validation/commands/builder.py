@@ -249,7 +249,6 @@ def sort_validation_errors(
 def build_dry_run_slot_payload(
     cfg: ServerConfig,
     slot_id: str,
-    bind_address: str = "127.0.0.1",
     validation_results: DryRunValidationSummary | None = None,
     warnings: list[str] | None = None,
 ) -> DryRunSlotPayload:
@@ -355,29 +354,42 @@ def _parse_device_details(device: str) -> tuple[str | None, str]:
         return (None, device)
 
     if lower.startswith("cuda:"):
-        parts = normalized.split(":", maxsplit=1)
-        if len(parts) == 2 and parts[1]:
-            return (parts[1], "NVIDIA GPU")
-        return (None, device)
+        return _cuda_device_details(normalized)
 
     if upper.startswith("SYCL"):
-        if ":" in normalized:
-            parts = normalized.split(":")
-            if len(parts) >= 3:
-                return (f"{parts[1]}:{parts[2]}", f"SYCL Device {parts[1]}")
-            if len(parts) > 1:
-                return (":".join(parts[1:]), device)
-        ordinal = normalized[4:]
-        return (ordinal or "0", "Intel SYCL GPU")
+        return _sycl_device_details(normalized)
 
     if lower.startswith("sycl:"):
+        return _sycl_dotted_device_details(normalized)
+
+    return (None, device)
+
+
+def _cuda_device_details(normalized: str) -> tuple[str | None, str]:
+    parts = normalized.split(":", maxsplit=1)
+    if len(parts) == 2 and parts[1]:
+        return (parts[1], "NVIDIA GPU")
+    return (None, normalized)
+
+
+def _sycl_device_details(normalized: str) -> tuple[str, str]:
+    if ":" in normalized:
         parts = normalized.split(":")
         if len(parts) >= 3:
             return (f"{parts[1]}:{parts[2]}", f"SYCL Device {parts[1]}")
         if len(parts) > 1:
-            return (":".join(parts[1:]), device)
+            return (":".join(parts[1:]), normalized)
+    ordinal = normalized[4:]
+    return (ordinal or "0", "Intel SYCL GPU")
 
-    return (None, device)
+
+def _sycl_dotted_device_details(normalized: str) -> tuple[str | None, str]:
+    parts = normalized.split(":")
+    if len(parts) >= 3:
+        return (f"{parts[1]}:{parts[2]}", f"SYCL Device {parts[1]}")
+    if len(parts) > 1:
+        return (":".join(parts[1:]), normalized)
+    return (None, normalized)
 
 
 def _get_lspci_output() -> str | None:

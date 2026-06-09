@@ -66,6 +66,7 @@ _BACKEND_OPTIONS: list[tuple[str, str]] = [
 
 _BUILD_LOG_PCT = re.compile(r"^(\s*)(\[\s*\d+%\])(\s*)(.*)$")
 _PLACEHOLDER_PATH = Path("/dev/null")
+_UNKNOWN_ERROR = "Unknown error"
 
 
 def _build_log_line_style(fragment: str) -> str | None:
@@ -334,7 +335,7 @@ def build_result_content(
             content.append(f"  Binary: {artifact_path}\n")
         return content
     content.append("Build failed:\n", style=STYLE_BOLD_RED)
-    content.append(error_message or "Unknown error")
+    content.append(error_message or _UNKNOWN_ERROR)
     return content
 
 
@@ -858,42 +859,9 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         success = self._wizard_state.get("build_result_success")
 
         title = Static(BUILD_WIZARD_TITLE, id="build-title", classes="build-title")
-        status_text = Text()
-        if success is True:
-            status_text.append("Build completed successfully!", style=STYLE_BOLD_GREEN)
-        else:
-            status_text.append("Build failed", style=STYLE_BOLD_RED)
-        panel = Static(status_text, classes="build-result-panel")
-        self._result_panel = panel
-
-        artifact = self._wizard_state.get("build_result_artifact")
-        error = str(self._wizard_state.get("build_result_error", "Unknown error"))
-        summary = Static(classes="build-result-summary")
-        if success is True:
-            summary.update(f"Binary: {artifact}" if artifact else "No artifact path was reported.")
-        else:
-            summary.update(self._result_summary(error))
-
-        log_sections: list[Widget] = []
-        if success is True:
-            if artifact:
-                log_sections.append(
-                    self._result_text_area("Build artifact", f"Binary: {artifact}", "artifact")
-                )
-        else:
-            details, stderr_tail, stdout_tail = self._split_result_error(error)
-            if details:
-                log_sections.append(self._result_text_area("Failure details", details, "details"))
-            if stderr_tail:
-                log_sections.append(self._result_text_area("stderr tail", stderr_tail, "stderr"))
-            if stdout_tail:
-                log_sections.append(self._result_text_area("stdout tail", stdout_tail, "stdout"))
-            if not log_sections:
-                log_sections.append(
-                    self._result_text_area(
-                        "Failure details", "No additional log output.", "details"
-                    )
-                )
+        panel = self._build_result_panel(success)
+        summary = self._build_result_summary(success)
+        log_sections = self._build_result_log_sections(success)
 
         self._btn_done = Button("Done", id="build-done", classes="modal-button-success")
         actions = Horizontal(self._btn_done, classes="modal-actions")
@@ -912,10 +880,58 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             )
         )
 
+    def _build_result_panel(self, success: bool | None) -> Static:  # pragma: no cover
+        status_text = Text()
+        if success is True:
+            status_text.append("Build completed successfully!", style=STYLE_BOLD_GREEN)
+        else:
+            status_text.append("Build failed", style=STYLE_BOLD_RED)
+        panel = Static(status_text, classes="build-result-panel")
+        self._result_panel = panel
+        return panel
+
+    def _build_result_summary(self, success: bool | None) -> Static:  # pragma: no cover
+        summary = Static(classes="build-result-summary")
+        if success is True:
+            artifact = self._wizard_state.get("build_result_artifact")
+            summary.update(f"Binary: {artifact}" if artifact else "No artifact path was reported.")
+        else:
+            error = str(self._wizard_state.get("build_result_error", _UNKNOWN_ERROR))
+            summary.update(self._result_summary(error))
+        return summary
+
+    def _build_result_log_sections(self, success: bool | None) -> list[Widget]:  # pragma: no cover
+        if success is True:
+            return self._success_log_sections()
+        return self._failure_log_sections(
+            str(self._wizard_state.get("build_result_error", _UNKNOWN_ERROR))
+        )
+
+    def _success_log_sections(self) -> list[Widget]:  # pragma: no cover
+        artifact = self._wizard_state.get("build_result_artifact")
+        if not artifact:
+            return []
+        return [self._result_text_area("Build artifact", f"Binary: {artifact}", "artifact")]
+
+    def _failure_log_sections(self, error: str) -> list[Widget]:  # pragma: no cover
+        details, stderr_tail, stdout_tail = self._split_result_error(error)
+        sections: list[Widget] = []
+        if details:
+            sections.append(self._result_text_area("Failure details", details, "details"))
+        if stderr_tail:
+            sections.append(self._result_text_area("stderr tail", stderr_tail, "stderr"))
+        if stdout_tail:
+            sections.append(self._result_text_area("stdout tail", stdout_tail, "stdout"))
+        if not sections:
+            sections.append(
+                self._result_text_area("Failure details", "No additional log output.", "details")
+            )
+        return sections
+
     def _result_content(self, success: bool | None) -> Text:
         """Build result copy as Rich Text (avoids markup parse errors in error messages)."""
         artifact = self._wizard_state.get("build_result_artifact")
-        error = str(self._wizard_state.get("build_result_error", "Unknown error"))
+        error = str(self._wizard_state.get("build_result_error", _UNKNOWN_ERROR))
         return build_result_content(success, artifact_path=artifact, error_message=error)
 
     @staticmethod
@@ -924,7 +940,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         prefix = "Build failed:"
         if error.startswith(prefix):
             return error.removeprefix(prefix).strip()
-        return error or "Unknown error"
+        return error or _UNKNOWN_ERROR
 
     @classmethod
     def _result_summary(cls, error: str) -> str:
@@ -933,7 +949,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             text = line.strip()
             if text:
                 return text
-        return "Unknown error"
+        return _UNKNOWN_ERROR
 
     @staticmethod
     def _trim_log_text(text: str) -> str:

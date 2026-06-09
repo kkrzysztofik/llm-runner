@@ -5,7 +5,6 @@ and reused without importing Rich, Textual, or other UI libraries.
 """
 
 import logging
-from collections.abc import Callable
 from typing import Any
 
 from .config import Config, ModelSlot, ServerConfig, SlotState
@@ -169,7 +168,6 @@ def upsert_profile_slot(
     gpu_stats: list[GPUStats],
     server_manager: ServerManager,
     state: dict[str, Any],
-    make_collector: Callable[[int], Callable[[], dict[str, Any]]],
 ) -> tuple[bool, list[str], dict[str, Any]]:
     """Add a profile slot or replace an existing slot on the same device.
 
@@ -181,8 +179,6 @@ def upsert_profile_slot(
         gpu_stats: Parallel list of ``GPUStats`` for *configs*.
         server_manager: Active ``ServerManager`` instance.
         state: Mutable runtime-state dictionary.
-        make_collector: Factory that returns a GPU collector callable for a
-            given device index.
 
     Returns:
         ``(success, messages, updated_state)``.
@@ -282,7 +278,6 @@ def add_slot_from_form(
     gpu_stats: list[GPUStats],
     server_manager: ServerManager,
     state: dict[str, Any],
-    make_collector: Callable[[int], Callable[[], dict[str, Any]]],
     registry: SlotProfileRegistry | None = None,
 ) -> tuple[bool, list[str], dict[str, Any]]:
     """Create or replace a slot from modal form values.
@@ -295,13 +290,12 @@ def add_slot_from_form(
         gpu_stats: Parallel list of ``GPUStats`` for *configs*.
         server_manager: Active ``ServerManager`` instance.
         state: Mutable runtime-state dictionary.
-        make_collector: Factory that returns a GPU collector callable for a
-            given device index.
         registry: Optional pre-built ``SlotProfileRegistry``. When omitted,
             a fresh registry is created via ``create_default_profile_registry``.
 
     Returns:
         ``(success, messages, updated_state)``.
+
     """
     success, messages, profile_id, new_cfg = compute_add_slot_from_form(
         values,
@@ -319,7 +313,6 @@ def add_slot_from_form(
         gpu_stats,
         server_manager,
         state,
-        make_collector,
     )
     messages.extend(upsert_messages)
     return success, messages, state

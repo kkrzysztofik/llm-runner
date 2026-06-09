@@ -160,9 +160,6 @@ def _profile_to_dict(profile: SlotProfileSpec) -> dict[str, Any]:
 
 def _profile_from_dict(data: dict[str, Any]) -> SlotProfileSpec:
     """Reconstruct a slot profile from a TOML dict."""
-    # Pass individual spec fields to SlotProfileSpec.__init__ so the
-    # override-merging logic applies them correctly (avoids constructing
-    # a SpeculativeDecodingConfig first then overriding with None values).
     return SlotProfileSpec(
         profile_id=data["profile_id"],
         alias=data.get("alias", ""),

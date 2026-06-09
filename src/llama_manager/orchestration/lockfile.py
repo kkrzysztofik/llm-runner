@@ -165,57 +165,56 @@ def read_lock(
     if not lock_path.exists():
         return None
 
-    try:
-        lock_data = json.loads(lock_path.read_text())
-    except (json.JSONDecodeError, OSError) as e:
-        if require_valid:
-            return ErrorDetail(
-                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-                failed_check=LOCKFILE_CHECK_NAME,
-                why_blocked=f"malformed_content: {e}",
-                how_to_fix=LOCKFILE_REPAIR_HINT,
-            )
+    lock_data = _parse_lock_json(lock_path, require_valid)
+    if isinstance(lock_data, ErrorDetail):
+        return lock_data
+    if lock_data is None:
         return None
 
-    # Explicit type validation before coercion (require_valid=True)
-    if require_valid:
-        raw_pid = lock_data.get("pid")
-        raw_port = lock_data.get("port")
-        raw_started_at = lock_data.get("started_at")
-
-        if not isinstance(raw_pid, int) or isinstance(raw_pid, bool):
-            return ErrorDetail(
-                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-                failed_check=LOCKFILE_CHECK_NAME,
-                why_blocked="malformed_content: lock 'pid' must be an integer",
-                how_to_fix=LOCKFILE_REPAIR_HINT,
-            )
-        if not isinstance(raw_port, int) or isinstance(raw_port, bool):
-            return ErrorDetail(
-                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-                failed_check=LOCKFILE_CHECK_NAME,
-                why_blocked="malformed_content: lock 'port' must be an integer",
-                how_to_fix=LOCKFILE_REPAIR_HINT,
-            )
-        if not isinstance(raw_started_at, int | float) or isinstance(raw_started_at, bool):
-            return ErrorDetail(
-                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-                failed_check=LOCKFILE_CHECK_NAME,
-                why_blocked="malformed_content: lock 'started_at' must be a numeric value",
-                how_to_fix=LOCKFILE_REPAIR_HINT,
-            )
+    type_error = _validate_lock_types(lock_data) if require_valid else None
+    if type_error is not None:
+        return type_error
 
     metadata = _coerce_lock_data(lock_data)
-    if metadata is None:
-        if require_valid:
-            return ErrorDetail(
-                error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
-                failed_check=LOCKFILE_CHECK_NAME,
-                why_blocked="malformed_content: lock data has invalid field types",
-                how_to_fix=LOCKFILE_REPAIR_HINT,
-            )
-        return None
+    if metadata is None and require_valid:
+        return _lock_integrity_error("malformed_content: lock data has invalid field types")
     return metadata
+
+
+def _parse_lock_json(lock_path: Path, require_valid: bool) -> dict | ErrorDetail | None:
+    """Read + parse lockfile JSON. Returns None when not require_valid and parse fails."""
+    try:
+        return json.loads(lock_path.read_text())
+    except (json.JSONDecodeError, OSError) as e:
+        if require_valid:
+            return _lock_integrity_error(f"malformed_content: {e}")
+        return None
+
+
+def _validate_lock_types(lock_data: dict) -> ErrorDetail | None:
+    """Return the first field-type mismatch, or None when all types are valid."""
+    raw_pid = lock_data.get("pid")
+    if not isinstance(raw_pid, int) or isinstance(raw_pid, bool):
+        return _lock_integrity_error("malformed_content: lock 'pid' must be an integer")
+
+    raw_port = lock_data.get("port")
+    if not isinstance(raw_port, int) or isinstance(raw_port, bool):
+        return _lock_integrity_error("malformed_content: lock 'port' must be an integer")
+
+    raw_started_at = lock_data.get("started_at")
+    if not isinstance(raw_started_at, int | float) or isinstance(raw_started_at, bool):
+        return _lock_integrity_error("malformed_content: lock 'started_at' must be a numeric value")
+
+    return None
+
+
+def _lock_integrity_error(why_blocked: str) -> ErrorDetail:
+    return ErrorDetail(
+        error_code=ErrorCode.LOCKFILE_INTEGRITY_FAILURE,
+        failed_check=LOCKFILE_CHECK_NAME,
+        why_blocked=why_blocked,
+        how_to_fix=LOCKFILE_REPAIR_HINT,
+    )
 
 
 def update_lock(runtime_dir: Path, slot_id: str, pid: int, port: int) -> None:

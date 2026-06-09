@@ -7,10 +7,6 @@ Textual dashboard.  Pure library — no I/O except sys.stderr.
 import json
 import sys
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
 
 
 @dataclass
@@ -54,45 +50,26 @@ class DashboardController:
         Returns True if saved successfully, False otherwise.
         Validates the payload before saving.
         """
-        # Validation
         profile_id = payload.profile_id.strip().lower().replace(" ", "-")
         if not profile_id:
-            sys.stderr.write("Profile ID cannot be empty\n")
+            self._log_error("Profile ID cannot be empty")
             return False
 
-        # Port validation
         if not (1024 <= payload.port <= 65535):
-            sys.stderr.write("Port must be between 1024 and 65535\n")
+            self._log_error("Port must be between 1024 and 65535")
             return False
 
-        # Size validations
         if payload.ctx_size <= 0 or payload.ubatch_size <= 0 or payload.threads <= 0:
-            sys.stderr.write("ctx_size, ubatch_size, and threads must be positive\n")
+            self._log_error("ctx_size, ubatch_size, and threads must be positive")
             return False
 
-        # n_gpu_layers validation
-        ngl = payload.n_gpu_layers
-        if ngl != "all":
-            try:
-                ngl_int = int(ngl)
-                if ngl_int < 0:
-                    sys.stderr.write("n_gpu_layers must be >= 0 or 'all'\n")
-                    return False
-            except ValueError, TypeError:
-                sys.stderr.write("n_gpu_layers must be an integer or 'all'\n")
-                return False
+        if not self._validate_n_gpu_layers(payload.n_gpu_layers):
+            return False
 
-        # chat_template_kwargs validation (if non-empty)
         ctk = payload.chat_template_kwargs
-        if ctk:
-            try:
-                if isinstance(ctk, str):
-                    json.loads(ctk)
-            except json.JSONDecodeError, TypeError:
-                sys.stderr.write("chat_template_kwargs must be valid JSON\n")
-                return False
+        if ctk and not self._validate_chat_template_kwargs(ctk):
+            return False
 
-        # Build and save
         from .config.profiles import SlotProfileSpec
         from .slot_profile_store import save_custom_slot_profile
 
@@ -105,18 +82,53 @@ class DashboardController:
             ctx_size=payload.ctx_size,
             ubatch_size=payload.ubatch_size,
             threads=payload.threads,
-            n_gpu_layers=ngl if ngl == "all" else int(ngl),
+            n_gpu_layers=payload.n_gpu_layers
+            if payload.n_gpu_layers == "all"
+            else int(payload.n_gpu_layers),
             server_bin=payload.server_bin,
-            chat_template_kwargs=ctk
-            if isinstance(ctk, str)
-            else json.dumps(ctk)
-            if isinstance(ctk, dict)
-            else "",
+            chat_template_kwargs=self._stringify_chat_template_kwargs(ctk),
         )
 
         try:
             save_custom_slot_profile(profile)
-            return True
         except ValueError as e:
-            sys.stderr.write(f"Save failed: {e}\n")
+            self._log_error(f"Save failed: {e}")
             return False
+        return True
+
+    @staticmethod
+    def _log_error(message: str) -> None:
+        sys.stderr.write(f"{message}\n")
+
+    @classmethod
+    def _validate_n_gpu_layers(cls, ngl: str | int) -> bool:
+        if ngl == "all":
+            return True
+        try:
+            ngl_int = int(ngl)
+        except TypeError, ValueError:
+            cls._log_error("n_gpu_layers must be an integer or 'all'")
+            return False
+        if ngl_int < 0:
+            cls._log_error("n_gpu_layers must be >= 0 or 'all'")
+            return False
+        return True
+
+    @classmethod
+    def _validate_chat_template_kwargs(cls, ctk: str | dict[str, object]) -> bool:
+        if not isinstance(ctk, str):
+            return True
+        try:
+            json.loads(ctk)
+        except TypeError, ValueError:
+            cls._log_error("chat_template_kwargs must be valid JSON")
+            return False
+        return True
+
+    @staticmethod
+    def _stringify_chat_template_kwargs(ctk: str | dict[str, object]) -> str:
+        if isinstance(ctk, str):
+            return ctk
+        if isinstance(ctk, dict):
+            return json.dumps(ctk)
+        return ""

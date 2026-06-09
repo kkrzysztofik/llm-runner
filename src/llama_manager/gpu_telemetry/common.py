@@ -48,9 +48,16 @@ def parse_gpu_telemetry_selector(
     if upper.startswith("CUDA"):
         _, _, ordinal_text = raw.partition(":")
         ordinals = [int(part.strip()) for part in ordinal_text.split(",") if part.strip().isdigit()]
-        ordinal = main_gpu if main_gpu in ordinals else (ordinals[0] if ordinals else main_gpu)
+        ordinal = _resolve_cuda_ordinal(main_gpu, ordinals)
         return GpuTelemetrySelector(backend="cuda", ordinal=ordinal, device=raw)
     return GpuTelemetrySelector(backend="cuda", ordinal=main_gpu, device=raw)
+
+
+def _resolve_cuda_ordinal(main_gpu: int, ordinals: list[int]) -> int:
+    """Pick the preferred ordinal: main_gpu when listed, else the first listed, else main_gpu."""
+    if main_gpu in ordinals:
+        return main_gpu
+    return ordinals[0] if ordinals else main_gpu
 
 
 def format_metric(value: Any) -> str:

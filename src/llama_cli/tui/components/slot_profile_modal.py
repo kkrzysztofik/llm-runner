@@ -30,6 +30,8 @@ from .form_widgets import (
     select_row,
 )
 
+_DEFAULT_DEVICE = "CUDA:0"
+
 _SPEC_FIELD_IDS = (
     "spec-ngram-size-n",
     "draft-min",
@@ -77,7 +79,7 @@ class SlotProfilePayload:
     n_gpu_layers: int | str = "all"
     threads: int = 8
     chat_template_kwargs: str = ""
-    device: str = "CUDA:0"
+    device: str = _DEFAULT_DEVICE
     bind_address: str = "127.0.0.1"
     tensor_split: str = ""
     reasoning_mode: str = "auto"
@@ -355,7 +357,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "chat-template-kwargs": (
                 spec.chat_template_kwargs if spec.chat_template_kwargs else "{}"
             ),
-            "device": spec.device or "CUDA:0",
+            "device": spec.device or _DEFAULT_DEVICE,
             "bind-address": spec.bind_address,
             "tensor-split": spec.tensor_split,
             "reasoning-mode": spec_decode.reasoning_mode,
@@ -410,7 +412,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         ngl_val = _parse_n_gpu_layers(ngl_raw)
 
         device_select = self.query_one("#profile-device", Select)
-        device_val = str(device_select.value) if device_select.value else "CUDA:0"
+        device_val = str(device_select.value) if device_select.value else _DEFAULT_DEVICE
 
         return SlotProfilePayload(
             profile_id=self.query_one("#profile-profile-id", Input).value.strip(),
@@ -502,7 +504,7 @@ def _build_form_fields(
         field_row("Profile ID", "profile-id", p.get("profile-id", "")),
         field_row("Display Label", "label", p.get("label", "")),
         _model_row(model_index or [], p.get("model", ""), config),
-        _device_row(p.get("device", "CUDA:0")),
+        _device_row(p.get("device", _DEFAULT_DEVICE)),
         field_row("Context Size", "ctx-size", p.get("ctx-size", ""), type="number"),
         _build_advanced_fields(p),
         _build_speculative_fields(p),
@@ -686,17 +688,17 @@ def _spec_field_row_classes(field_id: str, *, select: bool = False) -> str:
     return f"{base} profile-spec-field profile-spec-field-{field_id}"
 
 
-def _device_row(current_value: str = "CUDA:0") -> Horizontal:
+def _device_row(current_value: str = _DEFAULT_DEVICE) -> Horizontal:
     """Build a labelled Select row for device backend assignment."""
     if not current_value:
-        current_value = "CUDA:0"
+        current_value = _DEFAULT_DEVICE
     return Horizontal(
         Label("Device:", classes="form-label profile-field-label"),
         Select(
             value=current_value,
             allow_blank=False,
             options=[
-                ("CUDA:0 — NVIDIA GPU", "CUDA:0"),
+                ("CUDA:0 — NVIDIA GPU", _DEFAULT_DEVICE),
                 ("CUDA:0,1 — NVIDIA GPUs", "CUDA:0,1"),
                 ("CUDA:1 — NVIDIA GPU", "CUDA:1"),
                 ("SYCL0 — Intel Arc GPU", "SYCL0"),

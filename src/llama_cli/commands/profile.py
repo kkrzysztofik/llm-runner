@@ -283,23 +283,44 @@ def _poll_until_done(
 
     start = time.monotonic()
     while True:
-        ret = proc.poll()
-        if ret is not None:
-            return SubprocessResult(
-                exit_code=ret,
-                stdout=proc.stdout.read() if proc.stdout else "",
-                stderr=proc.stderr.read() if proc.stderr else "",
-            )
-        if cancel_event is not None:
-            cancel_result = _handle_cancel(proc, cancel_event)
-            if cancel_result is not None:
-                return cancel_result
-        timeout_result = _handle_timeout(proc, start, timeout_seconds)
-        if timeout_result is not None:
-            return timeout_result
-        remaining = timeout_seconds - (time.monotonic() - start)
-        with contextlib.suppress(subprocess.TimeoutExpired):
-            proc.wait(timeout=min(remaining, 1.0))
+        result = _poll_iteration(proc, start, timeout_seconds, cancel_event)
+        if result is not None:
+            return result
+        _wait_or_remain(proc, start, timeout_seconds)
+
+
+def _poll_iteration(
+    proc: subprocess.Popen[str],
+    start: float,
+    timeout_seconds: float,
+    cancel_event: threading.Event | None,
+) -> SubprocessResult | None:
+    """Run a single poll iteration. Returns the result if the process is done."""
+    ret = proc.poll()
+    if ret is not None:
+        return _collect_result(proc, ret)
+    if cancel_event is not None:
+        cancel_result = _handle_cancel(proc, cancel_event)
+        if cancel_result is not None:
+            return cancel_result
+    return _handle_timeout(proc, start, timeout_seconds)
+
+
+def _collect_result(proc: subprocess.Popen[str], exit_code: int) -> SubprocessResult:
+    return SubprocessResult(
+        exit_code=exit_code,
+        stdout=proc.stdout.read() if proc.stdout else "",
+        stderr=proc.stderr.read() if proc.stderr else "",
+    )
+
+
+def _wait_or_remain(proc: subprocess.Popen[str], start: float, timeout_seconds: float) -> None:
+    """Sleep briefly on the proc wait, capped by remaining timeout."""
+    import time
+
+    remaining = timeout_seconds - (time.monotonic() - start)
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        proc.wait(timeout=min(remaining, 1.0))
 
 
 def _default_subprocess_runner(

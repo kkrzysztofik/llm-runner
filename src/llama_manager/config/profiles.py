@@ -49,7 +49,7 @@ class SlotProfileSpec:
     mlock: bool = False
     no_host_buffer: bool = False
 
-    def __init__(
+    def __init__(  # noqa: S107 - intentional explicit init with spec-decode overrides
         self,
         profile_id: str,
         model: str,

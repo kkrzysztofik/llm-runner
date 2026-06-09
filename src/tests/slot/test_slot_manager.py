@@ -461,7 +461,6 @@ class TestUpsertProfileSlot:
             gpu_stats,
             server_manager,
             state,
-            _make_collector,
         )
 
         assert success is True
@@ -497,7 +496,6 @@ class TestUpsertProfileSlot:
             gpu_stats,
             server_manager,
             state,
-            _make_collector,
         )
 
         assert success is True
@@ -526,7 +524,6 @@ class TestUpsertProfileSlot:
             gpu_stats,
             server_manager,
             state,
-            _make_collector,
         )
 
         assert success is False
@@ -550,7 +547,6 @@ class TestAddSlotFromForm:
             gpu_stats=[],
             server_manager=MagicMock(),
             state=_make_state(),
-            make_collector=_make_collector,
         )
         assert success is False
         assert any("Profile is required" in m for m in messages)
@@ -579,7 +575,6 @@ class TestAddSlotFromForm:
             gpu_stats=[],
             server_manager=server_manager,
             state=state,
-            make_collector=_make_collector,
         )
 
         assert success is True
@@ -615,7 +610,6 @@ class TestAddSlotFromForm:
             gpu_stats=[],
             server_manager=server_manager,
             state=state,
-            make_collector=_make_collector,
         )
 
         assert success is True
@@ -647,7 +641,6 @@ class TestAddSlotFromForm:
             gpu_stats=[],
             server_manager=MagicMock(),
             state=state,
-            make_collector=_make_collector,
         )
 
         assert success is False

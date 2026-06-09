@@ -232,6 +232,9 @@ _INT_FIELDS: frozenset[str] = frozenset(
 
 _FLOAT_FIELDS: frozenset[str] = frozenset({"server_defaults.spec_draft_p_min"})
 
+_BOOL_TRUE_TOKENS: frozenset[str] = frozenset({"1", "true", "yes", "on"})
+_BOOL_FALSE_TOKENS: frozenset[str] = frozenset({"0", "false", "no", "off"})
+
 _BOOL_FIELDS: frozenset[str] = frozenset(
     {
         "server_defaults.use_jinja",
@@ -262,30 +265,36 @@ def _coerce_config_field_value(
         try:
             return int(raw_value), None  # type: ignore[arg-type]
         except ValueError, TypeError:
-            return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
+            return None, _invalid_value_message(field_name, raw_value)
     if field_name in _FLOAT_FIELDS:
         try:
             return float(raw_value), None  # type: ignore[arg-type]
         except ValueError, TypeError:
-            return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
+            return None, _invalid_value_message(field_name, raw_value)
     if field_name in _BOOL_FIELDS:
-        if isinstance(raw_value, bool):
-            return raw_value, None
-        if isinstance(raw_value, int):
-            if raw_value == 1:
-                return True, None
-            if raw_value == 0:
-                return False, None
-            return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
-        if isinstance(raw_value, str):
-            token = raw_value.strip().lower()
-            if token in ("1", "true", "yes", "on"):
-                return True, None
-            if token in ("0", "false", "no", "off"):
-                return False, None
-            return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
-        return None, f"Invalid value '{raw_value}' for {field_name} — config not saved."
+        return _coerce_bool_field_value(field_name, raw_value)
     return raw_value, None
+
+
+def _coerce_bool_field_value(field_name: str, raw_value: object) -> tuple[bool | None, str | None]:
+    """Coerce *raw_value* into a bool for fields in ``_BOOL_FIELDS``."""
+    if isinstance(raw_value, bool):
+        return raw_value, None
+    if isinstance(raw_value, int):
+        if raw_value in (0, 1):
+            return bool(raw_value), None
+        return None, _invalid_value_message(field_name, raw_value)
+    if isinstance(raw_value, str):
+        token = raw_value.strip().lower()
+        if token in _BOOL_TRUE_TOKENS:
+            return True, None
+        if token in _BOOL_FALSE_TOKENS:
+            return False, None
+    return None, _invalid_value_message(field_name, raw_value)
+
+
+def _invalid_value_message(field_name: str, raw_value: object) -> str:
+    return f"Invalid value '{raw_value}' for {field_name} — config not saved."
 
 
 def apply_config_updates(

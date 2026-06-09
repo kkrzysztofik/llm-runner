@@ -110,7 +110,7 @@ def is_lock_stale(lock_path: Path) -> bool:
         # Lock is stale if PID is invalid or timeout exceeded
         return not pid_valid or lock.is_stale()
 
-    except json.JSONDecodeError, FileNotFoundError, ValueError, TypeError:
+    except json.JSONDecodeError, OSError, ValueError, TypeError:
         return True
 
 

@@ -308,7 +308,7 @@ def update_stderr_level(level: str) -> None:
         raise ValueError(f"unknown log level '{level}' — must be one of {list(_LEVEL_MAP)}")
 
     sinks: dict[int, Any] = logger._core.handlers  # type: ignore[union-attr]
-    for idx, handler in list(sinks.items()):
+    for idx, handler in sinks.items():
         # Stderr sink is the first non-None handler (sys.stderr target)
         if handler._name is None and handler._sink._stream is sys.stderr:
             sinks[idx]._level = (level, _LEVEL_MAP[level])
@@ -328,7 +328,7 @@ def update_file_level(level: str) -> None:
         raise ValueError(f"unknown log level '{level}' — must be one of {list(_LEVEL_MAP)}")
 
     sinks: dict[int, Any] = logger._core.handlers  # type: ignore[union-attr]
-    for idx, handler in list(sinks.items()):
+    for idx, handler in sinks.items():
         # File sink has a file path as _name
         if handler._name is not None and not handler._sink._stream.closed:
             sinks[idx]._level = (level, _LEVEL_MAP[level])

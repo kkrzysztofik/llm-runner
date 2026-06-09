@@ -84,35 +84,46 @@ def run_dry_run(
     profile_ids = DRY_RUN_MODE_PROFILE_IDS.get(mode)
     if profile_ids is None:
         allowed_modes = ", ".join(DRY_RUN_MODE_PROFILE_IDS)
-        return DryRunResult(
-            mode=mode,
-            slot_payloads=[],
-            has_error=True,
-            errors=[f"invalid mode '{mode}'. Valid modes: {allowed_modes}"],
-        )
+        return _error_result(mode, f"invalid mode '{mode}'. Valid modes: {allowed_modes}")
 
-    # Parse port overrides from positional format.
-    # The CLI dict uses "primary"/"secondary" keys mapped to positional indices.
-    position_overrides: tuple[int | None, ...] = ()
-    if port_overrides:
-        position_overrides = tuple(
-            port_overrides.get(name) if name in port_overrides else None
-            for name in ("primary", "secondary")
-        )
-
+    position_overrides = _position_overrides(port_overrides)
     if len(position_overrides) > len(profile_ids):
-        return DryRunResult(
-            mode=mode,
-            slot_payloads=[],
-            has_error=True,
-            errors=[
-                f"port override error: mode {mode} accepts at most {len(profile_ids)} "
-                f"port override(s), got {len(position_overrides)}"
-            ],
+        return _error_result(
+            mode,
+            f"port override error: mode {mode} accepts at most {len(profile_ids)} "
+            f"port override(s), got {len(position_overrides)}",
         )
 
+    resolved = _resolve_slot_configs(registry, profile_ids, position_overrides)
+    if isinstance(resolved, DryRunResult):
+        return resolved
+    configs = resolved
+
+    return _build_dry_run_result(mode, configs, profile_ids, acknowledged)
+
+
+def _error_result(mode: str, message: str) -> DryRunResult:
+    return DryRunResult(mode=mode, slot_payloads=[], has_error=True, errors=[message])
+
+
+def _position_overrides(port_overrides: dict[str, int] | None) -> tuple[int | None, ...]:
+    """Map a CLI ``{primary, secondary}`` dict to positional overrides."""
+    if not port_overrides:
+        return ()
+    return tuple(
+        port_overrides.get(name) if name in port_overrides else None
+        for name in ("primary", "secondary")
+    )
+
+
+def _resolve_slot_configs(
+    registry: SlotProfileRegistry,
+    profile_ids: tuple[str, ...],
+    position_overrides: tuple[int | None, ...],
+) -> list | DryRunResult:
+    """Resolve each profile id into a ``ServerConfig`` (or an error result)."""
     try:
-        configs = [
+        return [
             resolve_profile_config(
                 registry,
                 profile_id,
@@ -122,55 +133,47 @@ def run_dry_run(
             )
             for index, profile_id in enumerate(profile_ids)
         ]
-    except (ValueError, TypeError) as exc:
+    except (TypeError, ValueError) as exc:
         return DryRunResult(
-            mode=mode,
+            mode=profile_ids[0] if profile_ids else "",
             slot_payloads=[],
             has_error=True,
             errors=[f"port override error: {exc}"],
         )
 
-    slot_ids = profile_ids
+
+def _build_dry_run_result(
+    mode: str,
+    configs: list,
+    profile_ids: tuple[str, ...],
+    acknowledged: bool,
+) -> DryRunResult:
+    """Assemble the full ``DryRunResult`` from resolved configs + risk evaluation."""
     slot_payloads: list[DryRunSlotPayload] = []
     errors: list[str] = []
     warnings: list[str] = []
 
-    # Risk acknowledgement via ServerManager
     manager = ServerManager()
     launch_attempt_id = manager.begin_launch_attempt()
     ack_token = manager.issue_ack_token(launch_attempt_id)
+    warnings.extend(_risk_warnings(configs, manager, launch_attempt_id, ack_token, acknowledged))
 
-    risk_result = evaluate_risks(
-        configs,
-        manager,
-        launch_attempt_id,
-        ack_token,
-        acknowledged,
-    )
-
-    if risk_result.has_risks and not risk_result.risks_acknowledged and risk_result.risk_details:
-        for detail in risk_result.risk_details:
-            warnings.append(f"risky operation detected in {detail['alias']}: {detail['risk']}")
-
-    # Build payloads for each slot
     has_error = False
-    for slot_id, server_cfg in zip(slot_ids, configs, strict=True):
+    for slot_id, server_cfg in zip(profile_ids, configs, strict=True):
         backend_error = validate_server_config(server_cfg)
         if backend_error is not None:
             errors.append(f"{backend_error.error_code}: {backend_error.why_blocked}")
             has_error = True
             continue
 
-        payload = build_dry_run_slot_payload(
-            server_cfg,
-            slot_id=slot_id,
-            validation_results=DryRunValidationSummary(passed=True, checks=[]),
-            warnings=[],
+        slot_payloads.append(
+            build_dry_run_slot_payload(
+                server_cfg,
+                slot_id=slot_id,
+                validation_results=DryRunValidationSummary(passed=True, checks=[]),
+                warnings=[],
+            )
         )
-        slot_payloads.append(payload)
-
-    # Build artifact payload
-    artifact_payload = _build_artifact_payload(mode, slot_payloads, warnings)
 
     return DryRunResult(
         mode=mode,
@@ -178,8 +181,32 @@ def run_dry_run(
         has_error=has_error,
         errors=errors,
         warnings=warnings,
-        artifact_payload=artifact_payload,
+        artifact_payload=_build_artifact_payload(mode, slot_payloads, warnings),
     )
+
+
+def _risk_warnings(
+    configs: list,
+    manager: ServerManager,
+    launch_attempt_id,
+    ack_token,
+    acknowledged: bool,
+) -> list[str]:
+    risk_result = evaluate_risks(
+        configs,
+        manager,
+        launch_attempt_id,
+        ack_token,
+        acknowledged,
+    )
+    if not (
+        risk_result.has_risks and not risk_result.risks_acknowledged and risk_result.risk_details
+    ):
+        return []
+    return [
+        f"risky operation detected in {detail['alias']}: {detail['risk']}"
+        for detail in risk_result.risk_details
+    ]
 
 
 def _build_artifact_payload(

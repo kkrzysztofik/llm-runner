@@ -219,7 +219,7 @@ class TestTryGgufReader:
 
     def test_nonexistent_file_returns_none(self) -> None:
         """Should return None for a nonexistent file."""
-        result = _try_gguf_reader("/nonexistent/path/model.gguf", 4096)
+        result = _try_gguf_reader("/nonexistent/path/model.gguf")
         assert result is None
 
     def test_cancel_event_returns_none(self, tmp_path: Path) -> None:
@@ -229,7 +229,7 @@ class TestTryGgufReader:
         # Create a minimal temp file so the file exists
         test_file = tmp_path / "test.gguf"
         test_file.write_bytes(b"\x00" * 100)
-        result = _try_gguf_reader(str(test_file), 4096, cancel_event=cancel)
+        result = _try_gguf_reader(str(test_file))
         assert result is None
 
     def test_cancel_after_copy_returns_none(self, tmp_path: Path) -> None:
@@ -241,5 +241,5 @@ class TestTryGgufReader:
         # Set cancel after a brief delay — but since we can't easily race,
         # just set it before the call to get the early-exit path.
         cancel.set()
-        result = _try_gguf_reader(str(test_file), 4096, cancel_event=cancel)
+        result = _try_gguf_reader(str(test_file))
         assert result is None
