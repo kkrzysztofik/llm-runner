@@ -434,26 +434,49 @@ class TestDashboardAppAddSlotFlow:
         app.refresh_dashboard = MagicMock()  # type: ignore[method-assign]
 
     @pytest.mark.anyio
-    async def test_finish_add_slot_applies_successful_slot(self) -> None:
+    async def test_finish_add_slot_refreshes_successful_slot(self) -> None:
         controller = _make_controller()
-        controller.apply_add_slot_from_form.return_value = (True, ["Slot added"])
         app = DashboardApp(controller)
         self._stub_finish_add_slot_ui(app)
-        new_cfg = make_server_config(alias="new-slot")
 
         await app._finish_add_slot(
             "Slot added for profile",
             None,
             True,
             ["Validated"],
-            "new-slot",
-            new_cfg,
         )
 
-        controller.apply_add_slot_from_form.assert_called_once_with(new_cfg, "new-slot")
-        controller._push_status_message.assert_called_with("Validated")
+        controller.apply_add_slot_from_form.assert_not_called()
         app._reconcile_server_log_panels.assert_awaited_once()  # type: ignore[attr-defined]
         app.refresh_dashboard.assert_called_once()  # type: ignore[attr-defined]
+
+    def test_run_add_slot_applies_successful_slot_off_ui_thread(self) -> None:
+        controller = _make_controller()
+        controller.compute_add_slot_from_form.return_value = (
+            True,
+            ["Validated"],
+            "new-slot",
+            make_server_config(alias="new-slot"),
+        )
+        controller.apply_add_slot_from_form.return_value = (True, ["Slot added"])
+        app = DashboardApp(controller)
+        captured: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        def _capture_finish(fn: object, *args: object, **kwargs: object) -> None:
+            captured.append((fn, args, kwargs))
+
+        app.call_from_thread = _capture_finish  # type: ignore[method-assign]
+
+        DashboardApp._run_add_slot.__wrapped__(  # type: ignore[attr-defined]
+            app,
+            {"profile": "new-slot", "port": "8080"},
+        )
+
+        controller.apply_add_slot_from_form.assert_called_once()
+        controller._push_status_message.assert_called_once_with("Validated")
+        finish_args = captured[0][1]
+        assert finish_args[2] is True
+        assert finish_args[3] == ["Validated", "Slot added"]
 
     @pytest.mark.anyio
     async def test_finish_add_slot_shows_error(self) -> None:
