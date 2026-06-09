@@ -87,8 +87,8 @@ class BuildPipelineConfig:
     """llama.cpp build pipeline settings."""
 
     source_flavor: str = "upstream"
-    git_remote: str = "https://github.com/ggerganov/llama.cpp.git"
-    git_branch: str = "master"
+    git_remote: str = ""
+    git_branch: str = ""
     retry_attempts: int = 3
     retry_delay: int = 5
     max_reports: int = 50

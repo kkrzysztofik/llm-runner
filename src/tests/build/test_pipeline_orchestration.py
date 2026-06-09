@@ -318,6 +318,23 @@ class TestRunBuildForBackend:
         assert call_kwargs.output_dir == config.paths.builds_dir / "cuda"
         assert call_kwargs.backend == BuildBackend.CUDA
 
+    def test_source_flavor_resolves_default_git_remote_and_branch(self, tmp_path: Path) -> None:
+        """source_flavor should select its remote and branch when no manual override is set."""
+        config = _make_app_config(tmp_path)
+        config.build.source_flavor = "beellama"
+        (tmp_path / "llama.cpp").mkdir(exist_ok=True)
+
+        with patch("llama_manager.build_pipeline.orchestration.BuildPipeline") as mock_pipeline_cls:
+            mock_pipeline = MagicMock()
+            mock_pipeline_cls.return_value = mock_pipeline
+            mock_pipeline.run.return_value = BuildResult(success=True)
+
+            run_build_for_backend("cuda", dry_run=True, config=config)
+
+        call_kwargs = mock_pipeline_cls.call_args[0][0]
+        assert call_kwargs.git_remote_url == "https://github.com/Anbeeld/beellama.cpp.git"
+        assert call_kwargs.git_branch == "main"
+
     def test_build_dir_is_correct_for_backend(self, tmp_path: Path) -> None:
         """run_build_for_backend should set correct build_dir for each backend."""
         config = _make_app_config(tmp_path)

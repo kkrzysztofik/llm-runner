@@ -138,9 +138,10 @@ def run_configure(ctx: _BuildContext) -> BuildProgress:
 
 def get_cmake_flags(backend: BuildBackend, git_remote_url: str = "") -> list[str]:
     """Return CMake flags for the specified backend."""
+    is_beellama_cuda = backend == BuildBackend.CUDA and "beellama" in git_remote_url.lower()
     flags = [
         "-DBUILD_SERVER=ON",
-        "-DGGML_NATIVE=ON",
+        "-DGGML_NATIVE=ON" if is_beellama_cuda else "-DGGML_NATIVE=OFF",
     ]
     if backend == BuildBackend.SYCL:
         flags.extend(
@@ -152,8 +153,7 @@ def get_cmake_flags(backend: BuildBackend, git_remote_url: str = "") -> list[str
         )
     elif backend == BuildBackend.CUDA:
         flags.append(f"-D{BuildConfig.GGML_CUDA}=ON")
-        # BeeLlama CUDA extra flags
-        if "beellama" in git_remote_url.lower():
+        if is_beellama_cuda:
             flags.extend(
                 [
                     "-DGGML_CUDA_FA=ON",

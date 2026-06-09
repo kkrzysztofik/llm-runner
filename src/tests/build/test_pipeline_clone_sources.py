@@ -528,13 +528,23 @@ class TestConfigureStageCmakeFlags:
 
         # Test SYCL backend
         cmake_args = get_cmake_flags(BuildBackend.SYCL, "")
+        assert "-DGGML_NATIVE=OFF" in cmake_args
         assert "-DGGML_SYCL=ON" in cmake_args
         assert "-DCMAKE_C_COMPILER=icx" in cmake_args
         assert "-DCMAKE_CXX_COMPILER=icpx" in cmake_args
 
         # Test CUDA backend
         cmake_args_cuda = get_cmake_flags(BuildBackend.CUDA, "")
+        assert "-DGGML_NATIVE=OFF" in cmake_args_cuda
         assert "-DGGML_CUDA=ON" in cmake_args_cuda
+
+        # BeeLlama CUDA enables native build and extra FlashAttention flags.
+        beellama_args = get_cmake_flags(
+            BuildBackend.CUDA, "https://github.com/Anbeeld/beellama.cpp.git"
+        )
+        assert "-DGGML_NATIVE=ON" in beellama_args
+        assert "-DGGML_CUDA_FA=ON" in beellama_args
+        assert "-DGGML_CUDA_FA_ALL_QUANTS=ON" in beellama_args
 
     def test_configure_stage_failure_includes_cmake_diagnostics(self, tmp_path: Path) -> None:
         """Configure failures should include command, exit code, and stderr/stdout tails."""

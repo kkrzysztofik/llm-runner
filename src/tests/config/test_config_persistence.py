@@ -180,7 +180,8 @@ def test_build_config_missing_file_uses_defaults(
     result = build_config()
     # Should produce a valid Config with hard-coded defaults
     assert isinstance(result, Config)
-    assert result.build.git_remote == "https://github.com/ggerganov/llama.cpp.git"
+    assert result.build.source_flavor == "upstream"
+    assert result.build.git_remote == ""
 
 
 def test_models_dir_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
