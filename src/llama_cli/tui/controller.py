@@ -6,6 +6,7 @@ import logging
 import signal
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from types import FrameType
 from typing import Any, Literal
 
@@ -21,14 +22,17 @@ from llama_manager import (
     ServerConfig,
     ServerManager,
     SlotState,
+    collector_for_config,
     compute_slot_transition,
     get_gpu_identifier,
+    gpu_index_for_config,
     launch_orchestrate,
     load_model_index,
     load_profile_with_staleness,
     model_index_path,
     refresh_model_index,
     resolve_risk_action,
+    selector_for_config,
 )
 from llama_manager.build_pipeline import (
     BuildConfig,
@@ -50,6 +54,27 @@ from .textual_app import DashboardApp
 from .viewmodel import DashboardViewModel
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class AsyncSlotPlan:
+    """UI-thread plan for a background slot launch."""
+
+    success: bool
+    messages: list[str]
+    alias: str
+    profile_id: str
+    old_alias: str | None
+
+
+@dataclass(frozen=True)
+class AsyncSlotStageResult:
+    """State staged on the UI thread before a worker starts a slot process."""
+
+    success: bool
+    messages: list[str]
+    alias: str
+    log_buffer: LogBuffer | None
 
 
 class DashboardController:
@@ -439,6 +464,194 @@ class DashboardController:
             if stale_alias in active_aliases
         }
         return success
+
+    def prepare_async_slot_launch(
+        self,
+        new_cfg: ServerConfig,
+        profile_id: str,
+    ) -> AsyncSlotPlan:
+        """Prepare a background slot launch without mutating dashboard state."""
+        from llama_manager.slot_manager import device_class_for_config
+
+        target_device = device_class_for_config(new_cfg)
+        old_alias = next(
+            (
+                existing_cfg.alias
+                for existing_cfg in self.configs
+                if device_class_for_config(existing_cfg) == target_device
+            ),
+            None,
+        )
+        return AsyncSlotPlan(
+            success=True,
+            messages=[],
+            alias=new_cfg.alias,
+            profile_id=profile_id,
+            old_alias=old_alias,
+        )
+
+    def stage_async_slot_launch(
+        self,
+        new_cfg: ServerConfig,
+        profile_id: str,
+        old_alias: str | None,
+    ) -> AsyncSlotStageResult:
+        """Commit launching slot state on the UI thread before process start."""
+        from llama_manager.slot_manager import (
+            device_class_for_config,
+            remove_slot_runtime_state,
+        )
+
+        alias = new_cfg.alias
+        target_device = device_class_for_config(new_cfg)
+        state = {
+            "log_buffers": self.log_buffers,
+            "server_processes": self.server_processes,
+            "slot_states": self.slot_states,
+            "unsaved_slots": self.unsaved_slots,
+            "slots": self.slots,
+        }
+        messages: list[str] = []
+
+        if old_alias is None:
+            self.configs.append(new_cfg)
+            self.gpu_indices.append(gpu_index_for_config(new_cfg))
+            self.gpu_stats.append(
+                GPUStats(
+                    gpu_index_for_config(new_cfg),
+                    collector=collector_for_config(new_cfg),
+                    selector=selector_for_config(new_cfg),
+                )
+            )
+        else:
+            existing_index = next(
+                (
+                    idx
+                    for idx, existing_cfg in enumerate(self.configs)
+                    if existing_cfg.alias == old_alias
+                ),
+                None,
+            )
+            if existing_index is None:
+                messages.append(
+                    f"Unable to replace '{old_alias}' on {target_device}: slot not found"
+                )
+                for msg in messages:
+                    self._push_status_message(msg)
+                return AsyncSlotStageResult(False, messages, alias, None)
+
+            remove_slot_runtime_state(old_alias, state)
+            self.configs[existing_index] = new_cfg
+            gpu_idx = gpu_index_for_config(new_cfg)
+            self.gpu_indices[existing_index] = gpu_idx
+            self.gpu_stats[existing_index] = GPUStats(
+                gpu_idx,
+                collector=collector_for_config(new_cfg),
+                selector=selector_for_config(new_cfg),
+            )
+
+        log_buffer = LogBuffer(redact_sensitive=True)
+        self.log_buffers[alias] = log_buffer
+        self.unsaved_slots.add(alias)
+        self.slots.append(ModelSlot(slot_id=alias, model_path=new_cfg.model, port=new_cfg.port))
+        self.slot_states[alias] = SlotState.LAUNCHING.value
+        self.model.stale_warnings = {
+            stale_alias: warning
+            for stale_alias, warning in self.model.stale_warnings.items()
+            if stale_alias in {cfg.alias for cfg in self.configs}
+        }
+
+        messages.append(f"Slot '{alias}' launching...")
+        for msg in messages:
+            self._push_status_message(msg)
+        return AsyncSlotStageResult(True, messages, alias, log_buffer)
+
+    def complete_async_slot_launch(
+        self,
+        alias: str,
+        profile_id: str,
+        old_alias: str | None,
+        process: Any | None,
+    ) -> tuple[bool, list[str]]:
+        """Commit final slot launch state on the UI thread."""
+        from llama_manager.slot_manager import device_class_for_config
+
+        cfg = next((item for item in self.configs if item.alias == alias), None)
+        target_device = device_class_for_config(cfg) if cfg is not None else "unknown"
+        messages: list[str] = []
+
+        if process is None:
+            self.slot_states[alias] = SlotState.CRASHED.value
+            messages.append(f"Slot '{alias}' failed to start: no process returned")
+            for msg in messages:
+                self._push_status_message(msg)
+            return False, messages
+
+        self.server_processes[alias] = process
+        old_state = self.slot_states.get(alias)
+        self.slot_states[alias] = SlotState.RUNNING.value
+        result = compute_slot_transition(alias, old_state, SlotState.RUNNING)
+        if result is not None:
+            message, _color = result
+            messages.append(message)
+            logger.info("slot %s: %s", alias, message)
+
+        port = cfg.port if cfg is not None else "unknown"
+        if old_alias is None:
+            messages.append(f"Added profile '{profile_id}' as '{alias}' on {target_device}:{port}")
+        else:
+            messages.append(
+                f"Replaced '{old_alias}' with profile '{profile_id}' as "
+                f"'{alias}' on {target_device}:{port}"
+            )
+
+        for msg in messages:
+            self._push_status_message(msg)
+        return True, messages
+
+    def prepare_async_slot_remove(self, alias: str) -> tuple[bool, list[str]]:
+        """Validate slot removal on the UI thread before worker shutdown."""
+        if not any(existing_cfg.alias == alias for existing_cfg in self.configs):
+            return False, [f"Unable to remove '{alias}': slot not found"]
+        return True, []
+
+    def commit_async_slot_remove(self, alias: str) -> tuple[bool, list[str]]:
+        """Commit slot removal state on the UI thread after worker shutdown."""
+        from llama_manager.slot_manager import remove_slot_runtime_state
+
+        existing_index = next(
+            (idx for idx, existing_cfg in enumerate(self.configs) if existing_cfg.alias == alias),
+            None,
+        )
+        if existing_index is None:
+            messages = [f"Unable to remove '{alias}': slot not found"]
+            for msg in messages:
+                self._push_status_message(msg)
+            return False, messages
+
+        if len(self.configs) != len(self.gpu_indices) or len(self.configs) != len(self.gpu_stats):
+            raise RuntimeError("slot runtime lists must remain length-synchronized")
+
+        del self.configs[existing_index]
+        del self.gpu_indices[existing_index]
+        del self.gpu_stats[existing_index]
+        state = {
+            "log_buffers": self.log_buffers,
+            "server_processes": self.server_processes,
+            "slot_states": self.slot_states,
+            "unsaved_slots": self.unsaved_slots,
+            "slots": self.slots,
+        }
+        remove_slot_runtime_state(alias, state)
+        self.model.stale_warnings = {
+            stale_alias: warning
+            for stale_alias, warning in self.model.stale_warnings.items()
+            if stale_alias in {cfg.alias for cfg in self.configs}
+        }
+        messages = [f"Removed slot '{alias}'"]
+        for msg in messages:
+            self._push_status_message(msg)
+        return True, messages
 
     def add_slot_from_form(self, values: dict[str, str]) -> bool:
         """Create or replace a slot from modal profile selection."""

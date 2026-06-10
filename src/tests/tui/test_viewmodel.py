@@ -373,6 +373,36 @@ def test_system_info_snapshot() -> None:
     model_mock.system_info_snapshot.assert_called_once()
 
 
+def test_dashboard_model_system_health_reads_cached_snapshots() -> None:
+    """DashboardModel system-health reads should not collect live psutil data."""
+    model = DashboardModel(configs=[], gpu_indices=[])
+    memory = [
+        MemoryUsageSnapshot(label="Mem", percent=55.0, value_text="8/16 GB"),
+        MemoryUsageSnapshot(label="Swap", percent=10.0, value_text="0.5/2 GB"),
+    ]
+    system = SystemInfoSnapshot(
+        tasks=150,
+        threads=300,
+        running=2,
+        load_values=(1.5, 2.0, 1.8),
+        uptime="10:30",
+    )
+    model.apply_system_health_snapshot([42.5], memory, system)
+
+    with (
+        patch("llama_manager.collect_cpu_percentages") as collect_cpu,
+        patch("llama_manager.collect_memory_usage") as collect_memory,
+        patch("llama_manager.collect_system_info") as collect_system,
+    ):
+        assert model.cpu_percentages() == [42.5]
+        assert model.memory_usage_rows() == memory
+        assert model.system_info_snapshot() is system
+
+    collect_cpu.assert_not_called()
+    collect_memory.assert_not_called()
+    collect_system.assert_not_called()
+
+
 def test_current_datetime_snapshot() -> None:
     """current_datetime_snapshot should delegate to model."""
     expected = DateTimeSnapshot(date_text="Wed 2026-05-20")

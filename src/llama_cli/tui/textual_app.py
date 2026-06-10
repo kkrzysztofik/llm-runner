@@ -106,6 +106,8 @@ class DashboardApp(App[None]):
         self._profile_cache_config_id: int | None = None
         self._last_model_index_notice_scanned = 0
         self._gpu_stats_refresh_active = False
+        self._system_health_refresh_active = False
+        self._slot_operation_active = False
         self._pending_remove_slot_alias: str | None = None
         self.last_build_backend: str = "sycl"
 
@@ -142,7 +144,9 @@ class DashboardApp(App[None]):
         logger.info("DashboardApp.on_mount: initial refresh complete")
         self.set_interval(interval_s, self.refresh_dashboard)
         self.set_interval(max(1.0, interval_s), self._schedule_gpu_stats_refresh)
+        self.set_interval(max(1.0, interval_s), self._schedule_system_health_refresh)
         self._schedule_gpu_stats_refresh()
+        self._schedule_system_health_refresh()
         self._index_models()
 
     def _schedule_gpu_stats_refresh(self) -> None:
@@ -181,6 +185,28 @@ class DashboardApp(App[None]):
 
     def _mark_gpu_stats_refresh_complete(self) -> None:
         self._gpu_stats_refresh_active = False
+
+    def _schedule_system_health_refresh(self) -> None:
+        """Start one background system-health refresh if none is running."""
+        if self._system_health_refresh_active:
+            logger.debug("_schedule_system_health_refresh: skipped, refresh already active")
+            return
+        self._system_health_refresh_active = True
+        self._refresh_system_health_worker()
+
+    @work(thread=True)
+    def _refresh_system_health_worker(self) -> None:
+        """Collect system-health stats off the render thread."""
+        try:
+            snapshot = self.controller.model.collect_system_health_snapshot()
+            self.call_from_thread(self.controller.model.apply_system_health_snapshot, *snapshot)
+        except Exception:
+            logger.exception("_refresh_system_health_worker: unhandled exception")
+        finally:
+            self.call_from_thread(self._mark_system_health_refresh_complete)
+
+    def _mark_system_health_refresh_complete(self) -> None:
+        self._system_health_refresh_active = False
 
     def _index_models(self) -> None:
         """Refresh model index in a controller-owned background thread."""
@@ -367,7 +393,7 @@ class DashboardApp(App[None]):
                 "profile": result.profile_id,
                 "port": "",
             }
-            self._run_add_slot(slot_form, "Slot added for profile")
+            self._start_add_slot(slot_form, "Slot added for profile")
             return
 
         self.refresh_dashboard()
@@ -428,10 +454,32 @@ class DashboardApp(App[None]):
                 "profile": result.profile_id,
                 "port": "",
             }
-            self._run_add_slot(slot_form, "Slot added for profile")
+            self._start_add_slot(slot_form, "Slot added for profile")
             return
 
         self.refresh_dashboard()
+
+    def _begin_slot_operation(self, action: str) -> bool:
+        """Reserve the slot lifecycle worker lane."""
+        if self._slot_operation_active:
+            self.notify(
+                f"Slot operation already running; cannot {action}.",
+                title="Slot",
+                severity="warning",
+            )
+            return False
+        self._slot_operation_active = True
+        return True
+
+    def _end_slot_operation(self) -> None:
+        self._slot_operation_active = False
+
+    def _start_add_slot(self, slot_form: dict[str, str], notify_message: str = "") -> None:
+        """Start an add-slot operation when no slot operation is active."""
+        if not self._begin_slot_operation("add slot"):
+            return
+        self.notify("Adding slot…", title="Slot", severity="information")
+        self._run_add_slot(slot_form, notify_message)
 
     @work(thread=True)
     def _run_add_slot(self, slot_form: dict[str, str], notify_message: str = "") -> None:
@@ -441,6 +489,7 @@ class DashboardApp(App[None]):
         success: bool | None = None
         messages: list[str] = []
         profile_id = ""
+        layout_changed = False
         try:
             success, messages, profile_id, new_cfg = self.controller.compute_add_slot_from_form(
                 slot_form
@@ -452,15 +501,51 @@ class DashboardApp(App[None]):
             )
             if success and new_cfg is not None:
                 for msg in messages:
-                    self.controller._push_status_message(msg)
-                success, apply_messages = self.controller.apply_add_slot_from_form(
+                    self.call_from_thread(self.controller._push_status_message, msg)
+
+                plan = self.call_from_thread(
+                    self.controller.prepare_async_slot_launch,
                     new_cfg,
                     profile_id,
-                    startup_callback=lambda: self.call_from_thread(
-                        self._refresh_add_slot_startup, new_cfg.alias
-                    ),
                 )
-                messages.extend(apply_messages)
+                messages.extend(plan.messages)
+
+                if not plan.success:
+                    success = False
+                elif (
+                    plan.old_alias is not None
+                    and not self.controller.server_manager.shutdown_slot(plan.old_alias)
+                ):
+                    messages.append(
+                        f"Unable to replace '{plan.old_alias}': shutdown verification failed"
+                    )
+                    success = False
+                else:
+                    stage = self.call_from_thread(
+                        self.controller.stage_async_slot_launch,
+                        new_cfg,
+                        profile_id,
+                        plan.old_alias,
+                    )
+                    messages.extend(stage.messages)
+                    if not stage.success or stage.log_buffer is None:
+                        success = False
+                    else:
+                        layout_changed = True
+                        log_handler = lambda line, buf=stage.log_buffer: buf.add_line(line)  # noqa: E731
+                        procs = self.controller.server_manager.start_servers(
+                            [new_cfg],
+                            {stage.alias: log_handler},
+                        )
+                        proc = procs[0] if procs else None
+                        success, complete_messages = self.call_from_thread(
+                            self.controller.complete_async_slot_launch,
+                            stage.alias,
+                            profile_id,
+                            plan.old_alias,
+                            proc,
+                        )
+                        messages.extend(complete_messages)
         except Exception as exc:
             logger.exception("_run_add_slot: unhandled exception")
             error = f"Add slot failed: {exc}"
@@ -471,6 +556,7 @@ class DashboardApp(App[None]):
             error,
             success,
             messages,
+            layout_changed,
         )
 
     def _refresh_add_slot_startup(self, alias: str) -> None:
@@ -484,39 +570,46 @@ class DashboardApp(App[None]):
         error: str | None = None,
         success: bool | None = None,
         messages: list[str] | None = None,
+        layout_changed: bool = True,
     ) -> None:
         """Called on the UI thread after background add-slot validation completes."""
-        slot_messages = list(messages or [])
-        if error is None and not success:
-            for msg in slot_messages:
-                self.controller._push_status_message(msg)
-
-        configs_aliases = [c.alias for c in self.controller.configs]
         try:
-            container = self.query_one(_CONTENT_CONTAINER_ID)
-            panel_count_before = len(list(container.query(ServerLogPanel)))
-        except NoMatches:
-            panel_count_before = -1
-        logger.debug(
-            "_finish_add_slot: configs=%r panels_before=%d column_count=%d",
-            configs_aliases,
-            panel_count_before,
-            self.view_model.server_column_count(),
-        )
-        if error:
-            self.notify(error, title="Add Slot", severity="error")
-        elif success and notify_message:
-            logger.debug("_finish_add_slot: success=%s notify=%r", success, notify_message)
-            self.notify(notify_message, severity="information")
-        await self._recompose_slots()
+            slot_messages = list(messages or [])
+            if error is None and not success:
+                for msg in slot_messages:
+                    self.controller._push_status_message(msg)
+
+            configs_aliases = [c.alias for c in self.controller.configs]
+            try:
+                container = self.query_one(_CONTENT_CONTAINER_ID)
+                panel_count_before = len(list(container.query(ServerLogPanel)))
+            except NoMatches:
+                panel_count_before = -1
+            logger.debug(
+                "_finish_add_slot: configs=%r panels_before=%d column_count=%d",
+                configs_aliases,
+                panel_count_before,
+                self.view_model.server_column_count(),
+            )
+            if error:
+                self.notify(error, title="Add Slot", severity="error")
+            elif success and notify_message:
+                logger.debug("_finish_add_slot: success=%s notify=%r", success, notify_message)
+                self.notify(notify_message, severity="information")
+
+            if layout_changed:
+                await self._recompose_slots()
+            else:
+                self.refresh_dashboard()
+        finally:
+            self._end_slot_operation()
 
     def _handle_add_slot_modal_result(self, result: dict[str, str] | None) -> None:
         if result is None:
             self.controller.cancel_add_slot_form()
             self.refresh_dashboard()
         else:
-            self.notify("Adding slot…", title="Slot", severity="information")
-            self._run_add_slot(result)
+            self._start_add_slot(result)
 
     def _handle_remove_slot_modal_result(self, alias: str | None) -> None:
         if not alias:
@@ -538,6 +631,8 @@ class DashboardApp(App[None]):
         self._pending_remove_slot_alias = None
         if not confirmed or alias is None:
             return
+        if not self._begin_slot_operation("remove slot"):
+            return
         self.notify("Removing slot…", title="Slot", severity="information")
         self._run_remove_slot(alias)
 
@@ -547,7 +642,22 @@ class DashboardApp(App[None]):
         error: str | None = None
         success = False
         try:
-            success = self.controller.remove_live_slot(alias)
+            success, messages = self.call_from_thread(
+                self.controller.prepare_async_slot_remove,
+                alias,
+            )
+            if success:
+                if not self.controller.server_manager.shutdown_slot(alias):
+                    messages = [f"Unable to remove '{alias}': shutdown verification failed"]
+                    success = False
+                else:
+                    success, messages = self.call_from_thread(
+                        self.controller.commit_async_slot_remove,
+                        alias,
+                    )
+            if not success:
+                for msg in messages:
+                    self.call_from_thread(self.controller._push_status_message, msg)
         except Exception as exc:
             logger.exception("_run_remove_slot: unhandled exception")
             error = f"Remove slot failed: {exc}"
@@ -571,7 +681,13 @@ class DashboardApp(App[None]):
                 severity="error",
             )
 
-        await self._recompose_slots()
+        try:
+            if success:
+                await self._recompose_slots()
+            else:
+                self.refresh_dashboard()
+        finally:
+            self._end_slot_operation()
 
     def _handle_build_modal_result(self, result: BuildWizardResult | None) -> None:
         if result is None:

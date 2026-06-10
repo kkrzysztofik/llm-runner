@@ -10,8 +10,6 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Literal
 
-import psutil
-
 from llama_manager import (
     Config,
     GPUStats,
@@ -64,7 +62,16 @@ class DashboardModel:
         self.status_messages: list[tuple[float, str]] = []
         self.status_lock = threading.Lock()
         self.stale_warnings: dict[str, str] = {}
-        _ = psutil.cpu_percent(interval=0.1, percpu=True)
+        self.system_health_lock = threading.Lock()
+        self.cached_cpu_percentages: list[float] = []
+        self.cached_memory_usage_rows: list[MemoryUsageSnapshot] = []
+        self.cached_system_info_snapshot = SystemInfoSnapshot(
+            tasks=0,
+            threads=0,
+            running=0,
+            load_values=None,
+            uptime="0:00",
+        )
 
         self.build_request = False
         self.build_selected_backends: list[str] | None = None
@@ -117,13 +124,66 @@ class DashboardModel:
             return [(ts, msg) for ts, msg in self.status_messages if ts > since_ts and ts >= cutoff]
 
     def cpu_percentages(self) -> list[float]:
-        """Return current per-core CPU usage percentages."""
-        from llama_manager import collect_cpu_percentages
-
-        return collect_cpu_percentages(percpu=True)
+        """Return cached per-core CPU usage percentages."""
+        with self.system_health_lock:
+            return list(self.cached_cpu_percentages)
 
     def memory_usage_rows(self) -> list[MemoryUsageSnapshot]:
-        """Return memory and swap usage snapshots for the dashboard."""
+        """Return cached memory and swap usage snapshots for the dashboard."""
+        with self.system_health_lock:
+            return list(self.cached_memory_usage_rows)
+
+    def system_info_snapshot(self) -> SystemInfoSnapshot:
+        """Return cached process, load, and uptime state for the dashboard."""
+        with self.system_health_lock:
+            return self.cached_system_info_snapshot
+
+    def collect_system_health_snapshot(
+        self,
+    ) -> tuple[list[float], list[MemoryUsageSnapshot], SystemInfoSnapshot]:
+        """Collect live system-health state for background cache refresh."""
+        from llama_manager import collect_cpu_percentages, collect_memory_usage, collect_system_info
+
+        cpu = collect_cpu_percentages(percpu=True)
+        memory_data = collect_memory_usage()
+        mem = memory_data["mem"]
+        swp = memory_data["swp"]
+        memory_rows = [
+            MemoryUsageSnapshot(
+                label=str(mem["label"]),
+                percent=float(mem["percent"] if isinstance(mem["percent"], float) else 0.0),
+                value_text=str(mem["value_text"]),
+            ),
+            MemoryUsageSnapshot(
+                label=str(swp["label"]),
+                percent=float(swp["percent"] if isinstance(swp["percent"], float) else 0.0),
+                value_text=str(swp["value_text"]),
+            ),
+        ]
+        system_data = collect_system_info()
+        system_info = SystemInfoSnapshot(
+            tasks=system_data["tasks"],  # type: ignore[arg-type]
+            threads=system_data["threads"],  # type: ignore[arg-type]
+            running=system_data["running"],  # type: ignore[arg-type]
+            load_values=system_data["load_values"],  # type: ignore[arg-type]
+            uptime=system_data["uptime"],  # type: ignore[arg-type]
+        )
+        return cpu, memory_rows, system_info
+
+    def apply_system_health_snapshot(
+        self,
+        cpu: list[float],
+        memory_rows: list[MemoryUsageSnapshot],
+        system_info: SystemInfoSnapshot,
+    ) -> None:
+        """Store system-health state collected off the UI thread."""
+        with self.system_health_lock:
+            self.cached_cpu_percentages = list(cpu)
+            self.cached_memory_usage_rows = list(memory_rows)
+            self.cached_system_info_snapshot = system_info
+
+    def collect_memory_usage_rows_now(self) -> list[MemoryUsageSnapshot]:
+        """Return live memory and swap usage snapshots for non-refresh callers."""
         from llama_manager import collect_memory_usage
 
         data = collect_memory_usage()
@@ -142,8 +202,8 @@ class DashboardModel:
             ),
         ]
 
-    def system_info_snapshot(self) -> SystemInfoSnapshot:
-        """Return process, load, and uptime state for the dashboard."""
+    def collect_system_info_snapshot_now(self) -> SystemInfoSnapshot:
+        """Return live process, load, and uptime state for non-refresh callers."""
         from llama_manager import collect_system_info
 
         data = collect_system_info()
