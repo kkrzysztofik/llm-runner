@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import time
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ from .components.system_health import (
     SystemInfoWidget,
 )
 from .components.system_status import SystemStatusWidget
-from .types import BuildWizardResult, ServerColumnState
+from .types import BuildWizardResult, MemoryUsageSnapshot, ServerColumnState, SystemInfoSnapshot
 
 _CONTENT_CONTAINER_ID = "#content"
 
@@ -162,11 +162,15 @@ class DashboardApp(App[None]):
         """Refresh GPU stats off the render thread."""
         start = time.perf_counter()
         stats = list(self.controller.model.gpu_stats)
+        snapshot_by_alias: dict[str, dict[str, Any]] = {}
         logger.debug("_refresh_gpu_stats_worker: start count=%d", len(stats))
         try:
+            aliases = [cfg.alias for cfg in self.controller.model.configs]
             for index, gpu in enumerate(stats):
                 gpu_start = time.perf_counter()
                 gpu.update()
+                if index < len(aliases):
+                    snapshot_by_alias[aliases[index]] = gpu.get_cached_stats_snapshot()
                 logger.debug(
                     "_refresh_gpu_stats_worker: updated index=%d device_index=%s duration_ms=%.1f",
                     index,
@@ -180,6 +184,10 @@ class DashboardApp(App[None]):
                 "_refresh_gpu_stats_worker: complete count=%d duration_ms=%.1f",
                 len(stats),
                 (time.perf_counter() - start) * 1000,
+            )
+            self.call_from_thread(
+                self.controller.model.apply_gpu_stats_snapshot,
+                snapshot_by_alias,
             )
             self.call_from_thread(self._mark_gpu_stats_refresh_complete)
 
@@ -199,11 +207,23 @@ class DashboardApp(App[None]):
         """Collect system-health stats off the render thread."""
         try:
             snapshot = self.controller.model.collect_system_health_snapshot()
-            self.call_from_thread(self.controller.model.apply_system_health_snapshot, *snapshot)
+            self.call_from_thread(self._apply_system_health_snapshot, *snapshot)
         except Exception:
             logger.exception("_refresh_system_health_worker: unhandled exception")
         finally:
             self.call_from_thread(self._mark_system_health_refresh_complete)
+
+    def _apply_system_health_snapshot(
+        self,
+        cpu: list[float],
+        memory_rows: list[MemoryUsageSnapshot],
+        system_info: SystemInfoSnapshot,
+    ) -> None:
+        """Apply cached system-health data and refresh only those widgets."""
+        self.controller.model.apply_system_health_snapshot(cpu, memory_rows, system_info)
+        for widget_type in (CPUUsageWidget, MemorySwapWidget, SystemInfoWidget):
+            with contextlib.suppress(NoMatches):
+                self.query_one(widget_type).refresh(recompose=True)
 
     def _mark_system_health_refresh_complete(self) -> None:
         self._system_health_refresh_active = False
@@ -597,10 +617,7 @@ class DashboardApp(App[None]):
                 logger.debug("_finish_add_slot: success=%s notify=%r", success, notify_message)
                 self.notify(notify_message, severity="information")
 
-            if layout_changed:
-                await self._recompose_slots()
-            else:
-                self.refresh_dashboard()
+            self.refresh_dashboard()
         finally:
             self._end_slot_operation()
 
@@ -781,17 +798,6 @@ class DashboardApp(App[None]):
             return
 
         self._emit_status_toasts()
-
-        # System-health widgets — recompose is fast and keeps CPU/mem live.
-        for widget_type in (CPUUsageWidget, MemorySwapWidget, SystemInfoWidget):
-            with contextlib.suppress(NoMatches):
-                widget_start = time.perf_counter()
-                self.query_one(widget_type).refresh(recompose=True)
-                logger.debug(
-                    "refresh_dashboard: refreshed widget=%s duration_ms=%.1f",
-                    widget_type.__name__,
-                    (time.perf_counter() - widget_start) * 1000,
-                )
 
         # Server log panels — lightweight text/CSS updates only.
         for panel in self.query(ServerLogPanel):

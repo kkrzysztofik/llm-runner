@@ -427,6 +427,28 @@ class TestDashboardAppGpuStatsRefresh:
 
         assert app._gpu_stats_refresh_active is False
 
+    def test_refresh_gpu_stats_worker_applies_cached_snapshot(self) -> None:
+        controller = _make_controller()
+        cfg = make_server_config(alias="slot0")
+        controller.model.configs = [cfg]
+        gpu = MagicMock()
+        gpu.device_index = 0
+        gpu.get_cached_stats_snapshot.return_value = {"gpu_util": "45%"}
+        controller.model.gpu_stats = [gpu]
+        controller.model.apply_gpu_stats_snapshot = MagicMock()
+        app = DashboardApp(controller)
+        app.call_from_thread = lambda fn, *args, **kwargs: fn(*args, **kwargs)  # type: ignore[method-assign]
+        app._gpu_stats_refresh_active = True
+
+        DashboardApp._refresh_gpu_stats_worker.__wrapped__(app)  # type: ignore[attr-defined]
+
+        gpu.update.assert_called_once()
+        gpu.get_cached_stats_snapshot.assert_called_once()
+        controller.model.apply_gpu_stats_snapshot.assert_called_once_with(
+            {"slot0": {"gpu_util": "45%"}}
+        )
+        assert app._gpu_stats_refresh_active is False
+
 
 class TestDashboardAppAddSlotFlow:
     """Tests for async add-slot worker and finish handler."""
@@ -450,7 +472,7 @@ class TestDashboardAppAddSlotFlow:
         )
 
         controller.apply_add_slot_from_form.assert_not_called()
-        app._reconcile_server_log_panels.assert_awaited_once()  # type: ignore[attr-defined]
+        app._reconcile_server_log_panels.assert_not_awaited()  # type: ignore[attr-defined]
         app.refresh_dashboard.assert_called_once()  # type: ignore[attr-defined]
 
     def test_run_add_slot_applies_successful_slot_off_ui_thread(self) -> None:
@@ -509,7 +531,11 @@ class TestDashboardAppAddSlotFlow:
             None,
             mock_proc,
         )
-        finish_args = captured[0][1]
+        finish_calls = [
+            call for call in captured if getattr(call[0], "__name__", "") == "_finish_add_slot"
+        ]
+        assert len(finish_calls) == 1
+        finish_args = finish_calls[0][1]
         assert finish_args[2] is True
         assert finish_args[3] == [
             "Validated",
@@ -619,6 +645,28 @@ class TestDashboardAppSystemHealthRefresh:
         controller.model.collect_system_health_snapshot.assert_called_once()
         controller.model.apply_system_health_snapshot.assert_called_once_with(cpu, memory, system)
         assert app._system_health_refresh_active is False
+
+    def test_apply_system_health_snapshot_refreshes_only_health_widgets(self) -> None:
+        controller = _make_controller()
+        controller.model.apply_system_health_snapshot = MagicMock()
+        app = DashboardApp(controller)
+        widgets = [MagicMock(), MagicMock(), MagicMock()]
+        app.query_one = MagicMock(side_effect=widgets)  # type: ignore[method-assign]
+        cpu = [10.0, 20.0]
+        memory = [MemoryUsageSnapshot(label="Mem", percent=50.0, value_text="8/16 GB")]
+        system = SystemInfoSnapshot(
+            tasks=10,
+            threads=20,
+            running=1,
+            load_values=(1.0, 2.0, 3.0),
+            uptime="1:00",
+        )
+
+        app._apply_system_health_snapshot(cpu, memory, system)
+
+        controller.model.apply_system_health_snapshot.assert_called_once_with(cpu, memory, system)
+        for widget in widgets:
+            widget.refresh.assert_called_once_with(recompose=True)
 
 
 class TestDashboardAppRemoveSlotFlow:

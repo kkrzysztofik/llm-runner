@@ -39,6 +39,16 @@ class ServerColumnState:
 
 
 @dataclass(frozen=True)
+class DashboardSnapshot:
+    """Immutable cached telemetry consumed by dashboard render code."""
+
+    cpu_percentages: list[float]
+    memory_usage_rows: list[MemoryUsageSnapshot]
+    system_info: SystemInfoSnapshot
+    gpu_stats_by_alias: dict[str, dict[str, Any]]
+
+
+@dataclass(frozen=True)
 class CPUCoreSnapshot:
     """Structured CPU core usage cell."""
 

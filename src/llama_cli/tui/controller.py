@@ -428,6 +428,12 @@ class DashboardController:
         for msg in messages:
             self._push_status_message(msg)
         active_aliases = {cfg.alias for cfg in self.configs}
+        self.model.apply_gpu_stats_snapshot(
+            {
+                cfg.alias: gpu.get_cached_stats_snapshot()
+                for cfg, gpu in zip(self.configs, self.gpu_stats, strict=False)
+            }
+        )
         self.model.stale_warnings = {
             alias: warning
             for alias, warning in self.model.stale_warnings.items()
@@ -458,6 +464,12 @@ class DashboardController:
         for msg in messages:
             self._push_status_message(msg)
         active_aliases = {cfg.alias for cfg in self.configs}
+        self.model.apply_gpu_stats_snapshot(
+            {
+                cfg.alias: gpu.get_cached_stats_snapshot()
+                for cfg, gpu in zip(self.configs, self.gpu_stats, strict=False)
+            }
+        )
         self.model.stale_warnings = {
             stale_alias: warning
             for stale_alias, warning in self.model.stale_warnings.items()
@@ -516,13 +528,12 @@ class DashboardController:
         if old_alias is None:
             self.configs.append(new_cfg)
             self.gpu_indices.append(gpu_index_for_config(new_cfg))
-            self.gpu_stats.append(
-                GPUStats(
-                    gpu_index_for_config(new_cfg),
-                    collector=collector_for_config(new_cfg),
-                    selector=selector_for_config(new_cfg),
-                )
+            new_gpu = GPUStats(
+                gpu_index_for_config(new_cfg),
+                collector=collector_for_config(new_cfg),
+                selector=selector_for_config(new_cfg),
             )
+            self.gpu_stats.append(new_gpu)
         else:
             existing_index = next(
                 (
@@ -541,17 +552,20 @@ class DashboardController:
                 return AsyncSlotStageResult(False, messages, alias, None)
 
             remove_slot_runtime_state(old_alias, state)
+            self.model.remove_cached_gpu_stats(old_alias)
             self.configs[existing_index] = new_cfg
             gpu_idx = gpu_index_for_config(new_cfg)
             self.gpu_indices[existing_index] = gpu_idx
-            self.gpu_stats[existing_index] = GPUStats(
+            new_gpu = GPUStats(
                 gpu_idx,
                 collector=collector_for_config(new_cfg),
                 selector=selector_for_config(new_cfg),
             )
+            self.gpu_stats[existing_index] = new_gpu
 
         log_buffer = LogBuffer(redact_sensitive=True)
         self.log_buffers[alias] = log_buffer
+        self.model.set_cached_gpu_stats(alias, new_gpu.get_cached_stats_snapshot())
         self.unsaved_slots.add(alias)
         self.slots.append(ModelSlot(slot_id=alias, model_path=new_cfg.model, port=new_cfg.port))
         self.slot_states[alias] = SlotState.LAUNCHING.value
@@ -643,6 +657,7 @@ class DashboardController:
             "slots": self.slots,
         }
         remove_slot_runtime_state(alias, state)
+        self.model.remove_cached_gpu_stats(alias)
         self.model.stale_warnings = {
             stale_alias: warning
             for stale_alias, warning in self.model.stale_warnings.items()

@@ -26,7 +26,13 @@ from llama_manager import (
 )
 from llama_manager.build_pipeline import BuildConfig
 
-from .types import DateTimeSnapshot, MemoryUsageSnapshot, RiskPromptState, SystemInfoSnapshot
+from .types import (
+    DashboardSnapshot,
+    DateTimeSnapshot,
+    MemoryUsageSnapshot,
+    RiskPromptState,
+    SystemInfoSnapshot,
+)
 
 
 class DashboardModel:
@@ -65,6 +71,10 @@ class DashboardModel:
         self.system_health_lock = threading.Lock()
         self.cached_cpu_percentages: list[float] = []
         self.cached_memory_usage_rows: list[MemoryUsageSnapshot] = []
+        self.cached_gpu_stats_by_alias: dict[str, dict[str, Any]] = {
+            cfg.alias: gpu.get_cached_stats_snapshot()
+            for cfg, gpu in zip(configs, self.gpu_stats, strict=False)
+        }
         self.cached_system_info_snapshot = SystemInfoSnapshot(
             tasks=0,
             threads=0,
@@ -138,6 +148,18 @@ class DashboardModel:
         with self.system_health_lock:
             return self.cached_system_info_snapshot
 
+    def dashboard_snapshot(self) -> DashboardSnapshot:
+        """Return immutable cached telemetry for render-only dashboard code."""
+        with self.system_health_lock:
+            return DashboardSnapshot(
+                cpu_percentages=list(self.cached_cpu_percentages),
+                memory_usage_rows=list(self.cached_memory_usage_rows),
+                system_info=self.cached_system_info_snapshot,
+                gpu_stats_by_alias={
+                    alias: dict(stats) for alias, stats in self.cached_gpu_stats_by_alias.items()
+                },
+            )
+
     def collect_system_health_snapshot(
         self,
     ) -> tuple[list[float], list[MemoryUsageSnapshot], SystemInfoSnapshot]:
@@ -181,6 +203,23 @@ class DashboardModel:
             self.cached_cpu_percentages = list(cpu)
             self.cached_memory_usage_rows = list(memory_rows)
             self.cached_system_info_snapshot = system_info
+
+    def apply_gpu_stats_snapshot(self, gpu_stats_by_alias: dict[str, dict[str, Any]]) -> None:
+        """Store GPU telemetry collected off the UI thread."""
+        with self.system_health_lock:
+            self.cached_gpu_stats_by_alias = {
+                alias: dict(stats) for alias, stats in gpu_stats_by_alias.items()
+            }
+
+    def set_cached_gpu_stats(self, alias: str, stats: dict[str, Any]) -> None:
+        """Set one slot's cached GPU telemetry without probing hardware."""
+        with self.system_health_lock:
+            self.cached_gpu_stats_by_alias[alias] = dict(stats)
+
+    def remove_cached_gpu_stats(self, alias: str) -> None:
+        """Remove cached GPU telemetry for a deleted or replaced slot."""
+        with self.system_health_lock:
+            self.cached_gpu_stats_by_alias.pop(alias, None)
 
     def collect_memory_usage_rows_now(self) -> list[MemoryUsageSnapshot]:
         """Return live memory and swap usage snapshots for non-refresh callers."""

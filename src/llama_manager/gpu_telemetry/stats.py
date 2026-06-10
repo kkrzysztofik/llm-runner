@@ -79,6 +79,10 @@ class GPUStats:
     def get_stats_snapshot(self) -> dict[str, Any]:
         """Get current GPU stats as pure data."""
         self.update()
+        return self.get_cached_stats_snapshot()
+
+    def get_cached_stats_snapshot(self) -> dict[str, Any]:
+        """Get current GPU stats without running the collector."""
         with self._stats_lock:
             return dict(self.stats)
 
