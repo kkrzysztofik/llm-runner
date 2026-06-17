@@ -379,20 +379,22 @@ class TestSystemHealthAlignment:
     def test_server_log_panel_composes_server_column_widget(self) -> None:
         from llama_cli.tui.components.server_column import ServerColumnPanel
         from llama_cli.tui.components.server_log import ServerLogPanel
-        from llama_cli.tui.types import ServerColumnState
+        from llama_cli.tui.types import ServerColumnState, SlotRuntimeStats
 
         view_model = MagicMock()
         view_model.column.return_value = ServerColumnState(
             alias="slot-a",
+            profile_name="slot-a",
             status="offline",
+            status_label="Offline",
             status_class="server-column-status-offline",
             backend_label="SYCL",
             url="http://127.0.0.1:8080",
             config_summary="Device: SYCL0 | Ctx: 2048 | Threads: 4",
-            logs_text="Waiting for output...",
+            log_lines=("Waiting for output...",),
+            runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
             gpu_stats=None,
             stale_warning=None,
-            is_unsaved=False,
         )
 
         sections = list(ServerLogPanel(0, view_model).compose())
@@ -2158,6 +2160,7 @@ async def test_dashboard_app_layout_geometry_regression() -> None:
         DateTimeSnapshot,
         MemoryUsageSnapshot,
         ServerColumnState,
+        SlotRuntimeStats,
         SystemInfoSnapshot,
     )
 
@@ -2196,15 +2199,17 @@ async def test_dashboard_app_layout_geometry_regression() -> None:
     controller.view_model.column = MagicMock(  # type: ignore[method-assign]
         return_value=ServerColumnState(
             alias="slot0",
+            profile_name="slot0",
             status="offline",
+            status_label="Offline",
             status_class="server-column-status-offline",
             backend_label="SYCL",
             url="http://127.0.0.1:8080",
             config_summary="Device: SYCL0 | Ctx: 2048 | Threads: 4",
-            logs_text="Waiting for output...",
+            log_lines=("Waiting for output...",),
+            runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
             gpu_stats=None,
             stale_warning=None,
-            is_unsaved=False,
         ),
     )
 

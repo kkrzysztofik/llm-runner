@@ -13,6 +13,7 @@ from llama_cli.tui.types import (
     DateTimeSnapshot,
     MemoryUsageSnapshot,
     ServerColumnState,
+    SlotRuntimeStats,
     SystemInfoSnapshot,
 )
 from llama_cli.tui.viewmodel import BACKEND_LABELS, DashboardViewModel
@@ -510,6 +511,7 @@ def test_column_valid() -> None:
     cfg = _make_server_config(alias="my-server", backend="sycl", port=9000)
     log_buf = MagicMock()
     log_buf.get_text.return_value = "server log output"
+    log_buf.get_lines.return_value = ["server log output"]
     proc = MagicMock()
     proc.poll.return_value = None  # process is alive
 
@@ -529,10 +531,17 @@ def test_column_valid() -> None:
     assert result.backend_label == "SYCL"
     assert result.url == "http://127.0.0.1:9000"
     assert result.config_summary == "Device: SYCL0 | Ctx: 8192 | Threads: 4"
-    assert result.logs_text == "server log output"
+    assert result.profile_name == "my-server"
+    assert result.status_label == "Running"
+    assert result.log_lines == ("server log output",)
+    assert result.runtime_stats == SlotRuntimeStats(
+        tps="--",
+        pp="--",
+        tokens_in="0",
+        tokens_out="0",
+    )
     assert result.gpu_stats == {"gpu_util": "45%"}
     assert result.stale_warning is None
-    assert result.is_unsaved is False
 
 
 def test_column_uses_cached_gpu_snapshot_without_live_probe() -> None:

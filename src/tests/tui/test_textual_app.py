@@ -469,9 +469,27 @@ class TestDashboardAppAddSlotFlow:
             None,
             True,
             ["Validated"],
+            layout_changed=True,
         )
 
         controller.apply_add_slot_from_form.assert_not_called()
+        app._reconcile_server_log_panels.assert_awaited_once()  # type: ignore[attr-defined]
+        app.refresh_dashboard.assert_called_once()  # type: ignore[attr-defined]
+
+    @pytest.mark.anyio
+    async def test_finish_add_slot_refreshes_without_reconcile_when_layout_unchanged(self) -> None:
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        self._stub_finish_add_slot_ui(app)
+
+        await app._finish_add_slot(
+            "Slot already current",
+            None,
+            True,
+            ["Validated"],
+            layout_changed=False,
+        )
+
         app._reconcile_server_log_panels.assert_not_awaited()  # type: ignore[attr-defined]
         app.refresh_dashboard.assert_called_once()  # type: ignore[attr-defined]
 

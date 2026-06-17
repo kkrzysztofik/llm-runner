@@ -30,8 +30,6 @@ class GPUStatsPanel(Widget):
     def _build_rows(self, stats: dict[str, Any]) -> ComposeResult:
         gpu_pct = self._parse_percent(stats.get("gpu_util"))
         mem_pct = self._parse_percent(stats.get("mem_util"))
-        cpu_pct = self._parse_percent(stats.get("cpu"))
-        sys_mem_pct = self._parse_percent(stats.get("mem"))
 
         def _fmt(val: Any) -> str:
             if val is None:
@@ -53,8 +51,8 @@ class GPUStatsPanel(Widget):
             )
         else:
             yield Horizontal(
-                self._usage_item("CPU", cpu_pct, _fmt(stats.get("cpu"))),
-                self._usage_item("Mem", sys_mem_pct, _fmt(stats.get("mem"))),
+                self._usage_item("GPU", None, "N/A"),
+                self._usage_item("VRAM", None, "N/A"),
                 classes="gpu-stats-usage-row",
             )
 

@@ -19,6 +19,7 @@ from .types import (
     DateTimeSnapshot,
     MemoryUsageSnapshot,
     ServerColumnState,
+    SlotRuntimeStats,
     SystemInfoSnapshot,
 )
 
@@ -149,19 +150,23 @@ class DashboardViewModel:
         snapshot = self.model.dashboard_snapshot()
         status = self._resolve_slot_status(cfg.alias)
         gpu_stats = snapshot.gpu_stats_by_alias.get(cfg.alias)
+        log_lines = tuple(self.model.log_buffers[cfg.alias].get_lines())
+        if not log_lines:
+            log_lines = ("Waiting for output...",)
+
         state = ServerColumnState(
             alias=cfg.alias,
+            profile_name=cfg.alias,
             status=status,
+            status_label=status.replace("_", " ").title(),
             status_class=f"server-column-status-{status.replace('_', '-')}",
             backend_label=BACKEND_LABELS.get(cfg.backend, BACKEND_LABELS["llama_cpp"]),
             url=f"http://{self.model.config.deployment.host}:{cfg.port}",
             config_summary=f"Device: {cfg.device} | Ctx: {cfg.ctx_size} | Threads: {cfg.threads}",
-            logs_text=self.model.log_buffers[cfg.alias].get_text(
-                empty_message="Waiting for output..."
-            ),
+            log_lines=log_lines,
+            runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
             gpu_stats=gpu_stats,
             stale_warning=self.stale_warning(cfg),
-            is_unsaved=cfg.alias in self.model.unsaved_slots,
         )
         duration_ms = (time.perf_counter() - start) * 1000
         logger.debug(
@@ -171,7 +176,7 @@ class DashboardViewModel:
             cfg.alias,
             status,
             gpu_stats is not None,
-            len(state.logs_text),
+            sum(len(line) for line in state.log_lines),
             duration_ms,
         )
         return state
@@ -218,7 +223,7 @@ class DashboardViewModel:
                 f"GPU: {stats.get('gpu_util', 'N/A')} | Mem: {stats.get('mem_util', 'N/A')}"
             )
         else:
-            lines.append(f"CPU: {stats.get('cpu', 'N/A')} | Mem: {stats.get('mem', 'N/A')}")
+            lines.append("GPU: N/A | VRAM: N/A")
 
         if stats.get("temp", "N/A") != "N/A":
             lines.append(f"Temp: {stats.get('temp', 'N/A')}")

@@ -23,30 +23,48 @@
     margin-bottom: 1;
 }
 
-.server-column-header-row {
+.server-column-title-row,
+.server-column-meta-row,
+.server-column-url-row {
     height: 1;
     layout: horizontal;
 }
 
-.server-column-alias {
-    width: auto;
-    margin-right: 1;
+.server-column-profile-name {
+    width: 1fr;
     color: $accent;
     text-style: bold;
 }
 
-.server-column-unsaved {
+.server-column-status {
     width: auto;
-    margin-right: 1;
-    color: yellow;
+    margin-left: 1;
+    padding: 0 1;
     text-style: bold;
 }
 
-.server-column-status,
-.server-column-backend,
-.server-column-url {
+.server-column-backend {
     width: auto;
     margin-right: 1;
+    color: ansi_bright_cyan;
+    text-style: bold;
+}
+
+.server-column-config {
+    width: 1fr;
+    color: ansi_bright_cyan;
+}
+
+.server-column-url-label {
+    width: auto;
+    margin-right: 1;
+    color: ansi_bright_black;
+    text-style: bold;
+}
+
+.server-column-url {
+    width: 1fr;
+    color: ansi_white;
 }
 
 .server-column-status-running {
@@ -78,6 +96,42 @@
 
 .server-column-warning {
     color: ansi_bright_yellow;
+}
+
+.slot-stats {
+    height: auto;
+    border: round ansi_bright_black;
+    padding: 0 1;
+    margin-bottom: 1;
+    layout: vertical;
+    background: black;
+}
+
+.slot-stats-title {
+    width: auto;
+    text-style: bold;
+}
+
+.slot-stats-row {
+    height: 2;
+    layout: horizontal;
+}
+
+.slot-stats-cell {
+    width: 1fr;
+    height: 2;
+    layout: vertical;
+}
+
+.slot-stats-label {
+    height: 1;
+    color: ansi_bright_black;
+}
+
+.slot-stats-value {
+    height: 1;
+    color: ansi_bright_white;
+    text-style: bold;
 }
 
 .gpu-stats,

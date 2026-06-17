@@ -23,19 +23,31 @@ class CommandMenuState:
 
 
 @dataclass(frozen=True)
+class SlotRuntimeStats:
+    """Display-ready per-slot runtime counters."""
+
+    tps: str
+    pp: str
+    tokens_in: str
+    tokens_out: str
+
+
+@dataclass(frozen=True)
 class ServerColumnState:
     """State needed to render one server column."""
 
     alias: str
+    profile_name: str
     status: str
+    status_label: str
     status_class: str
     backend_label: str
     url: str
     config_summary: str
-    logs_text: str
+    log_lines: tuple[str, ...]
+    runtime_stats: SlotRuntimeStats
     gpu_stats: dict[str, Any] | None
     stale_warning: str | None
-    is_unsaved: bool
 
 
 @dataclass(frozen=True)

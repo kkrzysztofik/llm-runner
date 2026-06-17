@@ -14,7 +14,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
 from textual.css.query import NoMatches
-from textual.widgets import Footer, Static
+from textual.widgets import Footer, Log, Static
 
 if TYPE_CHECKING:
     from .controller import DashboardController
@@ -40,6 +40,18 @@ _CONTENT_CONTAINER_ID = "#content"
 # ---------------------------------------------------------------------------
 # Extracted pure helper: profile options caching
 # ---------------------------------------------------------------------------
+
+
+def _split_log_update(
+    previous: tuple[str, ...],
+    current: tuple[str, ...],
+) -> tuple[bool, tuple[str, ...]]:
+    """Return (reload, lines_to_write) for a Textual Log widget."""
+    if current == previous:
+        return False, ()
+    if len(current) >= len(previous) and current[: len(previous)] == previous:
+        return False, current[len(previous) :]
+    return True, current
 
 
 def _profile_options_cached(
@@ -617,7 +629,10 @@ class DashboardApp(App[None]):
                 logger.debug("_finish_add_slot: success=%s notify=%r", success, notify_message)
                 self.notify(notify_message, severity="information")
 
-            self.refresh_dashboard()
+            if success and layout_changed:
+                await self._recompose_slots()
+            else:
+                self.refresh_dashboard()
         finally:
             self._end_slot_operation()
 
@@ -831,11 +846,42 @@ class DashboardApp(App[None]):
         """Update status badge and log content on an existing panel."""
         with contextlib.suppress(NoMatches):
             status_widget = cast(Static, panel.query_one(".server-column-status"))
-            status_widget.update(state.status.upper())
+            status_widget.update(state.status_label)
             status_widget.classes = f"server-column-status {state.status_class}"
         with contextlib.suppress(NoMatches):
-            log_widget = cast(Static, panel.query_one(".server-log-content"))
-            log_widget.update(state.logs_text)
+            profile_widget = cast(Static, panel.query_one(".server-column-profile-name"))
+            profile_widget.update(state.profile_name)
+        with contextlib.suppress(NoMatches):
+            config_widget = cast(Static, panel.query_one(".server-column-config"))
+            config_widget.update(state.config_summary)
+        with contextlib.suppress(NoMatches):
+            backend_widget = cast(Static, panel.query_one(".server-column-backend"))
+            backend_widget.update(state.backend_label)
+        with contextlib.suppress(NoMatches):
+            url_widget = cast(Static, panel.query_one(".server-column-url"))
+            url_widget.update(state.url)
+        with contextlib.suppress(NoMatches):
+            stats_values = list(panel.query(".slot-stats-value"))
+            for widget, value in zip(
+                stats_values,
+                (
+                    state.runtime_stats.tps,
+                    state.runtime_stats.pp,
+                    state.runtime_stats.tokens_in,
+                    state.runtime_stats.tokens_out,
+                ),
+                strict=False,
+            ):
+                cast(Static, widget).update(value)
+        with contextlib.suppress(NoMatches):
+            log_widget = cast(Log, panel.query_one(".server-log-content"))
+            previous: tuple[str, ...] = getattr(log_widget, "_llm_runner_lines", ())  # type: ignore[attr-defined]
+            reload, lines = _split_log_update(previous, state.log_lines)
+            if reload:
+                log_widget.clear()
+            if lines:
+                log_widget.write_lines(list(lines))
+            log_widget._llm_runner_lines = state.log_lines  # type: ignore[attr-defined]
 
     async def _recompose_slots(self) -> None:
         """Full recompose — call when slot count changes (add/remove)."""
