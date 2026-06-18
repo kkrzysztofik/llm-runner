@@ -562,6 +562,43 @@ class TestGPUTelemetryPanel:
         assert isinstance(sections[1], Static)
         assert sections[1].has_class("gpu-stats-unavailable")
 
+    def test_gpu_stats_panel_update_stats_applies_new_data(self) -> None:
+        """GPUStatsPanel.update_stats should update _stats and trigger recompose."""
+        from llama_cli.tui.components.gpu_stats import GPUStatsPanel
+
+        panel = GPUStatsPanel({})
+        panel.refresh = MagicMock()
+
+        new_stats = {"device": "Intel Arc", "gpu_util": "45%", "mem_util": "57%"}
+        panel.update_stats(new_stats)
+
+        assert panel._stats == new_stats
+        panel.refresh.assert_called_once_with(recompose=True)
+
+    def test_gpu_stats_panel_update_stats_skips_identical(self) -> None:
+        """GPUStatsPanel.update_stats should skip refresh when stats are unchanged."""
+        from llama_cli.tui.components.gpu_stats import GPUStatsPanel
+
+        stats = {"device": "Test GPU", "gpu_util": "30%"}
+        panel = GPUStatsPanel(stats)
+        panel.refresh = MagicMock()
+
+        panel.update_stats(dict(stats))
+
+        panel.refresh.assert_not_called()
+
+    def test_gpu_stats_panel_update_stats_clears_to_none(self) -> None:
+        """GPUStatsPanel.update_stats(None) should clear cached stats."""
+        from llama_cli.tui.components.gpu_stats import GPUStatsPanel
+
+        panel = GPUStatsPanel({"device": "Test"})
+        panel.refresh = MagicMock()
+
+        panel.update_stats(None)
+
+        assert panel._stats is None
+        panel.refresh.assert_called_once_with(recompose=True)
+
 
 class TestSlotStateTransitionHandling:
     """T016e: Tests for slot state transition handling in TUI."""

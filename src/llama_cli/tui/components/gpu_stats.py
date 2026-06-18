@@ -100,6 +100,14 @@ class GPUStatsPanel(Widget):
     def _value_class(raw: str) -> str:
         return "gpu-stats-muted-value" if raw == "N/A" else "gpu-stats-value"
 
+    def update_stats(self, stats: dict[str, Any] | None) -> None:
+        """Update the GPU stats and re-render the panel."""
+        next_stats = dict(stats) if stats is not None else None
+        if self._stats == next_stats:
+            return
+        self._stats = next_stats
+        self.refresh(recompose=True)
+
     @staticmethod
     def _parse_percent(value: object) -> float | None:
         if value is None:

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 from .components.about_modal import AboutModal
 from .components.build import BuildModalScreen
 from .components.config_modal import ConfigModal, ConfigPayload
+from .components.gpu_stats import GPUStatsPanel
 from .components.modal import AddSlotModal, RemoveSlotModal
 from .components.server_column import ServerColumnPanel
 from .components.server_log import ServerLogPanel
@@ -680,14 +681,13 @@ class DashboardApp(App[None]):
             )
             if success:
                 if not self.controller.server_manager.shutdown_slot(alias):
-                    logger.warning(
-                        "shutdown_slot returned False for '%s'; proceeding with removal",
+                    messages = [f"Unable to remove '{alias}': shutdown verification failed"]
+                    success = False
+                else:
+                    success, messages = self.call_from_thread(
+                        self.controller.commit_async_slot_remove,
                         alias,
                     )
-                success, messages = self.call_from_thread(
-                    self.controller.commit_async_slot_remove,
-                    alias,
-                )
             if not success:
                 for msg in messages:
                     self.call_from_thread(self.controller._push_status_message, msg)
@@ -877,6 +877,9 @@ class DashboardApp(App[None]):
         with contextlib.suppress(NoMatches):
             url_widget = cast(Static, panel.query_one(".server-column-url"))
             url_widget.update(state.url)
+        with contextlib.suppress(NoMatches):
+            gpu_panel = cast(GPUStatsPanel, panel.query_one(GPUStatsPanel))
+            gpu_panel.update_stats(state.gpu_stats)
         with contextlib.suppress(NoMatches):
             stats_values = list(panel.query(".slot-stats-value"))
             for widget, value in zip(

@@ -449,6 +449,62 @@ class TestDashboardAppGpuStatsRefresh:
         )
         assert app._gpu_stats_refresh_active is False
 
+    def test_update_panel_widgets_pushes_gpu_stats(self) -> None:
+        """_update_panel_widgets should call GPUStatsPanel.update_stats with state.gpu_stats."""
+        from textual.widgets import Static
+
+        from llama_cli.tui.components.gpu_stats import GPUStatsPanel
+        from llama_cli.tui.types import ServerColumnState, SlotRuntimeStats
+
+        controller = _make_controller()
+        app = DashboardApp(controller)
+
+        view_model = MagicMock()
+        view_model.column.return_value = ServerColumnState(
+            alias="slot0",
+            profile_name="default",
+            status="running",
+            status_label="Running",
+            status_class="server-column-status-running",
+            backend_label="CUDA",
+            url="http://127.0.0.1:8081",
+            config_summary="Device: CUDA0 | Ctx: 8192",
+            log_lines=("line1", "line2"),
+            runtime_stats=SlotRuntimeStats(tps="12.5", pp="100", tokens_in="500", tokens_out="200"),
+            gpu_stats={"device": "NVIDIA RTX 3090", "gpu_util": "82%", "mem_util": "71%"},
+            stale_warning=None,
+        )
+
+        gpu_panel = GPUStatsPanel(None)
+
+        panel = MagicMock()
+        log_widget = MagicMock()
+
+        def _query(sel, cls=None):
+            if cls is GPUStatsPanel:
+                return [gpu_panel]
+            if isinstance(sel, str) and ".slot-stats-value" in sel:
+                return []
+            return []
+
+        def _query_one(sel, cls=None):
+            if sel is GPUStatsPanel:
+                return gpu_panel
+            if isinstance(sel, str) and ".server-log-content" in sel:
+                return log_widget
+            return Static()
+
+        panel.query = _query
+        panel.query_one = _query_one
+
+        app._update_panel_widgets(panel, view_model.column.return_value)  # type: ignore[arg-type]
+
+        assert gpu_panel._stats == {
+            "device": "NVIDIA RTX 3090",
+            "gpu_util": "82%",
+            "mem_util": "71%",
+        }
+
 
 class TestDashboardAppAddSlotFlow:
     """Tests for async add-slot worker and finish handler."""
@@ -775,6 +831,35 @@ class TestDashboardAppRemoveSlotFlow:
         ]
         assert len(finish_calls) == 1
         assert finish_calls[0][1] == ("slot0", None, True)
+
+    def test_run_remove_slot_blocks_commit_when_shutdown_fails(self) -> None:
+        controller = _make_controller()
+        controller.prepare_async_slot_remove.return_value = (True, [])
+        controller.server_manager.shutdown_slot.return_value = False
+        app = DashboardApp(controller)
+        captured: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        def _call_from_thread(fn: object, *args: object, **kwargs: object) -> object:
+            if getattr(fn, "__name__", "") == "_finish_remove_slot":
+                captured.append((fn, args, kwargs))
+                return None
+            return fn(*args, **kwargs)  # type: ignore[misc]
+
+        app.call_from_thread = _call_from_thread  # type: ignore[method-assign]
+
+        DashboardApp._run_remove_slot.__wrapped__(app, "slot0")  # type: ignore[attr-defined]
+
+        controller.prepare_async_slot_remove.assert_called_once_with("slot0")
+        controller.server_manager.shutdown_slot.assert_called_once_with("slot0")
+        controller.commit_async_slot_remove.assert_not_called()
+        controller._push_status_message.assert_called_once_with(
+            "Unable to remove 'slot0': shutdown verification failed"
+        )
+        finish_calls = [
+            call for call in captured if getattr(call[0], "__name__", "") == "_finish_remove_slot"
+        ]
+        assert len(finish_calls) == 1
+        assert finish_calls[0][1] == ("slot0", None, False)
 
     @pytest.mark.anyio
     async def test_finish_remove_slot_reconciles_and_refreshes(self) -> None:
