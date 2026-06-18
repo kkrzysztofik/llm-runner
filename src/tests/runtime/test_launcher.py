@@ -1,6 +1,7 @@
 """Tests for the process launcher abstraction."""
 
 import time
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -11,7 +12,54 @@ from llama_manager.orchestration.launcher import (
     ProcessHandle,
     ProcessTimeoutError,
     _SubprocessHandle,
+    wrap_sycl_launch_cmd,
 )
+
+
+class TestSyclLaunchWrapper:
+    """Tests for wrap_sycl_launch_cmd helper."""
+
+    def test_wrap_sycl_launch_cmd_sources_setvars_when_device_is_sycl(self, tmp_path: Path) -> None:
+        setvars = tmp_path / "setvars.sh"
+        setvars.write_text("# test\n")
+        cmd = ["/bin/echo", "hello world"]
+
+        wrapped = wrap_sycl_launch_cmd(cmd, "SYCL0", setvars_path=setvars)
+
+        assert wrapped[:3] == [
+            "bash",
+            "-c",
+            (
+                'if ! source "$1" --force >/dev/null 2>&1; then '
+                'echo "failed to source Intel oneAPI setvars for SYCL launch: $1" >&2; '
+                "exit 127; "
+                "fi; "
+                "shift; "
+                'exec "$@"'
+            ),
+        ]
+        assert wrapped[3] == "llm-runner-sycl-launch"
+        assert wrapped[4] == str(setvars)
+        assert wrapped[5:] == cmd
+        assert cmd == ["/bin/echo", "hello world"]
+
+    def test_wrap_sycl_launch_cmd_leaves_non_sycl_device_unchanged(self, tmp_path: Path) -> None:
+        setvars = tmp_path / "setvars.sh"
+        setvars.write_text("# test\n")
+        cmd = ["/bin/echo", "cuda"]
+
+        wrapped = wrap_sycl_launch_cmd(cmd, "CUDA0", setvars_path=setvars)
+
+        assert wrapped is cmd
+
+    def test_wrap_sycl_launch_cmd_leaves_command_unchanged_when_setvars_missing(
+        self, tmp_path: Path
+    ) -> None:
+        cmd = ["/bin/echo", "sycl"]
+
+        wrapped = wrap_sycl_launch_cmd(cmd, "SYCL0", setvars_path=tmp_path / "missing.sh")
+
+        assert wrapped is cmd
 
 
 class MockProcessHandle:
@@ -245,6 +293,52 @@ class TestProcessLauncherProtocol:
         # Should not raise
         manager._wait_for_processes()
         assert len(manager.servers) == 1  # server not removed
+
+    def test_start_servers_wraps_sycl_config_with_oneapi_setvars(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from llama_manager.orchestration import ServerManager
+        from llama_manager.orchestration import launcher as launcher_module
+        from tests.support.helpers import make_server_config
+
+        setvars = tmp_path / "setvars.sh"
+        setvars.write_text("# test\n")
+        monkeypatch.setattr(launcher_module, "_INTEL_SETVARS_SH", setvars)
+
+        mock_launcher = MockProcessLauncher()
+        manager = ServerManager(process_launcher=mock_launcher)  # pyright: ignore[arg-type]
+        cfg = make_server_config(alias="summary-balanced", device="SYCL0", server_bin="/bin/echo")
+
+        manager.start_servers([cfg], {})
+
+        launched = mock_launcher.launch_calls[0]
+        assert launched[0:2] == ["bash", "-c"]
+        assert launched[3] == "llm-runner-sycl-launch"
+        assert launched[4] == str(setvars)
+        assert launched[5] == "/bin/echo"
+
+    def test_start_servers_does_not_wrap_cuda_config(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from llama_manager.orchestration import ServerManager
+        from llama_manager.orchestration import launcher as launcher_module
+        from tests.support.helpers import make_server_config
+
+        setvars = tmp_path / "setvars.sh"
+        setvars.write_text("# test\n")
+        monkeypatch.setattr(launcher_module, "_INTEL_SETVARS_SH", setvars)
+
+        mock_launcher = MockProcessLauncher()
+        manager = ServerManager(process_launcher=mock_launcher)  # pyright: ignore[arg-type]
+        cfg = make_server_config(alias="qwen35-coding", device="CUDA0", server_bin="/bin/echo")
+
+        manager.start_servers([cfg], {})
+
+        assert mock_launcher.launch_calls[0][0] == "/bin/echo"
 
 
 class TestServerManagerAckFlow:

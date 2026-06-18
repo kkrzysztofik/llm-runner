@@ -226,11 +226,13 @@ class ServerManager:
     ) -> list[ProcessHandle]:
         """Start multiple servers and return their processes."""
         from ..validation.commands import build_server_cmd
+        from .launcher import wrap_sycl_launch_cmd
 
         log_handlers = log_handlers or {}
         processes = []
         for cfg in configs:
             cmd = build_server_cmd(cfg)
+            cmd = wrap_sycl_launch_cmd(cmd, cfg.device)
             handler = log_handlers.get(cfg.alias) if log_handlers else None
             proc = self.start_server_background(cfg.alias, cmd, handler)
             processes.append(proc)
