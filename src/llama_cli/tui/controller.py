@@ -45,6 +45,7 @@ from llama_manager.logging_setup import (
     update_file_level,
     update_stderr_level,
 )
+from llama_manager.slot_stats import load_slot_stats
 
 from .components.config_modal import ConfigPayload
 from .components.slot_profile_modal import SlotProfilePayload
@@ -120,6 +121,9 @@ class DashboardController:
         self.model = DashboardModel(configs=configs, gpu_indices=gpu_indices, slots=slots)
         self.view_model = DashboardViewModel(self.model)
 
+        # Load persisted slot stats so the TUI shows last-known values immediately
+        self._load_persisted_slot_stats()
+
         # Build pipeline state
         self._build_pipeline: BuildPipeline | None = None
         self.build_in_progress = False
@@ -153,6 +157,13 @@ class DashboardController:
     @property
     def slots(self) -> list[ModelSlot]:
         return self.model.slots
+
+    def _load_persisted_slot_stats(self) -> None:
+        """Load persisted slot stats from disk into the model cache."""
+        try:
+            self.model.apply_slot_stats_snapshot(load_slot_stats())
+        except Exception:
+            logger.debug("failed to load persisted slot stats", exc_info=True)
 
     @property
     def log_buffers(self) -> dict[str, LogBuffer]:

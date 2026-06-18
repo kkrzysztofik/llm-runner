@@ -607,3 +607,43 @@ class TestControllerProfileMethods:
         assert result is True
         texts = [msg for _, msg in controller._status_messages]
         assert any("deleted" in t for t in texts)
+
+
+class TestControllerSlotStatsPersistence:
+    """Tests for persisted slot stats loading at controller construction."""
+
+    def test_controller_loads_persisted_slot_stats(self, monkeypatch) -> None:
+        """DashboardController should load persisted slot stats on construction."""
+        from llama_manager.slot_stats import SlotStatsSnapshot
+
+        persisted = {
+            "slot0": SlotStatsSnapshot(
+                alias="slot0",
+                port=8080,
+                updated_at=10.0,
+                tps=4.0,
+                tokens_in=100,
+                tokens_out=25,
+            )
+        }
+
+        def fake_load(*a, **kw):
+            return persisted
+
+        monkeypatch.setattr("llama_cli.tui.controller.load_slot_stats", fake_load)
+
+        controller = _make_controller()
+
+        assert controller.model.slot_stats_snapshot() == persisted
+
+    def test_controller_loads_persisted_slot_stats_on_failure(self, monkeypatch) -> None:
+        """DashboardController should not crash if load_slot_stats raises."""
+
+        def fake_load(*a, **kw):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("llama_cli.tui.controller.load_slot_stats", fake_load)
+
+        controller = _make_controller()
+
+        assert controller.model.slot_stats_snapshot() == {}
