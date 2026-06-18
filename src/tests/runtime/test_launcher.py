@@ -305,6 +305,9 @@ class TestProcessLauncherProtocol:
 
         setvars = tmp_path / "setvars.sh"
         setvars.write_text("# test\n")
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+        monkeypatch.setenv("LLM_RUNNER_RUNTIME_DIR", str(runtime_dir))
         monkeypatch.setattr(launcher_module, "_INTEL_SETVARS_SH", setvars)
 
         mock_launcher = MockProcessLauncher()
@@ -330,6 +333,9 @@ class TestProcessLauncherProtocol:
 
         setvars = tmp_path / "setvars.sh"
         setvars.write_text("# test\n")
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+        monkeypatch.setenv("LLM_RUNNER_RUNTIME_DIR", str(runtime_dir))
         monkeypatch.setattr(launcher_module, "_INTEL_SETVARS_SH", setvars)
 
         mock_launcher = MockProcessLauncher()
@@ -339,6 +345,57 @@ class TestProcessLauncherProtocol:
         manager.start_servers([cfg], {})
 
         assert mock_launcher.launch_calls[0][0] == "/bin/echo"
+
+    def test_start_servers_records_server_pid_in_slot_lock(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from llama_manager.orchestration import LockMetadata, ServerManager, read_lock
+        from tests.support.helpers import make_server_config
+
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+        monkeypatch.setenv("LLM_RUNNER_RUNTIME_DIR", str(runtime_dir))
+        mock_handle = MockProcessHandle(pid=24680)
+        mock_launcher = MockProcessLauncher(handle=mock_handle)  # pyright: ignore[arg-type]
+        manager = ServerManager(process_launcher=mock_launcher)
+        cfg = make_server_config(alias="summary-balanced", port=8080, server_bin="/bin/echo")
+
+        manager.start_servers([cfg], {})
+
+        metadata = read_lock(runtime_dir, "summary-balanced")
+        assert metadata is not None
+        assert isinstance(metadata, LockMetadata)
+        assert metadata.pid == 24680
+        assert metadata.port == 8080
+
+    def test_shutdown_slot_uses_tracked_process_and_releases_lock(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from llama_manager.orchestration import ServerManager, read_lock
+        from tests.support.helpers import make_server_config
+
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+        monkeypatch.setenv("LLM_RUNNER_RUNTIME_DIR", str(runtime_dir))
+        mock_handle = MockProcessHandle(pid=24681)
+        mock_launcher = MockProcessLauncher(handle=mock_handle)  # pyright: ignore[arg-type]
+        manager = ServerManager(process_launcher=mock_launcher)
+        cfg = make_server_config(alias="summary-balanced", port=8080, server_bin="/bin/echo")
+        manager.start_servers([cfg], {})
+
+        with patch("llama_manager.orchestration.manager.os.kill") as kill:
+            result = manager.shutdown_slot("summary-balanced")
+
+        assert result is True
+        kill.assert_called_once()
+        assert read_lock(runtime_dir, "summary-balanced") is None
+        assert "summary-balanced" not in manager.slot_processes
+        assert mock_handle not in manager.servers
+        assert mock_handle.pid not in manager.pids
 
 
 class TestServerManagerAckFlow:

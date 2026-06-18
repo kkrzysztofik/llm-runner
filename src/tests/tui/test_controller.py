@@ -345,18 +345,21 @@ class TestControllerRemoveLiveSlot:
         assert controller.model.stale_warnings == {}
         assert any(msg == "Removed slot 'slot0'" for _, msg in controller._status_messages)
 
-    def test_remove_live_slot_shutdown_failure_still_removes(self) -> None:
+    def test_remove_live_slot_shutdown_failure_blocks_removal(self) -> None:
         controller = _make_controller()
         controller.model.server_manager = MagicMock()
         controller.model.server_manager.shutdown_slot.return_value = False
 
         success = controller.remove_live_slot("slot0")
 
-        assert success is True
-        assert len(controller.configs) == 0
-        assert len(controller.gpu_indices) == 0
-        assert len(controller.gpu_stats) == 0
-        assert "slot0" not in controller.log_buffers
+        assert success is False
+        assert len(controller.configs) == 1
+        assert len(controller.gpu_indices) == 1
+        assert len(controller.gpu_stats) == 1
+        assert any(
+            msg == "Unable to remove 'slot0': shutdown verification failed"
+            for _, msg in controller._status_messages
+        )
 
 
 class TestControllerBuildLifecycle:

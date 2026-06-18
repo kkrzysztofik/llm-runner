@@ -103,10 +103,7 @@ def remove_profile_slot(
         return False, [f"Unable to remove '{alias}': slot not found"], state
 
     if not server_manager.shutdown_slot(alias):
-        logger.warning(
-            "shutdown_slot returned False for '%s'; proceeding with removal",
-            alias,
-        )
+        return False, [f"Unable to remove '{alias}': shutdown verification failed"], state
 
     if len(configs) != len(gpu_indices) or len(configs) != len(gpu_stats):
         raise RuntimeError("slot runtime lists must remain length-synchronized")

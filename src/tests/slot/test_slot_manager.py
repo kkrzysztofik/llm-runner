@@ -313,7 +313,7 @@ class TestRemoveProfileSlot:
         assert "slot not found" in messages[-1]
         server_manager.shutdown_slot.assert_not_called()
 
-    def test_shutdown_failure_proceeds_with_removal(self) -> None:
+    def test_shutdown_failure_blocks_removal_without_mutation(self) -> None:
         configs = [_make_config(alias="a")]
         gpu_indices = [0]
         gpu_stats = [GPUStats(0, collector=_make_collector(0))]
@@ -327,7 +327,7 @@ class TestRemoveProfileSlot:
             unsaved_slots={"a"},
             slots=[ModelSlot(slot_id="a", model_path="/m/a.gguf", port=8080)],
         )
-        {
+        original_state = {
             "log_buffers": dict(state["log_buffers"]),
             "server_processes": dict(state["server_processes"]),
             "slot_states": dict(state["slot_states"]),
@@ -345,11 +345,13 @@ class TestRemoveProfileSlot:
             state,
         )
 
-        assert success is True
-        assert [cfg.alias for cfg in configs] == []
-        assert gpu_indices == []
-        assert len(gpu_stats) == 0
-        assert "Removed slot 'a'" in messages[-1]
+        assert success is False
+        assert updated_state is state
+        assert [cfg.alias for cfg in configs] == ["a"]
+        assert gpu_indices == [0]
+        assert len(gpu_stats) == 1
+        assert state == original_state
+        assert messages == ["Unable to remove 'a': shutdown verification failed"]
         server_manager.shutdown_slot.assert_called_once_with("a")
 
     def test_removing_final_slot_leaves_empty_runtime_lists(self) -> None:
