@@ -741,6 +741,42 @@ class TestBuildTuiModeConfigs:
         assert configs[0].port == 9090
         assert configs[1].port == 9091
 
+    def test_build_tui_mode_configs_uses_custom_builtin_override(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """TUI launch configs should use persisted custom overrides for built-ins."""
+        from llama_cli.server_runner import _build_tui_mode_configs
+        from llama_manager.config import Config, SlotProfileSpec
+        from llama_manager.slot_profile_store import save_custom_slot_profile
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        save_custom_slot_profile(
+            SlotProfileSpec(
+                profile_id="summary-balanced",
+                model="/models/edited-summary.gguf",
+                alias="summary-balanced",
+                device="SYCL0",
+                port=17777,
+                ctx_size=12345,
+                ubatch_size=256,
+                threads=6,
+            )
+        )
+
+        cfg = Config()
+        parsed = argparse.Namespace(mode="summary-balanced", port=None, port2=None)
+
+        result = _build_tui_mode_configs(cfg, parsed)
+        configs = result["summary-balanced"][2]
+
+        assert len(configs) == 1
+        assert configs[0].model == "/models/edited-summary.gguf"
+        assert configs[0].port == 17777
+        assert configs[0].ctx_size == 12345
+        assert configs[0].threads == 6
+
 
 class TestResolveTuiModeConfigs:
     """Tests for _resolve_tui_mode_configs port override behavior."""
@@ -799,6 +835,40 @@ class TestResolveTuiModeConfigs:
         assert len(configs) == 2
         assert configs[0].port == cfg.deployment.summary_balanced_port  # First port stays default
         assert configs[1].port == 8081
+
+    def test_resolve_mode_configs_uses_tui_registry_when_registry_not_supplied(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Fallback registry should include custom overrides for TUI resolution."""
+        from llama_cli.server_runner import _resolve_tui_mode_configs
+        from llama_manager.config import Config, SlotProfileSpec
+        from llama_manager.slot_profile_store import save_custom_slot_profile
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        save_custom_slot_profile(
+            SlotProfileSpec(
+                profile_id="summary-fast",
+                model="/models/edited-fast.gguf",
+                alias="summary-fast",
+                device="SYCL0",
+                port=18888,
+                ctx_size=8192,
+                ubatch_size=128,
+                threads=3,
+            )
+        )
+
+        cfg = Config()
+        parsed = argparse.Namespace(mode="summary-fast", port=None, port2=None)
+
+        configs = _resolve_tui_mode_configs("summary-fast", cfg, parsed)
+
+        assert len(configs) == 1
+        assert configs[0].model == "/models/edited-fast.gguf"
+        assert configs[0].port == 18888
+        assert configs[0].threads == 3
 
 
 class _FakeTextualDashboardApp:
