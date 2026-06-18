@@ -402,6 +402,66 @@ class TestSystemHealthAlignment:
         assert len(sections) == 1
         assert isinstance(sections[0], ServerColumnPanel)
 
+    def test_server_column_panel_renders_runtime_stats_values(self) -> None:
+        """ServerColumnPanel should render runtime_stats values from State."""
+        from llama_cli.tui.components.server_column import ServerColumnPanel
+        from llama_cli.tui.types import ServerColumnState, SlotRuntimeStats
+
+        state = ServerColumnState(
+            alias="slot-a",
+            profile_name="slot-a",
+            status="running",
+            status_label="Running",
+            status_class="server-column-status-running",
+            backend_label="SYCL",
+            url="http://127.0.0.1:8080",
+            config_summary="Device: SYCL0 | Ctx: 2048 | Threads: 4",
+            log_lines=("Waiting for output...",),
+            runtime_stats=SlotRuntimeStats(tps="5.2", pp="99.9", tokens_in="123", tokens_out="45"),
+            gpu_stats=None,
+            stale_warning=None,
+        )
+
+        panel = ServerColumnPanel(state)
+        widgets = list(panel.compose())
+
+        stats_container = widgets[2]
+        stats_row = stats_container._pending_children[1]
+        cells = stats_row._pending_children
+
+        values = [str(cell._pending_children[1].visual) for cell in cells]  # type: ignore[attr-defined]
+        assert values == ["5.2", "99.9", "123", "45"]
+
+    def test_server_column_panel_renders_dash_for_missing_stats(self) -> None:
+        """ServerColumnPanel should render '--' for missing TPS/PP stats."""
+        from llama_cli.tui.components.server_column import ServerColumnPanel
+        from llama_cli.tui.types import ServerColumnState, SlotRuntimeStats
+
+        state = ServerColumnState(
+            alias="slot-b",
+            profile_name="slot-b",
+            status="offline",
+            status_label="Offline",
+            status_class="server-column-status-offline",
+            backend_label="CUDA",
+            url="http://127.0.0.1:8081",
+            config_summary="Device: CUDA0 | Ctx: 8192",
+            log_lines=("No output...",),
+            runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
+            gpu_stats=None,
+            stale_warning=None,
+        )
+
+        panel = ServerColumnPanel(state)
+        widgets = list(panel.compose())
+
+        stats_container = widgets[2]
+        stats_row = stats_container._pending_children[1]
+        cells = stats_row._pending_children
+
+        values = [str(cell._pending_children[1].visual) for cell in cells]  # type: ignore[attr-defined]
+        assert values == ["--", "--", "0", "0"]
+
 
 class TestPerSlotStatusDisplay:
     """T016c: Tests for per-slot status display in TUI."""

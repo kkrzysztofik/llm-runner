@@ -120,6 +120,7 @@ class DashboardApp(App[None]):
         self._last_model_index_notice_scanned = 0
         self._gpu_stats_refresh_active = False
         self._system_health_refresh_active = False
+        self._slot_stats_refresh_active = False
         self._slot_operation_active = False
         self._pending_remove_slot_alias: str | None = None
         self.last_build_backend: str = "sycl"
@@ -158,8 +159,10 @@ class DashboardApp(App[None]):
         self.set_interval(interval_s, self.refresh_dashboard)
         self.set_interval(max(1.0, interval_s), self._schedule_gpu_stats_refresh)
         self.set_interval(max(1.0, interval_s), self._schedule_system_health_refresh)
+        self.set_interval(1.0, self._schedule_slot_stats_refresh)
         self._schedule_gpu_stats_refresh()
         self._schedule_system_health_refresh()
+        self._schedule_slot_stats_refresh()
         self._index_models()
 
     def _schedule_gpu_stats_refresh(self) -> None:
@@ -240,6 +243,28 @@ class DashboardApp(App[None]):
 
     def _mark_system_health_refresh_complete(self) -> None:
         self._system_health_refresh_active = False
+
+    def _schedule_slot_stats_refresh(self) -> None:
+        """Start one background slot stats refresh if no refresh is already running."""
+        if self._slot_stats_refresh_active:
+            logger.debug("_schedule_slot_stats_refresh: skipped, refresh already active")
+            return
+        self._slot_stats_refresh_active = True
+        self._refresh_slot_stats_worker()
+
+    @work(thread=True)
+    def _refresh_slot_stats_worker(self) -> None:
+        """Refresh slot stats off the render thread."""
+        try:
+            self.controller.refresh_slot_stats()
+        except Exception:
+            logger.exception("_refresh_slot_stats_worker: unhandled exception")
+        finally:
+            self.call_from_thread(self._mark_slot_stats_refresh_complete)
+            self.call_from_thread(self.refresh_dashboard)
+
+    def _mark_slot_stats_refresh_complete(self) -> None:
+        self._slot_stats_refresh_active = False
 
     def _index_models(self) -> None:
         """Refresh model index in a controller-owned background thread."""

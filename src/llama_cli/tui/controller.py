@@ -45,7 +45,7 @@ from llama_manager.logging_setup import (
     update_file_level,
     update_stderr_level,
 )
-from llama_manager.slot_stats import load_slot_stats
+from llama_manager.slot_stats import collect_slot_stats, load_slot_stats, save_slot_stats
 
 from .components.config_modal import ConfigPayload
 from .components.slot_profile_modal import SlotProfilePayload
@@ -164,6 +164,27 @@ class DashboardController:
             self.model.apply_slot_stats_snapshot(load_slot_stats())
         except Exception:
             logger.debug("failed to load persisted slot stats", exc_info=True)
+
+    def refresh_slot_stats(self) -> None:
+        """Collect live slot stats for all running configs and persist changes."""
+        current = self.model.slot_stats_snapshot()
+        updated = dict(current)
+        changed = False
+        for cfg in self.model.configs:
+            try:
+                stats = collect_slot_stats(cfg.alias, self.model.config.deployment.host, cfg.port)
+                if stats is None:
+                    continue
+                updated[cfg.alias] = stats
+                changed = True
+            except Exception:
+                logger.exception("refresh_slot_stats: failed to collect for %s", cfg.alias)
+        if changed:
+            try:
+                self.model.apply_slot_stats_snapshot(updated)
+                save_slot_stats(updated)
+            except Exception:
+                logger.exception("refresh_slot_stats: failed to persist slot stats")
 
     @property
     def log_buffers(self) -> dict[str, LogBuffer]:

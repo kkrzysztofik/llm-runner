@@ -911,3 +911,51 @@ class TestDashboardAppProfileModalResult:
         app._handle_profile_modal_result(SlotProfilePayload(profile_id="my-profile"))
 
         notify_mock.assert_called_once_with("Failed to save profile", severity="error")
+
+
+class TestDashboardAppSlotStatsRefresh:
+    """Tests for background slot stats refresh helpers."""
+
+    def test_schedule_slot_stats_refresh_skips_when_active(self) -> None:
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app._slot_stats_refresh_active = True
+        app._refresh_slot_stats_worker = MagicMock()  # type: ignore[method-assign]
+
+        app._schedule_slot_stats_refresh()
+
+        app._refresh_slot_stats_worker.assert_not_called()
+
+    def test_mark_slot_stats_refresh_complete_clears_flag(self) -> None:
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app._slot_stats_refresh_active = True
+
+        app._mark_slot_stats_refresh_complete()
+
+        assert app._slot_stats_refresh_active is False
+
+    def test_refresh_slot_stats_worker_calls_controller_refresh(self) -> None:
+        controller = _make_controller()
+        controller.refresh_slot_stats = MagicMock()
+        app = DashboardApp(controller)
+        app.call_from_thread = lambda fn, *args, **kwargs: fn(*args, **kwargs)  # type: ignore[method-assign]
+        app.refresh_dashboard = MagicMock()
+        app._slot_stats_refresh_active = True
+
+        DashboardApp._refresh_slot_stats_worker.__wrapped__(app)  # type: ignore[attr-defined]
+
+        controller.refresh_slot_stats.assert_called_once()
+        app.refresh_dashboard.assert_called_once()
+        assert app._slot_stats_refresh_active is False
+
+    def test_refresh_slot_stats_worker_survives_controller_error(self) -> None:
+        controller = _make_controller()
+        controller.refresh_slot_stats.side_effect = RuntimeError("server down")  # type: ignore[attr-defined]
+        app = DashboardApp(controller)
+        app.call_from_thread = lambda fn, *args, **kwargs: fn(*args, **kwargs)  # type: ignore[method-assign]
+        app.refresh_dashboard = MagicMock()
+
+        DashboardApp._refresh_slot_stats_worker.__wrapped__(app)  # type: ignore[attr-defined]
+
+        assert app._slot_stats_refresh_active is False

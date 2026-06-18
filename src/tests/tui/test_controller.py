@@ -647,3 +647,40 @@ class TestControllerSlotStatsPersistence:
         controller = _make_controller()
 
         assert controller.model.slot_stats_snapshot() == {}
+
+    def test_controller_refresh_slot_stats_collects_running_configs(self, monkeypatch) -> None:
+        """refresh_slot_stats should collect stats for all running configs."""
+        from llama_manager.slot_stats import SlotStatsSnapshot
+
+        collected: list[tuple[str, str, int]] = []
+        saved: list[dict[str, SlotStatsSnapshot]] = []
+
+        def fake_collect(alias: str, host: str, port: int):
+            collected.append((alias, host, port))
+            return SlotStatsSnapshot(alias=alias, port=port, updated_at=10.0, tokens_out=5)
+
+        monkeypatch.setattr("llama_cli.tui.controller.collect_slot_stats", fake_collect)
+        monkeypatch.setattr("llama_cli.tui.controller.save_slot_stats", saved.append)
+        controller = _make_controller()
+
+        controller.refresh_slot_stats()
+
+        assert len(collected) == 1
+        assert controller.model.slot_stats_snapshot()
+        assert saved
+
+    def test_controller_refresh_slot_stats_keeps_persisted_value_on_failure(
+        self, monkeypatch
+    ) -> None:
+        """refresh_slot_stats should keep persisted values when collection fails."""
+        from llama_manager.slot_stats import SlotStatsSnapshot
+
+        existing = SlotStatsSnapshot(alias="slot0", port=8080, updated_at=1.0, tokens_out=3)
+        monkeypatch.setattr("llama_cli.tui.controller.collect_slot_stats", lambda *a, **k: None)
+        monkeypatch.setattr("llama_cli.tui.controller.save_slot_stats", lambda stats: None)
+        controller = _make_controller()
+        controller.model.set_cached_slot_stats("slot0", existing)
+
+        controller.refresh_slot_stats()
+
+        assert controller.model.slot_stats_snapshot()["slot0"] == existing
