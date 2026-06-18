@@ -741,28 +741,44 @@ class DashboardApp(App[None]):
             len(current_panels),
             needed,
         )
-        # Remove excess panels.
+        # Sort panels by _slot_index so removal matches config indices.
+        current_panels.sort(key=lambda p: p._slot_index)
+        # Remove excess panels (highest indices first).
         if len(current_panels) > needed:
             for panel in current_panels[needed:]:
-                logger.debug("_reconcile_server_log_panels: removing excess panel=%r", panel)
-                await panel.remove()
-        # Replace placeholder panels that now have real data (e.g. 0→1 slot).
-        # A placeholder has no ServerColumnPanel child; replacing it with a
-        # fresh ServerLogPanel ensures compose() runs with live view-model state.
-        for i, panel in enumerate(current_panels[:needed]):
-            if self.view_model.column(i) is not None and not panel.query(ServerColumnPanel):
-                logger.debug("_reconcile_server_log_panels: replacing placeholder slot_index=%d", i)
-                await panel.remove()
-                await container.mount(ServerLogPanel(i, self.view_model))
                 logger.debug(
-                    "_reconcile_server_log_panels: replaced placeholder duration_ms=%.1f",
+                    "_reconcile_server_log_panels: removing excess slot_index=%d",
+                    panel._slot_index,
+                )
+                await panel.remove()
+        # Replace panels whose config no longer exists or is a placeholder.
+        for panel in list(current_panels[:needed]):
+            col_state = self.view_model.column(panel._slot_index)
+            replace = False
+            if col_state is None:
+                # Config at this index was removed — replace with fresh panel.
+                replace = True
+            elif not panel.query(ServerColumnPanel):
+                # Placeholder panel that now has real data.
+                replace = True
+            if replace:
+                logger.debug(
+                    "_reconcile_server_log_panels: replacing panel slot_index=%d",
+                    panel._slot_index,
+                )
+                await panel.remove()
+                await container.mount(ServerLogPanel(panel._slot_index, self.view_model))
+                logger.debug(
+                    "_reconcile_server_log_panels: replaced panel duration_ms=%.1f",
                     (time.perf_counter() - start) * 1000,
                 )
                 return  # one replacement per call
         # Mount any panels still missing.
-        for i in range(len(current_panels), needed):
-            logger.debug("_reconcile_server_log_panels: mounting missing slot_index=%d", i)
-            await container.mount(ServerLogPanel(i, self.view_model))
+        existing_indices = {p._slot_index for p in current_panels[:needed]}
+        for i in range(needed):
+            if i not in existing_indices:
+                logger.debug("_reconcile_server_log_panels: mounting missing slot_index=%d", i)
+                await container.mount(ServerLogPanel(i, self.view_model))
         logger.debug(
             "_reconcile_server_log_panels: complete current=%d needed=%d duration_ms=%.1f",
             len(current_panels),
