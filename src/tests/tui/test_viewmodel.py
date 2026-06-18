@@ -99,6 +99,10 @@ def _make_viewmodel(
     )
     model.dashboard_snapshot.return_value = dashboard_snapshot
 
+    # Slot stats cache
+    slot_runtime_stats = kwargs.pop("slot_runtime_stats", {})
+    model.slot_stats_snapshot.return_value = slot_runtime_stats
+
     for key, value in kwargs.items():
         setattr(model, key, value)
 
@@ -542,6 +546,46 @@ def test_column_valid() -> None:
     )
     assert result.gpu_stats == {"gpu_util": "45%"}
     assert result.stale_warning is None
+
+
+def test_column_shows_cached_slot_runtime_stats() -> None:
+    """column should display cached slot stats when present."""
+    from llama_manager.slot_stats import SlotStatsSnapshot
+
+    cfg = _make_server_config(alias="my-server", backend="sycl", port=9000)
+    log_buf = MagicMock()
+    log_buf.get_text.return_value = "server log output"
+    log_buf.get_lines.return_value = ["server log output"]
+    proc = MagicMock()
+    proc.poll.return_value = None
+
+    cached = SlotStatsSnapshot(
+        alias="my-server",
+        port=9000,
+        updated_at=10.0,
+        tps=5.25,
+        prompt_tps=99.9,
+        tokens_in=123,
+        tokens_out=45,
+    )
+
+    vm = _make_viewmodel(
+        configs=[cfg],
+        gpu_stats_by_alias={"my-server": {"gpu_util": "45%"}},
+        log_buffers={"my-server": log_buf},
+        slot_states={"my-server": "running"},
+        server_processes={"my-server": proc},
+        slot_runtime_stats={"my-server": cached},
+    )
+    result = vm.column(0)
+    assert result is not None
+
+    assert result.runtime_stats == SlotRuntimeStats(
+        tps="5.2",
+        pp="99.9",
+        tokens_in="123",
+        tokens_out="45",
+    )
 
 
 def test_column_uses_cached_gpu_snapshot_without_live_probe() -> None:

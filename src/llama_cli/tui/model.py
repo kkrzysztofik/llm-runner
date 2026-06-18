@@ -25,6 +25,7 @@ from llama_manager import (
     selector_for_config,
 )
 from llama_manager.build_pipeline import BuildConfig
+from llama_manager.slot_stats import SlotStatsSnapshot
 
 from .types import (
     DashboardSnapshot,
@@ -75,6 +76,7 @@ class DashboardModel:
             cfg.alias: gpu.get_cached_stats_snapshot()
             for cfg, gpu in zip(configs, self.gpu_stats, strict=False)
         }
+        self.cached_slot_stats_by_alias: dict[str, SlotStatsSnapshot] = {}
         self.cached_system_info_snapshot = SystemInfoSnapshot(
             tasks=0,
             threads=0,
@@ -220,6 +222,21 @@ class DashboardModel:
         """Remove cached GPU telemetry for a deleted or replaced slot."""
         with self.system_health_lock:
             self.cached_gpu_stats_by_alias.pop(alias, None)
+
+    def apply_slot_stats_snapshot(self, stats_by_alias: dict[str, SlotStatsSnapshot]) -> None:
+        """Store slot stats collected off the UI thread."""
+        with self.system_health_lock:
+            self.cached_slot_stats_by_alias = dict(stats_by_alias)
+
+    def set_cached_slot_stats(self, alias: str, stats: SlotStatsSnapshot) -> None:
+        """Set one slot's cached stats without fetching live data."""
+        with self.system_health_lock:
+            self.cached_slot_stats_by_alias[alias] = stats
+
+    def slot_stats_snapshot(self) -> dict[str, SlotStatsSnapshot]:
+        """Return a snapshot of cached slot stats for render-only code."""
+        with self.system_health_lock:
+            return dict(self.cached_slot_stats_by_alias)
 
     def collect_memory_usage_rows_now(self) -> list[MemoryUsageSnapshot]:
         """Return live memory and swap usage snapshots for non-refresh callers."""

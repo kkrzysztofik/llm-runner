@@ -11,6 +11,7 @@ from llama_manager import (
 from llama_manager.build_pipeline import BuildConfig
 from llama_manager.config import Config
 from llama_manager.config.builder import create_tui_profile_registry
+from llama_manager.slot_stats import SlotStatsSnapshot
 
 from .model import DashboardModel
 from .types import (
@@ -154,6 +155,23 @@ class DashboardViewModel:
         if not log_lines:
             log_lines = ("Waiting for output...",)
 
+        # Load cached slot stats for this server alias
+        cached_stats: SlotStatsSnapshot | None = None
+        stats_by_alias = self.model.slot_stats_snapshot()
+        if cfg.alias in stats_by_alias:
+            cached_stats = stats_by_alias[cfg.alias]
+
+        if cached_stats is not None:
+            display = cached_stats.to_display()
+            runtime_stats = SlotRuntimeStats(
+                tps=display["tps"],
+                pp=display["pp"],
+                tokens_in=display["tokens_in"],
+                tokens_out=display["tokens_out"],
+            )
+        else:
+            runtime_stats = SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0")
+
         state = ServerColumnState(
             alias=cfg.alias,
             profile_name=cfg.alias,
@@ -164,7 +182,7 @@ class DashboardViewModel:
             url=f"http://{self.model.config.deployment.host}:{cfg.port}",
             config_summary=f"Device: {cfg.device} | Ctx: {cfg.ctx_size} | Threads: {cfg.threads}",
             log_lines=log_lines,
-            runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
+            runtime_stats=runtime_stats,
             gpu_stats=gpu_stats,
             stale_warning=self.stale_warning(cfg),
         )
