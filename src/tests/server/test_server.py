@@ -1,6 +1,7 @@
 """Tests for llama_manager.server — validation and command building."""
 
 import os
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -132,10 +133,38 @@ class TestBuildServerCmd:
         cmd = build_server_cmd(self._minimal_cfg(server_bin="/custom/llama-server"))
         assert cmd[0] == "/custom/llama-server"
 
+    def test_cuda_device_uses_nvidia_default_when_server_bin_blank(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        llama_root = tmp_path / "llama.cpp"
+        monkeypatch.setenv("LLAMA_CPP_ROOT", str(llama_root))
+
+        cmd = build_server_cmd(self._minimal_cfg(device="CUDA:0", server_bin=""))
+
+        assert cmd[0] == str(llama_root / "build_cuda" / "bin" / "llama-server")
+
+    def test_non_cuda_device_uses_intel_default_when_server_bin_blank(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        llama_root = tmp_path / "llama.cpp"
+        monkeypatch.setenv("LLAMA_CPP_ROOT", str(llama_root))
+
+        cmd = build_server_cmd(self._minimal_cfg(device="SYCL0", server_bin=""))
+
+        assert cmd[0] == str(llama_root / "build" / "bin" / "llama-server")
+
     def test_device_included(self) -> None:
         cmd = build_server_cmd(self._minimal_cfg(device="CUDA0"))
         assert "--device" in cmd
-        assert "CUDA0" in cmd
+        assert cmd[cmd.index("--device") + 1] == "CUDA0"
+
+    def test_cuda_colon_device_normalized_for_server_arg(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(device="CUDA:0,1"))
+        assert cmd[cmd.index("--device") + 1] == "CUDA0,CUDA1"
+
+    def test_sycl_device_kept_for_server_arg(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(device="SYCL0"))
+        assert cmd[cmd.index("--device") + 1] == "SYCL0"
 
     def test_empty_device_excluded(self) -> None:
         cmd = build_server_cmd(self._minimal_cfg(device=""))
