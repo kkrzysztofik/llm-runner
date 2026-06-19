@@ -1,4 +1,4 @@
-"""Slot runtime stats: parse /slots, persist to JSON, collect via HTTP.
+"""Slot runtime stats: parse /metrics or /slots, persist to JSON, collect via HTTP.
 
 This module is a pure library — no I/O at module level.
 All functions take typed parameters and return values or mutate state explicitly.
@@ -13,6 +13,11 @@ from typing import Any
 
 from llama_manager.common.file_ops import atomic_write_json
 from llama_manager.orchestration.lockfile import resolve_runtime_dir
+
+_METRIC_PROMPT_TOKENS = "llamacpp:prompt_tokens_total"
+_METRIC_PROMPT_TPS = "llamacpp:prompt_tokens_seconds"
+_METRIC_PREDICTED_TOKENS = "llamacpp:tokens_predicted_total"
+_METRIC_PREDICTED_TPS = "llamacpp:predicted_tokens_seconds"
 
 
 def _number(value: Any) -> float | None:
@@ -65,6 +70,87 @@ def _format_rate(value: float | None) -> str:
     if value is None or value < 0:
         return "--"
     return f"{value:.1f}"
+
+
+def _float_text(value: str) -> float | None:
+    """Return *value* parsed as float, or ``None`` if invalid."""
+    try:
+        parsed = float(value)
+    except ValueError:
+        return None
+    if parsed != parsed:
+        return None
+    return parsed
+
+
+def _metric_name(token: str) -> str:
+    """Return Prometheus sample name without labels."""
+    return token.split("{", 1)[0]
+
+
+def _parse_prometheus_samples(payload: str) -> dict[str, list[float]]:
+    """Parse simple Prometheus text samples by metric name."""
+    samples: dict[str, list[float]] = {}
+    for raw_line in payload.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        value = _float_text(parts[1])
+        if value is None:
+            continue
+        samples.setdefault(_metric_name(parts[0]), []).append(value)
+    return samples
+
+
+def _sum_metric(samples: dict[str, list[float]], name: str) -> float | None:
+    values = samples.get(name)
+    if not values:
+        return None
+    return sum(values)
+
+
+def _first_metric(samples: dict[str, list[float]], name: str) -> float | None:
+    values = samples.get(name)
+    if not values:
+        return None
+    return values[0]
+
+
+def parse_metrics_payload(
+    alias: str,
+    port: int,
+    payload: str,
+    *,
+    now: float | None = None,
+) -> SlotStatsSnapshot | None:
+    """Parse llama.cpp Prometheus ``GET /metrics`` text into runtime counters."""
+    samples = _parse_prometheus_samples(payload)
+    prompt_tokens = _sum_metric(samples, _METRIC_PROMPT_TOKENS)
+    predicted_tokens = _sum_metric(samples, _METRIC_PREDICTED_TOKENS)
+    prompt_tps = _first_metric(samples, _METRIC_PROMPT_TPS)
+    predicted_tps = _first_metric(samples, _METRIC_PREDICTED_TPS)
+
+    if (
+        prompt_tokens is None
+        and predicted_tokens is None
+        and prompt_tps is None
+        and predicted_tps is None
+    ):
+        return None
+
+    return SlotStatsSnapshot(
+        alias=alias,
+        port=port,
+        updated_at=now or time.time(),
+        tps=predicted_tps,
+        prompt_tps=prompt_tps,
+        tokens_in=_int_value(prompt_tokens),
+        tokens_out=_int_value(predicted_tokens),
+        source="metrics",
+    )
 
 
 def parse_slots_payload(
@@ -247,25 +333,22 @@ def collect_slot_stats(
     timeout_s: float = 0.2,
     now: float | None = None,
 ) -> SlotStatsSnapshot | None:
-    """Fetch and parse ``GET /slots`` from a running llama-server instance.
+    """Fetch and parse runtime stats from a running llama-server instance.
 
     Returns ``None`` for any HTTP/connection/parse failure.
     """
-    import urllib.error
-    import urllib.request
+    metrics_payload = _http_get_text(host, port, "/metrics", timeout_s)
+    if metrics_payload is not None:
+        stats = parse_metrics_payload(alias, port, metrics_payload, now=now)
+        if stats is not None:
+            return stats
 
-    url = f"http://{host}:{port}/slots"  # noqa: S310
-    try:
-        req = urllib.request.Request(url, headers={"Accept": "application/json"})  # noqa: S310
-        with urllib.request.urlopen(req, timeout=timeout_s) as response:  # noqa: S310
-            body = response.read()
-    except OSError, TimeoutError, urllib.error.URLError:
-        return None
-    except Exception:
+    slots_payload = _http_get_text(host, port, "/slots", timeout_s)
+    if slots_payload is None:
         return None
 
     try:
-        payload = json.loads(body)
+        payload = json.loads(slots_payload)
     except json.JSONDecodeError, ValueError:
         return None
 
@@ -273,6 +356,22 @@ def collect_slot_stats(
         return None
 
     return parse_slots_payload(alias, port, payload, now=now)
+
+
+def _http_get_text(host: str, port: int, path: str, timeout_s: float) -> str | None:
+    """Fetch one localhost llama-server endpoint and return decoded text."""
+    import urllib.error
+    import urllib.request
+
+    url = f"http://{host}:{port}{path}"  # noqa: S310
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})  # noqa: S310
+        with urllib.request.urlopen(req, timeout=timeout_s) as response:  # noqa: S310
+            return response.read().decode("utf-8", errors="replace")
+    except OSError, TimeoutError, urllib.error.URLError:
+        return None
+    except Exception:
+        return None
 
 
 class SlotStatsSnapshot:

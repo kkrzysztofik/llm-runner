@@ -148,6 +148,7 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         cfg.bind_address,
         "--port",
         str(cfg.port),
+        "--metrics",
         "--no-webui",
     ]
 

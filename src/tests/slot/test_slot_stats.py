@@ -11,6 +11,7 @@ from llama_manager.slot_stats import (
     SlotStatsSnapshot,
     collect_slot_stats,
     load_slot_stats,
+    parse_metrics_payload,
     parse_slots_payload,
     save_slot_stats,
     slot_stats_file_path,
@@ -131,6 +132,89 @@ def test_parse_slots_payload_ignores_non_dict_in_list() -> None:
     ]
     result = parse_slots_payload("skip", 8080, payload, now=1.0)
     assert result.tokens_out == 8
+
+
+def test_parse_slots_payload_real_idle_shape_has_no_cumulative_output() -> None:
+    """Idle llama.cpp /slots payload should not invent output tokens or rates."""
+    payload = [
+        {
+            "id": 0,
+            "is_processing": False,
+            "n_prompt_tokens": 1565,
+            "n_prompt_tokens_processed": 61,
+            "next_token": [],
+        },
+        {
+            "id": 1,
+            "is_processing": False,
+            "n_prompt_tokens": 1024,
+            "n_prompt_tokens_processed": 0,
+            "next_token": [],
+        },
+    ]
+
+    result = parse_slots_payload("idle", 8080, payload, now=1.0)
+
+    assert result.tps is None
+    assert result.prompt_tps is None
+    assert result.tokens_in == 1085
+    assert result.tokens_out == 0
+
+
+def test_parse_metrics_payload_reads_llama_cpp_counters_and_rates() -> None:
+    """Prometheus /metrics payload has the cumulative counters needed by the TUI."""
+    payload = """
+# HELP llamacpp:prompt_tokens_total Number of prompt tokens processed.
+# TYPE llamacpp:prompt_tokens_total counter
+llamacpp:prompt_tokens_total 12345
+# HELP llamacpp:prompt_tokens_seconds Average prompt throughput in tokens/s.
+# TYPE llamacpp:prompt_tokens_seconds gauge
+llamacpp:prompt_tokens_seconds 456.7
+# HELP llamacpp:tokens_predicted_total Number of generation tokens processed.
+# TYPE llamacpp:tokens_predicted_total counter
+llamacpp:tokens_predicted_total 89
+# HELP llamacpp:predicted_tokens_seconds Average generation throughput in tokens/s.
+# TYPE llamacpp:predicted_tokens_seconds gauge
+llamacpp:predicted_tokens_seconds 12.34
+"""
+
+    result = parse_metrics_payload("summary", 8080, payload, now=10.0)
+
+    assert result == SlotStatsSnapshot(
+        alias="summary",
+        port=8080,
+        updated_at=10.0,
+        tps=12.34,
+        prompt_tps=456.7,
+        tokens_in=12345,
+        tokens_out=89,
+        source="metrics",
+    )
+
+
+def test_parse_metrics_payload_ignores_labels_and_comments() -> None:
+    """Metrics parser should handle labels and comments without storing raw payloads."""
+    payload = """
+# comment
+llamacpp:prompt_tokens_total{model="qwen"} 100
+llamacpp:prompt_tokens_total{model="other"} 23
+llamacpp:tokens_predicted_total{model="qwen"} 7
+llamacpp:predicted_tokens_seconds{model="qwen"} 3.5
+llamacpp:prompt_tokens_seconds{model="qwen"} 10
+"""
+
+    result = parse_metrics_payload("code", 8081, payload, now=11.0)
+
+    assert result is not None
+    assert result.tokens_in == 123
+    assert result.tokens_out == 7
+    assert result.tps == 3.5
+    assert result.prompt_tps == 10.0
+
+
+def test_parse_metrics_payload_returns_none_without_expected_metrics() -> None:
+    """Unexpected Prometheus payload should fall back to /slots collection."""
+    assert parse_metrics_payload("code", 8081, "process_cpu_seconds_total 3", now=11.0) is None
 
 
 def test_slot_stats_snapshot_to_display() -> None:
@@ -320,8 +404,11 @@ def test_save_slot_stats_json_shape(tmp_path: Path) -> None:
 class _Response:
     """Mock urllib response."""
 
-    def __init__(self, payload: Any) -> None:
-        self._payload = json.dumps(payload).encode("utf-8")
+    def __init__(self, payload: Any, *, json_payload: bool = True) -> None:
+        if json_payload:
+            self._payload = json.dumps(payload).encode("utf-8")
+        else:
+            self._payload = str(payload).encode("utf-8")
 
     def __enter__(self) -> _Response:
         return self
@@ -333,21 +420,52 @@ class _Response:
         return self._payload
 
 
-def test_collect_slot_stats_fetches_slots_endpoint(monkeypatch: Any) -> None:
-    """collect_slot_stats should fetch http://{host}:{port}/slots."""
+def test_collect_slot_stats_prefers_metrics_endpoint(monkeypatch: Any) -> None:
+    """collect_slot_stats should fetch /metrics first for cumulative counters."""
     calls: list[str] = []
 
     def fake_urlopen(request, timeout: float):
         calls.append(request.full_url)
-        return _Response([{"next_token": {"n_decoded": 3}}])
+        return _Response(
+            """
+llamacpp:prompt_tokens_total 20
+llamacpp:tokens_predicted_total 3
+llamacpp:prompt_tokens_seconds 40
+llamacpp:predicted_tokens_seconds 6
+""",
+            json_payload=False,
+        )
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
     result = collect_slot_stats("summary", "127.0.0.1", 8080, now=30.0)
 
-    assert calls == ["http://127.0.0.1:8080/slots"]
+    assert calls == ["http://127.0.0.1:8080/metrics"]
     assert result is not None
     assert result.alias == "summary"
+    assert result.source == "metrics"
+    assert result.tokens_in == 20
+    assert result.tokens_out == 3
+
+
+def test_collect_slot_stats_falls_back_to_slots_when_metrics_unavailable(monkeypatch: Any) -> None:
+    """collect_slot_stats should retain /slots fallback for old or manually launched servers."""
+    calls: list[str] = []
+
+    def fake_urlopen(request, timeout: float):
+        calls.append(request.full_url)
+        if request.full_url.endswith("/metrics"):
+            raise OSError("metrics disabled")
+        return _Response([{"next_token": {"n_decoded": 3}, "n_prompt_tokens_processed": 9}])
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    result = collect_slot_stats("summary", "127.0.0.1", 8080, now=30.0)
+
+    assert calls == ["http://127.0.0.1:8080/metrics", "http://127.0.0.1:8080/slots"]
+    assert result is not None
+    assert result.source == "slots"
+    assert result.tokens_in == 9
     assert result.tokens_out == 3
 
 

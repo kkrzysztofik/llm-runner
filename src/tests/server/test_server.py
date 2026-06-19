@@ -192,6 +192,10 @@ class TestBuildServerCmd:
         cmd = build_server_cmd(self._minimal_cfg())
         assert "--no-webui" in cmd
 
+    def test_metrics_flag_present_for_runtime_stats(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg())
+        assert "--metrics" in cmd
+
     def test_cmd_is_list_of_strings(self) -> None:
         cmd = build_server_cmd(self._minimal_cfg())
         assert all(isinstance(part, str) for part in cmd)
