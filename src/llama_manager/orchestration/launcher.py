@@ -131,7 +131,7 @@ def wrap_sycl_launch_cmd(
 
     Returns the original *cmd* unchanged for non-SYCL devices or when
     *setvars_path* does not exist.  For SYCL devices where *setvars_path*
-    exists, wraps *cmd* in a `bash -c` invokation that sources
+    exists, wraps *cmd* in a `bash -c` invocation that sources
     *setvars_path* before exec'ing the original command.
     """
     if not _is_sycl_device(device):
