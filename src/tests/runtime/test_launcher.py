@@ -1,6 +1,7 @@
 """Tests for the process launcher abstraction."""
 
 import time
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -11,7 +12,54 @@ from llama_manager.orchestration.launcher import (
     ProcessHandle,
     ProcessTimeoutError,
     _SubprocessHandle,
+    wrap_sycl_launch_cmd,
 )
+
+
+class TestSyclLaunchWrapper:
+    """Tests for wrap_sycl_launch_cmd helper."""
+
+    def test_wrap_sycl_launch_cmd_sources_setvars_when_device_is_sycl(self, tmp_path: Path) -> None:
+        setvars = tmp_path / "setvars.sh"
+        setvars.write_text("# test\n")
+        cmd = ["/bin/echo", "hello world"]
+
+        wrapped = wrap_sycl_launch_cmd(cmd, "SYCL0", setvars_path=setvars)
+
+        assert wrapped[:3] == [
+            "bash",
+            "-c",
+            (
+                'if ! source "$1" --force >/dev/null 2>&1; then '
+                'echo "failed to source Intel oneAPI setvars for SYCL launch: $1" >&2; '
+                "exit 127; "
+                "fi; "
+                "shift; "
+                'exec "$@"'
+            ),
+        ]
+        assert wrapped[3] == "llm-runner-sycl-launch"
+        assert wrapped[4] == str(setvars)
+        assert wrapped[5:] == cmd
+        assert cmd == ["/bin/echo", "hello world"]
+
+    def test_wrap_sycl_launch_cmd_leaves_non_sycl_device_unchanged(self, tmp_path: Path) -> None:
+        setvars = tmp_path / "setvars.sh"
+        setvars.write_text("# test\n")
+        cmd = ["/bin/echo", "cuda"]
+
+        wrapped = wrap_sycl_launch_cmd(cmd, "CUDA0", setvars_path=setvars)
+
+        assert wrapped is cmd
+
+    def test_wrap_sycl_launch_cmd_leaves_command_unchanged_when_setvars_missing(
+        self, tmp_path: Path
+    ) -> None:
+        cmd = ["/bin/echo", "sycl"]
+
+        wrapped = wrap_sycl_launch_cmd(cmd, "SYCL0", setvars_path=tmp_path / "missing.sh")
+
+        assert wrapped is cmd
 
 
 class MockProcessHandle:
@@ -246,6 +294,277 @@ class TestProcessLauncherProtocol:
         manager._wait_for_processes()
         assert len(manager.servers) == 1  # server not removed
 
+    def test_start_servers_wraps_sycl_config_with_oneapi_setvars(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from llama_manager.orchestration import ServerManager
+        from llama_manager.orchestration import launcher as launcher_module
+        from tests.support.helpers import make_server_config
+
+        setvars = tmp_path / "setvars.sh"
+        setvars.write_text("# test\n")
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+        monkeypatch.setenv("LLM_RUNNER_RUNTIME_DIR", str(runtime_dir))
+        monkeypatch.setattr(launcher_module, "_INTEL_SETVARS_SH", setvars)
+
+        mock_launcher = MockProcessLauncher()
+        manager = ServerManager(process_launcher=mock_launcher)  # pyright: ignore[arg-type]
+        cfg = make_server_config(alias="summary-balanced", device="SYCL0", server_bin="/bin/echo")
+
+        manager.start_servers([cfg], {})
+
+        launched = mock_launcher.launch_calls[0]
+        assert launched[0:2] == ["bash", "-c"]
+        assert launched[3] == "llm-runner-sycl-launch"
+        assert launched[4] == str(setvars)
+        assert launched[5] == "/bin/echo"
+
+    def test_start_servers_does_not_wrap_cuda_config(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from llama_manager.orchestration import ServerManager
+        from llama_manager.orchestration import launcher as launcher_module
+        from tests.support.helpers import make_server_config
+
+        setvars = tmp_path / "setvars.sh"
+        setvars.write_text("# test\n")
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+        monkeypatch.setenv("LLM_RUNNER_RUNTIME_DIR", str(runtime_dir))
+        monkeypatch.setattr(launcher_module, "_INTEL_SETVARS_SH", setvars)
+
+        mock_launcher = MockProcessLauncher()
+        manager = ServerManager(process_launcher=mock_launcher)  # pyright: ignore[arg-type]
+        cfg = make_server_config(alias="qwen35-coding", device="CUDA0", server_bin="/bin/echo")
+
+        manager.start_servers([cfg], {})
+
+        assert mock_launcher.launch_calls[0][0] == "/bin/echo"
+
+    def test_start_servers_records_server_pid_in_slot_lock(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from llama_manager.orchestration import LockMetadata, ServerManager, read_lock
+        from tests.support.helpers import make_server_config
+
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+        monkeypatch.setenv("LLM_RUNNER_RUNTIME_DIR", str(runtime_dir))
+        mock_handle = MockProcessHandle(pid=24680)
+        mock_launcher = MockProcessLauncher(handle=mock_handle)  # pyright: ignore[arg-type]
+        manager = ServerManager(process_launcher=mock_launcher)
+        cfg = make_server_config(alias="summary-balanced", port=8080, server_bin="/bin/echo")
+
+        manager.start_servers([cfg], {})
+
+        metadata = read_lock(runtime_dir, "summary-balanced")
+        assert metadata is not None
+        assert isinstance(metadata, LockMetadata)
+        assert metadata.pid == 24680
+        assert metadata.port == 8080
+
+    def test_shutdown_slot_uses_tracked_process_and_releases_lock(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from llama_manager.orchestration import ServerManager, read_lock
+        from tests.support.helpers import make_server_config
+
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+        monkeypatch.setenv("LLM_RUNNER_RUNTIME_DIR", str(runtime_dir))
+        mock_handle = MockProcessHandle(pid=24681)
+        mock_launcher = MockProcessLauncher(handle=mock_handle)  # pyright: ignore[arg-type]
+        manager = ServerManager(process_launcher=mock_launcher)
+        cfg = make_server_config(alias="summary-balanced", port=8080, server_bin="/bin/echo")
+        manager.start_servers([cfg], {})
+
+        with patch("llama_manager.orchestration.manager.os.kill") as kill:
+            result = manager.shutdown_slot("summary-balanced")
+
+        assert result is True
+        kill.assert_called_once()
+        assert read_lock(runtime_dir, "summary-balanced") is None
+        assert "summary-balanced" not in manager.slot_processes
+        assert mock_handle not in manager.servers
+        assert mock_handle.pid not in manager.pids
+
+    def test_launch_all_slots_empty_is_blocked_without_errors(self, tmp_path: Path) -> None:
+        """launch_all_slots should return blocked without errors when no slots are requested."""
+        from llama_manager.orchestration import ServerManager
+
+        result = ServerManager().launch_all_slots([], runtime_dir=tmp_path)
+
+        assert result.status == "blocked"
+        assert result.launched == []
+        assert result.errors is None
+
+    def test_launch_all_slots_degraded_when_one_slot_lock_fails(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """launch_all_slots should report degraded when only some slot locks are acquired."""
+        from llama_manager.config import ModelSlot
+        from llama_manager.orchestration import ServerManager
+
+        def acquire_slot_lock(slot_id: str, port: int, server_pid: int | None = None) -> Path:
+            if slot_id == "blocked":
+                raise RuntimeError("lock busy")
+            return tmp_path / f"slot-{slot_id}.lock"
+
+        monkeypatch.setattr(
+            "llama_manager.orchestration.slot_lockfile.acquire_slot_lock",
+            acquire_slot_lock,
+        )
+
+        result = ServerManager().launch_all_slots(
+            [
+                ModelSlot(slot_id="ok", model_path="/models/a.gguf", port=8080),
+                ModelSlot(slot_id="blocked", model_path="/models/b.gguf", port=8081),
+            ],
+            runtime_dir=tmp_path,
+        )
+
+        assert result.status == "degraded"
+        assert result.launched == ["ok"]
+        assert result.warnings is not None
+        assert "lock_acquire_failed" in result.warnings[0]
+
+    def test_start_server_background_ignores_psutil_access_denied(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """start_server_background should still track handles when psutil metadata is denied."""
+        import psutil
+
+        from llama_manager.orchestration import ServerManager
+
+        monkeypatch.setattr(
+            "llama_manager.orchestration.manager.threading.Thread",
+            lambda *args, **kwargs: MagicMock(start=MagicMock()),
+        )
+        monkeypatch.setattr(
+            "llama_manager.orchestration.manager.psutil.Process",
+            MagicMock(side_effect=psutil.AccessDenied(pid=123)),
+        )
+        mock_handle = MockProcessHandle(pid=123)
+        manager = ServerManager(
+            process_launcher=MockProcessLauncher(handle=mock_handle)  # pyright: ignore[arg-type]
+        )
+
+        result = manager.start_server_background("test", ["echo", "hello"])
+
+        assert result is mock_handle
+        assert manager.pids == [123]
+        assert manager.servers == [mock_handle]
+        assert manager.pid_metadata == {}
+
+    def test_shutdown_process_handle_returns_true_for_already_exited(self) -> None:
+        """_shutdown_process_handle should forget exited processes and release the lock."""
+        from llama_manager.orchestration import ServerManager
+
+        process = MockProcessHandle(pid=555)
+        process._poll_return = 0
+        manager = ServerManager()
+        manager.slot_processes["slot"] = process  # pyright: ignore[assignment]
+        manager.servers.append(process)  # pyright: ignore[arg-type]
+        manager.pids.append(process.pid)
+        manager.pid_metadata[process.pid] = 1.0
+        manager.release_lock = MagicMock()  # type: ignore[method-assign]
+
+        assert manager._shutdown_process_handle("slot", process, timeout=0.1) is True
+        manager.release_lock.assert_called_once_with("slot")
+        assert manager.slot_processes == {}
+        assert manager.servers == []
+        assert manager.pids == []
+        assert manager.pid_metadata == {}
+
+    def test_shutdown_process_handle_returns_false_on_ownership_failure(self) -> None:
+        """_shutdown_process_handle should not signal a process it no longer owns."""
+        from llama_manager.orchestration import ServerManager
+
+        process = MockProcessHandle(pid=556)
+        manager = ServerManager()
+        manager.pid_metadata[process.pid] = 1.0
+        manager._verify_process_ownership = MagicMock(return_value=False)  # type: ignore[method-assign]
+        manager._record_lifecycle_event = MagicMock()  # type: ignore[method-assign]
+
+        assert manager._shutdown_process_handle("slot", process, timeout=0.1) is False
+        manager._record_lifecycle_event.assert_called_once_with(
+            "skip", pid=556, details="ownership_failed"
+        )
+
+    def test_shutdown_process_handle_releases_lock_when_sigterm_process_missing(self) -> None:
+        """_shutdown_process_handle should treat missing process on SIGTERM as stopped."""
+        from llama_manager.orchestration import ServerManager
+
+        process = MockProcessHandle(pid=557)
+        manager = ServerManager()
+        manager.slot_processes["slot"] = process  # pyright: ignore[assignment]
+        manager.servers.append(process)  # pyright: ignore[arg-type]
+        manager.pids.append(process.pid)
+        manager.release_lock = MagicMock()  # type: ignore[method-assign]
+
+        with patch("llama_manager.orchestration.manager.os.kill", side_effect=OSError):
+            assert manager._shutdown_process_handle("slot", process, timeout=0.1) is True
+
+        manager.release_lock.assert_called_once_with("slot")
+        assert manager.slot_processes == {}
+
+    def test_shutdown_process_handle_uses_sigkill_after_timeout(self) -> None:
+        """_shutdown_process_handle should escalate to SIGKILL after SIGTERM timeout."""
+        from llama_manager.orchestration import ServerManager
+
+        process = MockProcessHandle(pid=558)
+        wait_calls = 0
+
+        def wait(timeout: float | None = None) -> int:
+            nonlocal wait_calls
+            wait_calls += 1
+            if wait_calls == 1:
+                raise ProcessTimeoutError("term timeout")
+            return 0
+
+        process.wait = wait  # pyright: ignore[method-assign]
+        manager = ServerManager()
+        manager.slot_processes["slot"] = process  # pyright: ignore[assignment]
+        manager.servers.append(process)  # pyright: ignore[arg-type]
+        manager.pids.append(process.pid)
+        manager.release_lock = MagicMock()  # type: ignore[method-assign]
+
+        with patch("llama_manager.orchestration.manager.os.kill") as kill:
+            assert manager._shutdown_process_handle("slot", process, timeout=0.1) is True
+
+        assert [call.args[1] for call in kill.call_args_list] == [15, 9]
+        manager.release_lock.assert_called_once_with("slot")
+
+    def test_shutdown_process_handle_returns_false_when_sigkill_wait_times_out(self) -> None:
+        """_shutdown_process_handle should return False if the process survives SIGKILL."""
+        from llama_manager.orchestration import ServerManager
+
+        process = MockProcessHandle(pid=559)
+
+        def wait(timeout: float | None = None) -> int:
+            raise ProcessTimeoutError("still running")
+
+        process.wait = wait  # pyright: ignore[method-assign]
+        manager = ServerManager()
+        manager.release_lock = MagicMock()  # type: ignore[method-assign]
+
+        with patch("llama_manager.orchestration.manager.os.kill"):
+            assert manager._shutdown_process_handle("slot", process, timeout=0.1) is False
+
+        manager.release_lock.assert_not_called()
+
 
 class TestServerManagerAckFlow:
     """Tests for risk acknowledgement flow in ServerManager."""
@@ -363,9 +682,10 @@ class TestServerManagerFormatOutput:
         manager = ServerManager()
         result = manager._format_output("test_server", "hello world")
 
-        # Should start with [HH:MM:SS][test_server]
+        # Should start with [HH:MM:SS] and include the server name prefix.
         assert result.startswith("[")
-        assert "][test_server] hello world" in result
+        assert "[test_server] hello world" in result
+        assert "hello world" in result
 
     def test_format_output_preserves_content(self) -> None:
         """_format_output should preserve the content after stripping newlines (done by caller)."""
@@ -375,6 +695,25 @@ class TestServerManagerFormatOutput:
         result = manager._format_output("test_server", "hello")
 
         assert result.endswith("hello")
+
+    def test_format_output_strips_llama_cpp_timestamp(self) -> None:
+        """_format_output should strip llama.cpp millisecond timestamps like 177.32.478.581."""
+        from llama_manager.orchestration import ServerManager
+
+        manager = ServerManager()
+        result = manager._format_output("test_server", "177.32.478.581 I srv  update_slots: idle")
+
+        assert "177.32.478.581" not in result
+        assert "I srv" in result
+
+    def test_format_output_includes_server_name(self) -> None:
+        """_format_output should include the server_name in the formatted line."""
+        from llama_manager.orchestration import ServerManager
+
+        manager = ServerManager()
+        result = manager._format_output("qwen35-coding", "hello world")
+
+        assert "[qwen35-coding] hello world" in result
 
 
 class TestServerManagerForeground:

@@ -9,6 +9,7 @@ from typing import Any
 from .common import (
     GpuTelemetrySelector,
     parse_gpu_telemetry_selector,
+    parse_gpu_telemetry_selectors,
     psutil_only_collector,
 )
 from .level_zero import collect_level_zero_stats
@@ -79,6 +80,10 @@ class GPUStats:
     def get_stats_snapshot(self) -> dict[str, Any]:
         """Get current GPU stats as pure data."""
         self.update()
+        return self.get_cached_stats_snapshot()
+
+    def get_cached_stats_snapshot(self) -> dict[str, Any]:
+        """Get current GPU stats without running the collector."""
         with self._stats_lock:
             return dict(self.stats)
 
@@ -189,6 +194,34 @@ def make_gpu_collector(selector: GpuTelemetrySelector) -> Callable[[], dict[str,
     return lambda: collect_gpu_stats(selector)
 
 
+def make_multi_gpu_collector(
+    selectors: list[GpuTelemetrySelector],
+) -> Callable[[], dict[str, Any]]:
+    """Return a collector that includes all GPUs referenced by one server config."""
+
+    def _collect() -> dict[str, Any]:
+        if len(selectors) == 1:
+            return collect_gpu_stats(selectors[0])
+        snapshots = [_stats_with_selector_label(selector) for selector in selectors]
+        if not snapshots:
+            return {}
+        primary = dict(snapshots[0])
+        primary["devices"] = snapshots
+        return primary
+
+    return _collect
+
+
+def _stats_with_selector_label(selector: GpuTelemetrySelector) -> dict[str, Any]:
+    stats = collect_gpu_stats(selector)
+    labelled = dict(stats)
+    device_name = str(labelled.get("device", "N/A")).strip() or "N/A"
+    labelled["device"] = f"{selector.backend.upper()}:{selector.ordinal} {device_name}"
+    labelled["backend"] = selector.backend
+    labelled["ordinal"] = selector.ordinal
+    return labelled
+
+
 def selector_for_config(cfg: Any) -> GpuTelemetrySelector:
     """Build a telemetry selector from a ServerConfig-like object."""
     return parse_gpu_telemetry_selector(
@@ -197,6 +230,14 @@ def selector_for_config(cfg: Any) -> GpuTelemetrySelector:
     )
 
 
+def selectors_for_config(cfg: Any) -> list[GpuTelemetrySelector]:
+    """Build all telemetry selectors referenced by a ServerConfig-like object."""
+    return parse_gpu_telemetry_selectors(
+        str(getattr(cfg, "device", "")),
+        int(getattr(cfg, "main_gpu", 0) or 0),
+    )
+
+
 def collector_for_config(cfg: Any) -> Callable[[], dict[str, Any]]:
     """Return a collector bound to a ServerConfig-like object."""
-    return make_gpu_collector(selector_for_config(cfg))
+    return make_multi_gpu_collector(selectors_for_config(cfg))

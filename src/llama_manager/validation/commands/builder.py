@@ -112,7 +112,11 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
     elif default_bin:
         server_bin = default_bin
     else:
-        server_bin = Config().paths.llama_server_bin_intel
+        config = Config()
+        if cfg.device.strip().upper().startswith("CUDA"):
+            server_bin = config.paths.llama_server_bin_nvidia
+        else:
+            server_bin = config.paths.llama_server_bin_intel
 
     cmd = [
         server_bin,
@@ -148,6 +152,7 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         cfg.bind_address,
         "--port",
         str(cfg.port),
+        "--metrics",
         "--no-webui",
     ]
 
@@ -167,7 +172,7 @@ def _append_optional_server_flags(cmd: list[str], cfg: ServerConfig) -> None:
     if cfg.main_gpu != 0:
         cmd.extend(["--main-gpu", str(cfg.main_gpu)])
     if cfg.device:
-        cmd.extend(["--device", cfg.device])
+        cmd.extend(["--device", _server_device_arg(cfg.device)])
     if spec.reasoning_mode:
         cmd.extend(["--reasoning", spec.reasoning_mode])
     if spec.reasoning_format:
@@ -192,6 +197,15 @@ def _append_optional_server_flags(cmd: list[str], cfg: ServerConfig) -> None:
         cmd.append("--mlock")
     if cfg.no_host_buffer:
         cmd.append("--no-host")
+
+
+def _server_device_arg(device: str) -> str:
+    """Return the llama-server ``--device`` value for a stored device selector."""
+    stripped = device.strip()
+    upper = stripped.upper()
+    if upper.startswith("CUDA:"):
+        return ",".join(f"CUDA{part.strip()}" for part in stripped[5:].split(","))
+    return stripped
 
 
 def _append_speculative_flags(cmd: list[str], cfg: ServerConfig) -> None:

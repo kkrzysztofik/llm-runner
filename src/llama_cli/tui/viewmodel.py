@@ -4,7 +4,6 @@ import logging
 import time
 
 from llama_manager import (
-    GPUStats,
     ServerConfig,
     SlotState,
     resolve_slot_runtime_status,
@@ -12,6 +11,7 @@ from llama_manager import (
 from llama_manager.build_pipeline import BuildConfig
 from llama_manager.config import Config
 from llama_manager.config.builder import create_tui_profile_registry
+from llama_manager.slot_stats import SlotStatsSnapshot
 
 from .model import DashboardModel
 from .types import (
@@ -20,6 +20,7 @@ from .types import (
     DateTimeSnapshot,
     MemoryUsageSnapshot,
     ServerColumnState,
+    SlotRuntimeStats,
     SystemInfoSnapshot,
 )
 
@@ -37,6 +38,7 @@ class DashboardViewModel:
 
     def __init__(self, model: DashboardModel) -> None:
         self.model = model
+        self._deferred_resolve: set[str] = set()
 
     def command_menu(self) -> CommandMenuState:
         return CommandMenuState(
@@ -45,10 +47,11 @@ class DashboardViewModel:
         )
 
     def gpu_telemetry_lines(self) -> list[str]:
-        lines: list[str] = []
-        for gpu in self.model.gpu_stats:
-            lines.append(gpu.format_stats_text())
-        return lines
+        snapshot = self.model.dashboard_snapshot()
+        return [
+            self._format_gpu_stats_text(gpu_stats)
+            for gpu_stats in snapshot.gpu_stats_by_alias.values()
+        ]
 
     def server_column_count(self) -> int:
         return max(1, len(self.model.configs))
@@ -86,7 +89,7 @@ class DashboardViewModel:
 
     def cpu_usage_rows(self, width: int | None = None) -> list[list[CPUCoreSnapshot]]:
         content_width = self._content_width(width)
-        cpu_per_core = self.model.cpu_percentages()
+        cpu_per_core = self.model.dashboard_snapshot().cpu_percentages
         if not cpu_per_core:
             return []
 
@@ -105,10 +108,10 @@ class DashboardViewModel:
         return snapshot_rows
 
     def memory_usage_rows(self) -> list[MemoryUsageSnapshot]:
-        return self.model.memory_usage_rows()
+        return self.model.dashboard_snapshot().memory_usage_rows
 
     def system_info_snapshot(self) -> SystemInfoSnapshot:
-        return self.model.system_info_snapshot()
+        return self.model.dashboard_snapshot().system_info
 
     def current_datetime_snapshot(self) -> DateTimeSnapshot:
         return self.model.current_datetime_snapshot()
@@ -145,24 +148,43 @@ class DashboardViewModel:
             return None
 
         cfg = configs[slot_index]
-        gpu: GPUStats | None = (
-            self.model.gpu_stats[slot_index] if slot_index < len(self.model.gpu_stats) else None
-        )
+        snapshot = self.model.dashboard_snapshot()
         status = self._resolve_slot_status(cfg.alias)
-        gpu_stats = gpu.get_stats_snapshot() if gpu is not None else None
+        gpu_stats = snapshot.gpu_stats_by_alias.get(cfg.alias)
+        log_lines = tuple(self.model.log_buffers[cfg.alias].get_lines())
+        if not log_lines:
+            log_lines = ("Waiting for output...",)
+
+        # Load cached slot stats for this server alias
+        cached_stats: SlotStatsSnapshot | None = None
+        stats_by_alias = self.model.slot_stats_snapshot()
+        if cfg.alias in stats_by_alias:
+            cached_stats = stats_by_alias[cfg.alias]
+
+        if cached_stats is not None:
+            display = cached_stats.to_display()
+            runtime_stats = SlotRuntimeStats(
+                tps=display["tps"],
+                pp=display["pp"],
+                tokens_in=display["tokens_in"],
+                tokens_out=display["tokens_out"],
+            )
+        else:
+            runtime_stats = SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0")
+
         state = ServerColumnState(
             alias=cfg.alias,
+            profile_name=cfg.alias,
             status=status,
+            status_label=status.replace("_", " ").title(),
             status_class=f"server-column-status-{status.replace('_', '-')}",
             backend_label=BACKEND_LABELS.get(cfg.backend, BACKEND_LABELS["llama_cpp"]),
             url=f"http://{self.model.config.deployment.host}:{cfg.port}",
             config_summary=f"Device: {cfg.device} | Ctx: {cfg.ctx_size} | Threads: {cfg.threads}",
-            logs_text=self.model.log_buffers[cfg.alias].get_text(
-                empty_message="Waiting for output..."
-            ),
+            log_lines=log_lines,
+            runtime_stats=runtime_stats,
             gpu_stats=gpu_stats,
             stale_warning=self.stale_warning(cfg),
-            is_unsaved=cfg.alias in self.model.unsaved_slots,
         )
         duration_ms = (time.perf_counter() - start) * 1000
         logger.debug(
@@ -172,7 +194,7 @@ class DashboardViewModel:
             cfg.alias,
             status,
             gpu_stats is not None,
-            len(state.logs_text),
+            sum(len(line) for line in state.log_lines),
             duration_ms,
         )
         return state
@@ -193,9 +215,16 @@ class DashboardViewModel:
             for profile in registry.profiles
         ]
 
+    def mark_slot_launching(self, alias: str) -> None:
+        """Hold LAUNCHING display for one refresh cycle after process starts."""
+        self._deferred_resolve.add(alias)
+
     def _resolve_slot_status(self, alias: str) -> str:
         state = self.model.slot_states.get(alias, SlotState.OFFLINE.value)
         proc = self.model.server_processes.get(alias)
+        if state == SlotState.RUNNING.value and alias in self._deferred_resolve:
+            self._deferred_resolve.discard(alias)
+            return SlotState.LAUNCHING.value
         return resolve_slot_runtime_status(state, proc)
 
     @staticmethod
@@ -203,3 +232,21 @@ class DashboardViewModel:
         if width is None or width <= 0:
             return 116
         return min(240, max(40, width))
+
+    @staticmethod
+    def _format_gpu_stats_text(stats: dict[str, object]) -> str:
+        lines = [f"Device: {stats.get('device', 'N/A')}"]
+        if stats.get("gpu_util", "N/A") != "N/A":
+            lines.append(
+                f"GPU: {stats.get('gpu_util', 'N/A')} | Mem: {stats.get('mem_util', 'N/A')}"
+            )
+        else:
+            lines.append("GPU: N/A | VRAM: N/A")
+
+        if stats.get("temp", "N/A") != "N/A":
+            lines.append(f"Temp: {stats.get('temp', 'N/A')}")
+
+        if "power" in stats and stats["power"] != "N/A":
+            lines.append(f"Power: {stats['power']}")
+
+        return "\n".join(lines)

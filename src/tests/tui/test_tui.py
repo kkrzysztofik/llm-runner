@@ -379,26 +379,88 @@ class TestSystemHealthAlignment:
     def test_server_log_panel_composes_server_column_widget(self) -> None:
         from llama_cli.tui.components.server_column import ServerColumnPanel
         from llama_cli.tui.components.server_log import ServerLogPanel
-        from llama_cli.tui.types import ServerColumnState
+        from llama_cli.tui.types import ServerColumnState, SlotRuntimeStats
 
         view_model = MagicMock()
         view_model.column.return_value = ServerColumnState(
             alias="slot-a",
+            profile_name="slot-a",
             status="offline",
+            status_label="Offline",
             status_class="server-column-status-offline",
             backend_label="SYCL",
             url="http://127.0.0.1:8080",
             config_summary="Device: SYCL0 | Ctx: 2048 | Threads: 4",
-            logs_text="Waiting for output...",
+            log_lines=("Waiting for output...",),
+            runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
             gpu_stats=None,
             stale_warning=None,
-            is_unsaved=False,
         )
 
         sections = list(ServerLogPanel(0, view_model).compose())
 
         assert len(sections) == 1
         assert isinstance(sections[0], ServerColumnPanel)
+
+    def test_server_column_panel_renders_runtime_stats_values(self) -> None:
+        """ServerColumnPanel should render runtime_stats values from State."""
+        from llama_cli.tui.components.server_column import ServerColumnPanel
+        from llama_cli.tui.types import ServerColumnState, SlotRuntimeStats
+
+        state = ServerColumnState(
+            alias="slot-a",
+            profile_name="slot-a",
+            status="running",
+            status_label="Running",
+            status_class="server-column-status-running",
+            backend_label="SYCL",
+            url="http://127.0.0.1:8080",
+            config_summary="Device: SYCL0 | Ctx: 2048 | Threads: 4",
+            log_lines=("Waiting for output...",),
+            runtime_stats=SlotRuntimeStats(tps="5.2", pp="99.9", tokens_in="123", tokens_out="45"),
+            gpu_stats=None,
+            stale_warning=None,
+        )
+
+        panel = ServerColumnPanel(state)
+        widgets = list(panel.compose())
+
+        stats_container = widgets[2]
+        stats_row = stats_container._pending_children[1]
+        cells = stats_row._pending_children
+
+        values = [str(cell._pending_children[1].visual) for cell in cells]  # type: ignore[attr-defined]
+        assert values == ["5.2", "99.9", "123", "45"]
+
+    def test_server_column_panel_renders_dash_for_missing_stats(self) -> None:
+        """ServerColumnPanel should render '--' for missing TPS/PP stats."""
+        from llama_cli.tui.components.server_column import ServerColumnPanel
+        from llama_cli.tui.types import ServerColumnState, SlotRuntimeStats
+
+        state = ServerColumnState(
+            alias="slot-b",
+            profile_name="slot-b",
+            status="offline",
+            status_label="Offline",
+            status_class="server-column-status-offline",
+            backend_label="CUDA",
+            url="http://127.0.0.1:8081",
+            config_summary="Device: CUDA0 | Ctx: 8192",
+            log_lines=("No output...",),
+            runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
+            gpu_stats=None,
+            stale_warning=None,
+        )
+
+        panel = ServerColumnPanel(state)
+        widgets = list(panel.compose())
+
+        stats_container = widgets[2]
+        stats_row = stats_container._pending_children[1]
+        cells = stats_row._pending_children
+
+        values = [str(cell._pending_children[1].visual) for cell in cells]  # type: ignore[attr-defined]
+        assert values == ["--", "--", "0", "0"]
 
 
 class TestPerSlotStatusDisplay:
@@ -559,6 +621,43 @@ class TestGPUTelemetryPanel:
         assert len(sections) == 2
         assert isinstance(sections[1], Static)
         assert sections[1].has_class("gpu-stats-unavailable")
+
+    def test_gpu_stats_panel_update_stats_applies_new_data(self) -> None:
+        """GPUStatsPanel.update_stats should update _stats and trigger recompose."""
+        from llama_cli.tui.components.gpu_stats import GPUStatsPanel
+
+        panel = GPUStatsPanel({})
+        panel.refresh = MagicMock()
+
+        new_stats = {"device": "Intel Arc", "gpu_util": "45%", "mem_util": "57%"}
+        panel.update_stats(new_stats)
+
+        assert panel._stats == new_stats
+        panel.refresh.assert_called_once_with(recompose=True)
+
+    def test_gpu_stats_panel_update_stats_skips_identical(self) -> None:
+        """GPUStatsPanel.update_stats should skip refresh when stats are unchanged."""
+        from llama_cli.tui.components.gpu_stats import GPUStatsPanel
+
+        stats = {"device": "Test GPU", "gpu_util": "30%"}
+        panel = GPUStatsPanel(stats)
+        panel.refresh = MagicMock()
+
+        panel.update_stats(dict(stats))
+
+        panel.refresh.assert_not_called()
+
+    def test_gpu_stats_panel_update_stats_clears_to_none(self) -> None:
+        """GPUStatsPanel.update_stats(None) should clear cached stats."""
+        from llama_cli.tui.components.gpu_stats import GPUStatsPanel
+
+        panel = GPUStatsPanel({"device": "Test"})
+        panel.refresh = MagicMock()
+
+        panel.update_stats(None)
+
+        assert panel._stats is None
+        panel.refresh.assert_called_once_with(recompose=True)
 
 
 class TestSlotStateTransitionHandling:
@@ -2158,6 +2257,7 @@ async def test_dashboard_app_layout_geometry_regression() -> None:
         DateTimeSnapshot,
         MemoryUsageSnapshot,
         ServerColumnState,
+        SlotRuntimeStats,
         SystemInfoSnapshot,
     )
 
@@ -2196,15 +2296,17 @@ async def test_dashboard_app_layout_geometry_regression() -> None:
     controller.view_model.column = MagicMock(  # type: ignore[method-assign]
         return_value=ServerColumnState(
             alias="slot0",
+            profile_name="slot0",
             status="offline",
+            status_label="Offline",
             status_class="server-column-status-offline",
             backend_label="SYCL",
             url="http://127.0.0.1:8080",
             config_summary="Device: SYCL0 | Ctx: 2048 | Threads: 4",
-            logs_text="Waiting for output...",
+            log_lines=("Waiting for output...",),
+            runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
             gpu_stats=None,
             stale_warning=None,
-            is_unsaved=False,
         ),
     )
 

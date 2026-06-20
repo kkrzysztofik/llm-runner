@@ -10,19 +10,34 @@ Exports:
 import contextlib
 import logging
 import os
+import re
 import signal
 import subprocess
 import time
 import traceback
 from collections.abc import Callable
 from io import TextIOWrapper
+from pathlib import Path
 from typing import Protocol, TextIO
 
 import psutil
 
 from ..common.security import redact_text
 
+_LLAMA_TS_PATTERN = re.compile(r"^\s*\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\s+")
+
 logger = logging.getLogger(__name__)
+
+
+_INTEL_SETVARS_SH = Path("/opt/intel/oneapi/setvars.sh")
+_SYCL_LAUNCH_SCRIPT = (
+    'if ! source "$1" --force >/dev/null 2>&1; then '
+    'echo "failed to source Intel oneAPI setvars for SYCL launch: $1" >&2; '
+    "exit 127; "
+    "fi; "
+    "shift; "
+    'exec "$@"'
+)
 
 
 class ProcessTimeoutError(Exception):
@@ -105,15 +120,49 @@ class _SubprocessHandle:
             ) from None
 
 
+def _is_sycl_device(device: str) -> bool:
+    """Return True if device string starts with SYCL (case-insensitive)."""
+    return device.upper().startswith("SYCL")
+
+
+def wrap_sycl_launch_cmd(
+    cmd: list[str],
+    device: str,
+    setvars_path: Path | None = None,
+) -> list[str]:
+    """Wrap SYCL server launches with Intel oneAPI runtime setup.
+
+    Returns the original *cmd* unchanged for non-SYCL devices or when
+    *setvars_path* does not exist.  For SYCL devices where *setvars_path*
+    exists, wraps *cmd* in a `bash -c` invocation that sources
+    *setvars_path* before exec'ing the original command.
+    """
+    if not _is_sycl_device(device):
+        return cmd
+    if setvars_path is None:
+        setvars_path = _INTEL_SETVARS_SH
+    if not setvars_path.exists():
+        return cmd
+    return [
+        "bash",
+        "-c",
+        _SYCL_LAUNCH_SCRIPT,
+        "llm-runner-sycl-launch",
+        str(setvars_path),
+        *cmd,
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Process I/O and cleanup utilities (extracted from ServerManager)
 # ---------------------------------------------------------------------------
 
 
 def format_output(server_name: str, line: str) -> str:
-    """Format output line with timestamp."""
+    """Format output line with timestamp, stripping llama.cpp internals."""
     timestamp = time.strftime("%H:%M:%S")
-    return f"[{timestamp}][{server_name}] {line}"
+    stripped = _LLAMA_TS_PATTERN.sub("", line)
+    return f"[{timestamp}][{server_name}] {stripped}"
 
 
 def stream_pipe(

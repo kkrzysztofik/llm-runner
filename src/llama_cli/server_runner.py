@@ -25,7 +25,11 @@ from llama_manager import (
     validate_port,
     validate_ports,
 )
-from llama_manager.config import create_default_profile_registry, resolve_profile_config
+from llama_manager.config import (
+    create_default_profile_registry,
+    create_tui_profile_registry,
+    resolve_profile_config,
+)
 from llama_manager.config.profiles import SlotProfileRegistry
 
 # Server backend display names
@@ -144,7 +148,7 @@ def _build_tui_mode_configs(
     parsed: argparse.Namespace,
 ) -> dict[str, tuple[list[str], list[str], list[ServerConfig], list[int]]]:
     """Build the mode configuration dict for TUI launch."""
-    registry = create_default_profile_registry(cfg)
+    registry = create_tui_profile_registry(cfg)
     mode_configs: dict[str, tuple[list[str], list[str], list[ServerConfig], list[int]]] = {}
     for mode_id in TUI_MODE_PROFILE_IDS:
         configs = _resolve_tui_mode_configs(mode_id, cfg, parsed, registry)
@@ -165,7 +169,7 @@ def _resolve_tui_mode_configs(
 ) -> list[ServerConfig]:
     """Resolve TUI configs while preserving positional port override semantics."""
     if registry is None:
-        registry = create_default_profile_registry(cfg)
+        registry = create_tui_profile_registry(cfg)
     profile_ids = TUI_MODE_PROFILE_IDS.get(mode_id)
     if profile_ids is None:
         return []

@@ -9,6 +9,7 @@ from .builder import (
     create_smoke_config,
     create_summary_balanced_cfg,
     create_summary_fast_cfg,
+    create_tui_profile_registry,
     merge_config_overrides,
     resolve_profile_config,
 )
@@ -132,6 +133,7 @@ __all__ = [
     "apply_profile_overrides",
     "create_default_profile_registry",
     "create_default_slot_profiles",
+    "create_tui_profile_registry",
     "create_qwen35_cfg",
     "create_server_config_from_profile",
     "create_smoke_config",

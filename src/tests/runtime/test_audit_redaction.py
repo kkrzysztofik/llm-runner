@@ -246,11 +246,14 @@ class TestPipeStreaming:
             assert "buffered line" in list(buffer.lines)[0]
             assert "error line" in list(buffer.lines)[1]
 
-    def test_start_servers_with_handlers(self) -> None:
+    def test_start_servers_with_handlers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """start_servers should accept and distribute log handlers."""
         from llama_manager.config import ServerConfig
         from llama_manager.orchestration import ServerManager
 
+        monkeypatch.setenv("LLM_RUNNER_RUNTIME_DIR", str(tmp_path))
         manager = ServerManager()
 
         # Create test configs
@@ -281,11 +284,17 @@ class TestPipeStreaming:
         handlers = {alias: buffer.add_line for alias, buffer in buffers.items()}
 
         # Mock subprocess.Popen
-        def create_mock_proc(*args, **kwargs):
+        next_pid = 12000
+
+        def create_mock_proc(*args: object, **kwargs: object) -> MagicMock:
+            nonlocal next_pid
             mock = MagicMock()
-            mock.pid = id(args[0][-1]) if args[0] else id(args[0])
+            mock.pid = next_pid
+            next_pid += 1
             mock.stdout = MagicMock()
-            mock.stdout.readline.side_effect = [f"output from {args[0][-1]}\n", ""]
+            cmd_list = list(args[0] if args else [])  # type: ignore[arg-type]
+            cmd_name = cmd_list[-1] if cmd_list else "unknown"
+            mock.stdout.readline.side_effect = [f"output from {cmd_name}\n", ""]
             mock.stderr = MagicMock()
             mock.stderr.readline.side_effect = ["err line\n", ""]
             return mock
@@ -308,11 +317,14 @@ class TestPipeStreaming:
             assert buffers["server1"].line_count >= 1
             assert buffers["server2"].line_count >= 1
 
-    def test_start_servers_backward_compatible_no_handlers(self) -> None:
+    def test_start_servers_backward_compatible_no_handlers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """start_servers should work without handlers for backward compatibility."""
         from llama_manager.config import ServerConfig
         from llama_manager.orchestration import ServerManager
 
+        monkeypatch.setenv("LLM_RUNNER_RUNTIME_DIR", str(tmp_path))
         manager = ServerManager()
 
         config = ServerConfig(
@@ -338,12 +350,13 @@ class TestPipeStreaming:
             processes = manager.start_servers([config], None)
             assert len(processes) == 1
 
-    def test_no_dual_consumer_issue(self) -> None:
+    def test_no_dual_consumer_issue(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Ensure only ServerManager reads pipes when handlers provided."""
         from llama_manager.config import ServerConfig
         from llama_manager.log_buffer import LogBuffer
         from llama_manager.orchestration import ServerManager
 
+        monkeypatch.setenv("LLM_RUNNER_RUNTIME_DIR", str(tmp_path))
         manager = ServerManager()
         buffer = LogBuffer()
 
@@ -1186,16 +1199,20 @@ class TestFullLifecycleAndShutdown:
 
         with (
             patch(
-                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+                "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir",
+                return_value=tmp_path,
             ),
-            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", side_effect=pid_exists),
-            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.orchestration.lockfile.psutil.net_connections",
+                "llama_manager.orchestration.slot_lockfile.psutil.pid_exists",
+                side_effect=pid_exists,
+            ),
+            patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.orchestration.slot_lockfile.psutil.net_connections",
                 return_value=[mock_net_conn],
             ),
-            patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
+            patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
@@ -1258,12 +1275,13 @@ class TestFullLifecycleAndShutdown:
 
         with (
             patch(
-                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+                "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir",
+                return_value=tmp_path,
             ),
-            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
-            patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.slot_lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
+            patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
@@ -1290,12 +1308,13 @@ class TestFullLifecycleAndShutdown:
 
         with (
             patch(
-                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+                "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir",
+                return_value=tmp_path,
             ),
-            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
-            patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.slot_lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
+            patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
@@ -1332,16 +1351,20 @@ class TestFullLifecycleAndShutdown:
 
         with (
             patch(
-                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+                "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir",
+                return_value=tmp_path,
             ),
-            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", side_effect=pid_exists),
-            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.orchestration.lockfile.psutil.net_connections",
+                "llama_manager.orchestration.slot_lockfile.psutil.pid_exists",
+                side_effect=pid_exists,
+            ),
+            patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.orchestration.slot_lockfile.psutil.net_connections",
                 return_value=[mock_net_conn],
             ),
-            patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
+            patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
@@ -1367,16 +1390,17 @@ class TestFullLifecycleAndShutdown:
 
         with (
             patch(
-                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+                "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir",
+                return_value=tmp_path,
             ),
-            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.slot_lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.orchestration.lockfile.psutil.net_connections",
+                "llama_manager.orchestration.slot_lockfile.psutil.net_connections",
                 return_value=[MagicMock(laddr=MagicMock(port=4444), pid=99999)],
             ),
-            patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
+            patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
@@ -1402,16 +1426,17 @@ class TestFullLifecycleAndShutdown:
 
         with (
             patch(
-                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+                "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir",
+                return_value=tmp_path,
             ),
-            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.slot_lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.orchestration.lockfile.psutil.net_connections",
+                "llama_manager.orchestration.slot_lockfile.psutil.net_connections",
                 return_value=[MagicMock(laddr=MagicMock(port=8080), pid=99999)],
             ),
-            patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
+            patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
@@ -1436,12 +1461,13 @@ class TestFullLifecycleAndShutdown:
 
         with (
             patch(
-                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+                "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir",
+                return_value=tmp_path,
             ),
-            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
-            patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.slot_lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
+            patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
@@ -1465,12 +1491,13 @@ class TestFullLifecycleAndShutdown:
 
         with (
             patch(
-                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+                "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir",
+                return_value=tmp_path,
             ),
-            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
-            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
-            patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.slot_lockfile.psutil.pid_exists", return_value=True),
+            patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
+            patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
+            patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
@@ -1506,16 +1533,20 @@ class TestFullLifecycleAndShutdown:
 
         with (
             patch(
-                "llama_manager.orchestration.lockfile.resolve_runtime_dir", return_value=tmp_path
+                "llama_manager.orchestration.slot_lockfile.resolve_runtime_dir",
+                return_value=tmp_path,
             ),
-            patch("llama_manager.orchestration.lockfile.psutil.pid_exists", side_effect=pid_exists),
-            patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch(
-                "llama_manager.orchestration.lockfile.psutil.net_connections",
+                "llama_manager.orchestration.slot_lockfile.psutil.pid_exists",
+                side_effect=pid_exists,
+            ),
+            patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
+            patch(
+                "llama_manager.orchestration.slot_lockfile.psutil.net_connections",
                 return_value=[mock_net_conn],
             ),
-            patch("os.kill", side_effect=track_kill),
-            patch("llama_manager.orchestration.lockfile.read_lock") as mock_read_lock,
+            patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
+            patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
             patch("time.sleep", lambda x: None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())

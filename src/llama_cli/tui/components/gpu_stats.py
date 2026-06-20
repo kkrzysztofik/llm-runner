@@ -25,13 +25,20 @@ class GPUStatsPanel(Widget):
             )
             return
 
-        yield from self._build_rows(self._stats)
+        for stats in self._device_stats(self._stats):
+            yield from self._build_rows(stats)
+
+    @staticmethod
+    def _device_stats(stats: dict[str, Any]) -> list[dict[str, Any]]:
+        devices = stats.get("devices")
+        if not isinstance(devices, list):
+            return [stats]
+        parsed = [dict(device) for device in devices if isinstance(device, dict)]
+        return parsed or [stats]
 
     def _build_rows(self, stats: dict[str, Any]) -> ComposeResult:
         gpu_pct = self._parse_percent(stats.get("gpu_util"))
         mem_pct = self._parse_percent(stats.get("mem_util"))
-        cpu_pct = self._parse_percent(stats.get("cpu"))
-        sys_mem_pct = self._parse_percent(stats.get("mem"))
 
         def _fmt(val: Any) -> str:
             if val is None:
@@ -53,8 +60,8 @@ class GPUStatsPanel(Widget):
             )
         else:
             yield Horizontal(
-                self._usage_item("CPU", cpu_pct, _fmt(stats.get("cpu"))),
-                self._usage_item("Mem", sys_mem_pct, _fmt(stats.get("mem"))),
+                self._usage_item("GPU", None, "N/A"),
+                self._usage_item("VRAM", None, "N/A"),
                 classes="gpu-stats-usage-row",
             )
 
@@ -101,6 +108,14 @@ class GPUStatsPanel(Widget):
     @staticmethod
     def _value_class(raw: str) -> str:
         return "gpu-stats-muted-value" if raw == "N/A" else "gpu-stats-value"
+
+    def update_stats(self, stats: dict[str, Any] | None) -> None:
+        """Update the GPU stats and re-render the panel."""
+        next_stats = dict(stats) if stats is not None else None
+        if self._stats == next_stats:
+            return
+        self._stats = next_stats
+        self.refresh(recompose=True)
 
     @staticmethod
     def _parse_percent(value: object) -> float | None:

@@ -1,5 +1,7 @@
 """Server lifecycle management — ServerManager."""
 
+import contextlib
+import os
 import signal
 import threading
 import time
@@ -16,11 +18,13 @@ from ..config import (
     ModelSlot,
     MultiValidationError,
     ServerConfig,
+    ValidationException,
 )
 from .audit import AuditLogger
 from .launcher import (
     ProcessHandle,
     ProcessLauncher,
+    ProcessTimeoutError,
     filter_owned_running_pids,
     send_signals_to_pids,
     stream_pipe,
@@ -48,6 +52,7 @@ class ServerManager:
         self.pids: list[int] = []
         self.shutting_down: bool = False
         self.servers: list[ProcessHandle] = []
+        self.slot_processes: dict[str, ProcessHandle] = {}
         self.pid_metadata: dict[int, float] = {}
         self._launcher = process_launcher
         self._audit = AuditLogger(audit_log_path)
@@ -226,15 +231,66 @@ class ServerManager:
     ) -> list[ProcessHandle]:
         """Start multiple servers and return their processes."""
         from ..validation.commands import build_server_cmd
+        from .launcher import wrap_sycl_launch_cmd
 
         log_handlers = log_handlers or {}
         processes = []
         for cfg in configs:
-            cmd = build_server_cmd(cfg)
-            handler = log_handlers.get(cfg.alias) if log_handlers else None
-            proc = self.start_server_background(cfg.alias, cmd, handler)
+            try:
+                self._reserve_slot_lock(cfg)
+                cmd = build_server_cmd(cfg)
+                cmd = wrap_sycl_launch_cmd(cmd, cfg.device)
+                handler = log_handlers.get(cfg.alias) if log_handlers else None
+                proc = self.start_server_background(cfg.alias, cmd, handler)
+            except Exception:
+                self.release_lock(cfg.alias)
+                raise
+            try:
+                self._record_started_slot_lock(cfg, proc.pid)
+            except Exception:
+                self._shutdown_process_handle(cfg.alias, proc, timeout=1.0)
+                raise
+            self.slot_processes[cfg.alias] = proc
             processes.append(proc)
         return processes
+
+    def _reserve_slot_lock(self, cfg: ServerConfig) -> None:
+        """Reserve a slot lock before launching a server process."""
+        from .lockfile import LockMetadata, read_lock, resolve_runtime_dir
+        from .slot_lockfile import acquire_slot_lock
+
+        runtime_dir = resolve_runtime_dir()
+        metadata_result = read_lock(runtime_dir, cfg.alias, require_valid=False)
+        if isinstance(metadata_result, ErrorDetail):
+            raise ValidationException(MultiValidationError(errors=[metadata_result]))
+        if (
+            isinstance(metadata_result, LockMetadata)
+            and metadata_result.pid == os.getpid()
+            and metadata_result.port == cfg.port
+        ):
+            return
+
+        acquire_slot_lock(cfg.alias, cfg.port)
+
+    def _record_started_slot_lock(self, cfg: ServerConfig, server_pid: int) -> None:
+        """Replace the launch reservation PID with the actual server PID."""
+        from .lockfile import LockMetadata, read_lock, resolve_runtime_dir, update_lock
+        from .slot_lockfile import acquire_slot_lock
+
+        runtime_dir = resolve_runtime_dir()
+        metadata_result = read_lock(runtime_dir, cfg.alias, require_valid=False)
+        if isinstance(metadata_result, ErrorDetail):
+            raise ValidationException(MultiValidationError(errors=[metadata_result]))
+        if metadata_result is None:
+            acquire_slot_lock(cfg.alias, cfg.port, server_pid=server_pid)
+            return
+        if isinstance(metadata_result, LockMetadata) and metadata_result.pid not in {
+            os.getpid(),
+            server_pid,
+        }:
+            raise RuntimeError(f"slot lock for '{cfg.alias}' changed during launch")
+
+        update_lock(runtime_dir, cfg.alias, server_pid, cfg.port)
 
     def _process_slot(
         self,
@@ -338,4 +394,69 @@ class ServerManager:
         """Gracefully shut down a slot's server process. Delegates to slot_lockfile.shutdown_slot."""
         from .slot_lockfile import shutdown_slot as _shutdown
 
+        process = self.slot_processes.get(slot_id)
+        if process is not None:
+            return self._shutdown_process_handle(slot_id, process, timeout)
+
         return _shutdown(slot_id, timeout)
+
+    def _shutdown_process_handle(
+        self,
+        slot_id: str,
+        process: ProcessHandle,
+        timeout: float,
+    ) -> bool:
+        """Shut down a tracked server process and release its slot lock."""
+        pid = process.pid
+        if process.poll() is not None:
+            self._forget_slot_process(slot_id, process)
+            self.release_lock(slot_id)
+            return True
+
+        if pid in self.pid_metadata and not self._verify_process_ownership(pid):
+            self._record_lifecycle_event("skip", pid=pid, details="ownership_failed")
+            return False
+
+        try:
+            os.kill(pid, signal.SIGTERM)
+            self._record_lifecycle_event("kill", pid=pid, details="SIGTERM")
+        except OSError:
+            self._forget_slot_process(slot_id, process)
+            self.release_lock(slot_id)
+            return True
+
+        try:
+            process.wait(timeout=timeout)
+            self._forget_slot_process(slot_id, process)
+            self.release_lock(slot_id)
+            return True
+        except ProcessTimeoutError:
+            pass
+
+        try:
+            os.kill(pid, signal.SIGKILL)
+            self._record_lifecycle_event("kill", pid=pid, details="SIGKILL")
+        except OSError:
+            self._forget_slot_process(slot_id, process)
+            self.release_lock(slot_id)
+            return True
+
+        try:
+            process.wait(timeout=5.0)
+        except ProcessTimeoutError:
+            return False
+
+        self._forget_slot_process(slot_id, process)
+        self.release_lock(slot_id)
+        return True
+
+    def _forget_slot_process(self, slot_id: str, process: ProcessHandle) -> None:
+        """Remove a stopped process from manager tracking structures."""
+        pid = process.pid
+        if self.slot_processes.get(slot_id) is process:
+            self.slot_processes.pop(slot_id, None)
+        with contextlib.suppress(ValueError):
+            self.servers.remove(process)
+        with contextlib.suppress(ValueError):
+            self.pids.remove(pid)
+        self.pid_metadata.pop(pid, None)
