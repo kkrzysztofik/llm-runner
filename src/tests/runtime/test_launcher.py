@@ -397,6 +397,174 @@ class TestProcessLauncherProtocol:
         assert mock_handle not in manager.servers
         assert mock_handle.pid not in manager.pids
 
+    def test_launch_all_slots_empty_is_blocked_without_errors(self, tmp_path: Path) -> None:
+        """launch_all_slots should return blocked without errors when no slots are requested."""
+        from llama_manager.orchestration import ServerManager
+
+        result = ServerManager().launch_all_slots([], runtime_dir=tmp_path)
+
+        assert result.status == "blocked"
+        assert result.launched == []
+        assert result.errors is None
+
+    def test_launch_all_slots_degraded_when_one_slot_lock_fails(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """launch_all_slots should report degraded when only some slot locks are acquired."""
+        from llama_manager.config import ModelSlot
+        from llama_manager.orchestration import ServerManager
+
+        def acquire_slot_lock(slot_id: str, port: int, server_pid: int | None = None) -> Path:
+            if slot_id == "blocked":
+                raise RuntimeError("lock busy")
+            return tmp_path / f"slot-{slot_id}.lock"
+
+        monkeypatch.setattr(
+            "llama_manager.orchestration.slot_lockfile.acquire_slot_lock",
+            acquire_slot_lock,
+        )
+
+        result = ServerManager().launch_all_slots(
+            [
+                ModelSlot(slot_id="ok", model_path="/models/a.gguf", port=8080),
+                ModelSlot(slot_id="blocked", model_path="/models/b.gguf", port=8081),
+            ],
+            runtime_dir=tmp_path,
+        )
+
+        assert result.status == "degraded"
+        assert result.launched == ["ok"]
+        assert result.warnings is not None
+        assert "lock_acquire_failed" in result.warnings[0]
+
+    def test_start_server_background_ignores_psutil_access_denied(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """start_server_background should still track handles when psutil metadata is denied."""
+        import psutil
+
+        from llama_manager.orchestration import ServerManager
+
+        monkeypatch.setattr(
+            "llama_manager.orchestration.manager.threading.Thread",
+            lambda *args, **kwargs: MagicMock(start=MagicMock()),
+        )
+        monkeypatch.setattr(
+            "llama_manager.orchestration.manager.psutil.Process",
+            MagicMock(side_effect=psutil.AccessDenied(pid=123)),
+        )
+        mock_handle = MockProcessHandle(pid=123)
+        manager = ServerManager(
+            process_launcher=MockProcessLauncher(handle=mock_handle)  # pyright: ignore[arg-type]
+        )
+
+        result = manager.start_server_background("test", ["echo", "hello"])
+
+        assert result is mock_handle
+        assert manager.pids == [123]
+        assert manager.servers == [mock_handle]
+        assert manager.pid_metadata == {}
+
+    def test_shutdown_process_handle_returns_true_for_already_exited(self) -> None:
+        """_shutdown_process_handle should forget exited processes and release the lock."""
+        from llama_manager.orchestration import ServerManager
+
+        process = MockProcessHandle(pid=555)
+        process._poll_return = 0
+        manager = ServerManager()
+        manager.slot_processes["slot"] = process  # pyright: ignore[assignment]
+        manager.servers.append(process)  # pyright: ignore[arg-type]
+        manager.pids.append(process.pid)
+        manager.pid_metadata[process.pid] = 1.0
+        manager.release_lock = MagicMock()  # type: ignore[method-assign]
+
+        assert manager._shutdown_process_handle("slot", process, timeout=0.1) is True
+        manager.release_lock.assert_called_once_with("slot")
+        assert manager.slot_processes == {}
+        assert manager.servers == []
+        assert manager.pids == []
+        assert manager.pid_metadata == {}
+
+    def test_shutdown_process_handle_returns_false_on_ownership_failure(self) -> None:
+        """_shutdown_process_handle should not signal a process it no longer owns."""
+        from llama_manager.orchestration import ServerManager
+
+        process = MockProcessHandle(pid=556)
+        manager = ServerManager()
+        manager.pid_metadata[process.pid] = 1.0
+        manager._verify_process_ownership = MagicMock(return_value=False)  # type: ignore[method-assign]
+        manager._record_lifecycle_event = MagicMock()  # type: ignore[method-assign]
+
+        assert manager._shutdown_process_handle("slot", process, timeout=0.1) is False
+        manager._record_lifecycle_event.assert_called_once_with(
+            "skip", pid=556, details="ownership_failed"
+        )
+
+    def test_shutdown_process_handle_releases_lock_when_sigterm_process_missing(self) -> None:
+        """_shutdown_process_handle should treat missing process on SIGTERM as stopped."""
+        from llama_manager.orchestration import ServerManager
+
+        process = MockProcessHandle(pid=557)
+        manager = ServerManager()
+        manager.slot_processes["slot"] = process  # pyright: ignore[assignment]
+        manager.servers.append(process)  # pyright: ignore[arg-type]
+        manager.pids.append(process.pid)
+        manager.release_lock = MagicMock()  # type: ignore[method-assign]
+
+        with patch("llama_manager.orchestration.manager.os.kill", side_effect=OSError):
+            assert manager._shutdown_process_handle("slot", process, timeout=0.1) is True
+
+        manager.release_lock.assert_called_once_with("slot")
+        assert manager.slot_processes == {}
+
+    def test_shutdown_process_handle_uses_sigkill_after_timeout(self) -> None:
+        """_shutdown_process_handle should escalate to SIGKILL after SIGTERM timeout."""
+        from llama_manager.orchestration import ServerManager
+
+        process = MockProcessHandle(pid=558)
+        wait_calls = 0
+
+        def wait(timeout: float | None = None) -> int:
+            nonlocal wait_calls
+            wait_calls += 1
+            if wait_calls == 1:
+                raise ProcessTimeoutError("term timeout")
+            return 0
+
+        process.wait = wait  # pyright: ignore[method-assign]
+        manager = ServerManager()
+        manager.slot_processes["slot"] = process  # pyright: ignore[assignment]
+        manager.servers.append(process)  # pyright: ignore[arg-type]
+        manager.pids.append(process.pid)
+        manager.release_lock = MagicMock()  # type: ignore[method-assign]
+
+        with patch("llama_manager.orchestration.manager.os.kill") as kill:
+            assert manager._shutdown_process_handle("slot", process, timeout=0.1) is True
+
+        assert [call.args[1] for call in kill.call_args_list] == [15, 9]
+        manager.release_lock.assert_called_once_with("slot")
+
+    def test_shutdown_process_handle_returns_false_when_sigkill_wait_times_out(self) -> None:
+        """_shutdown_process_handle should return False if the process survives SIGKILL."""
+        from llama_manager.orchestration import ServerManager
+
+        process = MockProcessHandle(pid=559)
+
+        def wait(timeout: float | None = None) -> int:
+            raise ProcessTimeoutError("still running")
+
+        process.wait = wait  # pyright: ignore[method-assign]
+        manager = ServerManager()
+        manager.release_lock = MagicMock()  # type: ignore[method-assign]
+
+        with patch("llama_manager.orchestration.manager.os.kill"):
+            assert manager._shutdown_process_handle("slot", process, timeout=0.1) is False
+
+        manager.release_lock.assert_not_called()
+
 
 class TestServerManagerAckFlow:
     """Tests for risk acknowledgement flow in ServerManager."""

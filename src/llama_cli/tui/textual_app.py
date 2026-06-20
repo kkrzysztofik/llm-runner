@@ -191,9 +191,13 @@ class DashboardApp(App[None]):
         start = time.perf_counter()
         stats = list(self.controller.model.gpu_stats)
         snapshot_by_alias: dict[str, dict[str, Any]] = {}
-        logger.debug("_refresh_gpu_stats_worker: start count=%d", len(stats))
+        aliases = [cfg.alias for cfg in self.controller.model.configs]
+        logger.debug(
+            "_refresh_gpu_stats_worker: start stats=%d aliases=%d",
+            len(stats),
+            len(aliases),
+        )
         try:
-            aliases = [cfg.alias for cfg in self.controller.model.configs]
             for index, gpu in enumerate(stats):
                 gpu_start = time.perf_counter()
                 try:
@@ -842,7 +846,18 @@ class DashboardApp(App[None]):
                     panel._slot_index,
                 )
                 await panel.remove()
-                await container.mount(ServerLogPanel(panel._slot_index, self.view_model))
+                current_panels_after = list(container.query(ServerLogPanel))
+                next_panel = None
+                for p in current_panels_after:
+                    if p._slot_index > panel._slot_index:
+                        next_panel = p
+                        break
+                if next_panel is not None:
+                    await container.mount(
+                        ServerLogPanel(panel._slot_index, self.view_model), before=next_panel
+                    )
+                else:
+                    await container.mount(ServerLogPanel(panel._slot_index, self.view_model))
                 logger.debug(
                     "_reconcile_server_log_panels: replaced panel duration_ms=%.1f",
                     (time.perf_counter() - start) * 1000,
@@ -952,6 +967,13 @@ class DashboardApp(App[None]):
         with contextlib.suppress(NoMatches):
             url_widget = cast(Static, panel.query_one(".server-column-url"))
             url_widget.update(state.url)
+        with contextlib.suppress(NoMatches):
+            warning_widget = cast(Static, panel.query_one(".server-column-warning"))
+            warning_widget.update(state.stale_warning or "")
+            if state.stale_warning:
+                warning_widget.visible = True
+            else:
+                warning_widget.visible = False
         with contextlib.suppress(NoMatches):
             gpu_panel = cast(GPUStatsPanel, panel.query_one(GPUStatsPanel))
             gpu_panel.update_stats(state.gpu_stats)

@@ -160,4 +160,7 @@ class ProfileStatsScreen(ModalScreen[None]):
 def _format_updated_at(value: float) -> str:
     if value <= 0:
         return "--"
-    return datetime.fromtimestamp(value).strftime("%Y-%m-%d %H:%M")
+    try:
+        return datetime.fromtimestamp(value).strftime("%Y-%m-%d %H:%M")
+    except ValueError, OSError, OverflowError:
+        return "--"

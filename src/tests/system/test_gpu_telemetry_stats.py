@@ -66,7 +66,9 @@ class TestGPUStatsUpdate:
         stats = GPUStats(device_index=0, collector=collector)
         stats._prev_gpu_util = 50.0
 
-        stats.update()
+        with patch("llama_manager.gpu_telemetry.stats.logger") as mock_logger:
+            stats.update()
+            mock_logger.debug.assert_called()
 
     def test_update_logs_util_delta_with_int_values(self) -> None:
         """Should log debug when int gpu util delta > 5%."""
@@ -74,7 +76,9 @@ class TestGPUStatsUpdate:
         stats = GPUStats(device_index=0, collector=collector)
         stats._prev_gpu_util = 50.0
 
-        stats.update()
+        with patch("llama_manager.gpu_telemetry.stats.logger") as mock_logger:
+            stats.update()
+            mock_logger.debug.assert_called()
 
     def test_update_does_not_log_small_delta(self) -> None:
         """Should not log when delta <= 5%."""
@@ -82,7 +86,9 @@ class TestGPUStatsUpdate:
         stats = GPUStats(device_index=0, collector=collector)
         stats._prev_gpu_util = 50.0
 
-        stats.update()
+        with patch("llama_manager.gpu_telemetry.stats.logger") as mock_logger:
+            stats.update()
+            mock_logger.debug.assert_not_called()
 
 
 class TestGPUStatsProperties:

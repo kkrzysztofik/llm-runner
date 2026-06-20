@@ -8,7 +8,6 @@ Covers:
 
 from __future__ import annotations
 
-import contextlib
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
@@ -1154,9 +1153,7 @@ class TestDashboardAppModalResults:
 
         assert app._pending_remove_slot_alias is None
 
-    def test_handle_config_modal_result_clean_cache_confirms(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_handle_config_modal_result_clean_cache_confirms(self) -> None:
         """_handle_config_modal_result with clean_cache should push ConfirmModal."""
         from llama_cli.tui.components.config_modal import ConfigPayload
 
@@ -1170,7 +1167,7 @@ class TestDashboardAppModalResults:
 
         app.push_screen.assert_called_once()
 
-    def test_handle_config_modal_result_save(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_handle_config_modal_result_save(self) -> None:
         """_handle_config_modal_result without clean_cache should save config."""
         from llama_cli.tui.components.config_modal import ConfigPayload
 
@@ -1189,22 +1186,56 @@ class TestDashboardAppWorkers:
     """Tests for background worker exception paths."""
 
     def test_run_add_slot_handles_exception(self) -> None:
-        """_run_add_slot should handle exceptions and notify."""
+        """_run_add_slot should catch exceptions and call _finish_add_slot with error."""
         controller = _make_controller()
         controller.compute_add_slot_from_form.side_effect = RuntimeError("compute failed")  # type: ignore[attr-defined]
         app = DashboardApp(controller)
-        # Call the wrapped (non-worker) method directly to avoid event loop
-        with contextlib.suppress(Exception):
-            DashboardApp._run_add_slot.__wrapped__(app, {"profile": "test"})  # type: ignore[attr-defined]
+        captured: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        def _capture_finish(fn: object, *args: object, **kwargs: object) -> None:
+            captured.append((fn, args, kwargs))
+
+        app.call_from_thread = _capture_finish  # type: ignore[method-assign]
+
+        DashboardApp._run_add_slot.__wrapped__(app, {"profile": "test"})  # type: ignore[attr-defined]
+
+        finish_calls = [
+            call for call in captured if getattr(call[0], "__name__", "") == "_finish_add_slot"
+        ]
+        assert len(finish_calls) == 1
+        finish_args = finish_calls[0][1]
+        assert finish_args[1] == "Add slot failed: compute failed"
+        assert finish_args[2] is False
 
     def test_run_remove_slot_handles_exception(self) -> None:
-        """_run_remove_slot should handle exceptions and notify."""
+        """_run_remove_slot should catch exceptions and call _finish_remove_slot with error."""
         controller = _make_controller()
         controller.prepare_async_slot_remove.side_effect = RuntimeError("remove failed")  # type: ignore[attr-defined]
         app = DashboardApp(controller)
-        # Call the wrapped (non-worker) method directly to avoid event loop
-        with contextlib.suppress(Exception):
-            DashboardApp._run_remove_slot.__wrapped__(app, "slot0")  # type: ignore[attr-defined]
+        captured: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        def _call_from_thread(fn: object, *args: object, **kwargs: object) -> object:
+            if getattr(fn, "__name__", "") == "_finish_remove_slot":
+                captured.append((fn, args, kwargs))
+                return None
+            return fn(*args, **kwargs)  # type: ignore[misc]
+
+        app.call_from_thread = _call_from_thread  # type: ignore[method-assign]
+
+        DashboardApp._run_remove_slot.__wrapped__(app, "slot0")  # type: ignore[attr-defined]
+
+        finish_calls = [
+            call for call in captured if getattr(call[0], "__name__", "") == "_finish_remove_slot"
+        ]
+        assert len(finish_calls) == 1
+        fn_call = finish_calls[0]
+        finish_args = fn_call[1]
+        assert len(finish_args) >= 3
+        assert finish_args[0] == "slot0"
+        assert finish_args[1] is not None
+        error_msg: str = finish_args[1]  # type: ignore[assignment]
+        assert "Remove slot failed" in error_msg
+        assert finish_args[2] is False
 
 
 class TestDashboardAppRefresh:
@@ -1253,17 +1284,20 @@ class TestDashboardAppRefresh:
 class TestDashboardAppReconcilePanels:
     """Tests for _reconcile_server_log_panels."""
 
-    def test_reconcile_panels_zero_needed_does_not_crash(self) -> None:
+    @pytest.mark.anyio
+    async def test_reconcile_panels_zero_needed_does_not_crash(self) -> None:
         """_reconcile_server_log_panels should handle zero panels gracefully."""
         controller = _make_controller()
         app = DashboardApp(controller)
         app.view_model.server_column_count = MagicMock(return_value=0)  # type: ignore[attr-defined]
 
-        # The function calls query_one which needs a Textual screen stack.
-        # Instead, verify the function exists and is callable.
-        import inspect
+        mock_container = MagicMock()
+        mock_container.query = MagicMock(return_value=[])
+        app.query_one = MagicMock(return_value=mock_container)  # type: ignore[method-assign]
 
-        assert inspect.iscoroutinefunction(app._reconcile_server_log_panels)
+        await app._reconcile_server_log_panels()
+
+        app.view_model.server_column_count.assert_called_once()
 
 
 class TestDashboardAppBuildModalResult:

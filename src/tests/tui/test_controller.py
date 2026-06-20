@@ -133,6 +133,155 @@ class TestControllerStatusMessages:
         assert len(controller._status_messages) == 1
 
 
+class TestControllerSlotStats:
+    """Tests for persisted and live slot stats refresh behavior."""
+
+    def test_load_persisted_slot_stats_handles_loader_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_persisted_slot_stats should not crash when persisted JSON cannot load."""
+        controller = _make_controller()
+        controller.model.apply_slot_stats_snapshot({})
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.load_slot_stats",
+            MagicMock(side_effect=RuntimeError("bad stats")),
+        )
+
+        controller._load_persisted_slot_stats()
+
+        assert controller.model.slot_stats_snapshot() == {}
+
+    def test_refresh_slot_stats_updates_slot_and_profile_stats(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """refresh_slot_stats should collect, cache, and persist slot/profile stats."""
+        from llama_manager.slot_stats import ProfileStatsAggregate, SlotStatsSnapshot
+
+        controller = _make_controller()
+        controller.model.apply_slot_stats_snapshot({})
+        stats = SlotStatsSnapshot("slot0", 8080, 10.0, tokens_in=10, tokens_out=4)
+        process = MagicMock()
+        process.pid = 1234
+        controller.server_processes["slot0"] = process
+        saved_slots = MagicMock()
+        saved_profiles = MagicMock()
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.load_profile_stats", MagicMock(return_value={})
+        )
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.collect_slot_stats",
+            MagicMock(return_value=stats),
+        )
+        monkeypatch.setattr("llama_cli.tui.controller.save_slot_stats", saved_slots)
+        monkeypatch.setattr("llama_cli.tui.controller.save_profile_stats", saved_profiles)
+        controller.resolve_profile_id_for_config = MagicMock(return_value="profile0")  # type: ignore[method-assign]
+
+        controller.refresh_slot_stats()
+
+        assert controller.model.slot_stats_snapshot() == {"slot0": stats}
+        saved_slots.assert_called_once_with({"slot0": stats})
+        saved_profiles.assert_called_once()
+        profile_stats = saved_profiles.call_args.args[0]
+        assert profile_stats == {
+            "profile0": ProfileStatsAggregate(
+                "profile0",
+                updated_at=10.0,
+                sessions_count=1,
+                sessions={
+                    "slot0:1234": profile_stats["profile0"].sessions["slot0:1234"],
+                },
+            )
+        }
+
+    def test_refresh_slot_stats_continues_on_collector_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """refresh_slot_stats should keep the current cache when collection raises."""
+        current = {}
+        controller = _make_controller()
+        controller.model.apply_slot_stats_snapshot(current)
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.load_profile_stats", MagicMock(return_value={})
+        )
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.collect_slot_stats",
+            MagicMock(side_effect=RuntimeError("offline")),
+        )
+        save_slots = MagicMock()
+        save_profiles = MagicMock()
+        monkeypatch.setattr("llama_cli.tui.controller.save_slot_stats", save_slots)
+        monkeypatch.setattr("llama_cli.tui.controller.save_profile_stats", save_profiles)
+
+        controller.refresh_slot_stats()
+
+        assert controller.model.slot_stats_snapshot() == current
+        save_slots.assert_not_called()
+        save_profiles.assert_not_called()
+
+    def test_refresh_slot_stats_logs_persistence_failures(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """refresh_slot_stats should catch slot and profile persistence failures."""
+        from llama_manager.slot_stats import SlotStatsSnapshot
+
+        controller = _make_controller()
+        controller.model.apply_slot_stats_snapshot({})
+        stats = SlotStatsSnapshot("slot0", 8080, 10.0, tokens_in=10, tokens_out=4)
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.load_profile_stats", MagicMock(return_value={})
+        )
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.collect_slot_stats",
+            MagicMock(return_value=stats),
+        )
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.save_slot_stats",
+            MagicMock(side_effect=RuntimeError("slot save failed")),
+        )
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.save_profile_stats",
+            MagicMock(side_effect=RuntimeError("profile save failed")),
+        )
+        controller.resolve_profile_id_for_config = MagicMock(return_value="profile0")  # type: ignore[method-assign]
+
+        controller.refresh_slot_stats()
+
+        assert controller.model.slot_stats_snapshot() == {"slot0": stats}
+
+    def test_resolve_profile_id_coding_alias_falls_back_to_base(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """resolve_profile_id_for_config should try the base alias for -coding slots."""
+        from types import SimpleNamespace
+
+        controller = _make_controller()
+        registry = SimpleNamespace(profiles=[])
+        calls: list[str] = []
+
+        def fake_resolve_profile_id(registry_arg: object, alias: str) -> str | None:
+            assert registry_arg is registry
+            calls.append(alias)
+            return "qwen35" if alias == "qwen35" else None
+
+        controller._build_tui_registry = MagicMock(return_value=registry)  # type: ignore[method-assign]
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.resolve_profile_id",
+            fake_resolve_profile_id,
+        )
+        cfg = make_server_config(alias="qwen35-coding")
+
+        assert controller.resolve_profile_id_for_config(cfg) == "qwen35"
+        assert calls == ["qwen35-coding", "qwen35"]
+
+    def test_profile_stats_session_id_uses_alias_without_positive_pid(self) -> None:
+        """_profile_stats_session_id should fall back to alias when pid is absent."""
+        controller = _make_controller()
+        controller.server_processes["slot0"] = MagicMock(pid=0)
+
+        assert controller._profile_stats_session_id("slot0") == "slot0"
+        assert controller._profile_stats_session_id("missing") == "missing"
+
+
 class TestControllerCancelBuild:
     """Tests for DashboardController.cancel_build."""
 
@@ -1020,7 +1169,11 @@ class TestControllerBuildBackground:
         """_build_single_backend should return False on failed build."""
         from llama_manager.build_pipeline import BuildResult
 
-        mock_result = BuildResult(success=False, error_message="cmake failed", artifact=MagicMock())  # pyright: ignore[reportArgumentType]
+        mock_result = BuildResult(
+            success=False,
+            error_message="cmake failed",
+            artifact=MagicMock(),
+        )  # pyright: ignore[reportArgumentType]
         monkeypatch.setattr(
             "llama_cli.tui.controller.run_build_for_backend",
             lambda **kw: mock_result,

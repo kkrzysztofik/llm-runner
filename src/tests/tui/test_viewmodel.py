@@ -19,6 +19,7 @@ from llama_cli.tui.types import (
 from llama_cli.tui.viewmodel import BACKEND_LABELS, DashboardViewModel
 from llama_manager import ServerConfig, SlotState
 from llama_manager.build_pipeline import BuildConfig
+from llama_manager.slot_stats import SlotStatsSnapshot
 
 # ──────────────────────────────────────────────
 # Helpers
@@ -344,6 +345,38 @@ def test_cpu_usage_rows_odd_count() -> None:
     assert total_cells == 3
 
 
+def test_cpu_usage_rows_skips_sparse_grid_tail() -> None:
+    """cpu_usage_rows should skip cells beyond the available CPU count."""
+    vm = _make_viewmodel(cpu_percentages=[10.0, 20.0, 30.0, 40.0, 50.0])
+
+    result = vm.cpu_usage_rows(width=48)
+
+    assert [[cell.index for cell in row] for row in result] == [[0, 2, 4], [1, 3]]
+
+
+def test_content_width_clamps_invalid_and_large_values() -> None:
+    """_content_width should use stable minimum/default/maximum bounds."""
+    assert DashboardViewModel._content_width(None) == 116
+    assert DashboardViewModel._content_width(0) == 116
+    assert DashboardViewModel._content_width(10) == 40
+    assert DashboardViewModel._content_width(999) == 240
+
+
+def test_format_gpu_stats_text_includes_temp_and_power() -> None:
+    """_format_gpu_stats_text should include optional temperature and power rows."""
+    result = DashboardViewModel._format_gpu_stats_text(
+        {
+            "device": "GPU0",
+            "gpu_util": "50%",
+            "mem_util": "25%",
+            "temp": "60C",
+            "power": "120W",
+        }
+    )
+
+    assert result == "Device: GPU0\nGPU: 50% | Mem: 25%\nTemp: 60C\nPower: 120W"
+
+
 # ──────────────────────────────────────────────
 # memory_usage_rows
 # ──────────────────────────────────────────────
@@ -409,6 +442,79 @@ def test_dashboard_model_system_health_reads_cached_snapshots() -> None:
     collect_cpu.assert_not_called()
     collect_memory.assert_not_called()
     collect_system.assert_not_called()
+
+
+def test_dashboard_model_dashboard_snapshot_returns_copies() -> None:
+    """dashboard_snapshot should protect cached GPU dictionaries from caller mutation."""
+    model = DashboardModel(configs=[], gpu_indices=[])
+    model.apply_system_health_snapshot(
+        [1.0],
+        [MemoryUsageSnapshot(label="Mem", percent=2.0, value_text="2/4")],
+        SystemInfoSnapshot(tasks=1, threads=2, running=3, load_values=None, uptime="1:00"),
+    )
+    model.apply_gpu_stats_snapshot({"code": {"gpu_util": "50%"}})
+
+    snapshot = model.dashboard_snapshot()
+    snapshot.gpu_stats_by_alias["code"]["gpu_util"] = "99%"
+
+    assert model.dashboard_snapshot().gpu_stats_by_alias["code"]["gpu_util"] == "50%"
+
+
+def test_dashboard_model_gpu_and_slot_cache_helpers() -> None:
+    """DashboardModel should copy cached GPU stats and slot stats at API boundaries."""
+    model = DashboardModel(configs=[], gpu_indices=[])
+    gpu_stats = {"gpu_util": "25%"}
+    slot_stats = SlotStatsSnapshot("code", 8081, 10.0, tokens_in=3, tokens_out=4)
+
+    model.set_cached_gpu_stats("code", gpu_stats)
+    gpu_stats["gpu_util"] = "99%"
+    model.set_cached_slot_stats("code", slot_stats)
+    slot_snapshot = model.slot_stats_snapshot()
+    slot_snapshot.clear()
+    model.remove_cached_gpu_stats("missing")
+
+    assert model.dashboard_snapshot().gpu_stats_by_alias == {"code": {"gpu_util": "25%"}}
+    assert model.slot_stats_snapshot() == {"code": slot_stats}
+
+    model.remove_cached_gpu_stats("code")
+    model.apply_slot_stats_snapshot({})
+    assert model.dashboard_snapshot().gpu_stats_by_alias == {}
+    assert model.slot_stats_snapshot() == {}
+
+
+def test_dashboard_model_live_collectors_normalize_non_float_percentages() -> None:
+    """Live collector helpers should coerce non-float percentages to 0.0."""
+    model = DashboardModel(configs=[], gpu_indices=[])
+
+    with (
+        patch("llama_manager.collect_cpu_percentages", return_value=[10.0]),
+        patch(
+            "llama_manager.collect_memory_usage",
+            return_value={
+                "mem": {"label": "Mem", "percent": "bad", "value_text": "1/2"},
+                "swp": {"label": "Swap", "percent": 3.5, "value_text": "0/1"},
+            },
+        ),
+        patch(
+            "llama_manager.collect_system_info",
+            return_value={
+                "tasks": 1,
+                "threads": 2,
+                "running": 3,
+                "load_values": (0.1, 0.2, 0.3),
+                "uptime": "1:00",
+            },
+        ),
+    ):
+        cpu, memory_rows, system = model.collect_system_health_snapshot()
+        memory_now = model.collect_memory_usage_rows_now()
+        system_now = model.collect_system_info_snapshot_now()
+
+    assert cpu == [10.0]
+    assert [row.percent for row in memory_rows] == [0.0, 3.5]
+    assert [row.percent for row in memory_now] == [0.0, 3.5]
+    assert system.tasks == 1
+    assert system_now.uptime == "1:00"
 
 
 def test_current_datetime_snapshot() -> None:

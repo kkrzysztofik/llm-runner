@@ -102,6 +102,22 @@ def test_parse_slots_payload_tps_candidates() -> None:
     assert result.tps == 15.5
 
 
+def test_parse_slots_payload_reads_nested_rate_dicts() -> None:
+    """parse_slots_payload should accept rate values wrapped in llama.cpp dictionaries."""
+    payload = [
+        {
+            "tps": {"rate": 17.25},
+            "prompt_tps": {"value": 99.5},
+            "next_token": {"n_decoded": 4},
+        },
+    ]
+
+    result = parse_slots_payload("nested", 8080, payload, now=1.0)
+
+    assert result.tps == 17.25
+    assert result.prompt_tps == 99.5
+
+
 def test_parse_slots_payload_prompt_tps_nested() -> None:
     """parse_slots_payload should read prompt_tps from nested prompt.tokens_per_second."""
     payload = [
@@ -223,6 +239,23 @@ def test_parse_metrics_payload_returns_none_without_expected_metrics() -> None:
     assert parse_metrics_payload("code", 8081, "process_cpu_seconds_total 3", now=11.0) is None
 
 
+def test_parse_metrics_payload_skips_malformed_and_nan_samples() -> None:
+    """Prometheus parser should ignore comments, incomplete rows, and NaN values."""
+    payload = """
+# comment
+llamacpp:prompt_tokens_total
+llamacpp:prompt_tokens_total NaN
+llamacpp:prompt_tokens_total 12
+llamacpp:tokens_predicted_total 3
+"""
+
+    result = parse_metrics_payload("code", 8081, payload, now=11.0)
+
+    assert result is not None
+    assert result.tokens_in == 12
+    assert result.tokens_out == 3
+
+
 def test_slot_stats_snapshot_to_display() -> None:
     """SlotStatsSnapshot.to_display should format values correctly."""
     stats = SlotStatsSnapshot(
@@ -271,6 +304,17 @@ def test_slot_stats_snapshot_negative_tokens_clamped() -> None:
     display = stats.to_display()
     assert display["tokens_in"] == "0"
     assert display["tokens_out"] == "0"
+
+
+def test_slot_stats_snapshot_eq_and_repr_non_snapshot() -> None:
+    """SlotStatsSnapshot should reject unrelated equality and include useful repr fields."""
+    stats = SlotStatsSnapshot(alias="code", port=8081, updated_at=1.0, tokens_out=2)
+
+    assert stats != object()
+    assert repr(stats) == (
+        "SlotStatsSnapshot(alias='code', port=8081, "
+        "tps=None, prompt_tps=None, tokens_in=0, tokens_out=2)"
+    )
 
 
 # =============================================================================
@@ -331,6 +375,94 @@ def test_save_and_load_profile_stats_round_trip(tmp_path: Path) -> None:
     assert load_profile_stats(runtime_dir=tmp_path) == stats
 
 
+def test_load_profile_stats_returns_empty_for_missing_file(tmp_path: Path) -> None:
+    """load_profile_stats should return {} when no aggregate file exists."""
+    assert load_profile_stats(runtime_dir=tmp_path) == {}
+
+
+def test_load_profile_stats_returns_empty_for_invalid_shapes(tmp_path: Path) -> None:
+    """load_profile_stats should return {} for invalid JSON and missing profile maps."""
+    path = profile_stats_file_path(tmp_path)
+
+    path.write_text("{not-json", encoding="utf-8")
+    assert load_profile_stats(runtime_dir=tmp_path) == {}
+
+    path.write_text(json.dumps(["not", "a", "dict"]), encoding="utf-8")
+    assert load_profile_stats(runtime_dir=tmp_path) == {}
+
+    path.write_text(json.dumps({"profiles": "not-a-dict"}), encoding="utf-8")
+    assert load_profile_stats(runtime_dir=tmp_path) == {}
+
+
+def test_load_profile_stats_skips_invalid_profiles_and_sessions(tmp_path: Path) -> None:
+    """load_profile_stats should ignore malformed entries without dropping valid ones."""
+    path = profile_stats_file_path(tmp_path)
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "profiles": {
+                    "valid": {
+                        "profile_id": "valid",
+                        "updated_at": "12.5",
+                        "tokens_in": 20,
+                        "tokens_out": 7,
+                        "sessions_count": 2,
+                    },
+                    "bad-shape": "not-a-dict",
+                    "bad-time": {"updated_at": object().__class__.__name__},
+                },
+                "sessions": {
+                    "valid": {
+                        "s1": {
+                            "session_id": "s1",
+                            "updated_at": "13.5",
+                            "last_tokens_in": 30,
+                            "last_tokens_out": 9,
+                        },
+                        "bad": "not-a-dict",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = load_profile_stats(runtime_dir=tmp_path)
+
+    assert list(result) == ["valid"]
+    assert result["valid"].updated_at == 12.5
+    assert result["valid"].sessions == {
+        "s1": ProfileStatsSession(
+            session_id="s1",
+            updated_at=13.5,
+            last_tokens_in=30,
+            last_tokens_out=9,
+        )
+    }
+
+
+def test_save_profile_stats_clamps_negative_counters(tmp_path: Path) -> None:
+    """save_profile_stats should persist non-negative aggregate and session counters."""
+    aggregate = ProfileStatsAggregate(
+        profile_id="code",
+        updated_at=10.0,
+        tokens_in=-10,
+        tokens_out=-5,
+        sessions_count=-1,
+        sessions={"s1": ProfileStatsSession("s1", last_tokens_in=-2, last_tokens_out=-3)},
+    )
+
+    save_profile_stats({"code": aggregate}, runtime_dir=tmp_path)
+
+    data = json.loads(profile_stats_file_path(tmp_path).read_text(encoding="utf-8"))
+    assert data["profiles"]["code"]["tokens_in"] == 0
+    assert data["profiles"]["code"]["tokens_out"] == 0
+    assert data["profiles"]["code"]["sessions_count"] == 0
+    assert data["sessions"]["code"]["s1"]["last_tokens_in"] == 0
+    assert data["sessions"]["code"]["s1"]["last_tokens_out"] == 0
+
+
 def test_update_profile_stats_uses_positive_deltas_only() -> None:
     """update_profile_stats should add only positive counter deltas per session."""
     stats: dict[str, ProfileStatsAggregate] = {}
@@ -357,6 +489,49 @@ def test_update_profile_stats_uses_positive_deltas_only() -> None:
     assert aggregate.tokens_in == 4
     assert aggregate.tokens_out == 3
     assert aggregate.sessions_count == 1
+
+
+def test_update_profile_stats_ignores_missing_profile_or_session_id() -> None:
+    """update_profile_stats should not mutate aggregates without stable keys."""
+    existing = {"code": ProfileStatsAggregate("code")}
+    snapshot = SlotStatsSnapshot("code", 8080, 1.0, tokens_in=1, tokens_out=1)
+
+    assert update_profile_stats(existing, "", "session", snapshot) is existing
+    assert update_profile_stats(existing, "code", "", snapshot) is existing
+
+
+def test_profile_stats_session_to_json_and_eq_guards() -> None:
+    """ProfileStatsSession should clamp JSON counters and reject unrelated equality."""
+    session = ProfileStatsSession("s1", updated_at=1.0, last_tokens_in=-5, last_tokens_out=-6)
+
+    assert session.to_json() == {
+        "session_id": "s1",
+        "updated_at": 1.0,
+        "last_tokens_in": 0,
+        "last_tokens_out": 0,
+    }
+    assert session != object()
+
+
+def test_profile_stats_aggregate_to_display_clamps_values() -> None:
+    """ProfileStatsAggregate.to_display should return display-safe strings."""
+    aggregate = ProfileStatsAggregate(
+        "code",
+        tokens_in=-1,
+        tokens_out=-2,
+        sessions_count=-3,
+    )
+
+    assert aggregate.to_display() == {
+        "tokens_in": "0",
+        "tokens_out": "0",
+        "sessions": "0",
+    }
+
+
+def test_profile_stats_aggregate_eq_rejects_unrelated_object() -> None:
+    """ProfileStatsAggregate equality should reject unrelated objects."""
+    assert ProfileStatsAggregate("code") != object()
 
 
 def test_load_slot_stats_returns_empty_for_missing_file(tmp_path: Path) -> None:
