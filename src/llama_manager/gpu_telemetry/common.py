@@ -53,6 +53,39 @@ def parse_gpu_telemetry_selector(
     return GpuTelemetrySelector(backend="cuda", ordinal=main_gpu, device=raw)
 
 
+def parse_gpu_telemetry_selectors(
+    device: str,
+    main_gpu: int = 0,
+    *,
+    vendor_id: int | None = None,
+    device_id: int | None = None,
+    pci_bdf: str | None = None,
+) -> list[GpuTelemetrySelector]:
+    """Parse a llama.cpp device string into all telemetry selectors it references."""
+    primary = parse_gpu_telemetry_selector(
+        device,
+        main_gpu,
+        vendor_id=vendor_id,
+        device_id=device_id,
+        pci_bdf=pci_bdf,
+    )
+    raw = device.strip()
+    if not raw.upper().startswith("CUDA"):
+        return [primary]
+
+    _, _, ordinal_text = raw.partition(":")
+    ordinals = [int(part.strip()) for part in ordinal_text.split(",") if part.strip().isdigit()]
+    if not ordinals:
+        return [primary]
+
+    ordered_ordinals = [primary.ordinal]
+    ordered_ordinals.extend(ordinal for ordinal in ordinals if ordinal != primary.ordinal)
+    return [
+        GpuTelemetrySelector(backend="cuda", ordinal=ordinal, device=raw)
+        for ordinal in ordered_ordinals
+    ]
+
+
 def _resolve_cuda_ordinal(main_gpu: int, ordinals: list[int]) -> int:
     """Pick the preferred ordinal: main_gpu when listed, else the first listed, else main_gpu."""
     if main_gpu in ordinals:

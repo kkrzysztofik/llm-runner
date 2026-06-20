@@ -9,9 +9,11 @@ from llama_manager.gpu_telemetry.stats import (
     GPUStats,
     _is_real_value,
     collect_gpu_stats,
+    collector_for_config,
     get_gpu_identifier,
     make_gpu_collector,
     selector_for_config,
+    selectors_for_config,
 )
 
 
@@ -434,3 +436,36 @@ class TestSelectorForConfig:
 
         assert selector.backend == "cuda"
         assert selector.ordinal == 2
+
+    def test_selectors_for_config_returns_all_cuda_ordinals_with_main_first(self) -> None:
+        """Multi-GPU CUDA configs should collect telemetry for every listed ordinal."""
+        cfg = MagicMock()
+        cfg.device = "CUDA:0,1"
+        cfg.main_gpu = 1
+
+        selectors = selectors_for_config(cfg)
+
+        assert [selector.ordinal for selector in selectors] == [1, 0]
+        assert [selector.backend for selector in selectors] == ["cuda", "cuda"]
+
+    def test_collector_for_config_returns_devices_for_multi_cuda_config(self) -> None:
+        """Multi-GPU collector should expose per-device snapshots for the panel."""
+        cfg = MagicMock()
+        cfg.device = "CUDA:0,1"
+        cfg.main_gpu = 0
+
+        def fake_collect(selector: GpuTelemetrySelector) -> dict[str, str]:
+            return {
+                "device": f"GPU {selector.ordinal}",
+                "gpu_util": f"{selector.ordinal}0%",
+                "mem_util": f"{selector.ordinal}5%",
+            }
+
+        with patch("llama_manager.gpu_telemetry.stats.collect_gpu_stats", fake_collect):
+            result = collector_for_config(cfg)()
+
+        assert result["device"] == "CUDA:0 GPU 0"
+        assert [device["device"] for device in result["devices"]] == [
+            "CUDA:0 GPU 0",
+            "CUDA:1 GPU 1",
+        ]

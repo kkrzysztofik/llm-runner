@@ -682,8 +682,9 @@ class TestServerManagerFormatOutput:
         manager = ServerManager()
         result = manager._format_output("test_server", "hello world")
 
-        # Should start with [HH:MM:SS] (no more server_name in the prefix)
+        # Should start with [HH:MM:SS] and include the server name prefix.
         assert result.startswith("[")
+        assert "[test_server] hello world" in result
         assert "hello world" in result
 
     def test_format_output_preserves_content(self) -> None:
@@ -705,14 +706,14 @@ class TestServerManagerFormatOutput:
         assert "177.32.478.581" not in result
         assert "I srv" in result
 
-    def test_format_output_strips_server_name(self) -> None:
-        """_format_output should not include the server_name in the formatted line."""
+    def test_format_output_includes_server_name(self) -> None:
+        """_format_output should include the server_name in the formatted line."""
         from llama_manager.orchestration import ServerManager
 
         manager = ServerManager()
         result = manager._format_output("qwen35-coding", "hello world")
 
-        assert "qwen35-coding" not in result
+        assert "[qwen35-coding] hello world" in result
 
 
 class TestServerManagerForeground:

@@ -162,7 +162,7 @@ def format_output(server_name: str, line: str) -> str:
     """Format output line with timestamp, stripping llama.cpp internals."""
     timestamp = time.strftime("%H:%M:%S")
     stripped = _LLAMA_TS_PATTERN.sub("", line)
-    return f"[{timestamp}] {stripped}"
+    return f"[{timestamp}][{server_name}] {stripped}"
 
 
 def stream_pipe(

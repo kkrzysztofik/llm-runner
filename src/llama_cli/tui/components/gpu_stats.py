@@ -25,7 +25,16 @@ class GPUStatsPanel(Widget):
             )
             return
 
-        yield from self._build_rows(self._stats)
+        for stats in self._device_stats(self._stats):
+            yield from self._build_rows(stats)
+
+    @staticmethod
+    def _device_stats(stats: dict[str, Any]) -> list[dict[str, Any]]:
+        devices = stats.get("devices")
+        if not isinstance(devices, list):
+            return [stats]
+        parsed = [dict(device) for device in devices if isinstance(device, dict)]
+        return parsed or [stats]
 
     def _build_rows(self, stats: dict[str, Any]) -> ComposeResult:
         gpu_pct = self._parse_percent(stats.get("gpu_util"))

@@ -131,6 +131,21 @@ def test_gpu_stats_panel_update_stats_refreshes_only_when_changed() -> None:
     panel.refresh.assert_called_with(recompose=True)
 
 
+def test_gpu_stats_panel_uses_devices_list_when_present() -> None:
+    """Aggregated multi-GPU snapshots should render each device snapshot."""
+    stats = {
+        "device": "CUDA:0 GPU 0",
+        "devices": [
+            {"device": "CUDA:0 GPU 0", "gpu_util": "10%"},
+            {"device": "CUDA:1 GPU 1", "gpu_util": "20%"},
+        ],
+    }
+
+    devices = GPUStatsPanel._device_stats(stats)
+
+    assert [device["device"] for device in devices] == ["CUDA:0 GPU 0", "CUDA:1 GPU 1"]
+
+
 def test_server_column_header_includes_stale_warning_when_present() -> None:
     """ServerColumnPanel header should append a warning row only when supplied."""
     state = ServerColumnState(
