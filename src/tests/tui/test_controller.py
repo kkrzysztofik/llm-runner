@@ -1100,10 +1100,16 @@ class TestControllerRun:
         monkeypatch.setattr(
             "llama_cli.tui.controller.launch_orchestrate", lambda *a, **kw: MockResult()
         )
+        called = []
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.DashboardController._run_tui_loop_without_servers",
+            lambda self: called.append(True),
+        )
 
         controller = _make_controller()
-        # Should not raise
         controller.run()
+
+        assert called == [True], "Expected _run_tui_loop_without_servers to be called"
 
 
 class TestControllerLoadModelIndex:
