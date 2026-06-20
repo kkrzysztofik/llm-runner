@@ -761,12 +761,14 @@ class DashboardApp(App[None]):
             )
             if success:
                 shutdown_ok = self.controller.server_manager.shutdown_slot(alias)
-                success, messages = self.call_from_thread(
-                    self.controller.commit_async_slot_remove,
-                    alias,
-                )
                 if not shutdown_ok:
+                    success = False
                     messages.append(f"Unable to remove '{alias}': shutdown verification failed")
+                else:
+                    success, messages = self.call_from_thread(
+                        self.controller.commit_async_slot_remove,
+                        alias,
+                    )
             if not success:
                 for msg in messages:
                     self.call_from_thread(self.controller._push_status_message, msg)
