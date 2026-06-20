@@ -196,7 +196,13 @@ class DashboardApp(App[None]):
             aliases = [cfg.alias for cfg in self.controller.model.configs]
             for index, gpu in enumerate(stats):
                 gpu_start = time.perf_counter()
-                gpu.update()
+                try:
+                    gpu.update()
+                except Exception:
+                    logger.exception(
+                        "_refresh_gpu_stats_worker: gpu.update() failed for index=%d", index
+                    )
+                    continue
                 if index < len(aliases):
                     snapshot_by_alias[aliases[index]] = gpu.get_cached_stats_snapshot()
                 logger.debug(
@@ -591,10 +597,25 @@ class DashboardApp(App[None]):
 
         layout_changed = True
         log_handler = lambda line, buf=stage.log_buffer: buf.add_line(line)  # noqa: E731
-        procs = self.controller.server_manager.start_servers(
-            [new_cfg],
-            {stage.alias: log_handler},
-        )
+        try:
+            procs = self.controller.server_manager.start_servers(
+                [new_cfg],
+                {stage.alias: log_handler},
+            )
+        except Exception:
+            logger.exception(
+                "_execute_slot_launch: start_servers failed for '%s', cleaning up staged state",
+                stage.alias,
+            )
+            self.call_from_thread(
+                self.controller.complete_async_slot_launch,
+                stage.alias,
+                profile_id,
+                plan.old_alias,
+                None,
+            )
+            messages.append(f"Slot '{stage.alias}' failed to start: server launch exception")
+            return False, layout_changed, messages
         proc = procs[0] if procs else None
         success, complete_messages = self.call_from_thread(
             self.controller.complete_async_slot_launch,
@@ -739,14 +760,13 @@ class DashboardApp(App[None]):
                 alias,
             )
             if success:
-                if not self.controller.server_manager.shutdown_slot(alias):
-                    messages = [f"Unable to remove '{alias}': shutdown verification failed"]
-                    success = False
-                else:
-                    success, messages = self.call_from_thread(
-                        self.controller.commit_async_slot_remove,
-                        alias,
-                    )
+                shutdown_ok = self.controller.server_manager.shutdown_slot(alias)
+                success, messages = self.call_from_thread(
+                    self.controller.commit_async_slot_remove,
+                    alias,
+                )
+                if not shutdown_ok:
+                    messages.append(f"Unable to remove '{alias}': shutdown verification failed")
             if not success:
                 for msg in messages:
                     self.call_from_thread(self.controller._push_status_message, msg)

@@ -145,7 +145,7 @@ def parse_metrics_payload(
     return SlotStatsSnapshot(
         alias=alias,
         port=port,
-        updated_at=now or time.time(),
+        updated_at=now if now is not None else time.time(),
         tps=predicted_tps,
         prompt_tps=prompt_tps,
         tokens_in=_int_value(prompt_tokens),
@@ -226,7 +226,7 @@ def parse_slots_payload(
         return SlotStatsSnapshot(
             alias=alias,
             port=port,
-            updated_at=now or time.time(),
+            updated_at=now if now is not None else time.time(),
         )
 
     total_tokens_out = 0
@@ -251,7 +251,7 @@ def parse_slots_payload(
     return SlotStatsSnapshot(
         alias=alias,
         port=port,
-        updated_at=now or time.time(),
+        updated_at=now if now is not None else time.time(),
         tps=tps_value,
         prompt_tps=prompt_tps_value,
         tokens_in=total_tokens_in,

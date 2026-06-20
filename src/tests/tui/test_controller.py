@@ -351,12 +351,23 @@ class TestControllerRemoveLiveSlot:
         controller.model.server_manager = MagicMock()
         controller.model.server_manager.shutdown_slot.return_value = False
 
+        original_log_buffers = dict(controller.log_buffers)
+        original_server_processes = dict(controller.server_processes)
+        original_slot_states = dict(controller.slot_states)
+        original_unsaved_slots = set(controller.unsaved_slots)
+        original_slots = list(controller.slots)
+
         success = controller.remove_live_slot("slot0")
 
         assert success is False
         assert len(controller.configs) == 1
         assert len(controller.gpu_indices) == 1
         assert len(controller.gpu_stats) == 1
+        assert controller.log_buffers == original_log_buffers
+        assert controller.server_processes == original_server_processes
+        assert controller.slot_states == original_slot_states
+        assert controller.unsaved_slots == original_unsaved_slots
+        assert controller.slots == original_slots
         assert any(
             msg == "Unable to remove 'slot0': shutdown verification failed"
             for _, msg in controller._status_messages
@@ -613,7 +624,7 @@ class TestControllerProfileMethods:
 class TestControllerSlotStatsPersistence:
     """Tests for persisted slot stats loading at controller construction."""
 
-    def test_controller_loads_persisted_slot_stats(self, monkeypatch) -> None:
+    def test_controller_loads_persisted_slot_stats(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """DashboardController should load persisted slot stats on construction."""
         from llama_manager.slot_stats import SlotStatsSnapshot
 
@@ -628,7 +639,7 @@ class TestControllerSlotStatsPersistence:
             )
         }
 
-        def fake_load(*a, **kw):
+        def fake_load(*a: object, **kw: object) -> dict[str, SlotStatsSnapshot]:
             return persisted
 
         monkeypatch.setattr("llama_cli.tui.controller.load_slot_stats", fake_load)
@@ -637,10 +648,12 @@ class TestControllerSlotStatsPersistence:
 
         assert controller.model.slot_stats_snapshot() == persisted
 
-    def test_controller_loads_persisted_slot_stats_on_failure(self, monkeypatch) -> None:
+    def test_controller_loads_persisted_slot_stats_on_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """DashboardController should not crash if load_slot_stats raises."""
 
-        def fake_load(*a, **kw):
+        def fake_load(*a: object, **kw: object) -> None:
             raise OSError("disk full")
 
         monkeypatch.setattr("llama_cli.tui.controller.load_slot_stats", fake_load)
@@ -656,7 +669,7 @@ class TestControllerSlotStatsPersistence:
         collected: list[tuple[str, str, int]] = []
         saved: list[dict[str, SlotStatsSnapshot]] = []
 
-        def fake_collect(alias: str, host: str, port: int):
+        def fake_collect(alias: str, host: str, port: int) -> SlotStatsSnapshot:
             collected.append((alias, host, port))
             return SlotStatsSnapshot(alias=alias, port=port, updated_at=10.0, tokens_out=5)
 

@@ -58,7 +58,7 @@ GEMMA4_CHAT_TEMPLATE_KWARGS='{"enable_thinking":true}'
 # Server defaults
 DEFAULT_N_GPU_LAYERS=99                  # Max GPU layers for fastest inference
 DEFAULT_CTX_SIZE_SUMMARY=1048576           # 256k with headroom for summary assistants
-DEFAULT_CTX_SIZE_QWEN35=262144          # 1M context on dual RTX 3090
+DEFAULT_CTX_SIZE_QWEN35=262144          # 256K context on dual RTX 3090
 DEFAULT_CTX_SIZE_QWEN27B=262144          # Match NVIDIA qwen27b MTP config
 DEFAULT_CTX_SIZE_GEMMA4_E4B=131072       # Full 128k context for Gemma 4 E4B
 # 27B Q4_K_XL: validated llama-completion warmup + gen at 262144 on RTX 3090 (f16 KV, -np 1)

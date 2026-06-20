@@ -286,13 +286,15 @@ class TestPipeStreaming:
         # Mock subprocess.Popen
         next_pid = 12000
 
-        def create_mock_proc(*args, **kwargs):
+        def create_mock_proc(*args: object, **kwargs: object) -> MagicMock:
             nonlocal next_pid
             mock = MagicMock()
             mock.pid = next_pid
             next_pid += 1
             mock.stdout = MagicMock()
-            mock.stdout.readline.side_effect = [f"output from {args[0][-1]}\n", ""]
+            cmd_list = list(args[0] if args else [])  # type: ignore[arg-type]
+            cmd_name = cmd_list[-1] if cmd_list else "unknown"
+            mock.stdout.readline.side_effect = [f"output from {cmd_name}\n", ""]
             mock.stderr = MagicMock()
             mock.stderr.readline.side_effect = ["err line\n", ""]
             return mock

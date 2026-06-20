@@ -487,7 +487,7 @@ def test_collect_slot_stats_prefers_metrics_endpoint(monkeypatch: Any) -> None:
     """collect_slot_stats should fetch /metrics first for cumulative counters."""
     calls: list[str] = []
 
-    def fake_urlopen(request, timeout: float):
+    def fake_urlopen(request: Any, timeout: float) -> _Response:
         calls.append(request.full_url)
         return _Response(
             """
@@ -515,7 +515,7 @@ def test_collect_slot_stats_falls_back_to_slots_when_metrics_unavailable(monkeyp
     """collect_slot_stats should retain /slots fallback for old or manually launched servers."""
     calls: list[str] = []
 
-    def fake_urlopen(request, timeout: float):
+    def fake_urlopen(request: Any, timeout: float) -> _Response:
         calls.append(request.full_url)
         if request.full_url.endswith("/metrics"):
             raise OSError("metrics disabled")
@@ -535,7 +535,7 @@ def test_collect_slot_stats_falls_back_to_slots_when_metrics_unavailable(monkeyp
 def test_collect_slot_stats_returns_none_on_http_failure(monkeypatch: Any) -> None:
     """collect_slot_stats should return None on OSError."""
 
-    def fake_urlopen(request, timeout: float):
+    def fake_urlopen(request: Any, timeout: float) -> None:
         raise OSError("connection refused")
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
@@ -547,13 +547,13 @@ def test_collect_slot_stats_returns_none_on_invalid_json(monkeypatch: Any) -> No
     """collect_slot_stats should return None on invalid JSON response."""
 
     class _BadResponse:
-        def __enter__(self):
+        def __enter__(self) -> _BadResponse:
             return self
 
-        def __exit__(self, *args):
+        def __exit__(self, *args: object) -> None:
             return None
 
-        def read(self):
+        def read(self) -> bytes:
             return b"not json"
 
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _BadResponse())
@@ -572,7 +572,7 @@ def test_collect_slot_stats_returns_none_on_non_list_payload(monkeypatch: Any) -
 def test_collect_slot_stats_timeout_returns_none(monkeypatch: Any) -> None:
     """collect_slot_stats should return None on TimeoutError."""
 
-    def fake_urlopen(request, timeout: float):
+    def fake_urlopen(request: Any, timeout: float) -> None:
         raise TimeoutError("timed out")
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)

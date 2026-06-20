@@ -482,14 +482,14 @@ class TestDashboardAppGpuStatsRefresh:
         panel = MagicMock()
         log_widget = MagicMock()
 
-        def _query(sel, cls=None):
+        def _query(sel: str, cls: type | None = None) -> list[object]:
             if cls is GPUStatsPanel:
                 return [gpu_panel]
             if isinstance(sel, str) and ".slot-stats-value" in sel:
                 return []
             return []
 
-        def _query_one(sel, cls=None):
+        def _query_one(sel: str, cls: type | None = None) -> object:
             if sel is GPUStatsPanel:
                 return gpu_panel
             if isinstance(sel, str) and ".server-log-content" in sel:

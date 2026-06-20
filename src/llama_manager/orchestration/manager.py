@@ -236,11 +236,11 @@ class ServerManager:
         log_handlers = log_handlers or {}
         processes = []
         for cfg in configs:
-            self._reserve_slot_lock(cfg)
-            cmd = build_server_cmd(cfg)
-            cmd = wrap_sycl_launch_cmd(cmd, cfg.device)
-            handler = log_handlers.get(cfg.alias) if log_handlers else None
             try:
+                self._reserve_slot_lock(cfg)
+                cmd = build_server_cmd(cfg)
+                cmd = wrap_sycl_launch_cmd(cmd, cfg.device)
+                handler = log_handlers.get(cfg.alias) if log_handlers else None
                 proc = self.start_server_background(cfg.alias, cmd, handler)
             except Exception:
                 self.release_lock(cfg.alias)

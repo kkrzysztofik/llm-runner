@@ -1,7 +1,10 @@
 """Per-server column widget."""
 
+import logging
+
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
+from textual.css.query import NoMatches
 from textual.widget import Widget
 from textual.widgets import Log, Static
 
@@ -88,5 +91,10 @@ class ServerColumnPanel(Widget):
         try:
             log = self.query_one(".server-log-content", Log)
             log.write_lines(list(self._state.log_lines))
-        except Exception:
+        except NoMatches:
+            # Log widget not yet in the tree; lines will be applied on next refresh.
             pass
+        except Exception:
+            logging.exception(
+                "server_column: failed to write initial log lines for %s", self._state.profile_name
+            )
