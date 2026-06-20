@@ -7,6 +7,7 @@ All functions take typed parameters and return values or mutate state explicitly
 from __future__ import annotations
 
 import json
+import math
 import time
 from pathlib import Path
 from typing import Any
@@ -78,7 +79,7 @@ def _float_text(value: str) -> float | None:
         parsed = float(value)
     except ValueError:
         return None
-    if parsed != parsed:
+    if math.isnan(parsed):
         return None
     return parsed
 
@@ -153,6 +154,62 @@ def parse_metrics_payload(
     )
 
 
+def _sum_tokens_out(slot: dict) -> int:
+    """Sum decoded tokens from a single slot's next_token field."""
+    next_token = slot.get("next_token")
+    if isinstance(next_token, dict):
+        return _int_value(next_token.get("n_decoded"))
+    return 0
+
+
+def _best_tokens_in(slot: dict) -> int:
+    """Find the best tokens_in value for a single slot across all key paths."""
+    top_in = _int_value(slot.get("n_prompt_tokens_processed"))
+    if top_in == 0:
+        top_in = _int_value(slot.get("n_prompt_tokens"))
+    prompt_data = slot.get("prompt")
+    if isinstance(prompt_data, dict):
+        nested_in = _int_value(prompt_data.get("n_tokens_processed"))
+        if nested_in == 0:
+            nested_in = _int_value(prompt_data.get("n_tokens"))
+        if nested_in > top_in:
+            top_in = nested_in
+    return top_in
+
+
+def _slot_tps(slot: dict, next_token: Any) -> float | None:
+    """First available generation-rate from a slot."""
+    tps_value = _first_number(
+        slot,
+        [
+            "next_token.tps",
+            "tokens_per_second",
+            "generation_tps",
+            "tps",
+        ],
+    )
+    if tps_value is None and isinstance(next_token, dict):
+        tps_value = _number(next_token.get("tps"))
+    return tps_value
+
+
+def _slot_prompt_tps(slot: dict) -> float | None:
+    """First available prompt-rate from a slot."""
+    prompt_tps_value = _first_number(
+        slot,
+        [
+            "prompt_tps",
+            "prompt_tokens_per_second",
+        ],
+    )
+    nested_prompt_tps = _nested(slot, "prompt", "tokens_per_second")
+    if nested_prompt_tps is not None:
+        val = _number(nested_prompt_tps)
+        if val is not None:
+            prompt_tps_value = val
+    return prompt_tps_value
+
+
 def parse_slots_payload(
     alias: str,
     port: int,
@@ -181,55 +238,15 @@ def parse_slots_payload(
         if not isinstance(slot, dict):
             continue
 
-        # tokens_out: sum next_token.n_decoded
         next_token = slot.get("next_token")
-        if isinstance(next_token, dict):
-            total_tokens_out += _int_value(next_token.get("n_decoded"))
+        total_tokens_out += _sum_tokens_out(slot)
+        total_tokens_in += _best_tokens_in(slot)
 
-        # tokens_in: best available prompt/processed token fields
-        # top-level keys
-        top_in = _int_value(slot.get("n_prompt_tokens_processed"))
-        if top_in == 0:
-            top_in = _int_value(slot.get("n_prompt_tokens"))
-        # nested keys
-        prompt_data = slot.get("prompt")
-        if isinstance(prompt_data, dict):
-            nested_in = _int_value(prompt_data.get("n_tokens_processed"))
-            if nested_in == 0:
-                nested_in = _int_value(prompt_data.get("n_tokens"))
-            if nested_in > top_in:
-                top_in = nested_in
-        total_tokens_in += top_in
-
-        # tps: first available numeric generation-rate field
         if tps_value is None:
-            tps_value = _first_number(
-                slot,
-                [
-                    "next_token.tps",
-                    "tokens_per_second",
-                    "generation_tps",
-                    "tps",
-                ],
-            )
-            # Also check nested next_token.tps
-            if tps_value is None and isinstance(next_token, dict):
-                tps_value = _number(next_token.get("tps"))
+            tps_value = _slot_tps(slot, next_token)
 
-        # prompt_tps: first available numeric prompt-rate field
         if prompt_tps_value is None:
-            prompt_tps_value = _first_number(
-                slot,
-                [
-                    "prompt_tps",
-                    "prompt_tokens_per_second",
-                ],
-            )
-            nested_prompt_tps = _nested(slot, "prompt", "tokens_per_second")
-            if nested_prompt_tps is not None:
-                val = _number(nested_prompt_tps)
-                if val is not None:
-                    prompt_tps_value = val
+            prompt_tps_value = _slot_prompt_tps(slot)
 
     return SlotStatsSnapshot(
         alias=alias,
@@ -248,6 +265,12 @@ def slot_stats_file_path(runtime_dir: Path | None = None) -> Path:
     return base / "slot-stats.json"
 
 
+def profile_stats_file_path(runtime_dir: Path | None = None) -> Path:
+    """Return the path to the persisted profile aggregate stats JSON file."""
+    base = runtime_dir or resolve_runtime_dir()
+    return base / "profile-stats.json"
+
+
 def load_slot_stats(runtime_dir: Path | None = None) -> dict[str, SlotStatsSnapshot]:
     """Load persisted slot stats from JSON.
 
@@ -257,7 +280,7 @@ def load_slot_stats(runtime_dir: Path | None = None) -> dict[str, SlotStatsSnaps
     path = slot_stats_file_path(runtime_dir)
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError, FileNotFoundError:
+    except OSError:
         return {}
 
     try:
@@ -325,6 +348,129 @@ def save_slot_stats(
     atomic_write_json(path, data)
 
 
+def load_profile_stats(runtime_dir: Path | None = None) -> dict[str, ProfileStatsAggregate]:
+    """Load profile aggregate stats from JSON.
+
+    Returns empty dict on missing/invalid file. Session counters are loaded into
+    each aggregate so future updates can compute positive deltas.
+    """
+    path = profile_stats_file_path(runtime_dir)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError, ValueError:
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+
+    profiles_data = data.get("profiles")
+    sessions_data = data.get("sessions")
+    if not isinstance(profiles_data, dict):
+        return {}
+    if not isinstance(sessions_data, dict):
+        sessions_data = {}
+
+    result: dict[str, ProfileStatsAggregate] = {}
+    for profile_id, entry in profiles_data.items():
+        if not isinstance(profile_id, str) or not isinstance(entry, dict):
+            continue
+        try:
+            aggregate = ProfileStatsAggregate(
+                profile_id=entry.get("profile_id", profile_id),
+                updated_at=float(entry.get("updated_at", 0.0)),
+                tokens_in=_int_value(entry.get("tokens_in")),
+                tokens_out=_int_value(entry.get("tokens_out")),
+                sessions_count=_int_value(entry.get("sessions_count")),
+            )
+        except TypeError, ValueError:
+            continue
+
+        aggregate.sessions = _load_profile_sessions(sessions_data.get(profile_id))
+        result[profile_id] = aggregate
+
+    return result
+
+
+def save_profile_stats(
+    stats_by_profile: dict[str, ProfileStatsAggregate],
+    runtime_dir: Path | None = None,
+) -> None:
+    """Save profile aggregate stats to JSON using atomic_write_json."""
+    path = profile_stats_file_path(runtime_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    profiles_data: dict[str, dict[str, Any]] = {}
+    sessions_data: dict[str, dict[str, dict[str, Any]]] = {}
+    for profile_id, stats in stats_by_profile.items():
+        profiles_data[profile_id] = {
+            "profile_id": stats.profile_id,
+            "updated_at": stats.updated_at,
+            "tokens_in": max(0, stats.tokens_in),
+            "tokens_out": max(0, stats.tokens_out),
+            "sessions_count": max(0, stats.sessions_count),
+        }
+        sessions_data[profile_id] = {
+            session_id: session.to_json() for session_id, session in stats.sessions.items()
+        }
+
+    atomic_write_json(
+        path,
+        {
+            "version": 1,
+            "profiles": profiles_data,
+            "sessions": sessions_data,
+        },
+    )
+
+
+def update_profile_stats(
+    stats_by_profile: dict[str, ProfileStatsAggregate],
+    profile_id: str,
+    session_id: str,
+    snapshot: SlotStatsSnapshot,
+) -> dict[str, ProfileStatsAggregate]:
+    """Update aggregate stats from one successful per-slot snapshot.
+
+    Only positive counter deltas are added. New sessions and counter resets
+    update the session baseline without adding historical or negative values.
+    """
+    if not profile_id or not session_id:
+        return stats_by_profile
+
+    updated = dict(stats_by_profile)
+    aggregate = updated.get(profile_id)
+    if aggregate is None:
+        aggregate = ProfileStatsAggregate(profile_id=profile_id)
+        updated[profile_id] = aggregate
+
+    aggregate.apply_snapshot(session_id, snapshot)
+    return updated
+
+
+def _load_profile_sessions(data: Any) -> dict[str, ProfileStatsSession]:
+    if not isinstance(data, dict):
+        return {}
+    result: dict[str, ProfileStatsSession] = {}
+    for session_id, entry in data.items():
+        if not isinstance(session_id, str) or not isinstance(entry, dict):
+            continue
+        try:
+            result[session_id] = ProfileStatsSession(
+                session_id=entry.get("session_id", session_id),
+                updated_at=float(entry.get("updated_at", 0.0)),
+                last_tokens_in=_int_value(entry.get("last_tokens_in")),
+                last_tokens_out=_int_value(entry.get("last_tokens_out")),
+            )
+        except TypeError, ValueError:
+            continue
+    return result
+
+
 def collect_slot_stats(
     alias: str,
     host: str,
@@ -369,8 +515,6 @@ def _http_get_text(host: str, port: int, path: str, timeout_s: float) -> str | N
         with urllib.request.urlopen(req, timeout=timeout_s) as response:  # noqa: S310
             return response.read().decode("utf-8", errors="replace")
     except OSError, TimeoutError, urllib.error.URLError:
-        return None
-    except Exception:
         return None
 
 
@@ -447,4 +591,118 @@ class SlotStatsSnapshot:
             f"SlotStatsSnapshot(alias={self.alias!r}, port={self.port}, "
             f"tps={self.tps}, prompt_tps={self.prompt_tps}, "
             f"tokens_in={self.tokens_in}, tokens_out={self.tokens_out})"
+        )
+
+
+class ProfileStatsSession:
+    """Last observed per-server counters for one profile session."""
+
+    __slots__ = ("session_id", "updated_at", "last_tokens_in", "last_tokens_out")
+
+    def __init__(
+        self,
+        session_id: str,
+        updated_at: float = 0.0,
+        last_tokens_in: int = 0,
+        last_tokens_out: int = 0,
+    ) -> None:
+        self.session_id = session_id
+        self.updated_at = updated_at
+        self.last_tokens_in = max(0, last_tokens_in)
+        self.last_tokens_out = max(0, last_tokens_out)
+
+    def to_json(self) -> dict[str, Any]:
+        """Return JSON-serializable session baseline data."""
+        return {
+            "session_id": self.session_id,
+            "updated_at": self.updated_at,
+            "last_tokens_in": max(0, self.last_tokens_in),
+            "last_tokens_out": max(0, self.last_tokens_out),
+        }
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ProfileStatsSession):
+            return False
+        return (
+            self.session_id == other.session_id
+            and self.updated_at == other.updated_at
+            and self.last_tokens_in == other.last_tokens_in
+            and self.last_tokens_out == other.last_tokens_out
+        )
+
+
+class ProfileStatsAggregate:
+    """Persisted aggregate token counters for one run profile."""
+
+    __slots__ = (
+        "profile_id",
+        "updated_at",
+        "tokens_in",
+        "tokens_out",
+        "sessions_count",
+        "sessions",
+    )
+
+    def __init__(
+        self,
+        profile_id: str,
+        updated_at: float = 0.0,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        sessions_count: int = 0,
+        sessions: dict[str, ProfileStatsSession] | None = None,
+    ) -> None:
+        self.profile_id = profile_id
+        self.updated_at = updated_at
+        self.tokens_in = max(0, tokens_in)
+        self.tokens_out = max(0, tokens_out)
+        self.sessions_count = max(0, sessions_count)
+        self.sessions = dict(sessions or {})
+
+    def apply_snapshot(self, session_id: str, snapshot: SlotStatsSnapshot) -> None:
+        """Accumulate positive counter deltas from *snapshot*."""
+        current_in = max(0, snapshot.tokens_in)
+        current_out = max(0, snapshot.tokens_out)
+        session = self.sessions.get(session_id)
+        if session is None:
+            self.sessions[session_id] = ProfileStatsSession(
+                session_id=session_id,
+                updated_at=snapshot.updated_at,
+                last_tokens_in=current_in,
+                last_tokens_out=current_out,
+            )
+            self.sessions_count += 1
+            self.updated_at = snapshot.updated_at
+            return
+
+        delta_in = current_in - session.last_tokens_in
+        delta_out = current_out - session.last_tokens_out
+        if delta_in > 0:
+            self.tokens_in += delta_in
+        if delta_out > 0:
+            self.tokens_out += delta_out
+
+        session.last_tokens_in = current_in
+        session.last_tokens_out = current_out
+        session.updated_at = snapshot.updated_at
+        self.updated_at = snapshot.updated_at
+
+    def to_display(self) -> dict[str, str]:
+        """Convert aggregate counters to display-safe strings."""
+        return {
+            "tokens_in": str(max(0, self.tokens_in)),
+            "tokens_out": str(max(0, self.tokens_out)),
+            "sessions": str(max(0, self.sessions_count)),
+        }
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ProfileStatsAggregate):
+            return False
+        return (
+            self.profile_id == other.profile_id
+            and self.updated_at == other.updated_at
+            and self.tokens_in == other.tokens_in
+            and self.tokens_out == other.tokens_out
+            and self.sessions_count == other.sessions_count
+            and self.sessions == other.sessions
         )

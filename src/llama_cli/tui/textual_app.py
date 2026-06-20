@@ -16,6 +16,8 @@ from textual.containers import Container
 from textual.css.query import NoMatches
 from textual.widgets import Footer, Log, Static
 
+from llama_manager.slot_stats import load_profile_stats
+
 if TYPE_CHECKING:
     from .controller import DashboardController
 
@@ -25,6 +27,7 @@ from .components.build import BuildModalScreen
 from .components.config_modal import ConfigModal, ConfigPayload
 from .components.gpu_stats import GPUStatsPanel
 from .components.modal import AddSlotModal, RemoveSlotModal
+from .components.profile_stats_screen import ProfileStatsScreen
 from .components.server_column import ServerColumnPanel
 from .components.server_log import ServerLogPanel
 from .components.slot_profile_modal import SlotProfileModal, SlotProfilePayload
@@ -73,7 +76,15 @@ def _profile_options_cached(
 
 
 _RISK_HIDDEN_ACTIONS = frozenset(
-    {"refresh_dashboard", "add_slot", "remove_slot", "build", "open_config", "about"},
+    {
+        "refresh_dashboard",
+        "add_slot",
+        "remove_slot",
+        "build",
+        "open_config",
+        "about",
+        "profile_stats",
+    },
 )
 _NORMAL_HIDDEN_ACTIONS = frozenset({"confirm", "reject"})
 _REMOVE_SLOT_TITLE = "Remove Slot"
@@ -104,6 +115,7 @@ class DashboardApp(App[None]):
         Binding("d", "remove_slot", _REMOVE_SLOT_TITLE),
         Binding("c", "open_config", "Config"),
         Binding("p", "manage_profiles", "Profiles"),
+        Binding("s", "profile_stats", "Stats"),
         Binding("h", "about", "About"),
         Binding("y", "confirm", "Confirm"),
         Binding("n", "reject", "Abort"),
@@ -375,6 +387,15 @@ class DashboardApp(App[None]):
             self._handle_profiles_screen_result,
         )
 
+    def action_profile_stats(self) -> None:
+        """Open the read-only profile aggregate stats screen."""
+        self.push_screen(
+            ProfileStatsScreen(
+                stats_by_profile=load_profile_stats(),
+                profiles=self.controller.list_slot_profiles(),
+            )
+        )
+
     def _handle_profiles_screen_result(self, result: dict | None) -> None:
         """Handle result from the ProfilesScreen."""
         if result is None:
@@ -539,6 +560,52 @@ class DashboardApp(App[None]):
         self.notify("Adding slot…", title="Slot", severity="information")
         self._run_add_slot(slot_form, notify_message)
 
+    def _execute_slot_launch(
+        self,
+        new_cfg: Any,
+        profile_id: str,
+        plan: Any,
+        messages: list[str],
+    ) -> tuple[bool, bool, list[str]]:
+        """Run the full slot launch pipeline after form validation.
+
+        Returns (success, layout_changed, updated_messages).
+        """
+        layout_changed = False
+        if not plan.success:
+            return False, False, messages
+        if plan.old_alias is not None and not self.controller.server_manager.shutdown_slot(
+            plan.old_alias
+        ):
+            messages.append(f"Unable to replace '{plan.old_alias}': shutdown verification failed")
+            return False, False, messages
+
+        stage = self.call_from_thread(
+            self.controller.stage_async_slot_launch,
+            new_cfg,
+            plan.old_alias,
+        )
+        messages.extend(stage.messages)
+        if not stage.success or stage.log_buffer is None:
+            return False, False, messages
+
+        layout_changed = True
+        log_handler = lambda line, buf=stage.log_buffer: buf.add_line(line)  # noqa: E731
+        procs = self.controller.server_manager.start_servers(
+            [new_cfg],
+            {stage.alias: log_handler},
+        )
+        proc = procs[0] if procs else None
+        success, complete_messages = self.call_from_thread(
+            self.controller.complete_async_slot_launch,
+            stage.alias,
+            profile_id,
+            plan.old_alias,
+            proc,
+        )
+        messages.extend(complete_messages)
+        return success, layout_changed, messages
+
     @work(thread=True)
     def _run_add_slot(self, slot_form: dict[str, str], notify_message: str = "") -> None:
         """Resolve and apply add-slot form values off the UI thread."""
@@ -568,42 +635,9 @@ class DashboardApp(App[None]):
                 )
                 messages.extend(plan.messages)
 
-                if not plan.success:
-                    success = False
-                elif (
-                    plan.old_alias is not None
-                    and not self.controller.server_manager.shutdown_slot(plan.old_alias)
-                ):
-                    messages.append(
-                        f"Unable to replace '{plan.old_alias}': shutdown verification failed"
-                    )
-                    success = False
-                else:
-                    stage = self.call_from_thread(
-                        self.controller.stage_async_slot_launch,
-                        new_cfg,
-                        profile_id,
-                        plan.old_alias,
-                    )
-                    messages.extend(stage.messages)
-                    if not stage.success or stage.log_buffer is None:
-                        success = False
-                    else:
-                        layout_changed = True
-                        log_handler = lambda line, buf=stage.log_buffer: buf.add_line(line)  # noqa: E731
-                        procs = self.controller.server_manager.start_servers(
-                            [new_cfg],
-                            {stage.alias: log_handler},
-                        )
-                        proc = procs[0] if procs else None
-                        success, complete_messages = self.call_from_thread(
-                            self.controller.complete_async_slot_launch,
-                            stage.alias,
-                            profile_id,
-                            plan.old_alias,
-                            proc,
-                        )
-                        messages.extend(complete_messages)
+                success, layout_changed, messages = self._execute_slot_launch(
+                    new_cfg, profile_id, plan, messages
+                )
         except Exception as exc:
             logger.exception("_run_add_slot: unhandled exception")
             error = f"Add slot failed: {exc}"
@@ -777,16 +811,10 @@ class DashboardApp(App[None]):
                 )
                 await panel.remove()
         # Replace panels whose config no longer exists or is a placeholder.
-        for panel in list(current_panels[:needed]):
+        for panel in current_panels[:needed]:
             col_state = self.view_model.column(panel._slot_index)
-            replace = False
-            if col_state is None:
-                # Config at this index was removed — replace with fresh panel.
-                replace = True
-            elif not panel.query(ServerColumnPanel):
-                # Placeholder panel that now has real data.
-                replace = True
-            if replace:
+            if col_state is None or not panel.query(ServerColumnPanel):
+                # Config at this index was removed or panel is a placeholder.
                 logger.debug(
                     "_reconcile_server_log_panels: replacing panel slot_index=%d",
                     panel._slot_index,

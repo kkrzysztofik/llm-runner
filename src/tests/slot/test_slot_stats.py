@@ -8,13 +8,19 @@ from typing import Any
 from unittest.mock import patch
 
 from llama_manager.slot_stats import (
+    ProfileStatsAggregate,
+    ProfileStatsSession,
     SlotStatsSnapshot,
     collect_slot_stats,
+    load_profile_stats,
     load_slot_stats,
     parse_metrics_payload,
     parse_slots_payload,
+    profile_stats_file_path,
+    save_profile_stats,
     save_slot_stats,
     slot_stats_file_path,
+    update_profile_stats,
 )
 
 # =============================================================================
@@ -294,6 +300,63 @@ def test_save_and_load_slot_stats_round_trip(tmp_path: Path) -> None:
     save_slot_stats(stats, runtime_dir=tmp_path)
 
     assert load_slot_stats(runtime_dir=tmp_path) == stats
+
+
+def test_profile_stats_file_path_uses_runtime_dir(tmp_path: Path) -> None:
+    """profile_stats_file_path should return runtime_dir / 'profile-stats.json'."""
+    assert profile_stats_file_path(tmp_path) == tmp_path / "profile-stats.json"
+
+
+def test_save_and_load_profile_stats_round_trip(tmp_path: Path) -> None:
+    """save_profile_stats / load_profile_stats should round-trip correctly."""
+    aggregate = ProfileStatsAggregate(
+        profile_id="summary-balanced",
+        updated_at=10.0,
+        tokens_in=20,
+        tokens_out=9,
+        sessions_count=1,
+        sessions={
+            "summary-balanced:123": ProfileStatsSession(
+                session_id="summary-balanced:123",
+                updated_at=11.0,
+                last_tokens_in=25,
+                last_tokens_out=12,
+            )
+        },
+    )
+    stats = {"summary-balanced": aggregate}
+
+    save_profile_stats(stats, runtime_dir=tmp_path)
+
+    assert load_profile_stats(runtime_dir=tmp_path) == stats
+
+
+def test_update_profile_stats_uses_positive_deltas_only() -> None:
+    """update_profile_stats should add only positive counter deltas per session."""
+    stats: dict[str, ProfileStatsAggregate] = {}
+    stats = update_profile_stats(
+        stats,
+        "summary-balanced",
+        "summary-balanced:123",
+        SlotStatsSnapshot("summary-balanced", 8080, 1.0, tokens_in=10, tokens_out=5),
+    )
+    stats = update_profile_stats(
+        stats,
+        "summary-balanced",
+        "summary-balanced:123",
+        SlotStatsSnapshot("summary-balanced", 8080, 2.0, tokens_in=14, tokens_out=8),
+    )
+    stats = update_profile_stats(
+        stats,
+        "summary-balanced",
+        "summary-balanced:123",
+        SlotStatsSnapshot("summary-balanced", 8080, 3.0, tokens_in=2, tokens_out=1),
+    )
+
+    aggregate = stats["summary-balanced"]
+    assert aggregate.tokens_in == 4
+    assert aggregate.tokens_out == 3
+    assert aggregate.sessions_count == 1
 
 
 def test_load_slot_stats_returns_empty_for_missing_file(tmp_path: Path) -> None:

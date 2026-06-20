@@ -40,12 +40,20 @@ from llama_manager.build_pipeline import (
     BuildProgress,
     run_build_for_backend,
 )
+from llama_manager.config.profiles import resolve_profile_id
 from llama_manager.logging_setup import (
     suppress_build_pipeline_stderr_for_tui,
     update_file_level,
     update_stderr_level,
 )
-from llama_manager.slot_stats import collect_slot_stats, load_slot_stats, save_slot_stats
+from llama_manager.slot_stats import (
+    collect_slot_stats,
+    load_profile_stats,
+    load_slot_stats,
+    save_profile_stats,
+    save_slot_stats,
+    update_profile_stats,
+)
 
 from .components.config_modal import ConfigPayload
 from .components.slot_profile_modal import SlotProfilePayload
@@ -169,6 +177,8 @@ class DashboardController:
         """Collect live slot stats for all running configs and persist changes."""
         current = self.model.slot_stats_snapshot()
         updated = dict(current)
+        profile_stats = load_profile_stats()
+        profile_stats_changed = False
         changed = False
         for cfg in self.model.configs:
             try:
@@ -177,6 +187,15 @@ class DashboardController:
                     continue
                 updated[cfg.alias] = stats
                 changed = True
+                profile_id = self.resolve_profile_id_for_config(cfg)
+                if profile_id is not None:
+                    profile_stats = update_profile_stats(
+                        profile_stats,
+                        profile_id,
+                        self._profile_stats_session_id(cfg.alias),
+                        stats,
+                    )
+                    profile_stats_changed = True
             except Exception:
                 logger.exception("refresh_slot_stats: failed to collect for %s", cfg.alias)
         if changed:
@@ -185,6 +204,29 @@ class DashboardController:
                 save_slot_stats(updated)
             except Exception:
                 logger.exception("refresh_slot_stats: failed to persist slot stats")
+        if profile_stats_changed:
+            try:
+                save_profile_stats(profile_stats)
+            except Exception:
+                logger.exception("refresh_slot_stats: failed to persist profile stats")
+
+    def resolve_profile_id_for_config(self, cfg: ServerConfig) -> str | None:
+        """Resolve a live server config alias to a registered profile ID."""
+        registry = self._build_tui_registry()
+        resolved = resolve_profile_id(registry, cfg.alias)
+        if resolved is not None:
+            return resolved
+        if cfg.alias.endswith("-coding"):
+            return resolve_profile_id(registry, cfg.alias.removesuffix("-coding"))
+        return None
+
+    def _profile_stats_session_id(self, alias: str) -> str:
+        """Return a stable ID for the current server process behind *alias*."""
+        process = self.server_processes.get(alias)
+        pid = getattr(process, "pid", None)
+        if isinstance(pid, int) and pid > 0:
+            return f"{alias}:{pid}"
+        return alias
 
     @property
     def log_buffers(self) -> dict[str, LogBuffer]:
@@ -537,7 +579,6 @@ class DashboardController:
     def stage_async_slot_launch(
         self,
         new_cfg: ServerConfig,
-        profile_id: str,
         old_alias: str | None,
     ) -> AsyncSlotStageResult:
         """Commit launching slot state on the UI thread before process start."""
