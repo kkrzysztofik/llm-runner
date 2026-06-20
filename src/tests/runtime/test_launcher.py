@@ -682,9 +682,9 @@ class TestServerManagerFormatOutput:
         manager = ServerManager()
         result = manager._format_output("test_server", "hello world")
 
-        # Should start with [HH:MM:SS][test_server]
+        # Should start with [HH:MM:SS] (no more server_name in the prefix)
         assert result.startswith("[")
-        assert "][test_server] hello world" in result
+        assert "hello world" in result
 
     def test_format_output_preserves_content(self) -> None:
         """_format_output should preserve the content after stripping newlines (done by caller)."""
@@ -694,6 +694,25 @@ class TestServerManagerFormatOutput:
         result = manager._format_output("test_server", "hello")
 
         assert result.endswith("hello")
+
+    def test_format_output_strips_llama_cpp_timestamp(self) -> None:
+        """_format_output should strip llama.cpp millisecond timestamps like 177.32.478.581."""
+        from llama_manager.orchestration import ServerManager
+
+        manager = ServerManager()
+        result = manager._format_output("test_server", "177.32.478.581 I srv  update_slots: idle")
+
+        assert "177.32.478.581" not in result
+        assert "I srv" in result
+
+    def test_format_output_strips_server_name(self) -> None:
+        """_format_output should not include the server_name in the formatted line."""
+        from llama_manager.orchestration import ServerManager
+
+        manager = ServerManager()
+        result = manager._format_output("qwen35-coding", "hello world")
+
+        assert "qwen35-coding" not in result
 
 
 class TestServerManagerForeground:

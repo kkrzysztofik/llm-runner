@@ -10,6 +10,7 @@ Exports:
 import contextlib
 import logging
 import os
+import re
 import signal
 import subprocess
 import time
@@ -22,6 +23,8 @@ from typing import Protocol, TextIO
 import psutil
 
 from ..common.security import redact_text
+
+_LLAMA_TS_PATTERN = re.compile(r"^\s*\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\s+")
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +159,10 @@ def wrap_sycl_launch_cmd(
 
 
 def format_output(server_name: str, line: str) -> str:
-    """Format output line with timestamp."""
+    """Format output line with timestamp, stripping llama.cpp internals."""
     timestamp = time.strftime("%H:%M:%S")
-    return f"[{timestamp}][{server_name}] {line}"
+    stripped = _LLAMA_TS_PATTERN.sub("", line)
+    return f"[{timestamp}] {stripped}"
 
 
 def stream_pipe(
