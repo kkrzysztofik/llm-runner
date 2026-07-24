@@ -9,13 +9,13 @@ All commands support --json output for programmatic access.
 
 import argparse
 import json
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from llama_cli.commands._output import emit_json, emit_plain
-from llama_cli.commands._subprocess import run_capture_command
 from llama_cli.commands._toolchain import (
     collect_toolchain_repair_actions,
     resolve_backend_enum,
@@ -43,6 +43,23 @@ from llama_manager.toolchain import (
     detect_toolchain,
     get_toolchain_hints,
 )
+
+
+def run_capture_command(
+    argv: list[str],
+    *,
+    timeout_seconds: int | None = None,
+    check: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    """Run a command with captured text output and no shell."""
+    return subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        shell=False,
+        timeout=timeout_seconds,
+        check=check,
+    )
 
 
 @dataclass
