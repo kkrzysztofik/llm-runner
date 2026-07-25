@@ -99,6 +99,7 @@ llm-runner/
 from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Static
 
+
 class LLMRunnerApp(App[None]):
     TITLE = "llm-runner"
 
@@ -114,10 +115,12 @@ class LLMRunnerApp(App[None]):
 from textual.containers import Horizontal, Vertical
 from textual.events import Resize
 
+
 def compose(self) -> ComposeResult:
     with Horizontal(id="content"):
         yield Static(id="left")
         yield Static(id="right")
+
 
 # Handle resize
 def on_resize(self, event: Resize) -> None:
@@ -131,11 +134,12 @@ def on_resize(self, event: Resize) -> None:
 from rich.panel import Panel
 from rich.text import Text
 
+
 class LogBuffer:
     def __init__(self, max_lines: int = 50):
         self.lines: deque = deque(maxlen=max_lines)
         self.lock = threading.Lock()
-    
+
     def get_rich_renderable(self) -> Panel:
         with self.lock:
             text = Text("\n".join(self.lines))
@@ -189,6 +193,7 @@ import atexit
 signal.signal(signal.SIGINT, self._signal_handler)
 signal.signal(signal.SIGTERM, self._signal_handler)
 atexit.register(self._cleanup)
+
 
 def _signal_handler(self, signum, frame):
     self._cleanup()

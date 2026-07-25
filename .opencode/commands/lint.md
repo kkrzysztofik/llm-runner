@@ -60,12 +60,12 @@ from llama_manager.config import Config
 # WRONG
 from typing import List, Optional
 
-def foo(items: List[str]) -> Optional[str]:
-    ...
+
+def foo(items: List[str]) -> Optional[str]: ...
+
 
 # CORRECT (Python 3.10+)
-def foo(items: list[str]) -> str | None:
-    ...
+def foo(items: list[str]) -> str | None: ...
 ```
 
 ### Line Length
@@ -74,6 +74,7 @@ def foo(items: list[str]) -> str | None:
 # WRONG (101 chars)
 def build_server_cmd(cfg: ServerConfig) -> list[str]:
     """Build llama-server command arguments with all options."""
+
 
 # CORRECT (100 chars max)
 def build_server_cmd(cfg: ServerConfig) -> list[str]:

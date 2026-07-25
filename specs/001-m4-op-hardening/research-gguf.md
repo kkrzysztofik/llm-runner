@@ -44,6 +44,7 @@ from gguf.constants import GGUF_MAGIC, GGUF_VERSION
 # GGUF_VERSION = 3 (current stable)
 # READER_SUPPORTED_VERSIONS = [2, 3]
 
+
 def check_gguf_version(reader: GGUFReader) -> int:
     """Return the GGUF version, raising if unsupported."""
     version_field = reader.fields.get("GGUF.version")
@@ -72,6 +73,7 @@ import gguf
 from gguf.gguf_reader import GGUFReader
 from gguf.constants import Keys
 
+
 class GgufMetadata:
     """Extracted GGUF metadata fields for a model file."""
 
@@ -90,11 +92,19 @@ class GgufMetadata:
         self.tokenizer_type = _extract_str(reader, Keys.Tokenizer.MODEL)
 
         # Architecture-specific LLM fields use {arch} placeholders
-        self.embedding_length = _extract_int(reader, Keys.LLM.EMBEDDING_LENGTH.format(arch=architecture))
+        self.embedding_length = _extract_int(
+            reader, Keys.LLM.EMBEDDING_LENGTH.format(arch=architecture)
+        )
         self.block_count = _extract_int(reader, Keys.LLM.BLOCK_COUNT.format(arch=architecture))
-        self.context_length = _extract_int(reader, Keys.LLM.CONTEXT_LENGTH.format(arch=architecture))
-        self.attention_head_count = _extract_int(reader, Keys.Attention.HEAD_COUNT.format(arch=architecture))
-        self.attention_head_count_kv = _extract_int(reader, Keys.Attention.HEAD_COUNT_KV.format(arch=architecture))
+        self.context_length = _extract_int(
+            reader, Keys.LLM.CONTEXT_LENGTH.format(arch=architecture)
+        )
+        self.attention_head_count = _extract_int(
+            reader, Keys.Attention.HEAD_COUNT.format(arch=architecture)
+        )
+        self.attention_head_count_kv = _extract_int(
+            reader, Keys.Attention.HEAD_COUNT_KV.format(arch=architecture)
+        )
 
 
 def _extract_str(reader: GGUFReader, key: str) -> str | None:
@@ -146,6 +156,7 @@ from gguf.constants import GGUF_MAGIC, GGUF_VERSION
 
 PREFIX_CAP = 32 * 1024 * 1024  # 32 MiB
 PARSE_TIMEOUT_S = 5.0
+
 
 def read_gguf_metadata(
     model_path: str | Path,
@@ -247,6 +258,7 @@ def read_gguf_metadata(
     finally:
         if tmp_path != model_path:
             import os
+
             os.unlink(tmp_path)
 ```
 
@@ -262,7 +274,7 @@ def read_gguf_metadata(
 
 `GGUFReader.__init__` signature:
 ```python
-def __init__(self, path: os.PathLike[str] | str, mode: Literal['r', 'r+', 'c'] = 'r'):
+def __init__(self, path: os.PathLike[str] | str, mode: Literal["r", "r+", "c"] = "r"):
     self.data = np.memmap(path, mode=mode)
 ```
 
@@ -289,11 +301,13 @@ Classify GGUF parse errors into three categories:
 ```python
 from enum import Enum, auto
 
+
 class GgufParseErrorKind(Enum):
-    CORRUPT_FILE = auto()        # Invalid magic, truncated, binary garbage
-    UNSUPPORTED_VERSION = auto() # Valid header, version > 3
-    MISSING_FIELD = auto()       # Valid GGUF v3, but required KV field absent
-    PARSE_ERROR = auto()         # Valid GGUF v3, but KV pair malformed
+    CORRUPT_FILE = auto()  # Invalid magic, truncated, binary garbage
+    UNSUPPORTED_VERSION = auto()  # Valid header, version > 3
+    MISSING_FIELD = auto()  # Valid GGUF v3, but required KV field absent
+    PARSE_ERROR = auto()  # Valid GGUF v3, but KV pair malformed
+
 
 class GgufParseError(ValueError):
     """Error reading GGUF metadata with a specific classification."""
@@ -414,6 +428,7 @@ Apply NFKC normalization to all string fields extracted from GGUF metadata, part
 
 ```python
 import unicodedata
+
 
 def normalize_gguf_string(value: str | None) -> str | None:
     """Normalize a GGUF string field using NFKC normalization.
@@ -835,29 +850,29 @@ Key-value types from `gguf.constants.GGUFValueType`:
 
 ```python
 class GGUFValueType(IntEnum):
-    UINT8   = 0
-    INT8    = 1
-    UINT16  = 2
-    INT16   = 3
-    UINT32  = 4
-    INT32   = 5
+    UINT8 = 0
+    INT8 = 1
+    UINT16 = 2
+    INT16 = 3
+    UINT32 = 4
+    INT32 = 5
     FLOAT32 = 6
-    BOOL    = 7
+    BOOL = 7
     FLOAT16 = 8
-    UINT64  = 9
-    INT64   = 10
+    UINT64 = 9
+    INT64 = 10
     FLOAT64 = 11
-    STRING  = 12
-    ARRAY   = 13
-    UINT8_ARRAY  = 14
-    INT8_ARRAY   = 15
+    STRING = 12
+    ARRAY = 13
+    UINT8_ARRAY = 14
+    INT8_ARRAY = 15
     UINT16_ARRAY = 16
-    INT16_ARRAY  = 17
+    INT16_ARRAY = 17
     UINT32_ARRAY = 18
-    INT32_ARRAY  = 19
+    INT32_ARRAY = 19
     FLOAT32_ARRAY = 20
-    BOOL_ARRAY   = 21
+    BOOL_ARRAY = 21
     UINT64_ARRAY = 22
-    INT64_ARRAY  = 23
+    INT64_ARRAY = 23
     FLOAT64_ARRAY = 24
 ```

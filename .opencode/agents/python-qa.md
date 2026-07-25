@@ -92,11 +92,13 @@ def test_config_default_values():
     assert cfg.llama_cpp_root.endswith("/llm-runner/llama.cpp")
     assert cfg.summary_balanced_port == 8080
 
+
 def test_validate_port_invalid_low():
     """validate_port should exit with code 1 for port < 1"""
     with pytest.raises(SystemExit) as exc_info:
         validate_port(0, "test_port")
     assert exc_info.value.code == 1
+
 
 def test_build_server_cmd_minimal():
     """build_server_cmd should include required arguments"""
@@ -118,6 +120,7 @@ def test_build_server_cmd_minimal():
 
 ```python
 from unittest.mock import patch, MagicMock
+
 
 @patch("subprocess.run")
 def test_gpu_stats_nvtop(mock_run):
@@ -168,6 +171,7 @@ def test_validate_threads_zero():
     with pytest.raises(SystemExit) as exc_info:
         validate_threads(0)
     assert exc_info.value.code == 1
+
 
 def test_validate_ports_same():
     """validate_ports should exit for duplicate ports"""

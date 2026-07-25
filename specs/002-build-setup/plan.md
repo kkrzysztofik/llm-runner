@@ -382,8 +382,8 @@ class ErrorCode(str, Enum):
 class ErrorDetail:
     error_code: ErrorCode
     failed_check: str  # e.g., "cmake_not_found", "build_lock_held"
-    why_blocked: str   # Human-readable explanation
-    how_to_fix: str    # Actionable instructions (platform-specific)
+    why_blocked: str  # Human-readable explanation
+    how_to_fix: str  # Actionable instructions (platform-specific)
     docs_ref: str | None  # Optional link to docs
 ```
 

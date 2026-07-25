@@ -127,13 +127,14 @@ if code != 0:
 import os
 import signal
 
+
 def cleanup_servers(self) -> None:
     # Send SIGTERM
     for pid in self.pids:
         os.kill(pid, signal.SIGTERM)
-    
+
     time.sleep(1)  # Wait for graceful shutdown
-    
+
     # Force kill stubborn processes
     for pid in self.pids:
         try:
@@ -157,6 +158,7 @@ def cleanup_servers(self) -> None:
 def on_mount(self) -> None:
     line = proc.stdout.readline()  # Freezes the UI
     self.query_one("#logs").update(line)
+
 
 # CORRECT: hand blocking work to a worker and update on the app thread
 def on_log_line(self, message: LogLine) -> None:
@@ -221,6 +223,7 @@ print(f"Command: {' '.join(cmd)}")
 
 ```python
 import psutil
+
 
 def check_processes(self) -> None:
     for i, proc in enumerate(self.processes):

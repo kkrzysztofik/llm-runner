@@ -252,13 +252,20 @@ Routes parsed args to the correct handler. Also handles signal registration (`SI
 def main(args: list[str]) -> int:
     parsed = parse_args(args)
     match parsed.mode:
-        case "tui":        launch_tui(parsed)
-        case "dry-run":    _run_dry_run_mode(parsed, ...)
-        case "build":      build.main(parsed)
-        case "setup":      setup.main(parsed)
-        case "smoke":      smoke.main(parsed)
-        case "profile":    profile.main(parsed)
-        case "doctor":     doctor.main(parsed)
+        case "tui":
+            launch_tui(parsed)
+        case "dry-run":
+            _run_dry_run_mode(parsed, ...)
+        case "build":
+            build.main(parsed)
+        case "setup":
+            setup.main(parsed)
+        case "smoke":
+            smoke.main(parsed)
+        case "profile":
+            profile.main(parsed)
+        case "doctor":
+            doctor.main(parsed)
 ```
 
 #### `ui_output.py`
@@ -544,8 +551,8 @@ Lightweight reference used by `ServerManager` and lockfiles.
 ```python
 @dataclass
 class ModelSlot:
-    slot_id: str       # Normalized slot ID (alias + port)
-    model_path: str    # Absolute GGUF path
+    slot_id: str  # Normalized slot ID (alias + port)
+    model_path: str  # Absolute GGUF path
     port: int
 ```
 
@@ -578,8 +585,8 @@ A named launch group referencing one or more profiles.
 ```python
 @dataclass(frozen=True, slots=True)
 class RunGroupSpec:
-    group_id: str                    # "both", "summary-balanced", etc.
-    profile_ids: tuple[str, ...]     # Profiles to launch
+    group_id: str  # "both", "summary-balanced", etc.
+    profile_ids: tuple[str, ...]  # Profiles to launch
     description: str = ""
     tui_enabled: bool = True
 ```
@@ -609,6 +616,7 @@ class ProfileMetrics:
     avg_latency_ms: float
     peak_vram_mb: float | None
 
+
 @dataclass(frozen=True, slots=True)
 class ProfileRecord:
     profile_id: str
@@ -616,7 +624,7 @@ class ProfileRecord:
     flavor: ProfileFlavor
     metrics: ProfileMetrics
     schema_version: str
-    timestamp: str            # ISO 8601
+    timestamp: str  # ISO 8601
     driver_version_hash: str  # sha256(driver version + device ID)
     binary_version_hash: str  # sha256(binary path + mtime)
 ```
@@ -627,13 +635,15 @@ class ProfileRecord:
 @dataclass
 class ErrorDetail:
     error_code: ErrorCode
-    failed_check: str    # What failed
-    why_blocked: str     # Why it blocks launch
-    how_to_fix: str      # Action for user
+    failed_check: str  # What failed
+    why_blocked: str  # Why it blocks launch
+    how_to_fix: str  # Action for user
+
 
 @dataclass
 class MultiValidationError:
     errors: list[ErrorDetail]
+
 
 @dataclass
 class ValidationResult:
@@ -696,7 +706,7 @@ class BuildLock:
 ```python
 @dataclass
 class BuildWizardResult:
-    backends: list[str]              # ["sycl"], ["cuda"], or ["sycl", "cuda"]
+    backends: list[str]  # ["sycl"], ["cuda"], or ["sycl", "cuda"]
     options: dict[str, BuildConfig | None]  # Per-backend BuildConfig overrides
 ```
 
@@ -709,6 +719,7 @@ class LaunchResult:
     success: bool
     slot_id: str
     message: str
+
 
 # risk_ack.py
 @dataclass
@@ -1118,12 +1129,14 @@ def test_validate_port_out_of_range(capsys):
     assert exc.value.code == 1
     assert "PORT_INVALID" in capsys.readouterr().err
 
+
 # Config round-trip
 def test_config_deep_merge_overrides_port(tmp_path):
     base = create_summary_balanced_cfg()
     overridden = apply_profile_overrides(base, {"port": 9090})
     assert overridden.port == 9090
     assert overridden.alias == base.alias  # unchanged
+
 
 # Injectable GPU collector
 def test_gpu_stats_uses_injected_collector(mock_gpu_collector):

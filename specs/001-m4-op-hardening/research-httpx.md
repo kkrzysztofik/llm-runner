@@ -19,7 +19,7 @@ import httpx
 
 # For smoke probes: connect=listen_timeout, read=http_request_timeout
 timeout = httpx.Timeout(
-    connect=smoke_listen_timeout_s,   # 120s default (per final spec)
+    connect=smoke_listen_timeout_s,  # 120s default (per final spec)
     read=smoke_http_request_timeout_s,  # 10s default
     write=5.0,
     pool=5.0,
@@ -50,14 +50,16 @@ Use the httpx exception hierarchy to classify errors into exit codes per Appendi
 import httpx
 from enum import IntEnum
 
+
 class SmokeExitCode(IntEnum):
-    SERVER_NOT_READY = 10       # listen/accept timeout
-    HTTP_API_ERROR = 11         # network error during HTTP phase
-    CONFIG_ERROR = 12           # smoke config validation failure
-    MODEL_NOT_FOUND = 13        # wrong model ID or empty models array
-    CHAT_TIMEOUT = 14           # chat completion timeout
-    AUTH_FAILURE = 15           # 401/403
-    SLOT_CRASHED = 19           # process exited during probe
+    SERVER_NOT_READY = 10  # listen/accept timeout
+    HTTP_API_ERROR = 11  # network error during HTTP phase
+    CONFIG_ERROR = 12  # smoke config validation failure
+    MODEL_NOT_FOUND = 13  # wrong model ID or empty models array
+    CHAT_TIMEOUT = 14  # chat completion timeout
+    AUTH_FAILURE = 15  # 401/403
+    SLOT_CRASHED = 19  # process exited during probe
+
 
 def classify_smoke_error(
     exc: BaseException,
@@ -128,6 +130,7 @@ Create a new `httpx.Client` per smoke probe (per slot), using it as a context ma
 ```python
 from contextlib import contextmanager
 import httpx
+
 
 @contextmanager
 def smoke_client(
@@ -378,6 +381,7 @@ from llama_manager.smoke_probe import (
     resolve_smoke_api_key,
 )
 
+
 class TestClassifySmokeError:
     def test_connect_timeout_during_listen(self) -> None:
         exc = httpx.ConnectTimeout("connection timed out")
@@ -388,13 +392,16 @@ class TestClassifySmokeError:
         assert classify_smoke_error(exc, "models") == SmokeExitCode.HTTP_API_ERROR
 
     def test_auth_failure_401(self) -> None:
-        response = httpx.Response(401, request=httpx.Request("GET", "http://localhost:8080/v1/models"))
+        response = httpx.Response(
+            401, request=httpx.Request("GET", "http://localhost:8080/v1/models")
+        )
         exc = httpx.HTTPStatusError("401", request=response.request, response=response)
         assert classify_smoke_error(exc, "models") == SmokeExitCode.AUTH_FAILURE
 
     def test_read_timeout_during_chat(self) -> None:
         exc = httpx.ReadTimeout("read timed out")
         assert classify_smoke_error(exc, "chat") == SmokeExitCode.CHAT_TIMEOUT
+
 
 class TestResolveSmokeApiKey:
     def test_cli_key_takes_precedence(self) -> None:
@@ -420,6 +427,7 @@ uv add --dev pytest-httpx
 import pytest
 import httpx
 from pytest_httpx import HTTPXMock
+
 
 def test_probe_models_endpoint_success(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(

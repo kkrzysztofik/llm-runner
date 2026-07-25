@@ -54,6 +54,7 @@ def test_validate_port_invalid_low(capsys):
 ```python
 from unittest.mock import patch, MagicMock
 
+
 @patch("subprocess.run")
 def test_gpu_stats_nvtop(mock_run):
     """GPUStats should parse nvtop JSON output"""

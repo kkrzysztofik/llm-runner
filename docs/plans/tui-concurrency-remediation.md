@@ -103,10 +103,10 @@ Do (minimum, closes A and B):
 ```python
 # textual_app.py
 def on_unmount(self) -> None:
-    self.controller.cancel_build()      # sets cancel_event; watcher kills the tree
+    self.controller.cancel_build()  # sets cancel_event; watcher kills the tree
 
-# orchestration/manager.py — end of cleanup_servers()
-    self.shutting_down = False          # re-entrant, not a one-way latch
+    # orchestration/manager.py — end of cleanup_servers()
+    self.shutting_down = False  # re-entrant, not a one-way latch
 ```
 
 Ceiling (defer unless C bites): a `shutdown` `threading.Event` the slot workers
