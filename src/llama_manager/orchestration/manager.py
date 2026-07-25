@@ -224,16 +224,6 @@ class ServerManager:
         proc = self.start_server_background(server_name, cmd)
         return proc.wait()
 
-    def wait_for_any(self) -> int:
-        """Wait for any server to exit."""
-        while True:
-            for proc in self.servers:
-                code = proc.poll()
-                if code is not None:
-                    self.clear_risk_acknowledgements()
-                    return code
-            time.sleep(0.2)
-
     def start_servers(
         self,
         configs: list[ServerConfig],

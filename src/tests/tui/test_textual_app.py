@@ -1011,7 +1011,7 @@ class TestDashboardAppSlotStatsRefresh:
         DashboardApp._refresh_slot_stats_worker.__wrapped__(app)  # type: ignore[attr-defined]
 
         controller.refresh_slot_stats.assert_called_once()
-        app.refresh_dashboard.assert_called_once()
+        app.refresh_dashboard.assert_not_called()
         assert app._slot_stats_refresh_active is False
 
     def test_refresh_slot_stats_worker_survives_controller_error(self) -> None:
@@ -1034,41 +1034,84 @@ class TestDashboardAppSlotStatsRefresh:
 class TestDashboardAppActionHandlers:
     """Tests for DashboardApp action handlers."""
 
-    def test_action_quit_dashboard_exits(self) -> None:
-        """action_quit_dashboard should call controller.request_quit and exit."""
+    def test_action_quit_dashboard_dispatches_shutdown(self) -> None:
+        """action_quit_dashboard should dispatch the slot-ops shutdown worker."""
         controller = _make_controller()
-        controller.running = False  # Exit immediately
+        controller.request_quit.return_value = True
         app = DashboardApp(controller)
-        app.exit = MagicMock()  # type: ignore[assignment]
+        app._dispatch_shutdown = MagicMock()  # type: ignore[method-assign]
 
         app.action_quit_dashboard()
 
         controller.request_quit.assert_called_once()
-        app.exit.assert_called_once()
+        app._dispatch_shutdown.assert_called_once_with(exit_app=True)
 
-    def test_action_quit_dashboard_stays_running(self) -> None:
-        """action_quit_dashboard should not exit if controller is still running."""
+    def test_action_quit_dashboard_skips_when_not_quitting(self) -> None:
+        """action_quit_dashboard should not dispatch shutdown when request_quit is False."""
         controller = _make_controller()
-        controller.running = True
+        controller.request_quit.return_value = False
         app = DashboardApp(controller)
-        app.exit = MagicMock()  # type: ignore[assignment]
+        app._dispatch_shutdown = MagicMock()  # type: ignore[method-assign]
 
         app.action_quit_dashboard()
 
         controller.request_quit.assert_called_once()
-        app.exit.assert_not_called()
+        app._dispatch_shutdown.assert_not_called()
 
-    def test_action_interrupt_dashboard_exits(self) -> None:
-        """action_interrupt_dashboard should call controller.interrupt and exit."""
+    def test_action_interrupt_dashboard_dispatches_shutdown(self) -> None:
+        """action_interrupt_dashboard should dispatch the slot-ops shutdown worker."""
         controller = _make_controller()
-        controller.running = False
+        controller.interrupt.return_value = True
         app = DashboardApp(controller)
-        app.exit = MagicMock()  # type: ignore[assignment]
+        app._dispatch_shutdown = MagicMock()  # type: ignore[method-assign]
 
         app.action_interrupt_dashboard()
 
         controller.interrupt.assert_called_once()
-        app.exit.assert_called_once()
+        app._dispatch_shutdown.assert_called_once_with(exit_app=True)
+
+    def test_dispatch_shutdown_is_idempotent(self) -> None:
+        """_dispatch_shutdown should ignore quit while a shutdown worker is active."""
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app._run_shutdown = MagicMock()  # type: ignore[method-assign]
+
+        app._dispatch_shutdown(exit_app=True)
+        app._dispatch_shutdown(exit_app=True)
+
+        app._run_shutdown.assert_called_once_with(True)
+
+    def test_run_shutdown_waits_for_slot_op_then_cleans_up(self) -> None:
+        """Quit mid slot-op should wait until the lane is free, then cleanup."""
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app._slot_operation_active = True
+        polls = {"n": 0}
+        exit_mock = MagicMock()
+
+        def _call_from_thread(fn: object, *args: object, **kwargs: object) -> object:
+            if fn is exit_mock:
+                return exit_mock(*args, **kwargs)
+            if fn is app._clear_shutdown_worker_active:
+                return fn()  # type: ignore[operator]
+            if callable(fn) and not args and not kwargs:
+                # Poll of _slot_operation_active via lambda
+                polls["n"] += 1
+                if polls["n"] >= 3:
+                    app._slot_operation_active = False
+                return fn()  # type: ignore[operator]
+            if callable(fn):
+                return fn(*args, **kwargs)  # type: ignore[operator]
+            return None
+
+        app.call_from_thread = _call_from_thread  # type: ignore[method-assign]
+        app.exit = exit_mock  # type: ignore[assignment]
+
+        DashboardApp._run_shutdown.__wrapped__(app, True)  # type: ignore[attr-defined]
+
+        controller._graceful_shutdown.assert_called_once()
+        exit_mock.assert_called_once()
+        assert polls["n"] >= 3
 
     def test_action_refresh_dashboard_calls_refresh(self) -> None:
         """action_refresh_dashboard should call controller.refresh_display and refresh."""
@@ -1209,14 +1252,33 @@ class TestDashboardAppModalResults:
         from llama_cli.tui.components.config_modal import ConfigPayload
 
         controller = _make_controller()
+        controller.save_config.return_value = False
         app = DashboardApp(controller)
         app.refresh_dashboard = MagicMock()  # type: ignore[assignment]
+        app._dispatch_shutdown = MagicMock()  # type: ignore[method-assign]
 
         payload = ConfigPayload(restart=False, clean_cache=False)
 
         app._handle_config_modal_result(payload)
 
         controller.save_config.assert_called_once()
+        app._dispatch_shutdown.assert_not_called()
+        app.refresh_dashboard.assert_called_once()
+
+    def test_handle_config_modal_result_restart_dispatches_shutdown(self) -> None:
+        """Config save with restart should stop servers via the slot-ops worker."""
+        from llama_cli.tui.components.config_modal import ConfigPayload
+
+        controller = _make_controller()
+        controller.save_config.return_value = True
+        app = DashboardApp(controller)
+        app.refresh_dashboard = MagicMock()  # type: ignore[assignment]
+        app._dispatch_shutdown = MagicMock()  # type: ignore[method-assign]
+
+        app._handle_config_modal_result(ConfigPayload(restart=True, clean_cache=False))
+
+        app._dispatch_shutdown.assert_called_once_with(exit_app=False)
+        app.refresh_dashboard.assert_not_called()
 
 
 class TestDashboardAppWorkers:

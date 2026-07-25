@@ -233,47 +233,6 @@ class TestProcessLauncherProtocol:
         pids = [proc.pid for proc in manager.servers]
         assert pids == [99999, 99999, 99999]
 
-    def test_wait_for_any_uses_handle_poll(self) -> None:
-        """wait_for_any should use ProcessHandle.poll()."""
-        from llama_manager.orchestration import ServerManager
-
-        mock_launcher = MockProcessLauncher()
-        manager = ServerManager(process_launcher=mock_launcher)
-
-        # Add a mock process that returns exit code 42 on poll
-        mock_handle = MockProcessHandle(pid=11111)
-        mock_handle._poll_return = 42
-        manager.servers.append(mock_handle)  # pyright: ignore[arg-type,reportArgumentType]
-
-        # wait_for_any should return the poll code
-        code = manager.wait_for_any()
-        assert code == 42
-
-    def test_wait_for_any_blocks_until_process_exits(self) -> None:
-        """wait_for_any should poll repeatedly until a process exits."""
-        from llama_manager.orchestration import ServerManager
-
-        mock_launcher = MockProcessLauncher()
-        manager = ServerManager(process_launcher=mock_launcher)
-
-        # Add a mock process that goes from running to exited
-        mock_handle = MockProcessHandle(pid=22222)
-        call_count = 0
-
-        def side_effect() -> int | None:
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
-                return None  # still running
-            return 0  # exited
-
-        mock_handle.poll = side_effect  # pyright: ignore[reportGeneralTypeIssues]
-        manager.servers.append(mock_handle)  # pyright: ignore[arg-type,reportArgumentType]
-
-        code = manager.wait_for_any()
-        assert code == 0
-        assert call_count >= 2  # at least 2 polls (one returned None, one returned 0)
-
     def test_wait_for_processes_catches_timeout_error(self) -> None:
         """_wait_for_processes should catch ProcessTimeoutError without raising."""
         from llama_manager.orchestration import ServerManager

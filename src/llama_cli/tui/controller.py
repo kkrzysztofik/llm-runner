@@ -232,7 +232,7 @@ class DashboardController:
                 logger.exception("refresh_slot_stats: failed to collect for %s", cfg.alias)
         if changed:
             try:
-                self.model.apply_slot_stats_snapshot(updated)
+                self.model.apply_slot_stats_snapshot(updated, live_aliases=live_aliases)
                 save_slot_stats(updated)
             except Exception:
                 logger.exception("refresh_slot_stats: failed to persist slot stats")
@@ -400,20 +400,23 @@ class DashboardController:
     def _cleanup(self) -> None:
         self.server_manager.cleanup_servers()
 
-    def request_quit(self) -> None:
-        """Request a graceful shutdown from the UI."""
+    def request_quit(self) -> bool:
+        """Handle risk short-circuit on the UI thread; return True to dispatch shutdown.
+
+        Does not run ``cleanup_servers`` — the app's ``_run_shutdown`` worker owns that.
+        """
         if self.model.risk_prompt is not None:
             if self.active_risk_kind == "hardware":
-                self.handle_hardware_warning("q")
-            return
-        self._graceful_shutdown()
+                return self.handle_hardware_warning("q") == "quit"
+            return False
+        return True
 
-    def interrupt(self) -> None:
-        """Request an interrupt from the UI (graceful shutdown when no risk prompt)."""
-        if self.model.risk_prompt is not None:
-            return
+    def interrupt(self) -> bool:
+        """Request interrupt; return True when the app should dispatch shutdown.
 
-        self._graceful_shutdown()
+        Does not run ``cleanup_servers`` — the app's ``_run_shutdown`` worker owns that.
+        """
+        return self.model.risk_prompt is None
 
     def refresh_display(self) -> None:
         """Request a refresh message from the UI."""
@@ -829,7 +832,7 @@ class DashboardController:
             self.running = False
             self.active_risk_kind = None
         elif action == "quit":
-            self._graceful_shutdown()
+            # Clear risk only; blocking cleanup runs on the slot-ops shutdown worker.
             self.active_risk_kind = None
 
     def handle_hardware_warning(self, key: str) -> str:
@@ -888,11 +891,15 @@ class DashboardController:
         self.server_manager.cleanup_servers()
         self.running = False
 
-    def save_config(self, payload: ConfigPayload) -> None:
-        """Persist edited config values and optionally restart all servers.
+    def save_config(self, payload: ConfigPayload) -> bool:
+        """Persist edited config values; return True if servers should stop off-thread.
 
         Args:
             payload: Typed config values and restart flag from the modal.
+
+        Returns:
+            True when ``payload.restart`` is set and the app should dispatch the
+            slot-ops shutdown worker for ``cleanup_servers`` + ``running = False``.
         """
         from llama_manager import apply_config_updates
 
@@ -901,7 +908,7 @@ class DashboardController:
         if result.errors:
             for error in result.errors:
                 self._push_status_message(error)
-            return
+            return False
 
         if result.updated_fields:
             self._push_status_message("Config saved to disk.")
@@ -915,11 +922,8 @@ class DashboardController:
 
         if payload.restart:
             self._push_status_message("Restarting servers with new config…")
-            self.server_manager.cleanup_servers()
-            self._push_status_message(
-                "Servers stopped. Use 'uv run llm-runner' to relaunch with updated config."
-            )
-            self.running = False
+            return True
+        return False
 
     def clean_model_cache(self) -> tuple[bool, str]:
         """Delete the model index cache file and clear in-memory cache.

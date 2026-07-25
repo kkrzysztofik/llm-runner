@@ -122,6 +122,7 @@ class DashboardApp(App[None]):
         self._system_health_refresh_active = False
         self._slot_stats_refresh_active = False
         self._slot_operation_active = False
+        self._shutdown_worker_active = False
         self._pending_remove_slot_alias: str | None = None
         self.last_build_backend: str = "sycl"
 
@@ -290,7 +291,6 @@ class DashboardApp(App[None]):
             logger.exception("_refresh_slot_stats_worker: unhandled exception")
         finally:
             self.call_from_thread(self._mark_slot_stats_refresh_complete)
-            self.call_from_thread(self.refresh_dashboard)
 
     def _mark_slot_stats_refresh_complete(self) -> None:
         self._slot_stats_refresh_active = False
@@ -346,14 +346,46 @@ class DashboardApp(App[None]):
         self.notify(message, title="Models", severity="warning" if errors else "information")
 
     def action_quit_dashboard(self) -> None:
-        self.controller.request_quit()
-        if not self.controller.running:
-            self.exit()
+        if self.controller.request_quit():
+            self._dispatch_shutdown(exit_app=True)
 
     def action_interrupt_dashboard(self) -> None:
-        self.controller.interrupt()
-        if not self.controller.running:
-            self.exit()
+        if self.controller.interrupt():
+            self._dispatch_shutdown(exit_app=True)
+
+    def _dispatch_shutdown(self, *, exit_app: bool = True) -> None:
+        """Start the slot-ops shutdown worker once; ignore duplicate quit requests."""
+        if self._shutdown_worker_active:
+            return
+        self._shutdown_worker_active = True
+        self._run_shutdown(exit_app)
+
+    def _clear_shutdown_worker_active(self) -> None:
+        self._shutdown_worker_active = False
+
+    @work(thread=True, group="slot-ops", exit_on_error=False)
+    def _run_shutdown(self, exit_app: bool = True) -> None:
+        """Wait for in-flight slot ops, then run graceful shutdown off the UI thread."""
+        try:
+            while self.call_from_thread(lambda: self._slot_operation_active):
+                time.sleep(0.05)
+            self.controller._graceful_shutdown()
+            if exit_app:
+                self.call_from_thread(self.exit)
+            else:
+                self.call_from_thread(
+                    self.controller._push_status_message,
+                    "Servers stopped. Use 'uv run llm-runner' to relaunch with updated config.",
+                )
+                self.call_from_thread(self.refresh_dashboard)
+        except Exception:
+            logger.exception("_run_shutdown: unhandled exception")
+            if exit_app:
+                self.call_from_thread(self.exit)
+        finally:
+            # Keep the latch set when exiting so duplicate quits cannot re-enter.
+            if not exit_app:
+                self.call_from_thread(self._clear_shutdown_worker_active)
 
     def action_refresh_dashboard(self) -> None:
         self.controller.refresh_display()
@@ -527,7 +559,9 @@ class DashboardApp(App[None]):
                 )
                 return
 
-            self.controller.save_config(result)
+            if self.controller.save_config(result):
+                self._dispatch_shutdown(exit_app=False)
+                return
         self.refresh_dashboard()
 
     def _handle_cache_clean_confirm(self, confirmed: bool | None) -> None:
@@ -650,7 +684,7 @@ class DashboardApp(App[None]):
         messages.extend(complete_messages)
         return success, layout_changed, messages
 
-    @work(thread=True)
+    @work(thread=True, group="slot-ops")
     def _run_add_slot(self, slot_form: dict[str, str], notify_message: str = "") -> None:
         """Resolve and apply add-slot form values off the UI thread."""
         logger.debug("_run_add_slot: starting, slot_form=%r", slot_form)
@@ -772,7 +806,7 @@ class DashboardApp(App[None]):
         self.notify("Removing slot…", title="Slot", severity="information")
         self._run_remove_slot(alias)
 
-    @work(thread=True)
+    @work(thread=True, group="slot-ops")
     def _run_remove_slot(self, alias: str) -> None:
         """Stop and remove a live slot off the UI thread."""
         error: str | None = None
@@ -945,8 +979,9 @@ class DashboardApp(App[None]):
 
     def action_cancel_pending_prompt(self) -> None:
         cancelled = self.controller.cancel_pending_prompt()
-        if not cancelled:
-            self.controller.interrupt()
+        if not cancelled and self.controller.interrupt():
+            self._dispatch_shutdown(exit_app=True)
+            return
         self.refresh_dashboard()
 
     def refresh_dashboard(self) -> None:

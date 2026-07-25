@@ -151,6 +151,23 @@ class TestControllerSlotStats:
 
         assert controller.model.slot_stats_snapshot() == {}
 
+    def test_apply_slot_stats_snapshot_uses_provided_live_aliases(self) -> None:
+        """apply_slot_stats_snapshot should prune via live_aliases, not model.configs."""
+        from llama_manager.slot_stats import SlotStatsSnapshot
+
+        controller = _make_controller()
+        stale = SlotStatsSnapshot("gone", 8080, 1.0, tokens_in=1, tokens_out=1)
+        keep = SlotStatsSnapshot("slot0", 8080, 2.0, tokens_in=2, tokens_out=2)
+        # configs still list only the live alias from the fixture; inject a stale cache entry
+        # then prune with an explicit live set that does not re-read configs.
+        controller.model.cached_slot_stats_by_alias["gone"] = stale
+
+        controller.model.apply_slot_stats_snapshot({"slot0": keep}, live_aliases={"slot0"})
+
+        snap = controller.model.slot_stats_snapshot()
+        assert "gone" not in snap
+        assert snap["slot0"] == keep
+
     def test_refresh_slot_stats_updates_slot_and_profile_stats(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -637,8 +654,8 @@ class TestControllerSaveConfig:
 
         assert len(controller._status_messages) == 0
 
-    def test_restart_flag_stops_running(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """save_config with restart=True should set controller.running to False."""
+    def test_restart_flag_requests_shutdown_worker(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """save_config with restart=True should return True without stopping on the UI thread."""
         from llama_manager.config.persistence import ConfigUpdateResult
 
         mock_result = ConfigUpdateResult(success=True, updated_fields=["models_dir"], errors=[])
@@ -646,9 +663,11 @@ class TestControllerSaveConfig:
         controller = _make_controller()
         assert controller.running is True
 
-        controller.save_config(self._make_payload(restart=True))
+        assert controller.save_config(self._make_payload(restart=True)) is True
 
-        assert controller.running is False
+        assert controller.running is True
+        texts = [msg for _, msg in controller._status_messages]
+        assert any("Restarting servers" in t for t in texts)
 
     def test_log_file_level_calls_update_file_level(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """save_config should call update_file_level when log_file_level is updated."""
@@ -890,18 +909,18 @@ class TestControllerRiskGuards:
         controller = _make_controller()
         controller.model.set_risk_prompt("hardware", acknowledged=False)
 
-        controller.request_quit()
+        assert controller.request_quit() is True
 
-        # handle_hardware_warning("q") -> quit -> clears risk and calls _graceful_shutdown
-        # The prompt is cleared and running is set to False
+        # handle_hardware_warning("q") -> quit -> clears risk; cleanup is off-thread
         assert controller.model.risk_prompt is None
+        assert controller.running is True
 
     def test_request_quit_with_vram_risk_returns_early(self) -> None:
         """request_quit with vram risk should return early."""
         controller = _make_controller()
         controller.model.set_risk_prompt("vram", acknowledged=False)
 
-        controller.request_quit()
+        assert controller.request_quit() is False
 
         # Should not call _graceful_shutdown
         assert controller.running is True
@@ -911,7 +930,7 @@ class TestControllerRiskGuards:
         controller = _make_controller()
         controller.model.set_risk_prompt("hardware", acknowledged=False)
 
-        controller.interrupt()
+        assert controller.interrupt() is False
 
         # Should not call _graceful_shutdown
         assert controller.running is True

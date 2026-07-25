@@ -648,7 +648,7 @@ def test_column_valid() -> None:
     assert result.config_summary == "Device: SYCL0 | Ctx: 8192 | Threads: 4"
     assert result.profile_name == "my-server"
     assert result.status_label == "Running"
-    assert result.log_lines == ("server log output",)
+    assert result.log_lines == ()
     assert result.runtime_stats == SlotRuntimeStats(
         tps="--",
         pp="--",

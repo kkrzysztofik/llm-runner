@@ -875,27 +875,27 @@ class TestGracefulShutdownKeyHandler:
         mock_pipeline.release_lock.assert_called_once()
         assert app.build_in_progress is False
 
-    def test_request_quit_calls_graceful_shutdown(self) -> None:
-        """request_quit should initiate graceful shutdown when idle."""
+    def test_request_quit_signals_shutdown_dispatch(self) -> None:
+        """request_quit should return True so the app can dispatch the shutdown worker."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
 
         with patch.object(app, "_graceful_shutdown") as mock_shutdown:
-            app.request_quit()
+            assert app.request_quit() is True
 
-        mock_shutdown.assert_called_once()
+        mock_shutdown.assert_not_called()
 
-    def test_interrupt_triggers_graceful_shutdown(self) -> None:
-        """interrupt should shut down when no risk prompt is active."""
+    def test_interrupt_signals_shutdown_dispatch(self) -> None:
+        """interrupt should return True when no risk prompt is active."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config(alias="slot0")], gpu_indices=[0])
 
         with patch.object(app, "_graceful_shutdown") as mock_shutdown:
-            app.interrupt()
+            assert app.interrupt() is True
 
-        mock_shutdown.assert_called_once()
+        mock_shutdown.assert_not_called()
 
     def test_refresh_display_appends_message(self) -> None:
         """refresh_display should add a visible status message."""
@@ -986,7 +986,9 @@ class TestHandleHardwareWarning:
         result = app.handle_hardware_warning("q")
 
         assert result == "quit"
-        assert app.running is False
+        # Cleanup runs on the slot-ops shutdown worker; risk clear only here.
+        assert app.running is True
+        assert app.active_risk_kind is None
 
     def test_handle_hardware_warning_other_ignored(self) -> None:
         """handle_hardware_warning should ignore non-action keys."""
@@ -1180,11 +1182,14 @@ class TestTextualDashboardAppActions:
         controller.running = True
         controller.config = MagicMock()
         controller.configs = [_make_config()]
+        controller.cancel_pending_prompt.return_value = True
+        controller.interrupt.return_value = True
         app = TextualDashboardApp(controller)
 
         with (
             patch.object(app, "refresh_dashboard") as mock_refresh,
             patch.object(app, "push_screen") as mock_push,
+            patch.object(app, "_dispatch_shutdown") as mock_shutdown,
         ):
             app.action_build()
             app.action_confirm()
@@ -1199,6 +1204,7 @@ class TestTextualDashboardAppActions:
         controller.cancel_pending_prompt.assert_called_once()
         controller.refresh_display.assert_called_once()
         controller.interrupt.assert_called_once()
+        mock_shutdown.assert_called_once_with(exit_app=True)
         assert mock_refresh.call_count == 4
 
     def test_emit_status_toasts_uses_popups_for_notices_and_status(self) -> None:

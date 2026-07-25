@@ -265,13 +265,23 @@ class DashboardModel:
         with self.system_health_lock:
             self.cached_gpu_stats_by_alias.pop(alias, None)
 
-    def apply_slot_stats_snapshot(self, stats_by_alias: dict[str, SlotStatsSnapshot]) -> None:
-        """Merge slot stats collected off the UI thread; prune removed aliases."""
+    def apply_slot_stats_snapshot(
+        self,
+        stats_by_alias: dict[str, SlotStatsSnapshot],
+        live_aliases: set[str] | None = None,
+    ) -> None:
+        """Merge slot stats collected off the UI thread; prune removed aliases.
+
+        *live_aliases* should be derived from the UI-thread-taken probe snapshot so
+        workers do not read ``self.configs`` (mutated on the UI thread).
+        """
         with self.system_health_lock:
             self.cached_slot_stats_by_alias.update(stats_by_alias)
-            live_aliases = {cfg.alias for cfg in self.configs}
+            aliases = (
+                live_aliases if live_aliases is not None else {cfg.alias for cfg in self.configs}
+            )
             for alias in list(self.cached_slot_stats_by_alias):
-                if alias not in live_aliases:
+                if alias not in aliases:
                     del self.cached_slot_stats_by_alias[alias]
 
     def set_cached_slot_stats(self, alias: str, stats: SlotStatsSnapshot) -> None:
