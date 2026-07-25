@@ -24,7 +24,7 @@ from llama_manager import (
     gpu_index_for_config,
     selector_for_config,
 )
-from llama_manager.build_pipeline import BuildConfig
+from llama_manager.build_pipeline import BuildConfig, BuildProgress
 from llama_manager.slot_stats import SlotStatsSnapshot
 
 from .types import (
@@ -91,10 +91,7 @@ class DashboardModel:
         self.build_result: Literal["success", "failed"] | None = None
         self.build_error: str | None = None
         self.build_artifact: str | None = None
-        self.build_stage: str | None = None
-        self.build_progress_percent: float = 0.0
-        self.build_is_retrying = False
-        self.build_retries_remaining: int = 0
+        self.build_progress: BuildProgress | None = None
         self.build_cancel_event: threading.Event | None = None
         self.build_selected_backends_options: dict[str, BuildConfig | None] = {}
         self.unsaved_slots: set[str] = set()
@@ -102,6 +99,36 @@ class DashboardModel:
         self.server_manager = ServerManager()
         self.slot_states: dict[str, str] = {}
         self.server_processes: dict[str, Any] = {}
+
+    # Read-only views over ``build_progress``. Writers assign the whole immutable
+    # snapshot (see DashboardController._handle_build_progress) so readers on the UI
+    # thread never observe a mix of fields from two different progress updates.
+
+    @property
+    def build_stage(self) -> str | None:
+        """Current build stage name derived from ``build_progress``."""
+        progress = self.build_progress
+        return progress.stage if progress is not None else None
+
+    @property
+    def build_progress_percent(self) -> float:
+        """Build completion percent derived from ``build_progress``."""
+        progress = self.build_progress
+        return progress.progress_percent if progress is not None else 0.0
+
+    @property
+    def build_is_retrying(self) -> bool:
+        """Whether the build is retrying, derived from ``build_progress``."""
+        progress = self.build_progress
+        return bool(progress is not None and progress.is_retrying)
+
+    @property
+    def build_retries_remaining(self) -> int:
+        """Retries remaining derived from ``build_progress``."""
+        progress = self.build_progress
+        if progress is None or progress.retries_remaining is None:
+            return 0
+        return progress.retries_remaining
 
     def make_collector(self, device_index: int) -> Callable[[], dict[str, Any]]:
         """Create a legacy CUDA collector bound to a device ordinal."""
@@ -206,12 +233,27 @@ class DashboardModel:
             self.cached_memory_usage_rows = list(memory_rows)
             self.cached_system_info_snapshot = system_info
 
-    def apply_gpu_stats_snapshot(self, gpu_stats_by_alias: dict[str, dict[str, Any]]) -> None:
-        """Store GPU telemetry collected off the UI thread."""
+    def snapshot_for_probe(self) -> tuple[tuple[str, GPUStats, ServerConfig], ...]:
+        """Frozen (alias, gpu, config) triples for background telemetry workers.
+
+        Must be called on the UI thread (or via ``call_from_thread``) so the
+        ``configs`` / ``gpu_stats`` length invariant is observed atomically.
+        """
         with self.system_health_lock:
-            self.cached_gpu_stats_by_alias = {
-                alias: dict(stats) for alias, stats in gpu_stats_by_alias.items()
-            }
+            return tuple(
+                (cfg.alias, gpu, cfg) for cfg, gpu in zip(self.configs, self.gpu_stats, strict=True)
+            )
+
+    def apply_gpu_stats_snapshot(self, gpu_stats_by_alias: dict[str, dict[str, Any]]) -> None:
+        """Merge GPU telemetry collected off the UI thread; prune removed aliases."""
+        with self.system_health_lock:
+            self.cached_gpu_stats_by_alias.update(
+                {alias: dict(stats) for alias, stats in gpu_stats_by_alias.items()}
+            )
+            live_aliases = {cfg.alias for cfg in self.configs}
+            for alias in list(self.cached_gpu_stats_by_alias):
+                if alias not in live_aliases:
+                    del self.cached_gpu_stats_by_alias[alias]
 
     def set_cached_gpu_stats(self, alias: str, stats: dict[str, Any]) -> None:
         """Set one slot's cached GPU telemetry without probing hardware."""
@@ -223,10 +265,24 @@ class DashboardModel:
         with self.system_health_lock:
             self.cached_gpu_stats_by_alias.pop(alias, None)
 
-    def apply_slot_stats_snapshot(self, stats_by_alias: dict[str, SlotStatsSnapshot]) -> None:
-        """Store slot stats collected off the UI thread."""
+    def apply_slot_stats_snapshot(
+        self,
+        stats_by_alias: dict[str, SlotStatsSnapshot],
+        live_aliases: set[str] | None = None,
+    ) -> None:
+        """Merge slot stats collected off the UI thread; prune removed aliases.
+
+        *live_aliases* should be derived from the UI-thread-taken probe snapshot so
+        workers do not read ``self.configs`` (mutated on the UI thread).
+        """
         with self.system_health_lock:
-            self.cached_slot_stats_by_alias = dict(stats_by_alias)
+            self.cached_slot_stats_by_alias.update(stats_by_alias)
+            aliases = (
+                live_aliases if live_aliases is not None else {cfg.alias for cfg in self.configs}
+            )
+            for alias in list(self.cached_slot_stats_by_alias):
+                if alias not in aliases:
+                    del self.cached_slot_stats_by_alias[alias]
 
     def set_cached_slot_stats(self, alias: str, stats: SlotStatsSnapshot) -> None:
         """Set one slot's cached stats without fetching live data."""

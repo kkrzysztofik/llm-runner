@@ -122,6 +122,7 @@ def build_server_cmd(cfg: ServerConfig) -> list[str]:
     """Build llama-server command arguments"""
     ...
 
+
 # WRONG
 def build_server_cmd(cfg):
     """Build llama-server command arguments"""

@@ -151,6 +151,23 @@ class TestControllerSlotStats:
 
         assert controller.model.slot_stats_snapshot() == {}
 
+    def test_apply_slot_stats_snapshot_uses_provided_live_aliases(self) -> None:
+        """apply_slot_stats_snapshot should prune via live_aliases, not model.configs."""
+        from llama_manager.slot_stats import SlotStatsSnapshot
+
+        controller = _make_controller()
+        stale = SlotStatsSnapshot("gone", 8080, 1.0, tokens_in=1, tokens_out=1)
+        keep = SlotStatsSnapshot("slot0", 8080, 2.0, tokens_in=2, tokens_out=2)
+        # configs still list only the live alias from the fixture; inject a stale cache entry
+        # then prune with an explicit live set that does not re-read configs.
+        controller.model.cached_slot_stats_by_alias["gone"] = stale
+
+        controller.model.apply_slot_stats_snapshot({"slot0": keep}, live_aliases={"slot0"})
+
+        snap = controller.model.slot_stats_snapshot()
+        assert "gone" not in snap
+        assert snap["slot0"] == keep
+
     def test_refresh_slot_stats_updates_slot_and_profile_stats(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -192,6 +209,35 @@ class TestControllerSlotStats:
                 },
             )
         }
+
+    def test_refresh_slot_stats_skips_profile_update_when_snapshot_unchanged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Matching slot snapshots must not rewrite profile aggregates."""
+        from llama_manager.slot_stats import ProfileStatsAggregate, SlotStatsSnapshot
+
+        controller = _make_controller()
+        stats = SlotStatsSnapshot("slot0", 8080, 10.0, tokens_in=10, tokens_out=4)
+        controller.model.apply_slot_stats_snapshot({"slot0": stats})
+        existing_profiles = {"profile0": ProfileStatsAggregate("profile0", updated_at=10.0)}
+        saved_slots = MagicMock()
+        saved_profiles = MagicMock()
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.load_profile_stats",
+            MagicMock(return_value=existing_profiles),
+        )
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.collect_slot_stats",
+            MagicMock(return_value=stats),
+        )
+        monkeypatch.setattr("llama_cli.tui.controller.save_slot_stats", saved_slots)
+        monkeypatch.setattr("llama_cli.tui.controller.save_profile_stats", saved_profiles)
+        controller.resolve_profile_id_for_config = MagicMock(return_value="profile0")  # type: ignore[method-assign]
+
+        controller.refresh_slot_stats()
+
+        saved_slots.assert_not_called()
+        saved_profiles.assert_not_called()
 
     def test_refresh_slot_stats_continues_on_collector_failure(
         self, monkeypatch: pytest.MonkeyPatch
@@ -294,8 +340,8 @@ class TestControllerCancelBuild:
 
         assert controller.model.build_cancel_event.is_set()
 
-    def test_cancel_build_kills_subprocess(self) -> None:
-        """cancel_build should call kill_active_subprocess on the pipeline."""
+    def test_cancel_build_does_not_kill_on_ui_thread(self) -> None:
+        """cancel_build should only set the cancel event; the watcher kills off-thread."""
         controller = _make_controller()
         controller.model.build_cancel_event = threading.Event()
         mock_pipeline = MagicMock()
@@ -303,7 +349,7 @@ class TestControllerCancelBuild:
 
         controller.cancel_build()
 
-        mock_pipeline.kill_active_subprocess.assert_called_once()
+        mock_pipeline.kill_active_subprocess.assert_not_called()
         assert controller.model.build_cancel_event.is_set()
 
     def test_cancel_build_no_pipeline_no_crash(self) -> None:
@@ -637,8 +683,8 @@ class TestControllerSaveConfig:
 
         assert len(controller._status_messages) == 0
 
-    def test_restart_flag_stops_running(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """save_config with restart=True should set controller.running to False."""
+    def test_restart_flag_requests_shutdown_worker(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """save_config with restart=True should return True without stopping on the UI thread."""
         from llama_manager.config.persistence import ConfigUpdateResult
 
         mock_result = ConfigUpdateResult(success=True, updated_fields=["models_dir"], errors=[])
@@ -646,9 +692,11 @@ class TestControllerSaveConfig:
         controller = _make_controller()
         assert controller.running is True
 
-        controller.save_config(self._make_payload(restart=True))
+        assert controller.save_config(self._make_payload(restart=True)) is True
 
-        assert controller.running is False
+        assert controller.running is True
+        texts = [msg for _, msg in controller._status_messages]
+        assert any("Restarting servers" in t for t in texts)
 
     def test_log_file_level_calls_update_file_level(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """save_config should call update_file_level when log_file_level is updated."""
@@ -890,18 +938,18 @@ class TestControllerRiskGuards:
         controller = _make_controller()
         controller.model.set_risk_prompt("hardware", acknowledged=False)
 
-        controller.request_quit()
+        assert controller.request_quit() is True
 
-        # handle_hardware_warning("q") -> quit -> clears risk and calls _graceful_shutdown
-        # The prompt is cleared and running is set to False
+        # handle_hardware_warning("q") -> quit -> clears risk; cleanup is off-thread
         assert controller.model.risk_prompt is None
+        assert controller.running is True
 
     def test_request_quit_with_vram_risk_returns_early(self) -> None:
         """request_quit with vram risk should return early."""
         controller = _make_controller()
         controller.model.set_risk_prompt("vram", acknowledged=False)
 
-        controller.request_quit()
+        assert controller.request_quit() is False
 
         # Should not call _graceful_shutdown
         assert controller.running is True
@@ -911,7 +959,7 @@ class TestControllerRiskGuards:
         controller = _make_controller()
         controller.model.set_risk_prompt("hardware", acknowledged=False)
 
-        controller.interrupt()
+        assert controller.interrupt() is False
 
         # Should not call _graceful_shutdown
         assert controller.running is True
@@ -1097,26 +1145,43 @@ class TestControllerProfileValidation:
 
 
 class TestControllerBuildBackground:
-    """Tests for _run_build_background and _execute_build_loop."""
+    """Tests for begin_build / run_build_loop and _execute_build_loop."""
 
-    def test_run_build_background_starts_thread(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """_run_build_background should set build flags and start a thread."""
-        import threading as _threading
+    def test_begin_build_reserves_state_without_running(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """begin_build should arm build state but never execute the pipeline itself.
 
-        thread_instance = MagicMock()
-        thread_instance.start = MagicMock()
-
-        def fake_thread(*a, **kw):
-            return thread_instance
-
-        monkeypatch.setattr(_threading, "Thread", fake_thread)
+        The caller owns the thread (DashboardApp.start_build), so a regression that
+        re-adds a thread here would put the build outside Textual's worker tracking.
+        """
+        ran: list[str] = []
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.DashboardController._execute_build_loop",
+            lambda self, backends, wizard: ran.append("executed"),
+        )
         controller = _make_controller()
 
-        controller._run_build_background(["sycl"])
+        controller.begin_build(["sycl"], options={"sycl": None})
 
         assert controller.model.build_in_progress is True
         assert controller.build_in_progress is True
-        thread_instance.start.assert_called_once()
+        assert controller.model.build_selected_backends == ["sycl"]
+        assert controller.model.build_cancel_event is not None
+        assert controller.model.build_selected_backends_options == {"sycl": None}
+        assert ran == []
+
+        controller.run_build_loop(["sycl"])
+        assert ran == ["executed"]
+
+    def test_begin_build_defaults_options_to_empty(self) -> None:
+        """Omitted options should clear stale wizard options, not preserve them."""
+        controller = _make_controller()
+        controller.model.build_selected_backends_options = {"cuda": MagicMock()}
+
+        controller.begin_build(["sycl"])
+
+        assert controller.model.build_selected_backends_options == {}
 
     def test_execute_build_loop_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_execute_build_loop should set result to 'success' on completion."""

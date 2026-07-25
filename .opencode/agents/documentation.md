@@ -250,17 +250,17 @@ uv run pyright
 
 ```python
 # BAD
-def validate_port(port, name="port"):
-    ...
+def validate_port(port, name="port"): ...
+
 
 # GOOD
 def validate_port(port: int, name: str = "port") -> None:
     """Validate port number.
-    
+
     Args:
         port: Port number to validate
         name: Name for error messages
-    
+
     Raises:
         SystemExit: If port is invalid
     """

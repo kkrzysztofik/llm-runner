@@ -1,10 +1,7 @@
 """Per-server column widget."""
 
-import logging
-
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
-from textual.css.query import NoMatches
 from textual.widget import Widget
 from textual.widgets import Log, Static
 
@@ -80,7 +77,6 @@ class ServerColumnPanel(Widget):
 
     def _build_logs(self) -> Container:
         log = Log(max_lines=500, auto_scroll=True, classes="server-log-content")
-        log._llm_runner_lines = self._state.log_lines  # type: ignore[attr-defined]
         return Container(
             Static("Logs", classes="panel-title server-log-title"),
             log,
@@ -88,13 +84,4 @@ class ServerColumnPanel(Widget):
         )
 
     def on_mount(self) -> None:
-        try:
-            log = self.query_one(".server-log-content", Log)
-            log.write_lines(list(self._state.log_lines))
-        except NoMatches:
-            # Log widget not yet in the tree; lines will be applied on next refresh.
-            pass
-        except Exception:
-            logging.exception(
-                "server_column: failed to write initial log lines for %s", self._state.profile_name
-            )
+        """Logs are filled by DashboardApp via LogBuffer.get_lines_since."""

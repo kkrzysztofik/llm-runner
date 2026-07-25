@@ -63,6 +63,7 @@ WHY THIS MATTERS:
 import json
 import subprocess
 
+
 def _get_nvtop_stats(self) -> dict:
     result = subprocess.run(
         ["nvtop", "-s"],

@@ -93,8 +93,7 @@ class DashboardController:
     (:class:`~.model.DashboardModel`), the view model
     (:class:`~.viewmodel.DashboardViewModel`), and the Textual app
     (:class:`~.textual_app.DashboardApp`). It owns all user-facing command
-    handlers (launch, build, slot management, config editing, risk prompts)
-    and manages background threads for builds.
+    handlers (launch, build, slot management, config editing, risk prompts).
 
     Responsibilities:
 
@@ -103,8 +102,9 @@ class DashboardController:
     * **Launch orchestration** — delegate to :func:`~llama_manager.launch_orchestrate`
       and map results to UI state (risk prompts, slot states, status messages).
     * **Build pipeline** — run :func:`~llama_manager.build_pipeline.run_build_for_backend`
-      in a daemon thread, expose progress via :attr:`build_progress`, and
-      coordinate with the build wizard modal.
+      via :meth:`begin_build` / :meth:`run_build_loop`, expose progress via
+      :attr:`build_progress`, and coordinate with the build wizard modal. The
+      thread is owned by ``DashboardApp``, not here.
     * **Slot management** — create/replace slots from the add-slot modal, track
       slot state transitions, and detect duplicate slot IDs.
     * **Config editing** — persist edited values from the config modal and
@@ -132,9 +132,8 @@ class DashboardController:
         # Load persisted slot stats so the TUI shows last-known values immediately
         self._load_persisted_slot_stats()
 
-        # Build pipeline state
+        # Build pipeline state (build_in_progress lives on the model — single source of truth)
         self._build_pipeline: BuildPipeline | None = None
-        self.build_in_progress = False
         self.build_progress: BuildProgress | None = None
         self._original_sigint_handler: Callable[[int, FrameType | None], Any] | int | None = None
         self._build_wizard: Any = None  # BuildModalScreen | None
@@ -145,6 +144,15 @@ class DashboardController:
         if register_signals:
             signal.signal(signal.SIGINT, self._signal_handler)
             signal.signal(signal.SIGTERM, self._signal_handler)
+
+    @property
+    def build_in_progress(self) -> bool:
+        """Whether a build is currently running (delegates to the model)."""
+        return self.model.build_in_progress
+
+    @build_in_progress.setter
+    def build_in_progress(self, value: bool) -> None:
+        self.model.build_in_progress = value
 
     @property
     def config(self) -> Config:
@@ -173,34 +181,56 @@ class DashboardController:
         except Exception:
             logger.debug("failed to load persisted slot stats", exc_info=True)
 
-    def refresh_slot_stats(self) -> None:
-        """Collect live slot stats for all running configs and persist changes."""
+    def refresh_slot_stats(
+        self,
+        targets: tuple[tuple[str, Any, ServerConfig], ...] | None = None,
+    ) -> None:
+        """Collect live slot stats for all running configs and persist changes.
+
+        *targets* is a frozen ``(alias, gpu, config)`` snapshot taken on the UI
+        thread. Callers on a worker thread must pass one — iterating
+        ``model.configs`` live races slot add/remove and can skip or double-visit
+        slots mid-collection. Defaults to a fresh snapshot for UI-thread callers.
+        """
+        probe_targets = self.model.snapshot_for_probe() if targets is None else targets
+        configs = [cfg for _alias, _gpu, cfg in probe_targets]
         current = self.model.slot_stats_snapshot()
         updated = dict(current)
+        live_aliases = {cfg.alias for cfg in configs}
+        changed = False
+        for alias in list(updated):
+            if alias not in live_aliases:
+                del updated[alias]
+                changed = True
+
+        registry = self._build_tui_registry()
+        profile_id_by_alias = {
+            cfg.alias: self.resolve_profile_id_for_config(cfg, registry=registry) for cfg in configs
+        }
         profile_stats = load_profile_stats()
         profile_stats_changed = False
-        changed = False
-        for cfg in self.model.configs:
+        for cfg in configs:
             try:
                 stats = collect_slot_stats(cfg.alias, self.model.config.deployment.host, cfg.port)
                 if stats is None:
                     continue
-                updated[cfg.alias] = stats
-                changed = True
-                profile_id = self.resolve_profile_id_for_config(cfg)
-                if profile_id is not None:
-                    profile_stats = update_profile_stats(
-                        profile_stats,
-                        profile_id,
-                        self._profile_stats_session_id(cfg.alias),
-                        stats,
-                    )
-                    profile_stats_changed = True
+                if updated.get(cfg.alias) != stats:
+                    updated[cfg.alias] = stats
+                    changed = True
+                    profile_id = profile_id_by_alias.get(cfg.alias)
+                    if profile_id is not None:
+                        profile_stats = update_profile_stats(
+                            profile_stats,
+                            profile_id,
+                            self._profile_stats_session_id(cfg.alias),
+                            stats,
+                        )
+                        profile_stats_changed = True
             except Exception:
                 logger.exception("refresh_slot_stats: failed to collect for %s", cfg.alias)
         if changed:
             try:
-                self.model.apply_slot_stats_snapshot(updated)
+                self.model.apply_slot_stats_snapshot(updated, live_aliases=live_aliases)
                 save_slot_stats(updated)
             except Exception:
                 logger.exception("refresh_slot_stats: failed to persist slot stats")
@@ -210,14 +240,16 @@ class DashboardController:
             except Exception:
                 logger.exception("refresh_slot_stats: failed to persist profile stats")
 
-    def resolve_profile_id_for_config(self, cfg: ServerConfig) -> str | None:
+    def resolve_profile_id_for_config(
+        self, cfg: ServerConfig, *, registry: Any | None = None
+    ) -> str | None:
         """Resolve a live server config alias to a registered profile ID."""
-        registry = self._build_tui_registry()
-        resolved = resolve_profile_id(registry, cfg.alias)
+        resolved_registry = self._build_tui_registry() if registry is None else registry
+        resolved = resolve_profile_id(resolved_registry, cfg.alias)
         if resolved is not None:
             return resolved
         if cfg.alias.endswith("-coding"):
-            return resolve_profile_id(registry, cfg.alias.removesuffix("-coding"))
+            return resolve_profile_id(resolved_registry, cfg.alias.removesuffix("-coding"))
         return None
 
     def _profile_stats_session_id(self, alias: str) -> str:
@@ -366,20 +398,23 @@ class DashboardController:
     def _cleanup(self) -> None:
         self.server_manager.cleanup_servers()
 
-    def request_quit(self) -> None:
-        """Request a graceful shutdown from the UI."""
+    def request_quit(self) -> bool:
+        """Handle risk short-circuit on the UI thread; return True to dispatch shutdown.
+
+        Does not run ``cleanup_servers`` — the app's ``_run_shutdown`` worker owns that.
+        """
         if self.model.risk_prompt is not None:
             if self.active_risk_kind == "hardware":
-                self.handle_hardware_warning("q")
-            return
-        self._graceful_shutdown()
+                return self.handle_hardware_warning("q") == "quit"
+            return False
+        return True
 
-    def interrupt(self) -> None:
-        """Request an interrupt from the UI (graceful shutdown when no risk prompt)."""
-        if self.model.risk_prompt is not None:
-            return
+    def interrupt(self) -> bool:
+        """Request interrupt; return True when the app should dispatch shutdown.
 
-        self._graceful_shutdown()
+        Does not run ``cleanup_servers`` — the app's ``_run_shutdown`` worker owns that.
+        """
+        return self.model.risk_prompt is None
 
     def refresh_display(self) -> None:
         """Request a refresh message from the UI."""
@@ -795,7 +830,7 @@ class DashboardController:
             self.running = False
             self.active_risk_kind = None
         elif action == "quit":
-            self._graceful_shutdown()
+            # Clear risk only; blocking cleanup runs on the slot-ops shutdown worker.
             self.active_risk_kind = None
 
     def handle_hardware_warning(self, key: str) -> str:
@@ -854,11 +889,15 @@ class DashboardController:
         self.server_manager.cleanup_servers()
         self.running = False
 
-    def save_config(self, payload: ConfigPayload) -> None:
-        """Persist edited config values and optionally restart all servers.
+    def save_config(self, payload: ConfigPayload) -> bool:
+        """Persist edited config values; return True if servers should stop off-thread.
 
         Args:
             payload: Typed config values and restart flag from the modal.
+
+        Returns:
+            True when ``payload.restart`` is set and the app should dispatch the
+            slot-ops shutdown worker for ``cleanup_servers`` + ``running = False``.
         """
         from llama_manager import apply_config_updates
 
@@ -867,7 +906,7 @@ class DashboardController:
         if result.errors:
             for error in result.errors:
                 self._push_status_message(error)
-            return
+            return False
 
         if result.updated_fields:
             self._push_status_message("Config saved to disk.")
@@ -881,11 +920,8 @@ class DashboardController:
 
         if payload.restart:
             self._push_status_message("Restarting servers with new config…")
-            self.server_manager.cleanup_servers()
-            self._push_status_message(
-                "Servers stopped. Use 'uv run llm-runner' to relaunch with updated config."
-            )
-            self.running = False
+            return True
+        return False
 
     def clean_model_cache(self) -> tuple[bool, str]:
         """Delete the model index cache file and clear in-memory cache.
@@ -911,13 +947,13 @@ class DashboardController:
 
         Source is ``'builtin'`` or ``'custom'``.
         """
-        from llama_manager.slot_profile_store import custom_slot_profile_exists
+        from llama_manager.slot_profile_store import load_custom_slot_profiles
 
         registry = self._build_tui_registry()
+        custom_ids = {p.profile_id for p in load_custom_slot_profiles()}
         result: list[tuple[Any, str]] = []
         for p in registry.profiles:
-            is_custom = custom_slot_profile_exists(p.profile_id)
-            source = "custom" if is_custom else "builtin"
+            source = "custom" if p.profile_id in custom_ids else "builtin"
             result.append((p, source))
         return result
 
@@ -1107,12 +1143,9 @@ class DashboardController:
         Args:
             progress: BuildProgress from the pipeline
         """
+        # Single immutable snapshot — derived fields stay coherent for readers.
         self.build_progress = progress
-        self.model.build_stage = progress.stage
-        self.model.build_progress_percent = progress.progress_percent
-        self.model.build_is_retrying = progress.is_retrying
-        if progress.retries_remaining is not None:
-            self.model.build_retries_remaining = progress.retries_remaining
+        self.model.build_progress = progress
 
         if self.build_in_progress:
             if progress.is_retrying:
@@ -1132,43 +1165,33 @@ class DashboardController:
 
     # -- Build lifecycle --------------------------------------------------
 
-    def handle_build_selection(
-        self, backends: list[str], options: dict[str, BuildConfig | None] | None = None
+    def begin_build(
+        self,
+        backends: list[str],
+        options: dict[str, BuildConfig | None] | None = None,
+        wizard: Any = None,  # BuildModalScreen | None
     ) -> None:
-        """Initiate build for the given backends.
+        """Reserve build state on the UI thread before a worker runs the pipeline.
 
-        Called from BuildModalScreen when the user presses 1/2/3.
-        Starts a background thread so the TUI stays responsive.
+        Pairs with :meth:`run_build_loop`. Split so the caller owns the thread —
+        see ``DashboardApp.start_build``.
 
         Args:
             backends: List of backend names to build.
             options: Optional build configuration options from the wizard.
+            wizard: Optional wizard modal that stays open during the build.
         """
-        if options is not None:
-            self.model.build_selected_backends_options = options
-        else:
-            self.model.build_selected_backends_options = {}
-        self._run_build_background(backends)
-
-    def handle_build_with_wizard(
-        self, backends: list[str], wizard: Any
-    ) -> None:  # BuildModalScreen
-        """Initiate build for the given backends, keeping the wizard modal open.
-
-        The wizard modal stays open showing live progress. When the build
-        completes (success or failure), the controller calls back to the
-        wizard to display the result and dismiss.
-        """
-        self._run_build_background(backends, wizard=wizard)
+        self.model.build_selected_backends_options = options if options is not None else {}
+        self.model.build_in_progress = True
+        self.model.build_selected_backends = backends
+        self.model.build_cancel_event = threading.Event()
+        self._build_wizard = wizard
 
     def cancel_build(self) -> None:
-        """Signal cancellation and terminate any in-flight compile/configure subprocess."""
+        """Signal cancellation; the cancel watcher terminates the process tree off-thread."""
         cancel_event = getattr(self.model, "build_cancel_event", None)
         if cancel_event is not None:
             cancel_event.set()
-        pipeline = getattr(self, "_build_pipeline", None)
-        if pipeline is not None:
-            pipeline.kill_active_subprocess()
 
     def _build_cancel_event_is_set(self) -> bool:
         cancel_evt = self.model.build_cancel_event
@@ -1197,26 +1220,17 @@ class DashboardController:
             )
         return False
 
-    def _run_build_background(
-        self, backends: list[str], wizard: Any = None
-    ) -> None:  # BuildModalScreen | None
-        """Run the build pipeline in a daemon thread.
+    def run_build_loop(self, backends: list[str], wizard: Any = None) -> None:
+        """Run the build pipeline. Blocks — call from a worker thread only.
+
+        Pairs with :meth:`begin_build`, which must have run on the UI thread first.
 
         Args:
             backends: List of backends to build (e.g. ["sycl"] or ["sycl", "cuda"]).
             wizard: Optional wizard modal that stays open during the build.
         """
-        self.model.build_in_progress = True
-        self.build_in_progress = True
-        self.model.build_selected_backends = backends
-        self.model.build_cancel_event = threading.Event()
-        self._build_wizard = wizard
-
-        def _do_build() -> None:
-            with suppress_build_pipeline_stderr_for_tui():
-                self._execute_build_loop(backends, wizard)
-
-        threading.Thread(target=_do_build, name="build-worker", daemon=True).start()
+        with suppress_build_pipeline_stderr_for_tui():
+            self._execute_build_loop(backends, wizard)
 
     def _execute_build_loop(self, backends: list[str], wizard: Any) -> None:
         """Execute the build loop for given backends. Handles success/failure states."""
@@ -1237,7 +1251,6 @@ class DashboardController:
                 wizard.set_build_result(False, error_message=str(exc))
         finally:
             self.model.build_in_progress = False
-            self.build_in_progress = False
             self._build_wizard = None
 
     def _build_all_targets_for_backend(self, backend: str, wizard: Any) -> bool:
@@ -1428,6 +1441,13 @@ class DashboardController:
         complete_callback: Callable[[list[ModelIndexEntry], int, int], None] | None = None,
     ) -> bool:
         """Refresh the model index in a background thread.
+
+        Deliberately a daemon thread rather than a Textual worker, unlike the build
+        (see ``DashboardApp.start_build``): shutdown joins workers, so a full rescan
+        of a large or network-mounted models dir would stall quit for as long as the
+        scan takes. Killing a scan mid-flight costs nothing — the cache is written
+        atomically and the scan is idempotent, so there is no ``finally`` worth
+        waiting for.
 
         Returns ``False`` when an index refresh is already running.
         """

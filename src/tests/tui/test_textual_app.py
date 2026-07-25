@@ -20,7 +20,6 @@ from llama_cli.tui.controller import AsyncSlotPlan, AsyncSlotStageResult
 from llama_cli.tui.textual_app import (
     DashboardApp,
     _profile_options_cached,
-    _split_log_update,
 )
 from llama_cli.tui.types import MemoryUsageSnapshot, SystemInfoSnapshot
 from llama_manager import LogBuffer
@@ -506,6 +505,71 @@ class TestDashboardAppGpuStatsRefresh:
             "mem_util": "71%",
         }
 
+    def test_update_panel_widgets_appends_log_delta_without_clearing(self) -> None:
+        """Steady-state refresh writes only new lines — no clear() once seeded.
+
+        Guards the log-streaming fix: a regression here restores a full 500-line
+        clear+rewrite on every refresh tick as soon as the deque starts rolling.
+        """
+        from llama_cli.tui.types import ServerColumnState, SlotRuntimeStats
+
+        controller = _make_controller()
+        buf = LogBuffer(max_lines=3, redact_sensitive=False)
+        controller.model.log_buffers = {"slot0": buf}
+        app = DashboardApp(controller)
+
+        state = ServerColumnState(
+            alias="slot0",
+            profile_name="default",
+            status="running",
+            status_label="Running",
+            status_class="server-column-status-running",
+            backend_label="CUDA",
+            url="http://127.0.0.1:8081",
+            config_summary="Device: CUDA0 | Ctx: 8192",
+            log_lines=(),
+            runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
+            gpu_stats=None,
+            stale_warning=None,
+        )
+
+        class _FakeLog:
+            """Real attribute semantics — a MagicMock would auto-create the seq marker."""
+
+            def __init__(self) -> None:
+                self.clears = 0
+                self.written: list[list[str]] = []
+
+            def clear(self) -> None:
+                self.clears += 1
+
+            def write_lines(self, lines: list[str]) -> None:
+                self.written.append(list(lines))
+
+        log_widget = _FakeLog()
+        panel = MagicMock()
+        panel.query = lambda *_args, **_kwargs: []
+        panel.query_one = lambda sel, cls=None: (
+            log_widget if isinstance(sel, str) and ".server-log-content" in sel else MagicMock()
+        )
+
+        buf.add_line("a")
+        app._update_panel_widgets(panel, state)  # type: ignore[arg-type]
+        assert log_widget.clears == 1  # first render seeds the widget
+        assert log_widget.written[-1] == ["a"]
+
+        buf.add_line("b")
+        app._update_panel_widgets(panel, state)  # type: ignore[arg-type]
+        assert log_widget.clears == 1  # no reload — delta only
+        assert log_widget.written[-1] == ["b"]
+
+        # Overflow the deque past what the widget has seen — must reload.
+        for line in ("c", "d", "e", "f"):
+            buf.add_line(line)
+        app._update_panel_widgets(panel, state)  # type: ignore[arg-type]
+        assert log_widget.clears == 2
+        assert log_widget.written[-1] == ["d", "e", "f"]
+
 
 class TestDashboardAppAddSlotFlow:
     """Tests for async add-slot worker and finish handler."""
@@ -947,7 +1011,7 @@ class TestDashboardAppSlotStatsRefresh:
         DashboardApp._refresh_slot_stats_worker.__wrapped__(app)  # type: ignore[attr-defined]
 
         controller.refresh_slot_stats.assert_called_once()
-        app.refresh_dashboard.assert_called_once()
+        app.refresh_dashboard.assert_not_called()
         assert app._slot_stats_refresh_active is False
 
     def test_refresh_slot_stats_worker_survives_controller_error(self) -> None:
@@ -967,72 +1031,131 @@ class TestDashboardAppSlotStatsRefresh:
 # ---------------------------------------------------------------------------
 
 
-class TestSplitLogUpdate:
-    """Tests for _split_log_update — extracted pure helper."""
-
-    def test_no_change_returns_false_empty(self) -> None:
-        """When current equals previous, return (False, ())."""
-        previous = ("line1", "line2")
-        current = ("line1", "line2")
-        reload, lines = _split_log_update(previous, current)
-        assert reload is False
-        assert lines == ()
-
-    def test_append_returns_false_appended_lines(self) -> None:
-        """When current is an append of previous, return (False, appended)."""
-        previous = ("line1", "line2")
-        current = ("line1", "line2", "line3")
-        reload, lines = _split_log_update(previous, current)
-        assert reload is False
-        assert lines == ("line3",)
-
-    def test_prepend_returns_true_all_current(self) -> None:
-        """When current prepends to previous, return (True, current)."""
-        previous = ("line2",)
-        current = ("line1", "line2")
-        reload, lines = _split_log_update(previous, current)
-        assert reload is True
-        assert lines == current
-
-
 class TestDashboardAppActionHandlers:
     """Tests for DashboardApp action handlers."""
 
-    def test_action_quit_dashboard_exits(self) -> None:
-        """action_quit_dashboard should call controller.request_quit and exit."""
+    def test_action_quit_dashboard_dispatches_shutdown(self) -> None:
+        """action_quit_dashboard should dispatch the slot-ops shutdown worker."""
         controller = _make_controller()
-        controller.running = False  # Exit immediately
+        controller.request_quit.return_value = True
         app = DashboardApp(controller)
-        app.exit = MagicMock()  # type: ignore[assignment]
+        app._dispatch_shutdown = MagicMock()  # type: ignore[method-assign]
 
         app.action_quit_dashboard()
 
         controller.request_quit.assert_called_once()
-        app.exit.assert_called_once()
+        app._dispatch_shutdown.assert_called_once_with(exit_app=True)
 
-    def test_action_quit_dashboard_stays_running(self) -> None:
-        """action_quit_dashboard should not exit if controller is still running."""
+    def test_action_quit_dashboard_skips_when_not_quitting(self) -> None:
+        """action_quit_dashboard should not dispatch shutdown when request_quit is False."""
         controller = _make_controller()
-        controller.running = True
+        controller.request_quit.return_value = False
         app = DashboardApp(controller)
-        app.exit = MagicMock()  # type: ignore[assignment]
+        app._dispatch_shutdown = MagicMock()  # type: ignore[method-assign]
 
         app.action_quit_dashboard()
 
         controller.request_quit.assert_called_once()
-        app.exit.assert_not_called()
+        app._dispatch_shutdown.assert_not_called()
 
-    def test_action_interrupt_dashboard_exits(self) -> None:
-        """action_interrupt_dashboard should call controller.interrupt and exit."""
+    def test_action_interrupt_dashboard_dispatches_shutdown(self) -> None:
+        """action_interrupt_dashboard should dispatch the slot-ops shutdown worker."""
         controller = _make_controller()
-        controller.running = False
+        controller.interrupt.return_value = True
         app = DashboardApp(controller)
-        app.exit = MagicMock()  # type: ignore[assignment]
+        app._dispatch_shutdown = MagicMock()  # type: ignore[method-assign]
 
         app.action_interrupt_dashboard()
 
         controller.interrupt.assert_called_once()
-        app.exit.assert_called_once()
+        app._dispatch_shutdown.assert_called_once_with(exit_app=True)
+
+    def test_dispatch_shutdown_is_idempotent(self) -> None:
+        """_dispatch_shutdown should ignore quit while a shutdown worker is active."""
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app._run_shutdown = MagicMock()  # type: ignore[method-assign]
+
+        app._dispatch_shutdown(exit_app=True)
+        app._dispatch_shutdown(exit_app=True)
+
+        app._run_shutdown.assert_called_once_with(True)
+
+    def test_run_shutdown_waits_for_slot_op_then_cleans_up(self) -> None:
+        """Quit mid slot-op should wait until the lane is free, then cleanup."""
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app._slot_operation_active = True
+        polls = {"n": 0}
+        exit_mock = MagicMock()
+
+        def _call_from_thread(fn: object, *args: object, **kwargs: object) -> object:
+            if fn is exit_mock:
+                return exit_mock(*args, **kwargs)
+            if fn is app._clear_shutdown_worker_active:
+                return fn()  # type: ignore[operator]
+            if callable(fn) and not args and not kwargs:
+                # Poll of _slot_operation_active via lambda
+                polls["n"] += 1
+                if polls["n"] >= 3:
+                    app._slot_operation_active = False
+                return fn()  # type: ignore[operator]
+            if callable(fn):
+                return fn(*args, **kwargs)  # type: ignore[operator]
+            return None
+
+        app.call_from_thread = _call_from_thread  # type: ignore[method-assign]
+        app.exit = exit_mock  # type: ignore[assignment]
+
+        DashboardApp._run_shutdown.__wrapped__(app, True)  # type: ignore[attr-defined]
+
+        controller._graceful_shutdown.assert_called_once()
+        exit_mock.assert_called_once()
+        assert polls["n"] >= 3
+
+    def test_begin_slot_operation_rejects_after_shutdown_intent(self) -> None:
+        """Shutdown latch set between free-lane check and start must block new slot ops."""
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app.notify = MagicMock()  # type: ignore[method-assign]
+
+        assert app._slot_operation_active is False
+        app._shutdown_worker_active = True
+
+        assert app._begin_slot_operation("add slot") is False
+        assert app._slot_operation_active is False
+        app.notify.assert_called_once()
+        assert "Shutdown in progress" in app.notify.call_args.args[0]
+
+    def test_run_shutdown_proceeds_after_slot_op_wait_timeout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stuck slot ops must not block shutdown forever."""
+        from llama_cli.tui import textual_app as textual_app_mod
+
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app._slot_operation_active = True
+        exit_mock = MagicMock()
+        monkeypatch.setattr(textual_app_mod, "_SHUTDOWN_SLOT_OP_WAIT_S", 0.0)
+        monkeypatch.setattr(textual_app_mod.time, "sleep", lambda _s: None)
+
+        def _call_from_thread(fn: object, *args: object, **kwargs: object) -> object:
+            if fn is exit_mock:
+                return exit_mock(*args, **kwargs)
+            if callable(fn) and not args and not kwargs:
+                return fn()  # type: ignore[operator]
+            if callable(fn):
+                return fn(*args, **kwargs)  # type: ignore[operator]
+            return None
+
+        app.call_from_thread = _call_from_thread  # type: ignore[method-assign]
+        app.exit = exit_mock  # type: ignore[assignment]
+
+        DashboardApp._run_shutdown.__wrapped__(app, True)  # type: ignore[attr-defined]
+
+        controller._graceful_shutdown.assert_called_once()
+        exit_mock.assert_called_once()
 
     def test_action_refresh_dashboard_calls_refresh(self) -> None:
         """action_refresh_dashboard should call controller.refresh_display and refresh."""
@@ -1105,10 +1228,48 @@ class TestDashboardAppActionHandlers:
         controller.load_model_index.return_value = []
         app = DashboardApp(controller)
         app.push_screen = MagicMock()  # type: ignore[assignment]
+        app.call_from_thread = lambda fn, *args, **kwargs: fn(*args, **kwargs)  # type: ignore[method-assign]
 
-        app.action_manage_profiles()
+        DashboardApp.action_manage_profiles.__wrapped__(app)  # type: ignore[attr-defined]
 
         app.push_screen.assert_called_once()
+
+    def test_cancelled_manage_profiles_open_skipped_after_invalidation(self) -> None:
+        """A stale manage-profiles open must not push after profile-stats starts."""
+        controller = _make_controller()
+        controller.list_slot_profiles.return_value = []
+        controller.is_profile_in_use.return_value = False
+        controller.load_model_index.return_value = []
+        app = DashboardApp(controller)
+        app.push_screen = MagicMock()  # type: ignore[assignment]
+        deferred_opens: list[object] = []
+
+        def call_from_thread(fn: object, *args: object, **kwargs: object) -> object:
+            if callable(fn) and getattr(fn, "__name__", "") == "_open":
+                deferred_opens.append(fn)
+                return None
+            if callable(fn):
+                return fn(*args, **kwargs)  # type: ignore[operator]
+            return None
+
+        app.call_from_thread = call_from_thread  # type: ignore[method-assign]
+
+        DashboardApp.action_manage_profiles.__wrapped__(app)  # type: ignore[attr-defined]
+        assert deferred_opens
+        app._mark_profiles_screen_complete()
+        deferred_opens[0]()  # type: ignore[operator]
+
+        app.push_screen.assert_not_called()
+
+    def test_handle_profiles_screen_result_marks_complete(self) -> None:
+        """Dismissing ProfilesScreen should invalidate the profiles-screen token."""
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        token = app._claim_profiles_screen_token()
+
+        app._handle_profiles_screen_result(None)
+
+        assert app._profiles_screen_token != token
 
 
 class TestDashboardAppModalResults:
@@ -1172,14 +1333,33 @@ class TestDashboardAppModalResults:
         from llama_cli.tui.components.config_modal import ConfigPayload
 
         controller = _make_controller()
+        controller.save_config.return_value = False
         app = DashboardApp(controller)
         app.refresh_dashboard = MagicMock()  # type: ignore[assignment]
+        app._dispatch_shutdown = MagicMock()  # type: ignore[method-assign]
 
         payload = ConfigPayload(restart=False, clean_cache=False)
 
         app._handle_config_modal_result(payload)
 
         controller.save_config.assert_called_once()
+        app._dispatch_shutdown.assert_not_called()
+        app.refresh_dashboard.assert_called_once()
+
+    def test_handle_config_modal_result_restart_dispatches_shutdown(self) -> None:
+        """Config save with restart should stop servers via the slot-ops worker."""
+        from llama_cli.tui.components.config_modal import ConfigPayload
+
+        controller = _make_controller()
+        controller.save_config.return_value = True
+        app = DashboardApp(controller)
+        app.refresh_dashboard = MagicMock()  # type: ignore[assignment]
+        app._dispatch_shutdown = MagicMock()  # type: ignore[method-assign]
+
+        app._handle_config_modal_result(ConfigPayload(restart=True, clean_cache=False))
+
+        app._dispatch_shutdown.assert_called_once_with(exit_app=False)
+        app.refresh_dashboard.assert_not_called()
 
 
 class TestDashboardAppWorkers:
@@ -1314,14 +1494,43 @@ class TestDashboardAppBuildModalResult:
         controller.cancel_pending_prompt.assert_called_once()
 
     def test_handle_build_modal_result_with_backends(self) -> None:
-        """_handle_build_modal_result with backends should call handle_build_selection."""
+        """_handle_build_modal_result with backends should start a build."""
         from llama_cli.tui.types import BuildWizardResult
 
         controller = _make_controller()
         app = DashboardApp(controller)
         app.refresh_dashboard = MagicMock()  # type: ignore[assignment]
+        app.start_build = MagicMock()  # type: ignore[method-assign]
 
         result = BuildWizardResult(backends=["sycl"], options={})
         app._handle_build_modal_result(result)
 
-        controller.handle_build_selection.assert_called_once()
+        app.start_build.assert_called_once_with(["sycl"], options={})
+
+    def test_start_build_arms_state_then_dispatches_worker(self) -> None:
+        """start_build should reserve state on the UI thread, then hand off to a worker."""
+        controller = _make_controller()
+        controller.build_in_progress = False
+        app = DashboardApp(controller)
+        app._run_build_worker = MagicMock()  # type: ignore[method-assign]
+
+        app.start_build(["sycl"], options={"sycl": None}, wizard=None)
+
+        controller.begin_build.assert_called_once_with(
+            ["sycl"], options={"sycl": None}, wizard=None
+        )
+        app._run_build_worker.assert_called_once_with(["sycl"], None)
+
+    def test_start_build_refuses_second_concurrent_build(self) -> None:
+        """A second build must not start while one is running — two would race the lock."""
+        controller = _make_controller()
+        controller.build_in_progress = True
+        app = DashboardApp(controller)
+        app._run_build_worker = MagicMock()  # type: ignore[method-assign]
+        app.notify = MagicMock()  # type: ignore[method-assign]
+
+        app.start_build(["sycl"])
+
+        controller.begin_build.assert_not_called()
+        app._run_build_worker.assert_not_called()
+        app.notify.assert_called_once()

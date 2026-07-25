@@ -40,22 +40,12 @@ from .components.system_status import SystemStatusWidget
 from .types import BuildWizardResult, MemoryUsageSnapshot, ServerColumnState, SystemInfoSnapshot
 
 _CONTENT_CONTAINER_ID = "#content"
+# Bound wait for in-flight add/remove before quit/restart cleanup proceeds.
+_SHUTDOWN_SLOT_OP_WAIT_S = 30.0
 
 # ---------------------------------------------------------------------------
 # Extracted pure helper: profile options caching
 # ---------------------------------------------------------------------------
-
-
-def _split_log_update(
-    previous: tuple[str, ...],
-    current: tuple[str, ...],
-) -> tuple[bool, tuple[str, ...]]:
-    """Return (reload, lines_to_write) for a Textual Log widget."""
-    if current == previous:
-        return False, ()
-    if len(current) >= len(previous) and current[: len(previous)] == previous:
-        return False, current[len(previous) :]
-    return True, current
 
 
 def _profile_options_cached(
@@ -134,6 +124,8 @@ class DashboardApp(App[None]):
         self._system_health_refresh_active = False
         self._slot_stats_refresh_active = False
         self._slot_operation_active = False
+        self._shutdown_worker_active = False
+        self._profiles_screen_token = 0
         self._pending_remove_slot_alias: str | None = None
         self.last_build_backend: str = "sycl"
 
@@ -177,6 +169,20 @@ class DashboardApp(App[None]):
         self._schedule_slot_stats_refresh()
         self._index_models()
 
+    def on_unmount(self) -> None:
+        """Cancel in-flight builds so cmake/ninja process groups do not outlive the TUI.
+
+        The cancel event alone is not enough here: the watcher that acts on it polls
+        at 100ms and the build runs on a daemon thread that interpreter shutdown does
+        not join, so the process tree can outlive us. Kill it directly as well —
+        blocking is acceptable on this path because the UI is already gone.
+        """
+        self.controller.cancel_build()
+        pipeline = self.controller._build_pipeline
+        if pipeline is not None:
+            with contextlib.suppress(Exception):
+                pipeline.kill_active_subprocess()
+
     def _schedule_gpu_stats_refresh(self) -> None:
         """Start one background GPU stats refresh if no refresh is already running."""
         if self._gpu_stats_refresh_active:
@@ -189,28 +195,32 @@ class DashboardApp(App[None]):
     def _refresh_gpu_stats_worker(self) -> None:
         """Refresh GPU stats off the render thread."""
         start = time.perf_counter()
-        stats = list(self.controller.model.gpu_stats)
         snapshot_by_alias: dict[str, dict[str, Any]] = {}
-        aliases = [cfg.alias for cfg in self.controller.model.configs]
-        logger.debug(
-            "_refresh_gpu_stats_worker: start stats=%d aliases=%d",
-            len(stats),
-            len(aliases),
-        )
+        probe_snapshot: tuple[tuple[str, Any, Any], ...] = ()
         try:
-            for index, gpu in enumerate(stats):
+            # Must stay inside the try: a raise here would skip the finally that clears
+            # _gpu_stats_refresh_active, freezing GPU telemetry for the rest of the session.
+            probe_snapshot = self.call_from_thread(self.controller.model.snapshot_for_probe)
+            logger.debug(
+                "_refresh_gpu_stats_worker: start entries=%d",
+                len(probe_snapshot),
+            )
+            for index, (alias, gpu, _cfg) in enumerate(probe_snapshot):
                 gpu_start = time.perf_counter()
                 try:
                     gpu.update()
                 except Exception:
                     logger.exception(
-                        "_refresh_gpu_stats_worker: gpu.update() failed for index=%d", index
+                        "_refresh_gpu_stats_worker: gpu.update() failed for alias=%s index=%d",
+                        alias,
+                        index,
                     )
                     continue
-                if index < len(aliases):
-                    snapshot_by_alias[aliases[index]] = gpu.get_cached_stats_snapshot()
+                snapshot_by_alias[alias] = gpu.get_cached_stats_snapshot()
                 logger.debug(
-                    "_refresh_gpu_stats_worker: updated index=%d device_index=%s duration_ms=%.1f",
+                    "_refresh_gpu_stats_worker: updated alias=%s index=%d device_index=%s "
+                    "duration_ms=%.1f",
+                    alias,
                     index,
                     getattr(gpu, "device_index", "unknown"),
                     (time.perf_counter() - gpu_start) * 1000,
@@ -220,7 +230,7 @@ class DashboardApp(App[None]):
         finally:
             logger.debug(
                 "_refresh_gpu_stats_worker: complete count=%d duration_ms=%.1f",
-                len(stats),
+                len(probe_snapshot),
                 (time.perf_counter() - start) * 1000,
             )
             self.call_from_thread(
@@ -278,12 +288,12 @@ class DashboardApp(App[None]):
     def _refresh_slot_stats_worker(self) -> None:
         """Refresh slot stats off the render thread."""
         try:
-            self.controller.refresh_slot_stats()
+            targets = self.call_from_thread(self.controller.model.snapshot_for_probe)
+            self.controller.refresh_slot_stats(targets)
         except Exception:
             logger.exception("_refresh_slot_stats_worker: unhandled exception")
         finally:
             self.call_from_thread(self._mark_slot_stats_refresh_complete)
-            self.call_from_thread(self.refresh_dashboard)
 
     def _mark_slot_stats_refresh_complete(self) -> None:
         self._slot_stats_refresh_active = False
@@ -339,14 +349,57 @@ class DashboardApp(App[None]):
         self.notify(message, title="Models", severity="warning" if errors else "information")
 
     def action_quit_dashboard(self) -> None:
-        self.controller.request_quit()
-        if not self.controller.running:
-            self.exit()
+        if self.controller.request_quit():
+            self._dispatch_shutdown(exit_app=True)
 
     def action_interrupt_dashboard(self) -> None:
-        self.controller.interrupt()
-        if not self.controller.running:
-            self.exit()
+        if self.controller.interrupt():
+            self._dispatch_shutdown(exit_app=True)
+
+    def _dispatch_shutdown(self, *, exit_app: bool = True) -> None:
+        """Start the slot-ops shutdown worker once; ignore duplicate quit requests.
+
+        Sets the UI-thread shutdown-intent latch before dispatching so add/remove
+        slot entry points reject new work while shutdown is in progress.
+        """
+        if self._shutdown_worker_active:
+            return
+        self._shutdown_worker_active = True
+        self._run_shutdown(exit_app)
+
+    def _clear_shutdown_worker_active(self) -> None:
+        self._shutdown_worker_active = False
+
+    @work(thread=True, group="slot-ops", exit_on_error=False)
+    def _run_shutdown(self, exit_app: bool = True) -> None:
+        """Wait for in-flight slot ops, then run graceful shutdown off the UI thread."""
+        try:
+            deadline = time.monotonic() + _SHUTDOWN_SLOT_OP_WAIT_S
+            while self.call_from_thread(lambda: self._slot_operation_active):
+                if time.monotonic() >= deadline:
+                    logger.warning(
+                        "_run_shutdown: slot operation still active after %.1fs; proceeding",
+                        _SHUTDOWN_SLOT_OP_WAIT_S,
+                    )
+                    break
+                time.sleep(0.05)
+            self.controller._graceful_shutdown()
+            if exit_app:
+                self.call_from_thread(self.exit)
+            else:
+                self.call_from_thread(
+                    self.controller._push_status_message,
+                    "Servers stopped. Use 'uv run llm-runner' to relaunch with updated config.",
+                )
+                self.call_from_thread(self.refresh_dashboard)
+        except Exception:
+            logger.exception("_run_shutdown: unhandled exception")
+            if exit_app:
+                self.call_from_thread(self.exit)
+        finally:
+            # Keep the latch set when exiting so duplicate quits cannot re-enter.
+            if not exit_app:
+                self.call_from_thread(self._clear_shutdown_worker_active)
 
     def action_refresh_dashboard(self) -> None:
         self.controller.refresh_display()
@@ -380,10 +433,21 @@ class DashboardApp(App[None]):
     def action_about(self) -> None:
         self.push_screen(AboutModal())
 
+    def _claim_profiles_screen_token(self) -> int:
+        """Claim a token so only the current profiles action may push ProfilesScreen."""
+        self._profiles_screen_token += 1
+        return self._profiles_screen_token
+
+    def _mark_profiles_screen_complete(self) -> None:
+        """Invalidate pending profiles-screen open callbacks."""
+        self._profiles_screen_token += 1
+
+    @work(thread=True, exclusive=True, group="profile-screen")
     def action_manage_profiles(self) -> None:
-        """Open the profiles management screen."""
+        """Open the profiles management screen (I/O off the UI thread)."""
         from .components.profiles_screen import ProfilesScreen
 
+        token = self.call_from_thread(self._claim_profiles_screen_token)
         profiles = self.controller.list_slot_profiles()
         in_use_ids = {
             spec.profile_id
@@ -392,22 +456,38 @@ class DashboardApp(App[None]):
         }
         model_index = self.controller.load_model_index()
 
-        self.push_screen(
-            ProfilesScreen(profiles=profiles, in_use_ids=in_use_ids, model_index=model_index),
-            self._handle_profiles_screen_result,
-        )
-
-    def action_profile_stats(self) -> None:
-        """Open the read-only profile aggregate stats screen."""
-        self.push_screen(
-            ProfileStatsScreen(
-                stats_by_profile=load_profile_stats(),
-                profiles=self.controller.list_slot_profiles(),
+        def _open() -> None:
+            if token != self._profiles_screen_token:
+                return
+            self.push_screen(
+                ProfilesScreen(profiles=profiles, in_use_ids=in_use_ids, model_index=model_index),
+                self._handle_profiles_screen_result,
             )
-        )
+
+        self.call_from_thread(_open)
+
+    @work(thread=True, exclusive=True, group="profile-screen")
+    def action_profile_stats(self) -> None:
+        """Open the read-only profile aggregate stats screen (I/O off the UI thread)."""
+        # Invalidate any cancelled manage-profiles open callback before pushing stats.
+        self.call_from_thread(self._mark_profiles_screen_complete)
+
+        stats_by_profile = load_profile_stats()
+        profiles = self.controller.list_slot_profiles()
+
+        def _open() -> None:
+            self.push_screen(
+                ProfileStatsScreen(
+                    stats_by_profile=stats_by_profile,
+                    profiles=profiles,
+                )
+            )
+
+        self.call_from_thread(_open)
 
     def _handle_profiles_screen_result(self, result: dict | None) -> None:
         """Handle result from the ProfilesScreen."""
+        self._mark_profiles_screen_complete()
         if result is None:
             return
 
@@ -508,7 +588,9 @@ class DashboardApp(App[None]):
                 )
                 return
 
-            self.controller.save_config(result)
+            if self.controller.save_config(result):
+                self._dispatch_shutdown(exit_app=False)
+                return
         self.refresh_dashboard()
 
     def _handle_cache_clean_confirm(self, confirmed: bool | None) -> None:
@@ -550,6 +632,13 @@ class DashboardApp(App[None]):
 
     def _begin_slot_operation(self, action: str) -> bool:
         """Reserve the slot lifecycle worker lane."""
+        if self._shutdown_worker_active:
+            self.notify(
+                f"Shutdown in progress; cannot {action}.",
+                title="Slot",
+                severity="warning",
+            )
+            return False
         if self._slot_operation_active:
             self.notify(
                 f"Slot operation already running; cannot {action}.",
@@ -631,7 +720,7 @@ class DashboardApp(App[None]):
         messages.extend(complete_messages)
         return success, layout_changed, messages
 
-    @work(thread=True)
+    @work(thread=True, group="slot-ops")
     def _run_add_slot(self, slot_form: dict[str, str], notify_message: str = "") -> None:
         """Resolve and apply add-slot form values off the UI thread."""
         logger.debug("_run_add_slot: starting, slot_form=%r", slot_form)
@@ -753,7 +842,7 @@ class DashboardApp(App[None]):
         self.notify("Removing slot…", title="Slot", severity="information")
         self._run_remove_slot(alias)
 
-    @work(thread=True)
+    @work(thread=True, group="slot-ops")
     def _run_remove_slot(self, alias: str) -> None:
         """Stop and remove a live slot off the UI thread."""
         error: str | None = None
@@ -812,8 +901,31 @@ class DashboardApp(App[None]):
             self.controller.cancel_pending_prompt()
         else:
             self.last_build_backend = result.backends[0] if result.backends else "sycl"
-            self.controller.handle_build_selection(result.backends, result.options)
+            self.start_build(result.backends, options=result.options)
         self.refresh_dashboard()
+
+    def start_build(
+        self,
+        backends: list[str],
+        options: dict[str, Any] | None = None,
+        wizard: Any = None,  # BuildModalScreen | None
+    ) -> None:
+        """Reserve build state on the UI thread, then run the pipeline on a worker.
+
+        Owning the thread here (rather than in the controller) keeps the build
+        visible to ``self.workers``: shutdown joins it, so the pipeline's lock
+        release actually runs instead of being skipped by a killed daemon thread.
+        """
+        if self.controller.build_in_progress:
+            self.notify("A build is already running.", title="Build", severity="warning")
+            return
+        self.controller.begin_build(backends, options=options, wizard=wizard)
+        self._run_build_worker(backends, wizard)
+
+    @work(thread=True, group="build")
+    def _run_build_worker(self, backends: list[str], wizard: Any) -> None:
+        """Run the build pipeline off the UI thread."""
+        self.controller.run_build_loop(backends, wizard)
 
     async def _reconcile_server_log_panels(self) -> None:
         """Ensure ServerLogPanel widgets match the current slot count."""
@@ -903,8 +1015,9 @@ class DashboardApp(App[None]):
 
     def action_cancel_pending_prompt(self) -> None:
         cancelled = self.controller.cancel_pending_prompt()
-        if not cancelled:
-            self.controller.interrupt()
+        if not cancelled and self.controller.interrupt():
+            self._dispatch_shutdown(exit_app=True)
+            return
         self.refresh_dashboard()
 
     def refresh_dashboard(self) -> None:
@@ -947,6 +1060,10 @@ class DashboardApp(App[None]):
             state = self.view_model.column(panel._slot_index)
             return state
         except Exception:
+            logger.exception(
+                "_panel_state: failed for slot_index=%s",
+                getattr(panel, "_slot_index", "unknown"),
+            )
             return None
 
     def _update_panel_widgets(self, panel: ServerLogPanel, state: ServerColumnState) -> None:
@@ -992,13 +1109,23 @@ class DashboardApp(App[None]):
                 cast(Static, widget).update(value)
         with contextlib.suppress(NoMatches):
             log_widget = cast(Log, panel.query_one(".server-log-content"))
-            previous: tuple[str, ...] = getattr(log_widget, "_llm_runner_lines", ())  # type: ignore[attr-defined]
-            reload, lines = _split_log_update(previous, state.log_lines)
-            if reload:
+            buf = self.controller.model.log_buffers.get(state.alias)
+            if buf is None:
+                return
+            prev_seq = int(getattr(log_widget, "_llm_runner_log_seq", 0))
+            new_seq, new_lines = buf.get_lines_since(prev_seq)
+            if new_seq == prev_seq:
+                return
+            # A full snapshot came back (first render, or the deque evicted lines we
+            # never showed) — replace the widget contents instead of appending.
+            if prev_seq == 0 or new_seq - prev_seq > len(new_lines):
                 log_widget.clear()
-            if lines:
-                log_widget.write_lines(list(lines))
-            log_widget._llm_runner_lines = state.log_lines  # type: ignore[attr-defined]
+                to_write = new_lines or ["Waiting for output..."]
+            else:
+                to_write = new_lines
+            if to_write:
+                log_widget.write_lines(list(to_write))
+            log_widget._llm_runner_log_seq = new_seq  # type: ignore[attr-defined]
 
     async def _recompose_slots(self) -> None:
         """Full recompose — call when slot count changes (add/remove)."""

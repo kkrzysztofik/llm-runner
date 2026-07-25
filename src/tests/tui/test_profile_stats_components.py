@@ -7,7 +7,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from textual.css.query import NoMatches
 
 from llama_cli.tui.components.gpu_stats import GPUStatsPanel
 from llama_cli.tui.components.profile_stats_screen import ProfileStatsScreen, _format_updated_at
@@ -169,8 +168,8 @@ def test_server_column_header_includes_stale_warning_when_present() -> None:
     assert _content(warning) == "Config changed"
 
 
-def test_server_column_on_mount_ignores_missing_log_widget() -> None:
-    """ServerColumnPanel.on_mount should ignore a missing log widget during compose churn."""
+def test_server_column_on_mount_is_noop() -> None:
+    """ServerColumnPanel.on_mount leaves log fill to DashboardApp incremental updates."""
     state = ServerColumnState(
         alias="summary",
         profile_name="Summary",
@@ -186,37 +185,8 @@ def test_server_column_on_mount_ignores_missing_log_widget() -> None:
         stale_warning=None,
     )
     panel = ServerColumnPanel(state)
-    panel.query_one = MagicMock(side_effect=NoMatches("missing"))  # type: ignore[method-assign]
+    panel.query_one = MagicMock()  # type: ignore[method-assign]
 
     panel.on_mount()
 
-    panel.query_one.assert_called_once()
-
-
-def test_server_column_on_mount_logs_unexpected_write_errors(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """ServerColumnPanel.on_mount should log unexpected log write failures."""
-    state = ServerColumnState(
-        alias="summary",
-        profile_name="Summary",
-        status="running",
-        status_label="RUNNING",
-        status_class="status-running",
-        backend_label="SYCL",
-        url="http://127.0.0.1:8080",
-        config_summary="ctx 8192",
-        log_lines=("ready",),
-        runtime_stats=SlotRuntimeStats("1.0", "2.0", "3", "4"),
-        gpu_stats=None,
-        stale_warning=None,
-    )
-    log = MagicMock()
-    log.write_lines.side_effect = RuntimeError("write failed")
-    panel = ServerColumnPanel(state)
-    panel.query_one = MagicMock(return_value=log)  # type: ignore[method-assign]
-
-    with caplog.at_level("ERROR"):
-        panel.on_mount()
-
-    assert "failed to write initial log lines for Summary" in caplog.text
+    panel.query_one.assert_not_called()

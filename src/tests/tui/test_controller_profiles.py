@@ -49,9 +49,7 @@ def test_list_slot_profiles_returns_tuples(mock_controller: DashboardController)
         )
         mock_registry.return_value = mock_reg
 
-        with patch(
-            "llama_manager.slot_profile_store.custom_slot_profile_exists", return_value=False
-        ):
+        with patch("llama_manager.slot_profile_store.load_custom_slot_profiles", return_value=[]):
             result = mock_controller.list_slot_profiles()
 
     assert isinstance(result, list)
@@ -86,8 +84,11 @@ def test_list_slot_profiles_marks_custom() -> None:
         )
         mock_registry.return_value = mock_reg
 
+        custom = MagicMock()
+        custom.profile_id = "my-custom"
         with patch(
-            "llama_manager.slot_profile_store.custom_slot_profile_exists", return_value=True
+            "llama_manager.slot_profile_store.load_custom_slot_profiles",
+            return_value=[custom],
         ):
             result = ctrl.list_slot_profiles()
 

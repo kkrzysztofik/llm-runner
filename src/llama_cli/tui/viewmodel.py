@@ -151,9 +151,9 @@ class DashboardViewModel:
         snapshot = self.model.dashboard_snapshot()
         status = self._resolve_slot_status(cfg.alias)
         gpu_stats = snapshot.gpu_stats_by_alias.get(cfg.alias)
-        log_lines = tuple(self.model.log_buffers[cfg.alias].get_lines())
-        if not log_lines:
-            log_lines = ("Waiting for output...",)
+        # Logs stream incrementally via get_lines_since in _update_panel_widgets;
+        # avoid copying ≤500 lines per panel per tick here.
+        log_lines: tuple[str, ...] = ()
 
         # Load cached slot stats for this server alias
         cached_stats: SlotStatsSnapshot | None = None
@@ -187,14 +187,15 @@ class DashboardViewModel:
             stale_warning=self.stale_warning(cfg),
         )
         duration_ms = (time.perf_counter() - start) * 1000
+        # log_count, not a sum over line lengths: this runs per panel per refresh and
+        # argument expressions are evaluated even when DEBUG is disabled.
         logger.debug(
             "DashboardViewModel.column: built slot_index=%d alias=%s status=%s "
-            "gpu_cached=%s logs_chars=%d duration_ms=%.1f",
+            "gpu_cached=%s duration_ms=%.1f",
             slot_index,
             cfg.alias,
             status,
             gpu_stats is not None,
-            sum(len(line) for line in state.log_lines),
             duration_ms,
         )
         return state

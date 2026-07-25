@@ -24,9 +24,9 @@ llm-runner = "llama_cli.server_runner:cli_main"
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
-    "ruff>=0.15.20",
+    "ruff>=0.16.0",
     "pyright>=1.1.411",
-    "pre-commit>=4.6.0",
+    "pre-commit>=4.6.1",
     "pip-audit>=2.10.1",
 ]
 

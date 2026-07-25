@@ -62,6 +62,7 @@ This plan implements **FR-007 (Manual profiling)**, **FR-008 (Profile persistenc
 
 from enum import StrEnum
 
+
 class ProfileFlavor(StrEnum):
     BALANCED = "balanced"
     FAST = "fast"
@@ -73,9 +74,11 @@ class ProfileFlavor(StrEnum):
 ```python
 from dataclasses import dataclass
 
+
 @dataclass(frozen=True, slots=True)
 class ProfileMetrics:
     """Performance metrics from a benchmark run."""
+
     tokens_per_second: float
     avg_latency_ms: float
     peak_vram_mb: float
@@ -88,15 +91,18 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # The 5 profile-overridable fields
-PROFILE_OVERRIDE_FIELDS: frozenset[str] = frozenset([
-    "threads",
-    "ctx_size",
-    "ubatch_size",
-    "cache_type_k",
-    "cache_type_v",
-])
+PROFILE_OVERRIDE_FIELDS: frozenset[str] = frozenset(
+    [
+        "threads",
+        "ctx_size",
+        "ubatch_size",
+        "cache_type_k",
+        "cache_type_v",
+    ]
+)
 
 CURRENT_SCHEMA_VERSION: int = 1
+
 
 @dataclass(frozen=True, slots=True)
 class ProfileRecord:
@@ -106,6 +112,7 @@ class ProfileRecord:
     Unrecognized schema versions cause the profile to be skipped with a warning.
     Uses ISO 8601 UTC timestamp for profiled_at per spec.md.
     """
+
     schema_version: int
     gpu_identifier: str
     backend: str  # "cuda" or "sycl"
@@ -132,6 +139,7 @@ class ProfileRecord:
 ```python
 from enum import StrEnum
 
+
 class StalenessReason(StrEnum):
     DRIVER_CHANGED = "driver_changed"
     BINARY_CHANGED = "binary_changed"
@@ -144,14 +152,18 @@ class StalenessReason(StrEnum):
 # In src/llama_manager/config.py — additions to existing Config class
 import os
 
+
 @property
 def profiles_dir(self) -> Path:
     """Return the profile cache directory."""
     return Path(self.xdg_cache_base) / "llm-runner" / "profiles"
 
+
 # New fields (with defaults) - use field(default_factory=...) for env var reading
 profile_staleness_days: int = 30
-server_binary_version: str = field(default_factory=lambda: os.environ.get("SERVER_BINARY_VERSION", ""))
+server_binary_version: str = field(
+    default_factory=lambda: os.environ.get("SERVER_BINARY_VERSION", "")
+)
 ```
 
 ### 6. merge_config_overrides Extension (Non-Breaking)
@@ -187,6 +199,7 @@ def merge_config_overrides(
 @dataclass(frozen=True)
 class SubprocessResult:
     """Result of a benchmark subprocess execution."""
+
     exit_code: int
     stdout: str
     stderr: str
