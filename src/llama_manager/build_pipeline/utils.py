@@ -10,6 +10,7 @@ import signal
 import subprocess
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 from typing import TextIO
@@ -187,7 +188,7 @@ def _start_cancel_watcher(
 
 def _read_stream(
     stream: TextIO | None,
-    lines_container: list[str],
+    lines_container: deque[str],
     line_callback: Callable[[str], None] | None,
 ) -> None:
     """Read lines from a stream and append to *lines_container*."""
@@ -202,9 +203,10 @@ def _read_stream(
 def _start_output_drainers(
     proc: subprocess.Popen[str],
     line_callback: Callable[[str], None] | None,
-) -> tuple[list[str], list[str], threading.Thread, threading.Thread]:
-    stdout_lines: list[str] = []
-    stderr_lines: list[str] = []
+) -> tuple[deque[str], deque[str], threading.Thread, threading.Thread]:
+    # Bound retained output — consumers only need a short tail for failure summaries.
+    stdout_lines: deque[str] = deque(maxlen=200)
+    stderr_lines: deque[str] = deque(maxlen=200)
 
     stdout_t = threading.Thread(
         target=_read_stream, args=(proc.stdout, stdout_lines, line_callback)

@@ -7,6 +7,7 @@ workflow.
 import re
 import shlex
 import threading
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,6 +20,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
+from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import (
@@ -127,6 +129,10 @@ _LOADING_DETAIL_LINES: tuple[str, str, str] = (
     "[bold]Source:[/] …",
     "[bold]Remote:[/] …",
 )
+
+
+class BuildOutputAvailable(Message):
+    """Arm the build-output flush timer (posted from worker threads)."""
 
 
 @dataclass(frozen=True)
@@ -397,7 +403,8 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
 
         # Lock for thread-safe progress updates (wizard_state only; widgets are main-thread)
         self._progress_lock = threading.Lock()
-        self._pending_output_lines: list[str] = []
+        # Append-only from worker threads; drained on the UI thread (deque ops are atomic).
+        self._pending_output_lines: deque[str] = deque(maxlen=2000)
         self._output_flush_pending: bool = False
 
     # -- Helpers -------------------------------------------------------------
@@ -1005,21 +1012,47 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
     # -- Public API for controller progress updates ------------------------
 
     def update_progress(self, progress: BuildProgress) -> None:  # pragma: no cover
-        """Receive build progress from the worker thread; apply on the Textual app thread."""
+        """Receive build progress from a worker thread without blocking the drainer.
+
+        Pure compiler output lines are appended to a bounded deque and flushed via
+        a non-blocking ``post_message``. Stage transitions still use
+        ``call_from_thread`` (~10 per build) so widget updates stay ordered.
+        """
+        is_output_only = progress.output_line is not None and not (
+            progress.message and progress.message.strip()
+        )
+        output_line = progress.output_line
+        if is_output_only and output_line is not None:
+            self._pending_output_lines.append(output_line)
+            if not self._output_flush_pending:
+                self._output_flush_pending = True
+                self.post_message(BuildOutputAvailable())
+            return
         self.app.call_from_thread(self._apply_build_progress, progress)
+
+    def on_build_output_available(self, _event: BuildOutputAvailable) -> None:  # pragma: no cover
+        """Schedule a batched RichLog flush on the UI thread."""
+        self._output_flush_pending = True
+        self.set_timer(0.08, self._flush_build_output_buffer)
 
     def _flush_build_output_buffer(self) -> None:  # pragma: no cover
         """Timer callback: write batched compiler lines to the log."""
         self._output_flush_pending = False
+        batch: list[str] = []
+        try:
+            while True:
+                batch.append(self._pending_output_lines.popleft())
+        except IndexError:
+            pass
         if not self._screen_can_apply_status() or self._build_log is None:
-            self._pending_output_lines.clear()
             return
         if not self._build_log.is_mounted:
-            self._pending_output_lines.clear()
             return
-        for line in self._pending_output_lines:
+        for line in batch:
             self._build_log.write(_rich_build_output_line(line))
-        self._pending_output_lines.clear()
+        if self._pending_output_lines and not self._output_flush_pending:
+            self._output_flush_pending = True
+            self.set_timer(0.08, self._flush_build_output_buffer)
 
     def _sync_building_step_ui(self) -> bool:  # pragma: no cover
         """Ensure the wizard is on the building step. Return False if update cannot apply."""
@@ -1035,6 +1068,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         return True
 
     def _queue_build_output_line(self, progress: BuildProgress) -> None:  # pragma: no cover
+        """Queue an output line from the UI thread (stage transitions)."""
         if (
             progress.output_line is None
             or self._build_log is None

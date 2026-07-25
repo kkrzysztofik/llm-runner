@@ -757,7 +757,7 @@ class TestServerManagerSignalHandlers:
         exit_code = manager.on_interrupt(2, None)  # SIGINT
 
         assert exit_code == 130
-        assert manager.shutting_down is True
+        assert manager.shutting_down is False
 
     def test_on_terminate_calls_cleanup_and_returns_code(self) -> None:
         """on_terminate should call cleanup_servers then return 143."""
@@ -769,4 +769,4 @@ class TestServerManagerSignalHandlers:
         exit_code = manager.on_terminate(15, None)  # SIGTERM
 
         assert exit_code == 143
-        assert manager.shutting_down is True
+        assert manager.shutting_down is False

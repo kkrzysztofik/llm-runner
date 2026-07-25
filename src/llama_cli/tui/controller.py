@@ -132,9 +132,8 @@ class DashboardController:
         # Load persisted slot stats so the TUI shows last-known values immediately
         self._load_persisted_slot_stats()
 
-        # Build pipeline state
+        # Build pipeline state (build_in_progress lives on the model — single source of truth)
         self._build_pipeline: BuildPipeline | None = None
-        self.build_in_progress = False
         self.build_progress: BuildProgress | None = None
         self._original_sigint_handler: Callable[[int, FrameType | None], Any] | int | None = None
         self._build_wizard: Any = None  # BuildModalScreen | None
@@ -145,6 +144,15 @@ class DashboardController:
         if register_signals:
             signal.signal(signal.SIGINT, self._signal_handler)
             signal.signal(signal.SIGTERM, self._signal_handler)
+
+    @property
+    def build_in_progress(self) -> bool:
+        """Whether a build is currently running (delegates to the model)."""
+        return self.model.build_in_progress
+
+    @build_in_progress.setter
+    def build_in_progress(self, value: bool) -> None:
+        self.model.build_in_progress = value
 
     @property
     def config(self) -> Config:
@@ -177,17 +185,29 @@ class DashboardController:
         """Collect live slot stats for all running configs and persist changes."""
         current = self.model.slot_stats_snapshot()
         updated = dict(current)
+        live_aliases = {cfg.alias for cfg in self.model.configs}
+        changed = False
+        for alias in list(updated):
+            if alias not in live_aliases:
+                del updated[alias]
+                changed = True
+
+        registry = self._build_tui_registry()
+        profile_id_by_alias = {
+            cfg.alias: self.resolve_profile_id_for_config(cfg, registry=registry)
+            for cfg in self.model.configs
+        }
         profile_stats = load_profile_stats()
         profile_stats_changed = False
-        changed = False
         for cfg in self.model.configs:
             try:
                 stats = collect_slot_stats(cfg.alias, self.model.config.deployment.host, cfg.port)
                 if stats is None:
                     continue
-                updated[cfg.alias] = stats
-                changed = True
-                profile_id = self.resolve_profile_id_for_config(cfg)
+                if updated.get(cfg.alias) != stats:
+                    updated[cfg.alias] = stats
+                    changed = True
+                profile_id = profile_id_by_alias.get(cfg.alias)
                 if profile_id is not None:
                     profile_stats = update_profile_stats(
                         profile_stats,
@@ -195,6 +215,8 @@ class DashboardController:
                         self._profile_stats_session_id(cfg.alias),
                         stats,
                     )
+                    # Slot snapshot equality already gated persistence above; profile
+                    # aggregates are updated only when we have a fresh slot snapshot.
                     profile_stats_changed = True
             except Exception:
                 logger.exception("refresh_slot_stats: failed to collect for %s", cfg.alias)
@@ -210,14 +232,16 @@ class DashboardController:
             except Exception:
                 logger.exception("refresh_slot_stats: failed to persist profile stats")
 
-    def resolve_profile_id_for_config(self, cfg: ServerConfig) -> str | None:
+    def resolve_profile_id_for_config(
+        self, cfg: ServerConfig, *, registry: Any | None = None
+    ) -> str | None:
         """Resolve a live server config alias to a registered profile ID."""
-        registry = self._build_tui_registry()
-        resolved = resolve_profile_id(registry, cfg.alias)
+        resolved_registry = self._build_tui_registry() if registry is None else registry
+        resolved = resolve_profile_id(resolved_registry, cfg.alias)
         if resolved is not None:
             return resolved
         if cfg.alias.endswith("-coding"):
-            return resolve_profile_id(registry, cfg.alias.removesuffix("-coding"))
+            return resolve_profile_id(resolved_registry, cfg.alias.removesuffix("-coding"))
         return None
 
     def _profile_stats_session_id(self, alias: str) -> str:
@@ -911,13 +935,13 @@ class DashboardController:
 
         Source is ``'builtin'`` or ``'custom'``.
         """
-        from llama_manager.slot_profile_store import custom_slot_profile_exists
+        from llama_manager.slot_profile_store import load_custom_slot_profiles
 
         registry = self._build_tui_registry()
+        custom_ids = {p.profile_id for p in load_custom_slot_profiles()}
         result: list[tuple[Any, str]] = []
         for p in registry.profiles:
-            is_custom = custom_slot_profile_exists(p.profile_id)
-            source = "custom" if is_custom else "builtin"
+            source = "custom" if p.profile_id in custom_ids else "builtin"
             result.append((p, source))
         return result
 
@@ -1107,12 +1131,9 @@ class DashboardController:
         Args:
             progress: BuildProgress from the pipeline
         """
+        # Single immutable snapshot — derived fields stay coherent for readers.
         self.build_progress = progress
-        self.model.build_stage = progress.stage
-        self.model.build_progress_percent = progress.progress_percent
-        self.model.build_is_retrying = progress.is_retrying
-        if progress.retries_remaining is not None:
-            self.model.build_retries_remaining = progress.retries_remaining
+        self.model.build_progress = progress
 
         if self.build_in_progress:
             if progress.is_retrying:
@@ -1162,13 +1183,10 @@ class DashboardController:
         self._run_build_background(backends, wizard=wizard)
 
     def cancel_build(self) -> None:
-        """Signal cancellation and terminate any in-flight compile/configure subprocess."""
+        """Signal cancellation; the cancel watcher terminates the process tree off-thread."""
         cancel_event = getattr(self.model, "build_cancel_event", None)
         if cancel_event is not None:
             cancel_event.set()
-        pipeline = getattr(self, "_build_pipeline", None)
-        if pipeline is not None:
-            pipeline.kill_active_subprocess()
 
     def _build_cancel_event_is_set(self) -> bool:
         cancel_evt = self.model.build_cancel_event

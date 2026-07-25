@@ -1105,8 +1105,9 @@ class TestDashboardAppActionHandlers:
         controller.load_model_index.return_value = []
         app = DashboardApp(controller)
         app.push_screen = MagicMock()  # type: ignore[assignment]
+        app.call_from_thread = lambda fn, *args, **kwargs: fn(*args, **kwargs)  # type: ignore[method-assign]
 
-        app.action_manage_profiles()
+        DashboardApp.action_manage_profiles.__wrapped__(app)  # type: ignore[attr-defined]
 
         app.push_screen.assert_called_once()
 

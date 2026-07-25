@@ -294,8 +294,8 @@ class TestControllerCancelBuild:
 
         assert controller.model.build_cancel_event.is_set()
 
-    def test_cancel_build_kills_subprocess(self) -> None:
-        """cancel_build should call kill_active_subprocess on the pipeline."""
+    def test_cancel_build_does_not_kill_on_ui_thread(self) -> None:
+        """cancel_build should only set the cancel event; the watcher kills off-thread."""
         controller = _make_controller()
         controller.model.build_cancel_event = threading.Event()
         mock_pipeline = MagicMock()
@@ -303,7 +303,7 @@ class TestControllerCancelBuild:
 
         controller.cancel_build()
 
-        mock_pipeline.kill_active_subprocess.assert_called_once()
+        mock_pipeline.kill_active_subprocess.assert_not_called()
         assert controller.model.build_cancel_event.is_set()
 
     def test_cancel_build_no_pipeline_no_crash(self) -> None:

@@ -11,8 +11,8 @@ class LogBuffer:
 
     Thread Safety:
     - All public methods acquire self.lock before accessing self.lines
-    - add_line(), clear(), get_lines(), get_text(), get_stats(), and line_count
-      are all thread-safe via the internal threading.Lock
+    - add_line(), clear(), get_lines(), get_lines_since(), get_text(), get_stats(),
+      and line_count are all thread-safe via the internal threading.Lock
     - The running, auto_scroll, and redact_sensitive flags are not protected by the lock
       and may be toggled concurrently; consumers should treat them as best-effort state
     - Consumers should not access self.lines directly without holding the lock
@@ -24,6 +24,7 @@ class LogBuffer:
         self.running = True
         self.auto_scroll = True
         self.redact_sensitive = redact_sensitive
+        self._seq = 0
 
     def add_line(self, line: str) -> None:
         """Append a single log line to the buffer.
@@ -44,11 +45,14 @@ class LogBuffer:
             if self.redact_sensitive:
                 line = redact_log_line(line)
             self.lines.append(line)
+            self._seq += 1
 
     def clear(self) -> None:
         """Remove all buffered lines.
 
         Thread-safe: acquires ``self.lock`` before clearing ``self.lines``.
+        Does not reset the monotonic sequence counter — consumers use
+        ``get_lines_since`` and treat a full snapshot as a reload.
         """
         with self.lock:
             self.lines.clear()
@@ -65,6 +69,24 @@ class LogBuffer:
         """Get a snapshot of current buffered lines."""
         with self.lock:
             return list(self.lines)
+
+    def get_lines_since(self, seq: int) -> tuple[int, list[str]]:
+        """Return ``(current_seq, lines)`` added after *seq*.
+
+        When the caller is caught up, *lines* is empty. When the deque has
+        evicted lines the caller has not seen (or *seq* is 0 / ahead), *lines*
+        is a full snapshot so the consumer can reload.
+        """
+        with self.lock:
+            current_seq = self._seq
+            if seq <= 0 or seq > current_seq:
+                return current_seq, list(self.lines)
+            n_new = current_seq - seq
+            if n_new == 0:
+                return current_seq, []
+            if n_new >= len(self.lines):
+                return current_seq, list(self.lines)
+            return current_seq, list(self.lines)[-n_new:]
 
     def get_text(self, empty_message: str = "Waiting for output...") -> str:
         """Get plain-text log output suitable for UI rendering."""

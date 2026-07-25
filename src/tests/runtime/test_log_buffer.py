@@ -33,6 +33,43 @@ class TestLogBufferInit:
         assert buf.redact_sensitive is False
 
 
+class TestGetLinesSince:
+    """Tests for LogBuffer.get_lines_since()."""
+
+    def test_empty_buffer(self) -> None:
+        buf = LogBuffer()
+        seq, lines = buf.get_lines_since(0)
+        assert seq == 0
+        assert lines == []
+
+    def test_returns_delta_after_seq(self) -> None:
+        buf = LogBuffer(redact_sensitive=False)
+        buf.add_line("a")
+        buf.add_line("b")
+        seq1, _ = buf.get_lines_since(0)
+        buf.add_line("c")
+        seq2, delta = buf.get_lines_since(seq1)
+        assert seq2 == seq1 + 1
+        assert delta == ["c"]
+
+    def test_full_reload_when_evicted_past_seq(self) -> None:
+        buf = LogBuffer(max_lines=3, redact_sensitive=False)
+        for i in range(5):
+            buf.add_line(f"line{i}")
+        # Caller still at seq before any lines — must reload full window.
+        seq, lines = buf.get_lines_since(0)
+        assert seq == 5
+        assert lines == ["line2", "line3", "line4"]
+
+    def test_caught_up_returns_empty(self) -> None:
+        buf = LogBuffer(redact_sensitive=False)
+        buf.add_line("only")
+        seq, _ = buf.get_lines_since(0)
+        seq2, delta = buf.get_lines_since(seq)
+        assert seq2 == seq
+        assert delta == []
+
+
 # ---------------------------------------------------------------------------
 # TestAddLine
 # ---------------------------------------------------------------------------

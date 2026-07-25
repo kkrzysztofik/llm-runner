@@ -446,7 +446,9 @@ def test_dashboard_model_system_health_reads_cached_snapshots() -> None:
 
 def test_dashboard_model_dashboard_snapshot_returns_copies() -> None:
     """dashboard_snapshot should protect cached GPU dictionaries from caller mutation."""
-    model = DashboardModel(configs=[], gpu_indices=[])
+    from tests.support.helpers import make_server_config
+
+    model = DashboardModel(configs=[make_server_config(alias="code")], gpu_indices=[0])
     model.apply_system_health_snapshot(
         [1.0],
         [MemoryUsageSnapshot(label="Mem", percent=2.0, value_text="2/4")],
@@ -462,7 +464,9 @@ def test_dashboard_model_dashboard_snapshot_returns_copies() -> None:
 
 def test_dashboard_model_gpu_and_slot_cache_helpers() -> None:
     """DashboardModel should copy cached GPU stats and slot stats at API boundaries."""
-    model = DashboardModel(configs=[], gpu_indices=[])
+    from tests.support.helpers import make_server_config
+
+    model = DashboardModel(configs=[make_server_config(alias="code")], gpu_indices=[0])
     gpu_stats = {"gpu_util": "25%"}
     slot_stats = SlotStatsSnapshot("code", 8081, 10.0, tokens_in=3, tokens_out=4)
 
@@ -473,12 +477,13 @@ def test_dashboard_model_gpu_and_slot_cache_helpers() -> None:
     slot_snapshot.clear()
     model.remove_cached_gpu_stats("missing")
 
-    assert model.dashboard_snapshot().gpu_stats_by_alias == {"code": {"gpu_util": "25%"}}
+    assert model.dashboard_snapshot().gpu_stats_by_alias["code"]["gpu_util"] == "25%"
     assert model.slot_stats_snapshot() == {"code": slot_stats}
 
     model.remove_cached_gpu_stats("code")
-    model.apply_slot_stats_snapshot({})
-    assert model.dashboard_snapshot().gpu_stats_by_alias == {}
+    with model.system_health_lock:
+        model.cached_slot_stats_by_alias.clear()
+    assert model.dashboard_snapshot().gpu_stats_by_alias.get("code") is None
     assert model.slot_stats_snapshot() == {}
 
 

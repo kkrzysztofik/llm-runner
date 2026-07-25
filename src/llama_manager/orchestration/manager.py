@@ -101,40 +101,50 @@ class ServerManager:
         self._risk.clear_all()
 
     def cleanup_servers(self) -> None:
-        """Clean up all server processes with ownership verification and audit trail."""
+        """Clean up all server processes with ownership verification and audit trail.
+
+        ``shutting_down`` is a re-entrancy guard for overlapping cleanups, not a
+        one-way latch — it is cleared when this call finishes so a later quit
+        can still reap servers spawned after an earlier cleanup.
+        """
         if self.shutting_down:
             self._record_lifecycle_event("skip", details="already_shutting_down")
             return
         self.shutting_down = True
-        self.clear_risk_acknowledgements()
-        self._record_lifecycle_event("cleanup", details="initiated")
+        try:
+            self.clear_risk_acknowledgements()
+            self._record_lifecycle_event("cleanup", details="initiated")
 
-        running_pids = filter_owned_running_pids(
-            self.pids, self._verify_process_ownership, self._record_lifecycle_event
-        )
-        if not running_pids:
-            self._record_lifecycle_event("cleanup", details="no_running_pids")
-            return
+            running_pids = filter_owned_running_pids(
+                self.pids, self._verify_process_ownership, self._record_lifecycle_event
+            )
+            if not running_pids:
+                self._record_lifecycle_event("cleanup", details="no_running_pids")
+                return
 
-        self._record_lifecycle_event("terminate", details=f"count={len(running_pids)}")
-        send_signals_to_pids(running_pids, signal.SIGTERM, "SIGTERM", self._record_lifecycle_event)
-
-        time.sleep(1)
-
-        stubborn_pids = filter_owned_running_pids(
-            running_pids, self._verify_process_ownership, self._record_lifecycle_event
-        )
-        for pid in running_pids:
-            if pid not in stubborn_pids:
-                self._record_lifecycle_event("skip", pid=pid, details="graceful_exit")
-
-        if stubborn_pids:
-            self._record_lifecycle_event("kill", details=f"count={len(stubborn_pids)}")
+            self._record_lifecycle_event("terminate", details=f"count={len(running_pids)}")
             send_signals_to_pids(
-                stubborn_pids, signal.SIGKILL, "SIGKILL", self._record_lifecycle_event
+                running_pids, signal.SIGTERM, "SIGTERM", self._record_lifecycle_event
             )
 
-        wait_for_processes(self.servers, self._lifecycle_audit)
+            time.sleep(1)
+
+            stubborn_pids = filter_owned_running_pids(
+                running_pids, self._verify_process_ownership, self._record_lifecycle_event
+            )
+            for pid in running_pids:
+                if pid not in stubborn_pids:
+                    self._record_lifecycle_event("skip", pid=pid, details="graceful_exit")
+
+            if stubborn_pids:
+                self._record_lifecycle_event("kill", details=f"count={len(stubborn_pids)}")
+                send_signals_to_pids(
+                    stubborn_pids, signal.SIGKILL, "SIGKILL", self._record_lifecycle_event
+                )
+
+            wait_for_processes(self.servers, self._lifecycle_audit)
+        finally:
+            self.shutting_down = False
 
     def on_interrupt(self, _signum: int, _frame: FrameType | None) -> int:
         """Handle SIGINT cleanup and return the conventional exit code."""

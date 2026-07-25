@@ -177,6 +177,10 @@ class DashboardApp(App[None]):
         self._schedule_slot_stats_refresh()
         self._index_models()
 
+    def on_unmount(self) -> None:
+        """Cancel in-flight builds so cmake/ninja process groups do not outlive the TUI."""
+        self.controller.cancel_build()
+
     def _schedule_gpu_stats_refresh(self) -> None:
         """Start one background GPU stats refresh if no refresh is already running."""
         if self._gpu_stats_refresh_active:
@@ -189,28 +193,29 @@ class DashboardApp(App[None]):
     def _refresh_gpu_stats_worker(self) -> None:
         """Refresh GPU stats off the render thread."""
         start = time.perf_counter()
-        stats = list(self.controller.model.gpu_stats)
+        probe_snapshot = self.call_from_thread(self.controller.model.snapshot_for_probe)
         snapshot_by_alias: dict[str, dict[str, Any]] = {}
-        aliases = [cfg.alias for cfg in self.controller.model.configs]
         logger.debug(
-            "_refresh_gpu_stats_worker: start stats=%d aliases=%d",
-            len(stats),
-            len(aliases),
+            "_refresh_gpu_stats_worker: start entries=%d",
+            len(probe_snapshot),
         )
         try:
-            for index, gpu in enumerate(stats):
+            for index, (alias, gpu, _cfg) in enumerate(probe_snapshot):
                 gpu_start = time.perf_counter()
                 try:
                     gpu.update()
                 except Exception:
                     logger.exception(
-                        "_refresh_gpu_stats_worker: gpu.update() failed for index=%d", index
+                        "_refresh_gpu_stats_worker: gpu.update() failed for alias=%s index=%d",
+                        alias,
+                        index,
                     )
                     continue
-                if index < len(aliases):
-                    snapshot_by_alias[aliases[index]] = gpu.get_cached_stats_snapshot()
+                snapshot_by_alias[alias] = gpu.get_cached_stats_snapshot()
                 logger.debug(
-                    "_refresh_gpu_stats_worker: updated index=%d device_index=%s duration_ms=%.1f",
+                    "_refresh_gpu_stats_worker: updated alias=%s index=%d device_index=%s "
+                    "duration_ms=%.1f",
+                    alias,
                     index,
                     getattr(gpu, "device_index", "unknown"),
                     (time.perf_counter() - gpu_start) * 1000,
@@ -220,7 +225,7 @@ class DashboardApp(App[None]):
         finally:
             logger.debug(
                 "_refresh_gpu_stats_worker: complete count=%d duration_ms=%.1f",
-                len(stats),
+                len(probe_snapshot),
                 (time.perf_counter() - start) * 1000,
             )
             self.call_from_thread(
@@ -380,8 +385,9 @@ class DashboardApp(App[None]):
     def action_about(self) -> None:
         self.push_screen(AboutModal())
 
+    @work(thread=True)
     def action_manage_profiles(self) -> None:
-        """Open the profiles management screen."""
+        """Open the profiles management screen (I/O off the UI thread)."""
         from .components.profiles_screen import ProfilesScreen
 
         profiles = self.controller.list_slot_profiles()
@@ -392,19 +398,30 @@ class DashboardApp(App[None]):
         }
         model_index = self.controller.load_model_index()
 
-        self.push_screen(
-            ProfilesScreen(profiles=profiles, in_use_ids=in_use_ids, model_index=model_index),
-            self._handle_profiles_screen_result,
-        )
-
-    def action_profile_stats(self) -> None:
-        """Open the read-only profile aggregate stats screen."""
-        self.push_screen(
-            ProfileStatsScreen(
-                stats_by_profile=load_profile_stats(),
-                profiles=self.controller.list_slot_profiles(),
+        def _open() -> None:
+            self.push_screen(
+                ProfilesScreen(profiles=profiles, in_use_ids=in_use_ids, model_index=model_index),
+                self._handle_profiles_screen_result,
             )
-        )
+
+        self.call_from_thread(_open)
+
+    @work(thread=True)
+    def action_profile_stats(self) -> None:
+        """Open the read-only profile aggregate stats screen (I/O off the UI thread)."""
+
+        stats_by_profile = load_profile_stats()
+        profiles = self.controller.list_slot_profiles()
+
+        def _open() -> None:
+            self.push_screen(
+                ProfileStatsScreen(
+                    stats_by_profile=stats_by_profile,
+                    profiles=profiles,
+                )
+            )
+
+        self.call_from_thread(_open)
 
     def _handle_profiles_screen_result(self, result: dict | None) -> None:
         """Handle result from the ProfilesScreen."""
@@ -947,6 +964,10 @@ class DashboardApp(App[None]):
             state = self.view_model.column(panel._slot_index)
             return state
         except Exception:
+            logger.exception(
+                "_panel_state: failed for slot_index=%s",
+                getattr(panel, "_slot_index", "unknown"),
+            )
             return None
 
     def _update_panel_widgets(self, panel: ServerLogPanel, state: ServerColumnState) -> None:
@@ -992,13 +1013,31 @@ class DashboardApp(App[None]):
                 cast(Static, widget).update(value)
         with contextlib.suppress(NoMatches):
             log_widget = cast(Log, panel.query_one(".server-log-content"))
-            previous: tuple[str, ...] = getattr(log_widget, "_llm_runner_lines", ())  # type: ignore[attr-defined]
-            reload, lines = _split_log_update(previous, state.log_lines)
-            if reload:
-                log_widget.clear()
-            if lines:
-                log_widget.write_lines(list(lines))
-            log_widget._llm_runner_lines = state.log_lines  # type: ignore[attr-defined]
+            buf = self.controller.model.log_buffers.get(state.alias)
+            if buf is None:
+                previous: tuple[str, ...] = getattr(log_widget, "_llm_runner_lines", ())  # type: ignore[attr-defined]
+                reload, lines = _split_log_update(previous, state.log_lines)
+                if reload:
+                    log_widget.clear()
+                if lines:
+                    log_widget.write_lines(list(lines))
+                log_widget._llm_runner_lines = state.log_lines  # type: ignore[attr-defined]
+            else:
+                prev_seq = int(getattr(log_widget, "_llm_runner_log_seq", 0))
+                new_seq, new_lines = buf.get_lines_since(prev_seq)
+                if new_seq == prev_seq:
+                    pass
+                else:
+                    n_added = new_seq - prev_seq
+                    reload = prev_seq == 0 or n_added > len(new_lines)
+                    if reload:
+                        log_widget.clear()
+                        to_write = new_lines if new_lines else ["Waiting for output..."]
+                    else:
+                        to_write = new_lines
+                    if to_write:
+                        log_widget.write_lines(list(to_write))
+                    log_widget._llm_runner_log_seq = new_seq  # type: ignore[attr-defined]
 
     async def _recompose_slots(self) -> None:
         """Full recompose — call when slot count changes (add/remove)."""

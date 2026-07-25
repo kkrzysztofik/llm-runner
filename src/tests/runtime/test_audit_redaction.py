@@ -410,8 +410,8 @@ class TestCleanupServersIdempotency:
             manager.pid_metadata[pid] = time.time() - 60  # 60s old
         return manager
 
-    def test_cleanup_is_idempotent_first_call(self, monkeypatch) -> None:
-        """First cleanup_servers call should set shutting_down=True."""
+    def test_cleanup_clears_shutting_down_after_completion(self, monkeypatch) -> None:
+        """cleanup_servers should clear shutting_down so a later cleanup can run."""
         monkeypatch.setattr(time, "sleep", lambda x: None)
 
         manager = self._make_manager_with_pids([12345])
@@ -427,13 +427,14 @@ class TestCleanupServersIdempotency:
             mock_uids.real = os.getuid()
             mock_proc_obj.uids.return_value = mock_uids
             manager.cleanup_servers()
-            assert manager.shutting_down is True
+            assert manager.shutting_down is False
 
-    def test_cleanup_is_idempotent_second_call_skips(self, monkeypatch) -> None:
-        """Second cleanup_servers call should return immediately without re-signaling."""
+    def test_cleanup_skips_while_already_in_progress(self, monkeypatch) -> None:
+        """Overlapping cleanup_servers calls should skip while shutting_down is set."""
         monkeypatch.setattr(time, "sleep", lambda x: None)
 
         manager = self._make_manager_with_pids([12345])
+        manager.shutting_down = True
 
         signals_sent: list[int] = []
 
@@ -451,16 +452,11 @@ class TestCleanupServersIdempotency:
             mock_uids.real = os.getuid()
             mock_proc_obj.uids.return_value = mock_uids
 
-            # First call
             manager.cleanup_servers()
-            first_call_count = len(signals_sent)
-
-            # Second call should skip immediately
-            manager.cleanup_servers()
-            second_call_count = len(signals_sent)
-
-            # No additional signals should have been sent
-            assert second_call_count == first_call_count
+            assert signals_sent == []
+            assert any(
+                e["details"] == "already_shutting_down" for e in manager._audit.lifecycle_audit
+            )
 
     def test_cleanup_sends_sigterm_before_sigkill(self, monkeypatch) -> None:
         """cleanup_servers should send SIGTERM first, then SIGKILL after delay."""
@@ -588,7 +584,7 @@ class TestCleanupServersIdempotency:
 
         # Should not raise
         manager.cleanup_servers()
-        assert manager.shutting_down is True
+        assert manager.shutting_down is False
 
     def test_cleanup_with_already_shutting_down(self, monkeypatch) -> None:
         """cleanup_servers when already shutting down should be a no-op."""
@@ -1251,12 +1247,12 @@ class TestFullLifecycleAndShutdown:
             manager2.cleanup_servers()
             first_call_count = len(cleanup_signals)
 
-            # Second call should be no-op (already shutting_down)
+            # Re-entrant: latch cleared after first call, second call may run again
             manager2.cleanup_servers()
             second_call_count = len(cleanup_signals)
 
-        assert second_call_count == first_call_count
-        assert manager2.shutting_down is True
+        assert second_call_count >= first_call_count
+        assert manager2.shutting_down is False
 
         # Verify lifecycle audit records shutdown event
         assert any(
