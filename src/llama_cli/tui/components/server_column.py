@@ -80,7 +80,6 @@ class ServerColumnPanel(Widget):
 
     def _build_logs(self) -> Container:
         log = Log(max_lines=500, auto_scroll=True, classes="server-log-content")
-        log._llm_runner_lines = self._state.log_lines  # type: ignore[attr-defined]
         return Container(
             Static("Logs", classes="panel-title server-log-title"),
             log,

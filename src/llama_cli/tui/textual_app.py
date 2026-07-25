@@ -46,18 +46,6 @@ _CONTENT_CONTAINER_ID = "#content"
 # ---------------------------------------------------------------------------
 
 
-def _split_log_update(
-    previous: tuple[str, ...],
-    current: tuple[str, ...],
-) -> tuple[bool, tuple[str, ...]]:
-    """Return (reload, lines_to_write) for a Textual Log widget."""
-    if current == previous:
-        return False, ()
-    if len(current) >= len(previous) and current[: len(previous)] == previous:
-        return False, current[len(previous) :]
-    return True, current
-
-
 def _profile_options_cached(
     view_model: object,
     config: object,
@@ -178,8 +166,18 @@ class DashboardApp(App[None]):
         self._index_models()
 
     def on_unmount(self) -> None:
-        """Cancel in-flight builds so cmake/ninja process groups do not outlive the TUI."""
+        """Cancel in-flight builds so cmake/ninja process groups do not outlive the TUI.
+
+        The cancel event alone is not enough here: the watcher that acts on it polls
+        at 100ms and the build runs on a daemon thread that interpreter shutdown does
+        not join, so the process tree can outlive us. Kill it directly as well —
+        blocking is acceptable on this path because the UI is already gone.
+        """
         self.controller.cancel_build()
+        pipeline = self.controller._build_pipeline
+        if pipeline is not None:
+            with contextlib.suppress(Exception):
+                pipeline.kill_active_subprocess()
 
     def _schedule_gpu_stats_refresh(self) -> None:
         """Start one background GPU stats refresh if no refresh is already running."""
@@ -193,13 +191,16 @@ class DashboardApp(App[None]):
     def _refresh_gpu_stats_worker(self) -> None:
         """Refresh GPU stats off the render thread."""
         start = time.perf_counter()
-        probe_snapshot = self.call_from_thread(self.controller.model.snapshot_for_probe)
         snapshot_by_alias: dict[str, dict[str, Any]] = {}
-        logger.debug(
-            "_refresh_gpu_stats_worker: start entries=%d",
-            len(probe_snapshot),
-        )
+        probe_snapshot: tuple[tuple[str, Any, Any], ...] = ()
         try:
+            # Must stay inside the try: a raise here would skip the finally that clears
+            # _gpu_stats_refresh_active, freezing GPU telemetry for the rest of the session.
+            probe_snapshot = self.call_from_thread(self.controller.model.snapshot_for_probe)
+            logger.debug(
+                "_refresh_gpu_stats_worker: start entries=%d",
+                len(probe_snapshot),
+            )
             for index, (alias, gpu, _cfg) in enumerate(probe_snapshot):
                 gpu_start = time.perf_counter()
                 try:
@@ -385,7 +386,7 @@ class DashboardApp(App[None]):
     def action_about(self) -> None:
         self.push_screen(AboutModal())
 
-    @work(thread=True)
+    @work(thread=True, exclusive=True, group="profile-screen")
     def action_manage_profiles(self) -> None:
         """Open the profiles management screen (I/O off the UI thread)."""
         from .components.profiles_screen import ProfilesScreen
@@ -406,7 +407,7 @@ class DashboardApp(App[None]):
 
         self.call_from_thread(_open)
 
-    @work(thread=True)
+    @work(thread=True, exclusive=True, group="profile-screen")
     def action_profile_stats(self) -> None:
         """Open the read-only profile aggregate stats screen (I/O off the UI thread)."""
 
@@ -1015,29 +1016,21 @@ class DashboardApp(App[None]):
             log_widget = cast(Log, panel.query_one(".server-log-content"))
             buf = self.controller.model.log_buffers.get(state.alias)
             if buf is None:
-                previous: tuple[str, ...] = getattr(log_widget, "_llm_runner_lines", ())  # type: ignore[attr-defined]
-                reload, lines = _split_log_update(previous, state.log_lines)
-                if reload:
-                    log_widget.clear()
-                if lines:
-                    log_widget.write_lines(list(lines))
-                log_widget._llm_runner_lines = state.log_lines  # type: ignore[attr-defined]
+                return
+            prev_seq = int(getattr(log_widget, "_llm_runner_log_seq", 0))
+            new_seq, new_lines = buf.get_lines_since(prev_seq)
+            if new_seq == prev_seq:
+                return
+            # A full snapshot came back (first render, or the deque evicted lines we
+            # never showed) — replace the widget contents instead of appending.
+            if prev_seq == 0 or new_seq - prev_seq > len(new_lines):
+                log_widget.clear()
+                to_write = new_lines or ["Waiting for output..."]
             else:
-                prev_seq = int(getattr(log_widget, "_llm_runner_log_seq", 0))
-                new_seq, new_lines = buf.get_lines_since(prev_seq)
-                if new_seq == prev_seq:
-                    pass
-                else:
-                    n_added = new_seq - prev_seq
-                    reload = prev_seq == 0 or n_added > len(new_lines)
-                    if reload:
-                        log_widget.clear()
-                        to_write = new_lines if new_lines else ["Waiting for output..."]
-                    else:
-                        to_write = new_lines
-                    if to_write:
-                        log_widget.write_lines(list(to_write))
-                    log_widget._llm_runner_log_seq = new_seq  # type: ignore[attr-defined]
+                to_write = new_lines
+            if to_write:
+                log_widget.write_lines(list(to_write))
+            log_widget._llm_runner_log_seq = new_seq  # type: ignore[attr-defined]
 
     async def _recompose_slots(self) -> None:
         """Full recompose — call when slot count changes (add/remove)."""

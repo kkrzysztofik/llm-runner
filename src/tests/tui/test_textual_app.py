@@ -20,7 +20,6 @@ from llama_cli.tui.controller import AsyncSlotPlan, AsyncSlotStageResult
 from llama_cli.tui.textual_app import (
     DashboardApp,
     _profile_options_cached,
-    _split_log_update,
 )
 from llama_cli.tui.types import MemoryUsageSnapshot, SystemInfoSnapshot
 from llama_manager import LogBuffer
@@ -506,6 +505,71 @@ class TestDashboardAppGpuStatsRefresh:
             "mem_util": "71%",
         }
 
+    def test_update_panel_widgets_appends_log_delta_without_clearing(self) -> None:
+        """Steady-state refresh writes only new lines — no clear() once seeded.
+
+        Guards the log-streaming fix: a regression here restores a full 500-line
+        clear+rewrite on every refresh tick as soon as the deque starts rolling.
+        """
+        from llama_cli.tui.types import ServerColumnState, SlotRuntimeStats
+
+        controller = _make_controller()
+        buf = LogBuffer(max_lines=3, redact_sensitive=False)
+        controller.model.log_buffers = {"slot0": buf}
+        app = DashboardApp(controller)
+
+        state = ServerColumnState(
+            alias="slot0",
+            profile_name="default",
+            status="running",
+            status_label="Running",
+            status_class="server-column-status-running",
+            backend_label="CUDA",
+            url="http://127.0.0.1:8081",
+            config_summary="Device: CUDA0 | Ctx: 8192",
+            log_lines=(),
+            runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
+            gpu_stats=None,
+            stale_warning=None,
+        )
+
+        class _FakeLog:
+            """Real attribute semantics — a MagicMock would auto-create the seq marker."""
+
+            def __init__(self) -> None:
+                self.clears = 0
+                self.written: list[list[str]] = []
+
+            def clear(self) -> None:
+                self.clears += 1
+
+            def write_lines(self, lines: list[str]) -> None:
+                self.written.append(list(lines))
+
+        log_widget = _FakeLog()
+        panel = MagicMock()
+        panel.query = lambda *_args, **_kwargs: []
+        panel.query_one = lambda sel, cls=None: (
+            log_widget if isinstance(sel, str) and ".server-log-content" in sel else MagicMock()
+        )
+
+        buf.add_line("a")
+        app._update_panel_widgets(panel, state)  # type: ignore[arg-type]
+        assert log_widget.clears == 1  # first render seeds the widget
+        assert log_widget.written[-1] == ["a"]
+
+        buf.add_line("b")
+        app._update_panel_widgets(panel, state)  # type: ignore[arg-type]
+        assert log_widget.clears == 1  # no reload — delta only
+        assert log_widget.written[-1] == ["b"]
+
+        # Overflow the deque past what the widget has seen — must reload.
+        for line in ("c", "d", "e", "f"):
+            buf.add_line(line)
+        app._update_panel_widgets(panel, state)  # type: ignore[arg-type]
+        assert log_widget.clears == 2
+        assert log_widget.written[-1] == ["d", "e", "f"]
+
 
 class TestDashboardAppAddSlotFlow:
     """Tests for async add-slot worker and finish handler."""
@@ -965,34 +1029,6 @@ class TestDashboardAppSlotStatsRefresh:
 # ---------------------------------------------------------------------------
 # Additional textual_app tests for SonarQube coverage gaps
 # ---------------------------------------------------------------------------
-
-
-class TestSplitLogUpdate:
-    """Tests for _split_log_update — extracted pure helper."""
-
-    def test_no_change_returns_false_empty(self) -> None:
-        """When current equals previous, return (False, ())."""
-        previous = ("line1", "line2")
-        current = ("line1", "line2")
-        reload, lines = _split_log_update(previous, current)
-        assert reload is False
-        assert lines == ()
-
-    def test_append_returns_false_appended_lines(self) -> None:
-        """When current is an append of previous, return (False, appended)."""
-        previous = ("line1", "line2")
-        current = ("line1", "line2", "line3")
-        reload, lines = _split_log_update(previous, current)
-        assert reload is False
-        assert lines == ("line3",)
-
-    def test_prepend_returns_true_all_current(self) -> None:
-        """When current prepends to previous, return (True, current)."""
-        previous = ("line2",)
-        current = ("line1", "line2")
-        reload, lines = _split_log_update(previous, current)
-        assert reload is True
-        assert lines == current
 
 
 class TestDashboardAppActionHandlers:

@@ -100,26 +100,15 @@ class DashboardModel:
         self.slot_states: dict[str, str] = {}
         self.server_processes: dict[str, Any] = {}
 
+    # Read-only views over ``build_progress``. Writers assign the whole immutable
+    # snapshot (see DashboardController._handle_build_progress) so readers on the UI
+    # thread never observe a mix of fields from two different progress updates.
+
     @property
     def build_stage(self) -> str | None:
         """Current build stage name derived from ``build_progress``."""
         progress = self.build_progress
         return progress.stage if progress is not None else None
-
-    @build_stage.setter
-    def build_stage(self, value: str | None) -> None:
-        if value is None:
-            self.build_progress = None
-            return
-        current = self.build_progress
-        self.build_progress = BuildProgress(
-            stage=value,
-            status=current.status if current is not None else "running",
-            message=current.message if current is not None else "",
-            progress_percent=current.progress_percent if current is not None else 0.0,
-            retries_remaining=current.retries_remaining if current is not None else None,
-            output_line=current.output_line if current is not None else None,
-        )
 
     @property
     def build_progress_percent(self) -> float:
@@ -127,41 +116,11 @@ class DashboardModel:
         progress = self.build_progress
         return progress.progress_percent if progress is not None else 0.0
 
-    @build_progress_percent.setter
-    def build_progress_percent(self, value: float) -> None:
-        current = self.build_progress
-        self.build_progress = BuildProgress(
-            stage=current.stage if current is not None else "",
-            status=current.status if current is not None else "running",
-            message=current.message if current is not None else "",
-            progress_percent=value,
-            retries_remaining=current.retries_remaining if current is not None else None,
-            output_line=current.output_line if current is not None else None,
-        )
-
     @property
     def build_is_retrying(self) -> bool:
         """Whether the build is retrying, derived from ``build_progress``."""
         progress = self.build_progress
         return bool(progress is not None and progress.is_retrying)
-
-    @build_is_retrying.setter
-    def build_is_retrying(self, value: bool) -> None:
-        current = self.build_progress
-        status = "retrying" if value else (current.status if current is not None else "running")
-        retries = (
-            (current.retries_remaining if current is not None else 0)
-            if value
-            else (current.retries_remaining if current is not None else None)
-        )
-        self.build_progress = BuildProgress(
-            stage=current.stage if current is not None else "",
-            status=status,
-            message=current.message if current is not None else "",
-            progress_percent=current.progress_percent if current is not None else 0.0,
-            retries_remaining=retries if value else None,
-            output_line=current.output_line if current is not None else None,
-        )
 
     @property
     def build_retries_remaining(self) -> int:
@@ -170,18 +129,6 @@ class DashboardModel:
         if progress is None or progress.retries_remaining is None:
             return 0
         return progress.retries_remaining
-
-    @build_retries_remaining.setter
-    def build_retries_remaining(self, value: int) -> None:
-        current = self.build_progress
-        self.build_progress = BuildProgress(
-            stage=current.stage if current is not None else "",
-            status=current.status if current is not None else "running",
-            message=current.message if current is not None else "",
-            progress_percent=current.progress_percent if current is not None else 0.0,
-            retries_remaining=value,
-            output_line=current.output_line if current is not None else None,
-        )
 
     def make_collector(self, device_index: int) -> Callable[[], dict[str, Any]]:
         """Create a legacy CUDA collector bound to a device ordinal."""

@@ -187,14 +187,16 @@ class DashboardViewModel:
             stale_warning=self.stale_warning(cfg),
         )
         duration_ms = (time.perf_counter() - start) * 1000
+        # log_count, not a sum over line lengths: this runs per panel per refresh and
+        # argument expressions are evaluated even when DEBUG is disabled.
         logger.debug(
             "DashboardViewModel.column: built slot_index=%d alias=%s status=%s "
-            "gpu_cached=%s logs_chars=%d duration_ms=%.1f",
+            "gpu_cached=%s log_lines=%d duration_ms=%.1f",
             slot_index,
             cfg.alias,
             status,
             gpu_stats is not None,
-            sum(len(line) for line in state.log_lines),
+            len(state.log_lines),
             duration_ms,
         )
         return state
