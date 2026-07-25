@@ -1235,11 +1235,10 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
             self._start_build_from_wizard()
 
     def _start_build_from_wizard(self) -> None:  # pragma: no cover
-        """Store options in model and delegate build to controller.
+        """Delegate the build to the app, which runs it on a Textual worker.
 
-        The modal stays open showing progress (step 4) while the controller
-        runs the build in a background thread. When the build completes, the
-        controller calls back to set the result and dismiss.
+        The modal stays open showing progress (step 4) while the build runs.
+        When it completes, the controller calls back to set the result and dismiss.
         """
         selected = self._wizard_state["selected_backend"]
         backends = ["sycl", "cuda"] if selected == "both" else [selected]
@@ -1247,19 +1246,17 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         sycl_opts = self._collect_options("sycl") if selected in ("sycl", "both") else None
         cuda_opts = self._collect_options("cuda") if selected in ("cuda", "both") else None
 
-        # Store options in the model for the controller to pick up
-        self._dashboard_app.controller.model.build_selected_backends_options = {
-            "sycl": sycl_opts,
-            "cuda": cuda_opts,
-        }
-
         # Transition to building step
         self._wizard_state["step"] = self.STEP_BUILDING
         self._wizard_state["progress_backend"] = backends[0]
         self._render_step()
 
-        # Delegate to controller — it will call back via update_progress / set_build_result
-        self._dashboard_app.controller.handle_build_with_wizard(backends, self)
+        # The app owns the worker; progress comes back via update_progress / set_build_result
+        self._dashboard_app.start_build(
+            backends,
+            options={"sycl": sycl_opts, "cuda": cuda_opts},
+            wizard=self,
+        )
 
     def _dismiss_with_result(self) -> None:  # pragma: no cover
         """Dismiss after result step."""

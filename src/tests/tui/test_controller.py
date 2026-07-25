@@ -1097,26 +1097,43 @@ class TestControllerProfileValidation:
 
 
 class TestControllerBuildBackground:
-    """Tests for _run_build_background and _execute_build_loop."""
+    """Tests for begin_build / run_build_loop and _execute_build_loop."""
 
-    def test_run_build_background_starts_thread(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """_run_build_background should set build flags and start a thread."""
-        import threading as _threading
+    def test_begin_build_reserves_state_without_running(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """begin_build should arm build state but never execute the pipeline itself.
 
-        thread_instance = MagicMock()
-        thread_instance.start = MagicMock()
-
-        def fake_thread(*a, **kw):
-            return thread_instance
-
-        monkeypatch.setattr(_threading, "Thread", fake_thread)
+        The caller owns the thread (DashboardApp.start_build), so a regression that
+        re-adds a thread here would put the build outside Textual's worker tracking.
+        """
+        ran: list[str] = []
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.DashboardController._execute_build_loop",
+            lambda self, backends, wizard: ran.append("executed"),
+        )
         controller = _make_controller()
 
-        controller._run_build_background(["sycl"])
+        controller.begin_build(["sycl"], options={"sycl": None})
 
         assert controller.model.build_in_progress is True
         assert controller.build_in_progress is True
-        thread_instance.start.assert_called_once()
+        assert controller.model.build_selected_backends == ["sycl"]
+        assert controller.model.build_cancel_event is not None
+        assert controller.model.build_selected_backends_options == {"sycl": None}
+        assert ran == []
+
+        controller.run_build_loop(["sycl"])
+        assert ran == ["executed"]
+
+    def test_begin_build_defaults_options_to_empty(self) -> None:
+        """Omitted options should clear stale wizard options, not preserve them."""
+        controller = _make_controller()
+        controller.model.build_selected_backends_options = {"cuda": MagicMock()}
+
+        controller.begin_build(["sycl"])
+
+        assert controller.model.build_selected_backends_options == {}
 
     def test_execute_build_loop_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_execute_build_loop should set result to 'success' on completion."""

@@ -160,9 +160,11 @@ state with no snapshot boundary.**
   entry that `stage_async_slot_launch` just wrote → blank GPU panel on the slot
   the user is watching come up. Symmetrically, a stale snapshot can resurrect a
   removed alias.
-- **4c `controller.py:176`** — `refresh_slot_stats` iterates `self.model.configs`
+- **4c `controller.py:184`** — `refresh_slot_stats` iterates `self.model.configs`
   live while `#T` appends/deletes; also never prunes removed aliases from the
-  persisted stats.
+  persisted stats. It now takes a `targets` snapshot argument (defaulting to a
+  fresh `snapshot_for_probe()` for UI-thread callers) and
+  `_refresh_slot_stats_worker` passes one taken via `call_from_thread`.
 
 Do: add one `DashboardModel.snapshot_for_probe()` returning a frozen
 `tuple[tuple[str, GPUStats, ServerConfig], ...]` built on `#T` under
@@ -188,24 +190,40 @@ shows another slot's device, no blank GPU panel after add.
 
 ---
 
-## Phase 6 — Architectural follow-up (optional, after 1–5)
+## Phase 6 — Architectural follow-up
 
-Files: `controller.py:1219`, `:1464`
+Files: `controller.py`, `textual_app.py`, `components/build.py`
 
-Three concurrency models coexist: `@work(thread=True)` for telemetry and slot
+Three concurrency models coexisted: `@work(thread=True)` for telemetry and slot
 lifecycle, raw `threading.Thread(daemon=True)` for build and model-index, and a
 `ThreadPoolExecutor` nested inside a Textual worker (`build.py:440`). The raw
-threads are invisible to `self.workers` (so `cancel_all()` never touches them —
-the root cause of Phase 2), their exceptions never surface as
-`WorkerState.ERROR`, and the controller holds a live `Screen` reference
-(`self._build_wizard`) it reaches through with `app.call_from_thread`.
+threads were invisible to `self.workers` (so `cancel_all()` never touched them —
+the root cause of Phase 2) and their exceptions never surfaced as
+`WorkerState.ERROR`.
 
-Do: dispatch the build from the screen via
-`self.run_worker(..., thread=True, group="build", exclusive=True)`; the
-controller returns results, the screen posts messages. The pipeline already polls
-`_cancel_requested()` between stages and in the compile watcher, so wiring
-`Worker.cancelled_event` → `build_cancel_event` makes quit-time cancellation work
-without new machinery.
+Done for the **build**: `_run_build_background` split into
+`DashboardController.begin_build` (UI-thread state reservation) and
+`run_build_loop` (blocking pipeline body). `DashboardApp.start_build` now owns
+the thread via `@work(thread=True, group="build")`. Beyond hygiene this buys a
+real correctness win: shutdown joins workers, so `BuildPipeline.run`'s
+`finally: self._release_lock()` actually executes instead of being skipped by a
+daemon thread killed at interpreter exit — the build lock no longer depends on
+PID-staleness detection to recover. `start_build` also refuses a second
+concurrent build (`build_in_progress`), which nothing previously prevented;
+`exclusive=True` would have been *worse* here, since cancelling a thread worker
+does not stop the thread and would have left two builds racing the same lock.
+
+**Not done, deliberately — the model-index refresh stays a daemon thread**
+(`controller.py:refresh_model_index_async`). Converting it would make shutdown
+join a full rescan, stalling quit for as long as a large or network-mounted
+`models_dir` takes to walk. Nothing is gained in exchange: the index is written
+atomically and the scan is idempotent, so there is no `finally` worth waiting
+for. The reasoning is recorded in the method docstring so it does not get
+"fixed" later.
+
+Cancellation wiring (`Worker.cancelled_event` → `build_cancel_event`) was also
+skipped: `on_unmount` already sets the cancel event and kills the process tree,
+and it runs before the executor join, so the join stays short.
 
 ---
 

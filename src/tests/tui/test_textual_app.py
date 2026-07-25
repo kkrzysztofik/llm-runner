@@ -1351,14 +1351,43 @@ class TestDashboardAppBuildModalResult:
         controller.cancel_pending_prompt.assert_called_once()
 
     def test_handle_build_modal_result_with_backends(self) -> None:
-        """_handle_build_modal_result with backends should call handle_build_selection."""
+        """_handle_build_modal_result with backends should start a build."""
         from llama_cli.tui.types import BuildWizardResult
 
         controller = _make_controller()
         app = DashboardApp(controller)
         app.refresh_dashboard = MagicMock()  # type: ignore[assignment]
+        app.start_build = MagicMock()  # type: ignore[method-assign]
 
         result = BuildWizardResult(backends=["sycl"], options={})
         app._handle_build_modal_result(result)
 
-        controller.handle_build_selection.assert_called_once()
+        app.start_build.assert_called_once_with(["sycl"], options={})
+
+    def test_start_build_arms_state_then_dispatches_worker(self) -> None:
+        """start_build should reserve state on the UI thread, then hand off to a worker."""
+        controller = _make_controller()
+        controller.build_in_progress = False
+        app = DashboardApp(controller)
+        app._run_build_worker = MagicMock()  # type: ignore[method-assign]
+
+        app.start_build(["sycl"], options={"sycl": None}, wizard=None)
+
+        controller.begin_build.assert_called_once_with(
+            ["sycl"], options={"sycl": None}, wizard=None
+        )
+        app._run_build_worker.assert_called_once_with(["sycl"], None)
+
+    def test_start_build_refuses_second_concurrent_build(self) -> None:
+        """A second build must not start while one is running — two would race the lock."""
+        controller = _make_controller()
+        controller.build_in_progress = True
+        app = DashboardApp(controller)
+        app._run_build_worker = MagicMock()  # type: ignore[method-assign]
+        app.notify = MagicMock()  # type: ignore[method-assign]
+
+        app.start_build(["sycl"])
+
+        controller.begin_build.assert_not_called()
+        app._run_build_worker.assert_not_called()
+        app.notify.assert_called_once()

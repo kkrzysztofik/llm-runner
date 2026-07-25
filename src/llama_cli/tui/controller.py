@@ -93,8 +93,7 @@ class DashboardController:
     (:class:`~.model.DashboardModel`), the view model
     (:class:`~.viewmodel.DashboardViewModel`), and the Textual app
     (:class:`~.textual_app.DashboardApp`). It owns all user-facing command
-    handlers (launch, build, slot management, config editing, risk prompts)
-    and manages background threads for builds.
+    handlers (launch, build, slot management, config editing, risk prompts).
 
     Responsibilities:
 
@@ -103,8 +102,9 @@ class DashboardController:
     * **Launch orchestration** — delegate to :func:`~llama_manager.launch_orchestrate`
       and map results to UI state (risk prompts, slot states, status messages).
     * **Build pipeline** — run :func:`~llama_manager.build_pipeline.run_build_for_backend`
-      in a daemon thread, expose progress via :attr:`build_progress`, and
-      coordinate with the build wizard modal.
+      via :meth:`begin_build` / :meth:`run_build_loop`, expose progress via
+      :attr:`build_progress`, and coordinate with the build wizard modal. The
+      thread is owned by ``DashboardApp``, not here.
     * **Slot management** — create/replace slots from the add-slot modal, track
       slot state transitions, and detect duplicate slot IDs.
     * **Config editing** — persist edited values from the config modal and
@@ -181,11 +181,22 @@ class DashboardController:
         except Exception:
             logger.debug("failed to load persisted slot stats", exc_info=True)
 
-    def refresh_slot_stats(self) -> None:
-        """Collect live slot stats for all running configs and persist changes."""
+    def refresh_slot_stats(
+        self,
+        targets: tuple[tuple[str, Any, ServerConfig], ...] | None = None,
+    ) -> None:
+        """Collect live slot stats for all running configs and persist changes.
+
+        *targets* is a frozen ``(alias, gpu, config)`` snapshot taken on the UI
+        thread. Callers on a worker thread must pass one — iterating
+        ``model.configs`` live races slot add/remove and can skip or double-visit
+        slots mid-collection. Defaults to a fresh snapshot for UI-thread callers.
+        """
+        probe_targets = self.model.snapshot_for_probe() if targets is None else targets
+        configs = [cfg for _alias, _gpu, cfg in probe_targets]
         current = self.model.slot_stats_snapshot()
         updated = dict(current)
-        live_aliases = {cfg.alias for cfg in self.model.configs}
+        live_aliases = {cfg.alias for cfg in configs}
         changed = False
         for alias in list(updated):
             if alias not in live_aliases:
@@ -194,12 +205,11 @@ class DashboardController:
 
         registry = self._build_tui_registry()
         profile_id_by_alias = {
-            cfg.alias: self.resolve_profile_id_for_config(cfg, registry=registry)
-            for cfg in self.model.configs
+            cfg.alias: self.resolve_profile_id_for_config(cfg, registry=registry) for cfg in configs
         }
         profile_stats = load_profile_stats()
         profile_stats_changed = False
-        for cfg in self.model.configs:
+        for cfg in configs:
             try:
                 stats = collect_slot_stats(cfg.alias, self.model.config.deployment.host, cfg.port)
                 if stats is None:
@@ -1153,34 +1163,27 @@ class DashboardController:
 
     # -- Build lifecycle --------------------------------------------------
 
-    def handle_build_selection(
-        self, backends: list[str], options: dict[str, BuildConfig | None] | None = None
+    def begin_build(
+        self,
+        backends: list[str],
+        options: dict[str, BuildConfig | None] | None = None,
+        wizard: Any = None,  # BuildModalScreen | None
     ) -> None:
-        """Initiate build for the given backends.
+        """Reserve build state on the UI thread before a worker runs the pipeline.
 
-        Called from BuildModalScreen when the user presses 1/2/3.
-        Starts a background thread so the TUI stays responsive.
+        Pairs with :meth:`run_build_loop`. Split so the caller owns the thread —
+        see ``DashboardApp.start_build``.
 
         Args:
             backends: List of backend names to build.
             options: Optional build configuration options from the wizard.
+            wizard: Optional wizard modal that stays open during the build.
         """
-        if options is not None:
-            self.model.build_selected_backends_options = options
-        else:
-            self.model.build_selected_backends_options = {}
-        self._run_build_background(backends)
-
-    def handle_build_with_wizard(
-        self, backends: list[str], wizard: Any
-    ) -> None:  # BuildModalScreen
-        """Initiate build for the given backends, keeping the wizard modal open.
-
-        The wizard modal stays open showing live progress. When the build
-        completes (success or failure), the controller calls back to the
-        wizard to display the result and dismiss.
-        """
-        self._run_build_background(backends, wizard=wizard)
+        self.model.build_selected_backends_options = options if options is not None else {}
+        self.model.build_in_progress = True
+        self.model.build_selected_backends = backends
+        self.model.build_cancel_event = threading.Event()
+        self._build_wizard = wizard
 
     def cancel_build(self) -> None:
         """Signal cancellation; the cancel watcher terminates the process tree off-thread."""
@@ -1215,26 +1218,17 @@ class DashboardController:
             )
         return False
 
-    def _run_build_background(
-        self, backends: list[str], wizard: Any = None
-    ) -> None:  # BuildModalScreen | None
-        """Run the build pipeline in a daemon thread.
+    def run_build_loop(self, backends: list[str], wizard: Any = None) -> None:
+        """Run the build pipeline. Blocks — call from a worker thread only.
+
+        Pairs with :meth:`begin_build`, which must have run on the UI thread first.
 
         Args:
             backends: List of backends to build (e.g. ["sycl"] or ["sycl", "cuda"]).
             wizard: Optional wizard modal that stays open during the build.
         """
-        self.model.build_in_progress = True
-        self.build_in_progress = True
-        self.model.build_selected_backends = backends
-        self.model.build_cancel_event = threading.Event()
-        self._build_wizard = wizard
-
-        def _do_build() -> None:
-            with suppress_build_pipeline_stderr_for_tui():
-                self._execute_build_loop(backends, wizard)
-
-        threading.Thread(target=_do_build, name="build-worker", daemon=True).start()
+        with suppress_build_pipeline_stderr_for_tui():
+            self._execute_build_loop(backends, wizard)
 
     def _execute_build_loop(self, backends: list[str], wizard: Any) -> None:
         """Execute the build loop for given backends. Handles success/failure states."""
@@ -1255,7 +1249,6 @@ class DashboardController:
                 wizard.set_build_result(False, error_message=str(exc))
         finally:
             self.model.build_in_progress = False
-            self.build_in_progress = False
             self._build_wizard = None
 
     def _build_all_targets_for_backend(self, backend: str, wizard: Any) -> bool:
@@ -1446,6 +1439,13 @@ class DashboardController:
         complete_callback: Callable[[list[ModelIndexEntry], int, int], None] | None = None,
     ) -> bool:
         """Refresh the model index in a background thread.
+
+        Deliberately a daemon thread rather than a Textual worker, unlike the build
+        (see ``DashboardApp.start_build``): shutdown joins workers, so a full rescan
+        of a large or network-mounted models dir would stall quit for as long as the
+        scan takes. Killing a scan mid-flight costs nothing — the cache is written
+        atomically and the scan is idempotent, so there is no ``finally`` worth
+        waiting for.
 
         Returns ``False`` when an index refresh is already running.
         """

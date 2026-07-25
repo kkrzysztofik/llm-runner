@@ -284,7 +284,8 @@ class DashboardApp(App[None]):
     def _refresh_slot_stats_worker(self) -> None:
         """Refresh slot stats off the render thread."""
         try:
-            self.controller.refresh_slot_stats()
+            targets = self.call_from_thread(self.controller.model.snapshot_for_probe)
+            self.controller.refresh_slot_stats(targets)
         except Exception:
             logger.exception("_refresh_slot_stats_worker: unhandled exception")
         finally:
@@ -830,8 +831,31 @@ class DashboardApp(App[None]):
             self.controller.cancel_pending_prompt()
         else:
             self.last_build_backend = result.backends[0] if result.backends else "sycl"
-            self.controller.handle_build_selection(result.backends, result.options)
+            self.start_build(result.backends, options=result.options)
         self.refresh_dashboard()
+
+    def start_build(
+        self,
+        backends: list[str],
+        options: dict[str, Any] | None = None,
+        wizard: Any = None,  # BuildModalScreen | None
+    ) -> None:
+        """Reserve build state on the UI thread, then run the pipeline on a worker.
+
+        Owning the thread here (rather than in the controller) keeps the build
+        visible to ``self.workers``: shutdown joins it, so the pipeline's lock
+        release actually runs instead of being skipped by a killed daemon thread.
+        """
+        if self.controller.build_in_progress:
+            self.notify("A build is already running.", title="Build", severity="warning")
+            return
+        self.controller.begin_build(backends, options=options, wizard=wizard)
+        self._run_build_worker(backends, wizard)
+
+    @work(thread=True, group="build")
+    def _run_build_worker(self, backends: list[str], wizard: Any) -> None:
+        """Run the build pipeline off the UI thread."""
+        self.controller.run_build_loop(backends, wizard)
 
     async def _reconcile_server_log_panels(self) -> None:
         """Ensure ServerLogPanel widgets match the current slot count."""
