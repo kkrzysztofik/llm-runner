@@ -51,11 +51,12 @@ class LogBuffer:
         """Remove all buffered lines.
 
         Thread-safe: acquires ``self.lock`` before clearing ``self.lines``.
-        Does not reset the monotonic sequence counter — consumers use
-        ``get_lines_since`` and treat a full snapshot as a reload.
+        Advances the monotonic sequence counter so caught-up consumers see a
+        change via ``get_lines_since`` and can reload (typically to empty).
         """
         with self.lock:
             self.lines.clear()
+            self._seq += 1
 
     def stop(self) -> None:
         """Signal the buffer to stop accepting new lines.

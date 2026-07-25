@@ -1113,6 +1113,50 @@ class TestDashboardAppActionHandlers:
         exit_mock.assert_called_once()
         assert polls["n"] >= 3
 
+    def test_begin_slot_operation_rejects_after_shutdown_intent(self) -> None:
+        """Shutdown latch set between free-lane check and start must block new slot ops."""
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app.notify = MagicMock()  # type: ignore[method-assign]
+
+        assert app._slot_operation_active is False
+        app._shutdown_worker_active = True
+
+        assert app._begin_slot_operation("add slot") is False
+        assert app._slot_operation_active is False
+        app.notify.assert_called_once()
+        assert "Shutdown in progress" in app.notify.call_args.args[0]
+
+    def test_run_shutdown_proceeds_after_slot_op_wait_timeout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stuck slot ops must not block shutdown forever."""
+        from llama_cli.tui import textual_app as textual_app_mod
+
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        app._slot_operation_active = True
+        exit_mock = MagicMock()
+        monkeypatch.setattr(textual_app_mod, "_SHUTDOWN_SLOT_OP_WAIT_S", 0.0)
+        monkeypatch.setattr(textual_app_mod.time, "sleep", lambda _s: None)
+
+        def _call_from_thread(fn: object, *args: object, **kwargs: object) -> object:
+            if fn is exit_mock:
+                return exit_mock(*args, **kwargs)
+            if callable(fn) and not args and not kwargs:
+                return fn()  # type: ignore[operator]
+            if callable(fn):
+                return fn(*args, **kwargs)  # type: ignore[operator]
+            return None
+
+        app.call_from_thread = _call_from_thread  # type: ignore[method-assign]
+        app.exit = exit_mock  # type: ignore[assignment]
+
+        DashboardApp._run_shutdown.__wrapped__(app, True)  # type: ignore[attr-defined]
+
+        controller._graceful_shutdown.assert_called_once()
+        exit_mock.assert_called_once()
+
     def test_action_refresh_dashboard_calls_refresh(self) -> None:
         """action_refresh_dashboard should call controller.refresh_display and refresh."""
         controller = _make_controller()
@@ -1189,6 +1233,43 @@ class TestDashboardAppActionHandlers:
         DashboardApp.action_manage_profiles.__wrapped__(app)  # type: ignore[attr-defined]
 
         app.push_screen.assert_called_once()
+
+    def test_cancelled_manage_profiles_open_skipped_after_invalidation(self) -> None:
+        """A stale manage-profiles open must not push after profile-stats starts."""
+        controller = _make_controller()
+        controller.list_slot_profiles.return_value = []
+        controller.is_profile_in_use.return_value = False
+        controller.load_model_index.return_value = []
+        app = DashboardApp(controller)
+        app.push_screen = MagicMock()  # type: ignore[assignment]
+        deferred_opens: list[object] = []
+
+        def call_from_thread(fn: object, *args: object, **kwargs: object) -> object:
+            if callable(fn) and getattr(fn, "__name__", "") == "_open":
+                deferred_opens.append(fn)
+                return None
+            if callable(fn):
+                return fn(*args, **kwargs)  # type: ignore[operator]
+            return None
+
+        app.call_from_thread = call_from_thread  # type: ignore[method-assign]
+
+        DashboardApp.action_manage_profiles.__wrapped__(app)  # type: ignore[attr-defined]
+        assert deferred_opens
+        app._mark_profiles_screen_complete()
+        deferred_opens[0]()  # type: ignore[operator]
+
+        app.push_screen.assert_not_called()
+
+    def test_handle_profiles_screen_result_marks_complete(self) -> None:
+        """Dismissing ProfilesScreen should invalidate the profiles-screen token."""
+        controller = _make_controller()
+        app = DashboardApp(controller)
+        token = app._claim_profiles_screen_token()
+
+        app._handle_profiles_screen_result(None)
+
+        assert app._profiles_screen_token != token
 
 
 class TestDashboardAppModalResults:

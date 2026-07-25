@@ -1038,16 +1038,22 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
     def _flush_build_output_buffer(self) -> None:  # pragma: no cover
         """Timer callback: write batched compiler lines to the log."""
         self._output_flush_pending = False
+        if (
+            not self._screen_can_apply_status()
+            or self._build_log is None
+            or not self._build_log.is_mounted
+        ):
+            # Keep queued lines until the log widget is ready again.
+            if self._pending_output_lines and not self._output_flush_pending:
+                self._output_flush_pending = True
+                self.set_timer(0.08, self._flush_build_output_buffer)
+            return
         batch: list[str] = []
         try:
             while True:
                 batch.append(self._pending_output_lines.popleft())
         except IndexError:
             pass
-        if not self._screen_can_apply_status() or self._build_log is None:
-            return
-        if not self._build_log.is_mounted:
-            return
         for line in batch:
             self._build_log.write(_rich_build_output_line(line))
         if self._pending_output_lines and not self._output_flush_pending:

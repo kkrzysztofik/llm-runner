@@ -217,17 +217,15 @@ class DashboardController:
                 if updated.get(cfg.alias) != stats:
                     updated[cfg.alias] = stats
                     changed = True
-                profile_id = profile_id_by_alias.get(cfg.alias)
-                if profile_id is not None:
-                    profile_stats = update_profile_stats(
-                        profile_stats,
-                        profile_id,
-                        self._profile_stats_session_id(cfg.alias),
-                        stats,
-                    )
-                    # Slot snapshot equality already gated persistence above; profile
-                    # aggregates are updated only when we have a fresh slot snapshot.
-                    profile_stats_changed = True
+                    profile_id = profile_id_by_alias.get(cfg.alias)
+                    if profile_id is not None:
+                        profile_stats = update_profile_stats(
+                            profile_stats,
+                            profile_id,
+                            self._profile_stats_session_id(cfg.alias),
+                            stats,
+                        )
+                        profile_stats_changed = True
             except Exception:
                 logger.exception("refresh_slot_stats: failed to collect for %s", cfg.alias)
         if changed:

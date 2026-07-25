@@ -40,6 +40,8 @@ from .components.system_status import SystemStatusWidget
 from .types import BuildWizardResult, MemoryUsageSnapshot, ServerColumnState, SystemInfoSnapshot
 
 _CONTENT_CONTAINER_ID = "#content"
+# Bound wait for in-flight add/remove before quit/restart cleanup proceeds.
+_SHUTDOWN_SLOT_OP_WAIT_S = 30.0
 
 # ---------------------------------------------------------------------------
 # Extracted pure helper: profile options caching
@@ -123,6 +125,7 @@ class DashboardApp(App[None]):
         self._slot_stats_refresh_active = False
         self._slot_operation_active = False
         self._shutdown_worker_active = False
+        self._profiles_screen_token = 0
         self._pending_remove_slot_alias: str | None = None
         self.last_build_backend: str = "sycl"
 
@@ -354,7 +357,11 @@ class DashboardApp(App[None]):
             self._dispatch_shutdown(exit_app=True)
 
     def _dispatch_shutdown(self, *, exit_app: bool = True) -> None:
-        """Start the slot-ops shutdown worker once; ignore duplicate quit requests."""
+        """Start the slot-ops shutdown worker once; ignore duplicate quit requests.
+
+        Sets the UI-thread shutdown-intent latch before dispatching so add/remove
+        slot entry points reject new work while shutdown is in progress.
+        """
         if self._shutdown_worker_active:
             return
         self._shutdown_worker_active = True
@@ -367,7 +374,14 @@ class DashboardApp(App[None]):
     def _run_shutdown(self, exit_app: bool = True) -> None:
         """Wait for in-flight slot ops, then run graceful shutdown off the UI thread."""
         try:
+            deadline = time.monotonic() + _SHUTDOWN_SLOT_OP_WAIT_S
             while self.call_from_thread(lambda: self._slot_operation_active):
+                if time.monotonic() >= deadline:
+                    logger.warning(
+                        "_run_shutdown: slot operation still active after %.1fs; proceeding",
+                        _SHUTDOWN_SLOT_OP_WAIT_S,
+                    )
+                    break
                 time.sleep(0.05)
             self.controller._graceful_shutdown()
             if exit_app:
@@ -419,11 +433,21 @@ class DashboardApp(App[None]):
     def action_about(self) -> None:
         self.push_screen(AboutModal())
 
+    def _claim_profiles_screen_token(self) -> int:
+        """Claim a token so only the current profiles action may push ProfilesScreen."""
+        self._profiles_screen_token += 1
+        return self._profiles_screen_token
+
+    def _mark_profiles_screen_complete(self) -> None:
+        """Invalidate pending profiles-screen open callbacks."""
+        self._profiles_screen_token += 1
+
     @work(thread=True, exclusive=True, group="profile-screen")
     def action_manage_profiles(self) -> None:
         """Open the profiles management screen (I/O off the UI thread)."""
         from .components.profiles_screen import ProfilesScreen
 
+        token = self.call_from_thread(self._claim_profiles_screen_token)
         profiles = self.controller.list_slot_profiles()
         in_use_ids = {
             spec.profile_id
@@ -433,6 +457,8 @@ class DashboardApp(App[None]):
         model_index = self.controller.load_model_index()
 
         def _open() -> None:
+            if token != self._profiles_screen_token:
+                return
             self.push_screen(
                 ProfilesScreen(profiles=profiles, in_use_ids=in_use_ids, model_index=model_index),
                 self._handle_profiles_screen_result,
@@ -443,6 +469,8 @@ class DashboardApp(App[None]):
     @work(thread=True, exclusive=True, group="profile-screen")
     def action_profile_stats(self) -> None:
         """Open the read-only profile aggregate stats screen (I/O off the UI thread)."""
+        # Invalidate any cancelled manage-profiles open callback before pushing stats.
+        self.call_from_thread(self._mark_profiles_screen_complete)
 
         stats_by_profile = load_profile_stats()
         profiles = self.controller.list_slot_profiles()
@@ -459,6 +487,7 @@ class DashboardApp(App[None]):
 
     def _handle_profiles_screen_result(self, result: dict | None) -> None:
         """Handle result from the ProfilesScreen."""
+        self._mark_profiles_screen_complete()
         if result is None:
             return
 
@@ -603,6 +632,13 @@ class DashboardApp(App[None]):
 
     def _begin_slot_operation(self, action: str) -> bool:
         """Reserve the slot lifecycle worker lane."""
+        if self._shutdown_worker_active:
+            self.notify(
+                f"Shutdown in progress; cannot {action}.",
+                title="Slot",
+                severity="warning",
+            )
+            return False
         if self._slot_operation_active:
             self.notify(
                 f"Slot operation already running; cannot {action}.",

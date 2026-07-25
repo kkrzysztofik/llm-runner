@@ -69,6 +69,16 @@ class TestGetLinesSince:
         assert seq2 == seq
         assert delta == []
 
+    def test_clear_advances_seq_for_caught_up_consumer(self) -> None:
+        """clear() must bump seq so caught-up consumers reload an empty buffer."""
+        buf = LogBuffer(redact_sensitive=False)
+        buf.add_line("stale")
+        seq, _ = buf.get_lines_since(0)
+        buf.clear()
+        new_seq, lines = buf.get_lines_since(seq)
+        assert new_seq > seq
+        assert lines == []
+
 
 # ---------------------------------------------------------------------------
 # TestAddLine

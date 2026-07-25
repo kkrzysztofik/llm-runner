@@ -4,6 +4,7 @@ import json
 import os
 import signal
 import stat
+import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -410,7 +411,9 @@ class TestCleanupServersIdempotency:
             manager.pid_metadata[pid] = time.time() - 60  # 60s old
         return manager
 
-    def test_cleanup_clears_shutting_down_after_completion(self, monkeypatch) -> None:
+    def test_cleanup_clears_shutting_down_after_completion(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """cleanup_servers should clear shutting_down so a later cleanup can run."""
         monkeypatch.setattr(time, "sleep", lambda x: None)
 
@@ -429,17 +432,34 @@ class TestCleanupServersIdempotency:
             manager.cleanup_servers()
             assert manager.shutting_down is False
 
-    def test_cleanup_skips_while_already_in_progress(self, monkeypatch) -> None:
-        """Overlapping cleanup_servers calls should skip while shutting_down is set."""
+    def test_cleanup_skips_while_already_in_progress(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Concurrent cleanup_servers callers: exactly one terminates, the other skips."""
         monkeypatch.setattr(time, "sleep", lambda x: None)
 
         manager = self._make_manager_with_pids([12345])
-        manager.shutting_down = True
-
+        in_cleanup = threading.Event()
+        allow_finish = threading.Event()
         signals_sent: list[int] = []
 
         def track_kill(pid: int, sig: int) -> None:
             signals_sent.append(sig)
+
+        original_clear = manager.clear_risk_acknowledgements
+
+        def hold_while_overlap() -> None:
+            in_cleanup.set()
+            assert allow_finish.wait(timeout=5)
+            original_clear()
+
+        manager.clear_risk_acknowledgements = hold_while_overlap  # type: ignore[method-assign]
+
+        def run_first() -> None:
+            manager.cleanup_servers()
+
+        def run_second() -> None:
+            assert in_cleanup.wait(timeout=5)
+            manager.cleanup_servers()
+            allow_finish.set()
 
         with (
             patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
@@ -452,11 +472,19 @@ class TestCleanupServersIdempotency:
             mock_uids.real = os.getuid()
             mock_proc_obj.uids.return_value = mock_uids
 
-            manager.cleanup_servers()
-            assert signals_sent == []
+            first = threading.Thread(target=run_first)
+            second = threading.Thread(target=run_second)
+            first.start()
+            second.start()
+            first.join(timeout=5)
+            second.join(timeout=5)
+
+            assert signal.SIGTERM in signals_sent
+            assert signals_sent.count(signal.SIGTERM) == 1
             assert any(
                 e["details"] == "already_shutting_down" for e in manager._audit.lifecycle_audit
             )
+            assert manager.shutting_down is False
 
     def test_cleanup_sends_sigterm_before_sigkill(self, monkeypatch) -> None:
         """cleanup_servers should send SIGTERM first, then SIGKILL after delay."""
@@ -1247,11 +1275,11 @@ class TestFullLifecycleAndShutdown:
             manager2.cleanup_servers()
             first_call_count = len(cleanup_signals)
 
-            # Re-entrant: latch cleared after first call, second call may run again
+            # Re-entrant: latch cleared after first call, second call must run again
             manager2.cleanup_servers()
             second_call_count = len(cleanup_signals)
 
-        assert second_call_count >= first_call_count
+        assert second_call_count > first_call_count
         assert manager2.shutting_down is False
 
         # Verify lifecycle audit records shutdown event

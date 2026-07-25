@@ -210,6 +210,35 @@ class TestControllerSlotStats:
             )
         }
 
+    def test_refresh_slot_stats_skips_profile_update_when_snapshot_unchanged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Matching slot snapshots must not rewrite profile aggregates."""
+        from llama_manager.slot_stats import ProfileStatsAggregate, SlotStatsSnapshot
+
+        controller = _make_controller()
+        stats = SlotStatsSnapshot("slot0", 8080, 10.0, tokens_in=10, tokens_out=4)
+        controller.model.apply_slot_stats_snapshot({"slot0": stats})
+        existing_profiles = {"profile0": ProfileStatsAggregate("profile0", updated_at=10.0)}
+        saved_slots = MagicMock()
+        saved_profiles = MagicMock()
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.load_profile_stats",
+            MagicMock(return_value=existing_profiles),
+        )
+        monkeypatch.setattr(
+            "llama_cli.tui.controller.collect_slot_stats",
+            MagicMock(return_value=stats),
+        )
+        monkeypatch.setattr("llama_cli.tui.controller.save_slot_stats", saved_slots)
+        monkeypatch.setattr("llama_cli.tui.controller.save_profile_stats", saved_profiles)
+        controller.resolve_profile_id_for_config = MagicMock(return_value="profile0")  # type: ignore[method-assign]
+
+        controller.refresh_slot_stats()
+
+        saved_slots.assert_not_called()
+        saved_profiles.assert_not_called()
+
     def test_refresh_slot_stats_continues_on_collector_failure(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
