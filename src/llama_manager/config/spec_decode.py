@@ -4,6 +4,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
+_VALID_SPEC_TYPES: frozenset[str] = frozenset({"ngram-mod", "draft-mtp", "draft-dflash"})
+
+
+def spec_type_members(spec_type: str) -> list[str]:
+    """Split a comma-separated ``--spec-type`` value into its members."""
+    return [part.strip() for part in spec_type.split(",") if part.strip()]
+
 
 @dataclass
 class SpeculativeDecodingConfig(dict[str, object]):
@@ -66,12 +73,24 @@ def _validate_speculative_decoding(config: SpeculativeDecodingConfig) -> None:
         raise ValueError("spec_draft_p_min must be non-negative")
     if config.spec_draft_p_min > 1.0:
         raise ValueError("spec_draft_p_min must be <= 1.0")
-    if config.spec_type not in ("", "ngram-mod", "draft-mtp", "draft-dflash"):
-        raise ValueError("spec_type must be '', 'ngram-mod', 'draft-mtp', or 'draft-dflash'")
-    if config.spec_type == "draft-dflash":
-        _validate_dflash_config(config)
+    _validate_spec_type(config)
     if config.spec_dflash_cross_ctx < 0:
         raise ValueError("spec_dflash_cross_ctx must be non-negative")
+
+
+def _validate_spec_type(config: SpeculativeDecodingConfig) -> None:
+    """Validate every member of the comma-separated ``spec_type`` value."""
+    if not config.spec_type:
+        return
+    members = spec_type_members(config.spec_type)
+    known = ", ".join(sorted(_VALID_SPEC_TYPES))
+    if not members:
+        raise ValueError(f"spec_type must be '' or a comma-separated list of: {known}")
+    for member in members:
+        if member not in _VALID_SPEC_TYPES:
+            raise ValueError(f"spec_type must be one of: {known} (got '{member}')")
+    if "draft-dflash" in members:
+        _validate_dflash_config(config)
 
 
 def _validate_dflash_config(config: SpeculativeDecodingConfig) -> None:

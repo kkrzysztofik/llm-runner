@@ -41,6 +41,16 @@ class TestSpecTypeValidation:
         with pytest.raises(ValueError, match="spec_type must be"):
             SpeculativeDecodingConfig(spec_type="unknown-type")
 
+    def test_comma_separated_spec_types_are_accepted(self) -> None:
+        """--spec-type takes a comma-separated list of members."""
+        cfg = SpeculativeDecodingConfig(spec_type="draft-mtp,ngram-mod")
+        assert cfg.spec_type == "draft-mtp,ngram-mod"
+
+    def test_unknown_member_of_spec_type_list_is_rejected(self) -> None:
+        """Every member of the list must be a known spec type."""
+        with pytest.raises(ValueError, match="spec_type"):
+            SpeculativeDecodingConfig(spec_type="draft-mtp,bogus")
+
 
 class TestDFlashDraftSourceValidation:
     """DFlash requires exactly one draft source."""

@@ -273,6 +273,21 @@ class TestBuildServerCmd:
         assert "--draft-min" not in cmd
         assert "--draft-max" not in cmd
 
+    def test_combined_spec_types_emit_both_flag_groups(self) -> None:
+        cmd = build_server_cmd(
+            self._minimal_cfg(
+                spec_type="draft-mtp,ngram-mod",
+                spec_draft_n_max=8,
+                spec_ngram_size_n=12,
+                draft_min=8,
+                draft_max=32,
+            )
+        )
+        assert cmd[cmd.index("--spec-type") + 1] == "draft-mtp,ngram-mod"
+        assert cmd.count("--spec-type") == 1
+        assert cmd[cmd.index("--spec-draft-n-max") + 1] == "8"
+        assert cmd[cmd.index("--spec-ngram-mod-n-match") + 1] == "12"
+
     def test_draft_mtp_spec_flags(self) -> None:
         cmd = build_server_cmd(
             self._minimal_cfg(
