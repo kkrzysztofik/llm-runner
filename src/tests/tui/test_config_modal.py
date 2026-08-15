@@ -58,6 +58,17 @@ _DEFAULT_TO_SERVER_DEFAULTS: dict[str, str] = {
     "default_spec_draft_cache_type_k": "spec_draft_cache_type_k",
     "default_spec_draft_cache_type_v": "spec_draft_cache_type_v",
     "default_spec_draft_device": "spec_draft_device",
+    "default_load_mode": "load_mode",
+    "default_reasoning_preserve": "reasoning_preserve",
+    "default_reasoning_budget_message": "reasoning_budget_message",
+    "default_fit": "fit",
+    "default_ctx_checkpoints": "ctx_checkpoints",
+    "default_temperature": "temperature",
+    "default_top_k": "top_k",
+    "default_top_p": "top_p",
+    "default_min_p": "min_p",
+    "default_presence_penalty": "presence_penalty",
+    "default_repeat_penalty": "repeat_penalty",
 }
 
 # Fields that belong in each sub-dataclass (after stripping prefix).
@@ -333,6 +344,88 @@ class TestConfigModalCollectValues:
         assert payload.default_reasoning_mode == "off"
         assert payload.default_use_jinja is True
         assert payload.default_spec_type == "ngram-mod"
+
+    @pytest.mark.anyio
+    async def test_load_mode_and_reasoning_preserve_defaults(self) -> None:
+        """load_mode and reasoning_preserve should use Select widgets with defaults."""
+        config = _make_config(
+            default_load_mode="mmap",
+            default_reasoning_preserve="on",
+            default_fit="off",
+        )
+        modal = ConfigModal(config)
+        app = ConfigModalHostApp()
+        async with app.run_test() as pilot:
+            await app.push_screen(modal)
+            await pilot.pause()
+            load_mode = modal.query_one("#cfg-default_load_mode", Select)
+            reasoning_preserve = modal.query_one("#cfg-default_reasoning_preserve", Select)
+            fit = modal.query_one("#cfg-default_fit", Select)
+            payload = modal._collect_values()
+
+        assert load_mode.value == "mmap"
+        assert reasoning_preserve.value == "on"
+        assert fit.value == "off"
+        assert payload.default_load_mode == "mmap"
+        assert payload.default_reasoning_preserve == "on"
+        assert payload.default_fit == "off"
+
+    @pytest.mark.anyio
+    async def test_extended_server_defaults_collected(self) -> None:
+        """New flat server_defaults fields should round-trip through _collect_values."""
+        config = _make_config(
+            default_reasoning_budget_message="stop thinking",
+            default_ctx_checkpoints=64,
+            default_temperature=0.7,
+            default_top_k=40,
+            default_top_p=0.9,
+            default_min_p=0.05,
+            default_presence_penalty=1.1,
+            default_repeat_penalty=1.05,
+        )
+        modal = ConfigModal(config)
+        app = ConfigModalHostApp()
+        async with app.run_test() as pilot:
+            await app.push_screen(modal)
+            await pilot.pause()
+            payload = modal._collect_values()
+
+        assert payload.default_reasoning_budget_message == "stop thinking"
+        assert payload.default_ctx_checkpoints == "64"
+        assert payload.default_temperature == "0.7"
+        assert payload.default_top_k == "40"
+        assert payload.default_top_p == "0.9"
+        assert payload.default_min_p == "0.05"
+        assert payload.default_presence_penalty == "1.1"
+        assert payload.default_repeat_penalty == "1.05"
+
+    @pytest.mark.anyio
+    async def test_empty_optional_numeric_fields_collected_as_empty(self) -> None:
+        """Unset sampling/ctx fields should collect as empty strings."""
+        config = _make_config()
+        modal = ConfigModal(config)
+        app = ConfigModalHostApp()
+        async with app.run_test() as pilot:
+            await app.push_screen(modal)
+            await pilot.pause()
+            payload = modal._collect_values()
+
+        assert payload.default_ctx_checkpoints == ""
+        assert payload.default_temperature == ""
+        assert payload.default_top_k == ""
+
+    def test_to_config_updates_optional_fields_none_when_empty(self) -> None:
+        """Empty optional numerics should map to None in config updates."""
+        payload = ConfigPayload(
+            default_ctx_checkpoints="",
+            default_temperature="",
+            default_top_k="",
+        )
+        updates = payload.to_config_updates()
+
+        assert updates["server_defaults.ctx_checkpoints"] is None
+        assert updates["server_defaults.temperature"] is None
+        assert updates["server_defaults.top_k"] is None
 
 
 class TestConfigModalSave:

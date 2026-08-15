@@ -33,6 +33,7 @@ from .enums import (
     VRamRecommendation,
 )
 from .errors import ErrorDetail, MultiValidationError, ValidationException
+from .load_mode import LOAD_MODE_VALUES, resolve_load_mode
 from .persistence import (
     ConfigUpdateResult,
     apply_config_updates,
@@ -75,6 +76,7 @@ from .server import (
     validate_slot_port,
 )
 from .spec_decode import SpeculativeDecodingConfig
+from .tri_state import TRI_STATE_VALUES, resolve_fit, resolve_reasoning_preserve, resolve_tri_state
 
 __all__ = [
     # enums
@@ -94,6 +96,12 @@ __all__ = [
     "ModelSlot",
     "ServerConfig",
     "SpeculativeDecodingConfig",
+    "LOAD_MODE_VALUES",
+    "resolve_load_mode",
+    "TRI_STATE_VALUES",
+    "resolve_tri_state",
+    "resolve_reasoning_preserve",
+    "resolve_fit",
     "detect_duplicate_slots",
     "normalize_slot_id",
     "validate_slot_id",

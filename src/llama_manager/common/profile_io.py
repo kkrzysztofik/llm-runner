@@ -122,9 +122,30 @@ def _profile_lines(profile: dict[str, Any]) -> list[str]:
             f"spec_dflash_cross_ctx = {int(profile.get('spec_dflash_cross_ctx', 0))}",
             f"kv_unified = {str(profile.get('kv_unified', False)).lower()}",
             f"mmproj_offload = {str(profile.get('mmproj_offload', True)).lower()}",
-            f"mmap = {str(profile.get('mmap', True)).lower()}",
-            f"mlock = {str(profile.get('mlock', False)).lower()}",
+            f"load_mode = {json.dumps(profile.get('load_mode', 'auto'))}",
             f"no_host_buffer = {str(profile.get('no_host_buffer', False)).lower()}",
+            f"reasoning_preserve = {json.dumps(profile.get('reasoning_preserve', 'auto'))}",
+            f"reasoning_budget_message = {json.dumps(profile.get('reasoning_budget_message', ''))}",
+            f"fit = {json.dumps(profile.get('fit', 'auto'))}",
         ]
     )
+    _append_optional_int(lines, profile, "ctx_checkpoints")
+    _append_optional_float(lines, profile, "temperature")
+    _append_optional_int(lines, profile, "top_k")
+    _append_optional_float(lines, profile, "top_p")
+    _append_optional_float(lines, profile, "min_p")
+    _append_optional_float(lines, profile, "presence_penalty")
+    _append_optional_float(lines, profile, "repeat_penalty")
     return lines
+
+
+def _append_optional_int(lines: list[str], profile: dict[str, Any], key: str) -> None:
+    value = profile.get(key)
+    if value is not None:
+        lines.append(f"{key} = {int(value)}")
+
+
+def _append_optional_float(lines: list[str], profile: dict[str, Any], key: str) -> None:
+    value = profile.get(key)
+    if value is not None:
+        lines.append(f"{key} = {float(value)}")

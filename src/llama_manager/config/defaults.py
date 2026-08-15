@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .launch_runtime import LaunchRuntimeFields
 from .spec_decode import SpeculativeDecodingConfig
 
 
@@ -113,7 +114,7 @@ class SmokeConfig:
 
 
 @dataclass
-class ServerDefaultsConfig:
+class ServerDefaultsConfig(LaunchRuntimeFields):
     """Server defaults: per-profile (builtin) + template (new profiles)."""
 
     # -- Per-profile defaults (builtin profiles: summary-balanced, qwen35, etc.) --
@@ -173,12 +174,7 @@ class ServerDefaultsConfig:
     spec_draft_ngl: int | str = ""
     spec_dflash_cross_ctx: int = 0
 
-    # -- BeeLlama runtime defaults --
-    kv_unified: bool = False
-    mmproj_offload: bool = True
-    mmap: bool = True
-    mlock: bool = False
-    no_host_buffer: bool = False
+    # -- BeeLlama / modern llama-server runtime defaults live on LaunchRuntimeFields --
 
     @property
     def spec_decode(self) -> SpeculativeDecodingConfig:

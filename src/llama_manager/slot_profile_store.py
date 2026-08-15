@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from .common.profile_io import read_profile_toml, write_profile_toml
+from .config.load_mode import resolve_load_mode
 from .config.profiles import SlotProfileSpec
+from .config.tri_state import resolve_fit, resolve_reasoning_preserve
 
 logger = logging.getLogger(__name__)
 
@@ -152,9 +154,18 @@ def _profile_to_dict(profile: SlotProfileSpec) -> dict[str, Any]:
         "spec_dflash_cross_ctx": spec.spec_dflash_cross_ctx,
         "kv_unified": profile.kv_unified,
         "mmproj_offload": profile.mmproj_offload,
-        "mmap": profile.mmap,
-        "mlock": profile.mlock,
+        "load_mode": profile.load_mode,
         "no_host_buffer": profile.no_host_buffer,
+        "reasoning_preserve": profile.reasoning_preserve,
+        "reasoning_budget_message": profile.reasoning_budget_message,
+        "fit": profile.fit,
+        "ctx_checkpoints": profile.ctx_checkpoints,
+        "temperature": profile.temperature,
+        "top_k": profile.top_k,
+        "top_p": profile.top_p,
+        "min_p": profile.min_p,
+        "presence_penalty": profile.presence_penalty,
+        "repeat_penalty": profile.repeat_penalty,
     }
 
 
@@ -205,9 +216,18 @@ def _profile_from_dict(data: dict[str, Any]) -> SlotProfileSpec:
         spec_dflash_cross_ctx=int(data.get("spec_dflash_cross_ctx", 0)),
         kv_unified=data.get("kv_unified", False),
         mmproj_offload=data.get("mmproj_offload", True),
-        mmap=data.get("mmap", True),
-        mlock=data.get("mlock", False),
+        load_mode=resolve_load_mode(data),
         no_host_buffer=data.get("no_host_buffer", False),
+        reasoning_preserve=resolve_reasoning_preserve(data),
+        reasoning_budget_message=data.get("reasoning_budget_message", ""),
+        fit=resolve_fit(data),
+        ctx_checkpoints=data.get("ctx_checkpoints"),
+        temperature=data.get("temperature"),
+        top_k=data.get("top_k"),
+        top_p=data.get("top_p"),
+        min_p=data.get("min_p"),
+        presence_penalty=data.get("presence_penalty"),
+        repeat_penalty=data.get("repeat_penalty"),
     )
 
 

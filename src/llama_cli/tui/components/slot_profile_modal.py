@@ -11,14 +11,20 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Collapsible, Input, Label, ListItem, ListView, Select
 
 from llama_manager.config import Config
+from llama_manager.config.launch_runtime import LaunchRuntimeFields
+from llama_manager.config.load_mode import LOAD_MODE_VALUES
 from llama_manager.config.profiles import SlotProfileSpec
 from llama_manager.config.spec_decode import SpeculativeDecodingConfig
+from llama_manager.config.tri_state import TRI_STATE_VALUES
 from llama_manager.model_index import ModelIndexEntry
 
 from .form_widgets import (
+    FIT_CHOICES,
+    LOAD_MODE_CHOICES,
     MODAL_CANCEL_BINDINGS,
     REASONING_FORMAT_CHOICES,
     REASONING_MODE_CHOICES,
+    REASONING_PRESERVE_CHOICES,
     ROW_CLASSES,
     ROW_SELECT_CLASSES,
     SELECT_CLASSES,
@@ -29,6 +35,7 @@ from .form_widgets import (
     field_row,
     select_row,
 )
+from .model_details import model_detail_parts
 
 _DEFAULT_DEVICE = "CUDA:0"
 
@@ -66,7 +73,7 @@ _SPEC_FIELDS_BY_TYPE = {
 
 
 @dataclass
-class SlotProfilePayload:
+class SlotProfilePayload(LaunchRuntimeFields):
     """Payload from the slot profile modal."""
 
     profile_id: str = ""
@@ -108,13 +115,13 @@ class SlotProfilePayload:
     spec_draft_hf: str = ""
     spec_draft_ngl: int | str = ""
     spec_dflash_cross_ctx: int = 0
-    kv_unified: bool = False
-    mmproj_offload: bool = True
-    mmap: bool = True
-    mlock: bool = False
-    no_host_buffer: bool = False
     save_and_add_slot: bool = False
     original_profile_id: str = ""  # filled for edits
+
+
+def _optional_numeric_display(value: int | float | None) -> str:
+    """Format optional numeric values as empty profile inputs when unset."""
+    return "" if value is None else str(value)
 
 
 def _parse_n_gpu_layers(raw: str) -> int | str:
@@ -323,7 +330,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         """Show model selection and metadata in stable plain labels."""
         self.query_one("#profile-selected-model", Label).update(_selected_model_text(entry.path))
         details = self.query_one("#profile-model-details", Label)
-        parts = _model_detail_parts(entry)
+        parts = model_detail_parts(entry)
         details.update("  |  ".join(parts))
         details.styles.display = "block" if parts else "none"
 
@@ -344,6 +351,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
     def _profile_to_prefill(self, spec: SlotProfileSpec) -> dict[str, str]:
         """Convert SlotProfileSpec to prefill dict for form fields."""
         spec_decode = spec.spec_decode
+        runtime = spec.launch_runtime
         return {
             "profile-id": spec.profile_id,
             "label": spec.alias if spec.alias != spec.profile_id else "",
@@ -354,15 +362,15 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "ubatch-size": str(spec.ubatch_size),
             "n-gpu-layers": str(spec.n_gpu_layers),
             "threads": str(spec.threads),
-            "chat-template-kwargs": (
-                spec.chat_template_kwargs if spec.chat_template_kwargs else "{}"
-            ),
+            "chat-template-kwargs": spec.chat_template_kwargs,
             "device": spec.device or _DEFAULT_DEVICE,
             "bind-address": spec.bind_address,
             "tensor-split": spec.tensor_split,
             "reasoning-mode": spec_decode.reasoning_mode,
             "reasoning-format": spec_decode.reasoning_format,
             "reasoning-budget": spec_decode.reasoning_budget,
+            "reasoning-preserve": runtime.reasoning_preserve,
+            "reasoning-budget-message": runtime.reasoning_budget_message,
             "use-jinja": "true" if spec.use_jinja else "false",
             "cache-type-k": spec.cache_type_k,
             "cache-type-v": spec.cache_type_v,
@@ -386,11 +394,18 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "spec-draft-hf": spec_decode.spec_draft_hf,
             "spec-draft-ngl": str(spec_decode.spec_draft_ngl),
             "spec-dflash-cross-ctx": str(spec_decode.spec_dflash_cross_ctx),
-            "kv-unified": "true" if spec.kv_unified else "false",
-            "mmproj-offload": "true" if spec.mmproj_offload else "false",
-            "mmap": "true" if spec.mmap else "false",
-            "mlock": "true" if spec.mlock else "false",
-            "no-host-buffer": "true" if spec.no_host_buffer else "false",
+            "kv-unified": "true" if runtime.kv_unified else "false",
+            "mmproj-offload": "true" if runtime.mmproj_offload else "false",
+            "load-mode": runtime.load_mode,
+            "no-host-buffer": "true" if runtime.no_host_buffer else "false",
+            "fit": runtime.fit,
+            "ctx-checkpoints": _optional_numeric_display(runtime.ctx_checkpoints),
+            "temperature": _optional_numeric_display(runtime.temperature),
+            "top-k": _optional_numeric_display(runtime.top_k),
+            "top-p": _optional_numeric_display(runtime.top_p),
+            "min-p": _optional_numeric_display(runtime.min_p),
+            "presence-penalty": _optional_numeric_display(runtime.presence_penalty),
+            "repeat-penalty": _optional_numeric_display(runtime.repeat_penalty),
         }
 
     def action_cancel(self) -> None:
@@ -398,21 +413,42 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         self.dismiss(None)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Route button presses to collect values and dismiss."""
+        """Route button presses to validated collection and dismissal."""
         if event.button.id == "cancel-profile":
             self.dismiss(None)
         elif event.button.id == "save-profile":
-            self.dismiss(self._collect_values(save_and_add_slot=False))
+            self._dismiss_if_valid(save_and_add_slot=False)
         elif event.button.id == "save-add-profile":
-            self.dismiss(self._collect_values(save_and_add_slot=True))
+            self._dismiss_if_valid(save_and_add_slot=True)
+
+    def _dismiss_if_valid(self, *, save_and_add_slot: bool) -> None:
+        """Dismiss with collected values only when all typed fields are valid."""
+        try:
+            values = self._collect_values(save_and_add_slot=save_and_add_slot)
+        except ValueError as exc:
+            self.notify(str(exc), severity="error")
+            return
+        self.dismiss(values)
 
     def _collect_values(self, *, save_and_add_slot: bool = False) -> SlotProfilePayload:
-        """Read all Input widgets and return a typed payload."""
+        """Read all form widgets and return a typed payload."""
         ngl_raw = self.query_one("#profile-n-gpu-layers", Input).value.strip()
         ngl_val = _parse_n_gpu_layers(ngl_raw)
 
         device_select = self.query_one("#profile-device", Select)
         device_val = str(device_select.value) if device_select.value else _DEFAULT_DEVICE
+        load_mode = str(self.query_one("#profile-load-mode", Select).value or "auto")
+        reasoning_preserve = str(
+            self.query_one("#profile-reasoning-preserve", Select).value or "auto"
+        )
+        fit = str(self.query_one("#profile-fit", Select).value or "auto")
+        self._validate_enum("load mode", load_mode, LOAD_MODE_VALUES)
+        self._validate_enum("reasoning preserve", reasoning_preserve, TRI_STATE_VALUES)
+        self._validate_enum("fit", fit, TRI_STATE_VALUES)
+
+        ctx_checkpoints = self._parse_optional_int("profile-ctx-checkpoints")
+        if ctx_checkpoints is not None and ctx_checkpoints < 0:
+            raise ValueError("Ctx checkpoints must be non-negative")
 
         return SlotProfilePayload(
             profile_id=self.query_one("#profile-profile-id", Input).value.strip(),
@@ -436,6 +472,10 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
                 self.query_one("#profile-reasoning-format", Select).value or "none"
             ),
             reasoning_budget=self.query_one("#profile-reasoning-budget", Input).value.strip(),
+            reasoning_preserve=reasoning_preserve,
+            reasoning_budget_message=self.query_one(
+                "#profile-reasoning-budget-message", Input
+            ).value.strip(),
             use_jinja=self.query_one("#profile-use-jinja", Checkbox).value,
             cache_type_k=str(self.query_one("#profile-cache-type-k", Select).value or "q8_0"),
             cache_type_v=str(self.query_one("#profile-cache-type-v", Select).value or "q8_0"),
@@ -465,9 +505,16 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             spec_dflash_cross_ctx=self._parse_int("profile-spec-dflash-cross-ctx", 0),
             kv_unified=self.query_one("#profile-kv-unified", Checkbox).value,
             mmproj_offload=self.query_one("#profile-mmproj-offload", Checkbox).value,
-            mmap=self.query_one("#profile-mmap", Checkbox).value,
-            mlock=self.query_one("#profile-mlock", Checkbox).value,
+            load_mode=load_mode,
             no_host_buffer=self.query_one("#profile-no-host-buffer", Checkbox).value,
+            fit=fit,
+            ctx_checkpoints=ctx_checkpoints,
+            temperature=self._parse_optional_float("profile-temperature"),
+            top_k=self._parse_optional_int("profile-top-k"),
+            top_p=self._parse_optional_float("profile-top-p"),
+            min_p=self._parse_optional_float("profile-min-p"),
+            presence_penalty=self._parse_optional_float("profile-presence-penalty"),
+            repeat_penalty=self._parse_optional_float("profile-repeat-penalty"),
             save_and_add_slot=save_and_add_slot,
             original_profile_id=(self._profile.profile_id if self._profile else ""),
         )
@@ -492,6 +539,36 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         except ValueError:
             return default
 
+    def _parse_optional_int(self, field_id: str) -> int | None:
+        """Parse an optional integer, preserving an empty input as None."""
+        raw = self.query_one(f"#{field_id}", Input).value.strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid integer for {field_id.removeprefix('profile-')}: {raw!r}"
+            ) from exc
+
+    def _parse_optional_float(self, field_id: str) -> float | None:
+        """Parse an optional float, preserving an empty input as None."""
+        raw = self.query_one(f"#{field_id}", Input).value.strip()
+        if not raw:
+            return None
+        try:
+            return float(raw)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid number for {field_id.removeprefix('profile-')}: {raw!r}"
+            ) from exc
+
+    @staticmethod
+    def _validate_enum(label: str, value: str, allowed: frozenset[str]) -> None:
+        """Reject values outside a profile enum's supported set."""
+        if value not in allowed:
+            raise ValueError(f"Invalid {label}: {value!r}")
+
 
 def _build_form_fields(
     prefill: dict[str, str] | None = None,
@@ -506,20 +583,17 @@ def _build_form_fields(
         _model_row(model_index or [], p.get("model", ""), config),
         _device_row(p.get("device", _DEFAULT_DEVICE)),
         field_row("Context Size", "ctx-size", p.get("ctx-size", ""), type="number"),
-        _build_advanced_fields(p),
+        _build_runtime_fields(p),
+        _build_memory_fields(p),
+        _build_reasoning_fields(p),
+        _build_sampling_fields(p),
         _build_speculative_fields(p),
-        field_row(
-            "Chat Template Kwargs (JSON, optional)",
-            "chat-template-kwargs",
-            p.get("chat-template-kwargs", "{}"),
-        ),
         classes="modal-scroll-body profile-scroll-body",
     )
 
 
-def _build_advanced_fields(prefill: dict[str, str]) -> Collapsible:
-    """Build the collapsed advanced section for optional profile tuning fields."""
-    use_jinja = prefill.get("use-jinja", "false").lower() in ("1", "true", "yes", "on")
+def _build_runtime_fields(prefill: dict[str, str]) -> Collapsible:
+    """Build runtime launch and batching controls."""
     return Collapsible(
         field_row("Server Binary (optional)", "server-bin", prefill.get("server-bin", "")),
         field_row("Port", "port", prefill.get("port", ""), type="number"),
@@ -550,6 +624,56 @@ def _build_advanced_fields(prefill: dict[str, str]) -> Collapsible:
         ),
         cache_type_row("Cache Type K", "cache-type-k", prefill.get("cache-type-k", "q8_0")),
         cache_type_row("Cache Type V", "cache-type-v", prefill.get("cache-type-v", "q8_0")),
+        field_row("MMProj (optional)", "mmproj", prefill.get("mmproj", "")),
+        checkbox_row(
+            "MMProj Offload",
+            "mmproj-offload",
+            prefill.get("mmproj-offload", "true").lower() in ("1", "true", "yes", "on"),
+        ),
+        checkbox_row(
+            "Unified KV",
+            "kv-unified",
+            prefill.get("kv-unified", "false").lower() in ("1", "true", "yes", "on"),
+        ),
+        title="Runtime",
+        collapsed=True,
+        id="profile-runtime-collapsible",
+        classes="profile-advanced-options profile-runtime-options",
+    )
+
+
+def _build_memory_fields(prefill: dict[str, str]) -> Collapsible:
+    """Build model loading and memory controls."""
+    return Collapsible(
+        select_row(
+            "Load Mode",
+            "load-mode",
+            LOAD_MODE_CHOICES,
+            prefill.get("load-mode", "auto"),
+        ),
+        checkbox_row(
+            "No Host Buffer",
+            "no-host-buffer",
+            prefill.get("no-host-buffer", "false").lower() in ("1", "true", "yes", "on"),
+        ),
+        select_row("Fit", "fit", FIT_CHOICES, prefill.get("fit", "auto")),
+        field_row(
+            "Context Checkpoints",
+            "ctx-checkpoints",
+            prefill.get("ctx-checkpoints", ""),
+            type="integer",
+        ),
+        title="Memory",
+        collapsed=True,
+        id="profile-memory-collapsible",
+        classes="profile-advanced-options profile-memory-options",
+    )
+
+
+def _build_reasoning_fields(prefill: dict[str, str]) -> Collapsible:
+    """Build reasoning and chat-template controls."""
+    use_jinja = prefill.get("use-jinja", "false").lower() in ("1", "true", "yes", "on")
+    return Collapsible(
         select_row(
             "Reasoning Mode",
             "reasoning-mode",
@@ -563,33 +687,53 @@ def _build_advanced_fields(prefill: dict[str, str]) -> Collapsible:
             prefill.get("reasoning-format", "none"),
         ),
         field_row("Reasoning Budget", "reasoning-budget", prefill.get("reasoning-budget", "")),
+        select_row(
+            "Reasoning Preserve",
+            "reasoning-preserve",
+            REASONING_PRESERVE_CHOICES,
+            prefill.get("reasoning-preserve", "auto"),
+        ),
+        field_row(
+            "Reasoning Budget Message",
+            "reasoning-budget-message",
+            prefill.get("reasoning-budget-message", ""),
+        ),
         checkbox_row("Use Jinja", "use-jinja", use_jinja),
-        field_row("MMProj (optional)", "mmproj", prefill.get("mmproj", "")),
-        checkbox_row(
-            "Unified KV",
-            "kv-unified",
-            prefill.get("kv-unified", "false").lower() in ("1", "true", "yes", "on"),
+        field_row(
+            "Chat Template Kwargs (JSON, optional)",
+            "chat-template-kwargs",
+            prefill.get("chat-template-kwargs", ""),
         ),
-        checkbox_row(
-            "MMProj Offload",
-            "mmproj-offload",
-            prefill.get("mmproj-offload", "true").lower() in ("1", "true", "yes", "on"),
-        ),
-        checkbox_row(
-            "MMap", "mmap", prefill.get("mmap", "true").lower() in ("1", "true", "yes", "on")
-        ),
-        checkbox_row(
-            "MLock", "mlock", prefill.get("mlock", "false").lower() in ("1", "true", "yes", "on")
-        ),
-        checkbox_row(
-            "No Host Buffer",
-            "no-host-buffer",
-            prefill.get("no-host-buffer", "false").lower() in ("1", "true", "yes", "on"),
-        ),
-        title="Advanced",
+        title="Reasoning",
         collapsed=True,
-        id="profile-advanced-collapsible",
-        classes="profile-advanced-options",
+        id="profile-reasoning-collapsible",
+        classes="profile-advanced-options profile-reasoning-options",
+    )
+
+
+def _build_sampling_fields(prefill: dict[str, str]) -> Collapsible:
+    """Build optional sampling defaults; empty inputs remain unset."""
+    return Collapsible(
+        field_row("Temperature", "temperature", prefill.get("temperature", ""), type="number"),
+        field_row("Top K", "top-k", prefill.get("top-k", ""), type="integer"),
+        field_row("Top P", "top-p", prefill.get("top-p", ""), type="number"),
+        field_row("Min P", "min-p", prefill.get("min-p", ""), type="number"),
+        field_row(
+            "Presence Penalty",
+            "presence-penalty",
+            prefill.get("presence-penalty", ""),
+            type="number",
+        ),
+        field_row(
+            "Repeat Penalty",
+            "repeat-penalty",
+            prefill.get("repeat-penalty", ""),
+            type="number",
+        ),
+        title="Sampling",
+        collapsed=True,
+        id="profile-sampling-collapsible",
+        classes="profile-advanced-options profile-sampling-options",
     )
 
 
@@ -676,8 +820,9 @@ def _build_speculative_fields(prefill: dict[str, str]) -> Collapsible:
             type="number",
             row_classes=_spec_field_row_classes("spec-dflash-cross-ctx"),
         ),
-        title="Speculative decoding",
+        title="Speculative",
         collapsed=True,
+        id="profile-speculative-collapsible",
         classes="profile-advanced-options profile-speculative-options",
     )
 
@@ -787,33 +932,17 @@ def _relative_model_path(path: str, config: Config | None = None) -> str:
     return model_path.name
 
 
-def _model_detail_parts(entry: ModelIndexEntry) -> list[str]:
-    """Return compact model metadata parts for the modal details label."""
-    parts = []
-    if entry.architecture:
-        parts.append(f"Arch: {entry.architecture}")
-    if entry.quantization_type:
-        parts.append(f"Quant: {entry.quantization_type}")
-    max_context_length = entry.max_context_length or entry.context_length
-    if max_context_length:
-        parts.append(f"Max Ctx: {max_context_length}")
-    if entry.file_size_bytes:
-        size_gib = entry.file_size_bytes / (1024**3)
-        parts.append(f"Size: {size_gib:.1f} GiB")
-    if entry.parse_error:
-        parts.append(f"Metadata: {_short_parse_error(entry.parse_error)}")
-    return parts
-
-
-def _short_parse_error(error: str) -> str:
-    """Convert long parse exceptions into a UI-sized message."""
-    if "timed out after" in error:
-        return "parse timed out; using filename/cache fallback"
-    return error.split(" for ", maxsplit=1)[0]
-
-
 def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -> SlotProfileSpec:
-    """Build a ``SlotProfileSpec`` from modal form payload."""
+    """Build a ``SlotProfileSpec`` from a validated modal payload."""
+    if payload.load_mode not in LOAD_MODE_VALUES:
+        raise ValueError(f"Invalid load mode: {payload.load_mode!r}")
+    if payload.reasoning_preserve not in TRI_STATE_VALUES:
+        raise ValueError(f"Invalid reasoning preserve: {payload.reasoning_preserve!r}")
+    if payload.fit not in TRI_STATE_VALUES:
+        raise ValueError(f"Invalid fit: {payload.fit!r}")
+    if payload.ctx_checkpoints is not None and payload.ctx_checkpoints < 0:
+        raise ValueError("Ctx checkpoints must be non-negative")
+
     ngl = payload.n_gpu_layers
     ctk = payload.chat_template_kwargs
     return SlotProfileSpec(
@@ -862,7 +991,16 @@ def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -
         ),
         kv_unified=payload.kv_unified,
         mmproj_offload=payload.mmproj_offload,
-        mmap=payload.mmap,
-        mlock=payload.mlock,
+        load_mode=payload.load_mode,
         no_host_buffer=payload.no_host_buffer,
+        reasoning_preserve=payload.reasoning_preserve,
+        reasoning_budget_message=payload.reasoning_budget_message,
+        fit=payload.fit,
+        ctx_checkpoints=payload.ctx_checkpoints,
+        temperature=payload.temperature,
+        top_k=payload.top_k,
+        top_p=payload.top_p,
+        min_p=payload.min_p,
+        presence_penalty=payload.presence_penalty,
+        repeat_penalty=payload.repeat_penalty,
     )

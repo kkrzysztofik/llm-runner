@@ -354,6 +354,47 @@ def test_profile_to_dict_handles_string_ngl() -> None:
     assert d["n_gpu_layers"] == "all"
 
 
+def test_profile_from_dict_migrates_mmap_mlock() -> None:
+    p = _profile_from_dict(
+        {
+            "profile_id": "t",
+            "model": "/m.gguf",
+            "alias": "t",
+            "device": "cuda:0",
+            "port": 8080,
+            "ctx_size": 4096,
+            "ubatch_size": 512,
+            "threads": 8,
+            "mmap": False,
+            "mlock": True,
+        }
+    )
+    assert p.load_mode == "mlock"
+    d = _profile_to_dict(p)
+    assert d["load_mode"] == "mlock"
+    assert "mmap" not in d and "mlock" not in d
+
+
+def test_profile_from_dict_normalizes_invalid_tri_state() -> None:
+    """Invalid persisted reasoning_preserve/fit values normalize to auto."""
+    p = _profile_from_dict(
+        {
+            "profile_id": "t",
+            "model": "/m.gguf",
+            "alias": "t",
+            "device": "cuda:0",
+            "port": 8080,
+            "ctx_size": 4096,
+            "ubatch_size": 512,
+            "threads": 8,
+            "reasoning_preserve": "bogus",
+            "fit": "yes",
+        }
+    )
+    assert p.reasoning_preserve == "auto"
+    assert p.fit == "auto"
+
+
 def test_profile_from_dict_applies_defaults() -> None:
     """_profile_from_dict should fill in defaults for missing keys."""
     minimal: dict[str, Any] = {
@@ -677,8 +718,7 @@ def test_roundtrip_dflash_fields(xdg_config_home: Path) -> None:
         ),
         kv_unified=True,
         mmproj_offload=True,
-        mmap=False,
-        mlock=True,
+        load_mode="mlock",
         no_host_buffer=True,
         backend="llama_cpp",
     )
@@ -695,8 +735,7 @@ def test_roundtrip_dflash_fields(xdg_config_home: Path) -> None:
     assert lp.spec_decode.reasoning_format == "deepseek"
     assert lp.kv_unified is True
     assert lp.mmproj_offload is True
-    assert lp.mmap is False
-    assert lp.mlock is True
+    assert lp.load_mode == "mlock"
     assert lp.no_host_buffer is True
 
 
@@ -743,8 +782,7 @@ def test_roundtrip_smaller_model_flags(xdg_config_home: Path) -> None:
         threads=16,
         kv_unified=True,
         mmproj_offload=False,
-        mmap=False,
-        mlock=True,
+        load_mode="mlock",
         no_host_buffer=True,
         backend="llama_cpp",
     )
@@ -754,8 +792,7 @@ def test_roundtrip_smaller_model_flags(xdg_config_home: Path) -> None:
     lp = loaded[0]
     assert lp.kv_unified is True
     assert lp.mmproj_offload is False
-    assert lp.mmap is False
-    assert lp.mlock is True
+    assert lp.load_mode == "mlock"
     assert lp.no_host_buffer is True
 
 
@@ -783,8 +820,7 @@ def test_roundtrip_dflash_with_all_smaller_model_flags(xdg_config_home: Path) ->
         ),
         kv_unified=True,
         mmproj_offload=True,
-        mmap=False,
-        mlock=True,
+        load_mode="mlock",
         no_host_buffer=True,
         backend="llama_cpp",
     )
@@ -803,6 +839,5 @@ def test_roundtrip_dflash_with_all_smaller_model_flags(xdg_config_home: Path) ->
     # BeeLlama flags
     assert lp.kv_unified is True
     assert lp.mmproj_offload is True
-    assert lp.mmap is False
-    assert lp.mlock is True
+    assert lp.load_mode == "mlock"
     assert lp.no_host_buffer is True

@@ -10,6 +10,7 @@ from loguru import logger
 
 from ..gpu_telemetry import get_gpu_identifier
 from .defaults import Config, SmokeProbeConfiguration
+from .load_mode import resolve_load_mode
 from .profile_cache import (
     PROFILE_OVERRIDE_FIELDS,
     ProfileFlavor,
@@ -25,6 +26,7 @@ from .profiles import (
 )
 from .server import ServerConfig
 from .spec_decode import SpeculativeDecodingConfig
+from .tri_state import resolve_fit, resolve_reasoning_preserve
 
 _SPEC_DECODE_FIELDS: frozenset[str] = frozenset(
     field.name for field in dataclasses.fields(SpeculativeDecodingConfig)
@@ -153,10 +155,41 @@ def _profile_to_config_data(profile: SlotProfileSpec) -> dict[str, Any]:
         "mmproj": profile.mmproj,
         "kv_unified": profile.kv_unified,
         "mmproj_offload": profile.mmproj_offload,
-        "mmap": profile.mmap,
-        "mlock": profile.mlock,
+        "load_mode": profile.load_mode,
         "no_host_buffer": profile.no_host_buffer,
+        "reasoning_preserve": profile.reasoning_preserve,
+        "reasoning_budget_message": profile.reasoning_budget_message,
+        "fit": profile.fit,
+        "ctx_checkpoints": profile.ctx_checkpoints,
+        "temperature": profile.temperature,
+        "top_k": profile.top_k,
+        "top_p": profile.top_p,
+        "min_p": profile.min_p,
+        "presence_penalty": profile.presence_penalty,
+        "repeat_penalty": profile.repeat_penalty,
     }
+
+
+def _optional_int(value: object) -> int | None:
+    """Coerce optional int fields; blank/None stays unset."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        raise TypeError("bool is not a valid optional int")
+    if isinstance(value, int):
+        return value
+    return int(str(value))
+
+
+def _optional_float(value: object) -> float | None:
+    """Coerce optional float fields; blank/None stays unset."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        raise TypeError("bool is not a valid optional float")
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    return float(str(value))
 
 
 def _config_data_to_server_config(data: dict[str, Any]) -> ServerConfig:
@@ -189,9 +222,18 @@ def _config_data_to_server_config(data: dict[str, Any]) -> ServerConfig:
         mmproj=str(config_data.get("mmproj", "")),
         kv_unified=bool(config_data.get("kv_unified", False)),
         mmproj_offload=bool(config_data.get("mmproj_offload", True)),
-        mmap=bool(config_data.get("mmap", True)),
-        mlock=bool(config_data.get("mlock", False)),
+        load_mode=resolve_load_mode(config_data),
         no_host_buffer=bool(config_data.get("no_host_buffer", False)),
+        reasoning_preserve=resolve_reasoning_preserve(config_data),
+        reasoning_budget_message=str(config_data.get("reasoning_budget_message", "")),
+        fit=resolve_fit(config_data),
+        ctx_checkpoints=_optional_int(config_data.get("ctx_checkpoints")),
+        temperature=_optional_float(config_data.get("temperature")),
+        top_k=_optional_int(config_data.get("top_k")),
+        top_p=_optional_float(config_data.get("top_p")),
+        min_p=_optional_float(config_data.get("min_p")),
+        presence_penalty=_optional_float(config_data.get("presence_penalty")),
+        repeat_penalty=_optional_float(config_data.get("repeat_penalty")),
         spec_decode=SpeculativeDecodingConfig(
             spec_type=str(spec_data.get("spec_type", "")),
             spec_ngram_size_n=int(spec_data.get("spec_ngram_size_n", 0)),
@@ -572,6 +614,18 @@ def merge_config_overrides(
         "server_bin": "",
         "backend": "llama_cpp",
         "risky_acknowledged": [],
+        "load_mode": defaults.server_defaults.load_mode,
+        "no_host_buffer": defaults.server_defaults.no_host_buffer,
+        "reasoning_preserve": defaults.server_defaults.reasoning_preserve,
+        "reasoning_budget_message": defaults.server_defaults.reasoning_budget_message,
+        "fit": defaults.server_defaults.fit,
+        "ctx_checkpoints": defaults.server_defaults.ctx_checkpoints,
+        "temperature": defaults.server_defaults.temperature,
+        "top_k": defaults.server_defaults.top_k,
+        "top_p": defaults.server_defaults.top_p,
+        "min_p": defaults.server_defaults.min_p,
+        "presence_penalty": defaults.server_defaults.presence_penalty,
+        "repeat_penalty": defaults.server_defaults.repeat_penalty,
     }
 
     # Apply precedence order: defaults < slot/workstation < profile < override

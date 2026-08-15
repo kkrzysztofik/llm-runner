@@ -5,6 +5,12 @@ from dataclasses import dataclass, field
 
 from ..common.text import sanitize_filename_component
 from ..common.validators import validate_port_range
+from .launch_runtime import (
+    LaunchRuntimeAttributeMixin,
+    LaunchRuntimeFields,
+    apply_launch_runtime,
+    split_launch_runtime_kwargs,
+)
 from .spec_decode import (
     SpeculativeDecodingConfig,
     SpeculativeDecodingFieldsMixin,
@@ -17,7 +23,7 @@ class SlotProfileError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class SlotProfileSpec(SpeculativeDecodingFieldsMixin):
+class SlotProfileSpec(SpeculativeDecodingFieldsMixin, LaunchRuntimeAttributeMixin):
     """Typed data definition for one launchable llama-server slot profile."""
 
     profile_id: str
@@ -47,11 +53,7 @@ class SlotProfileSpec(SpeculativeDecodingFieldsMixin):
     threads_batch: int = 0
     mmproj: str = ""
     spec_decode: SpeculativeDecodingConfig = field(default_factory=SpeculativeDecodingConfig)
-    kv_unified: bool = False
-    mmproj_offload: bool = True
-    mmap: bool = True
-    mlock: bool = False
-    no_host_buffer: bool = False
+    launch_runtime: LaunchRuntimeFields = field(default_factory=LaunchRuntimeFields)
 
     def __init__(  # noqa: S107 - intentional explicit init with spec-decode overrides
         self,
@@ -98,12 +100,14 @@ class SlotProfileSpec(SpeculativeDecodingFieldsMixin):
         spec_draft_hf: str | None = None,
         spec_draft_ngl: int | str | None = None,
         spec_dflash_cross_ctx: int | None = None,
-        kv_unified: bool | None = None,
-        mmproj_offload: bool | None = None,
-        mmap: bool | None = None,
-        mlock: bool | None = None,
-        no_host_buffer: bool | None = None,
+        **runtime_overrides: object,
     ) -> None:
+        runtime, unexpected = split_launch_runtime_kwargs(runtime_overrides)
+        if unexpected:
+            unexpected_name = next(iter(unexpected))
+            raise TypeError(
+                f"SlotProfileSpec.__init__() got unexpected keyword argument {unexpected_name!r}"
+            )
         object.__setattr__(self, "profile_id", profile_id)
         object.__setattr__(self, "model", model)
         object.__setattr__(self, "alias", alias)
@@ -135,15 +139,7 @@ class SlotProfileSpec(SpeculativeDecodingFieldsMixin):
         except ValueError as exc:
             raise SlotProfileError(str(exc)) from exc
         object.__setattr__(self, "spec_decode", resolved_spec_decode)
-        object.__setattr__(self, "kv_unified", kv_unified if kv_unified is not None else False)
-        object.__setattr__(
-            self, "mmproj_offload", mmproj_offload if mmproj_offload is not None else True
-        )
-        object.__setattr__(self, "mmap", mmap if mmap is not None else True)
-        object.__setattr__(self, "mlock", mlock if mlock is not None else False)
-        object.__setattr__(
-            self, "no_host_buffer", no_host_buffer if no_host_buffer is not None else False
-        )
+        apply_launch_runtime(self, runtime, frozen=True, nested=True)
         self.__post_init__()
 
     def __post_init__(self) -> None:

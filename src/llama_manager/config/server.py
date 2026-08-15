@@ -5,18 +5,21 @@ from dataclasses import dataclass, field
 
 from ..common.validators import validate_port_range
 from .errors import ErrorCode, ErrorDetail
+from .launch_runtime import LaunchRuntimeFields, apply_launch_runtime, split_launch_runtime_kwargs
+from .load_mode import LOAD_MODE_VALUES
 from .spec_decode import (
     SpeculativeDecodingConfig,
     SpeculativeDecodingFieldsMixin,
     resolve_speculative_decoding_config,
 )
+from .tri_state import TRI_STATE_VALUES
 
 # Regex pattern for slot ID normalization: strip, lowercase, allow only a-z0-9_-
 _SLOT_ID_PATTERN = re.compile(r"[^a-z0-9_-]")
 
 
 @dataclass
-class ServerConfig(SpeculativeDecodingFieldsMixin):
+class ServerConfig(SpeculativeDecodingFieldsMixin, LaunchRuntimeFields):
     """Configuration for a single llama.cpp server instance.
 
     Each instance targets a specific GPU device and loads a specific model.
@@ -71,11 +74,6 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
     threads_batch: int = 0
     mmproj: str = ""
     spec_decode: SpeculativeDecodingConfig = field(default_factory=SpeculativeDecodingConfig)
-    kv_unified: bool = False
-    mmproj_offload: bool = True
-    mmap: bool = True
-    mlock: bool = False
-    no_host_buffer: bool = False
 
     def __init__(  # noqa: S107 - intentional explicit init with spec-decode overrides
         self,
@@ -120,12 +118,14 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
         spec_draft_hf: str | None = None,
         spec_draft_ngl: int | str | None = None,
         spec_dflash_cross_ctx: int | None = None,
-        kv_unified: bool | None = None,
-        mmproj_offload: bool | None = None,
-        mmap: bool | None = None,
-        mlock: bool | None = None,
-        no_host_buffer: bool | None = None,
+        **runtime_overrides: object,
     ) -> None:
+        runtime, unexpected = split_launch_runtime_kwargs(runtime_overrides)
+        if unexpected:
+            unexpected_name = next(iter(unexpected))
+            raise TypeError(
+                f"ServerConfig.__init__() got unexpected keyword argument {unexpected_name!r}"
+            )
         self.model = model
         self.alias = alias
         self.device = device
@@ -151,16 +151,7 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
         self.threads_batch = threads_batch
         self.mmproj = mmproj
         self.spec_decode = resolve_speculative_decoding_config(spec_decode, locals())
-        if kv_unified is not None:
-            self.kv_unified = kv_unified
-        if mmproj_offload is not None:
-            self.mmproj_offload = mmproj_offload
-        if mmap is not None:
-            self.mmap = mmap
-        if mlock is not None:
-            self.mlock = mlock
-        if no_host_buffer is not None:
-            self.no_host_buffer = no_host_buffer
+        apply_launch_runtime(self, runtime, frozen=False)
         self.__post_init__()
 
     def __post_init__(self) -> None:
@@ -178,6 +169,14 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
             raise ValueError("threads_batch must be non-negative")
         if not isinstance(self.spec_decode, SpeculativeDecodingConfig):
             raise ValueError("spec_decode must be a SpeculativeDecodingConfig")
+        if self.load_mode not in LOAD_MODE_VALUES:
+            self.load_mode = "auto"
+        if self.reasoning_preserve not in TRI_STATE_VALUES:
+            self.reasoning_preserve = "auto"
+        if self.fit not in TRI_STATE_VALUES:
+            self.fit = "auto"
+        if self.ctx_checkpoints is not None and self.ctx_checkpoints < 0:
+            raise ValueError("ctx_checkpoints must be non-negative")
 
 
 @dataclass

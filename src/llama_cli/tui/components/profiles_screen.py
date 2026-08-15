@@ -12,6 +12,8 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label
 
+from .model_details import model_detail_parts
+
 if TYPE_CHECKING:
     from llama_manager.config.profiles import SlotProfileSpec
     from llama_manager.model_index import ModelIndexEntry
@@ -244,21 +246,7 @@ def _format_model_details(
     entry = _find_model_index_entry(spec, model_index)
     if entry is None:
         return ""
-
-    parts = []
-    if entry.architecture:
-        parts.append(f"Arch: {entry.architecture}")
-    if entry.quantization_type:
-        parts.append(f"Quant: {entry.quantization_type}")
-    max_context_length = entry.max_context_length or entry.context_length
-    if max_context_length:
-        parts.append(f"Max Ctx: {max_context_length}")
-    if entry.file_size_bytes:
-        size_gib = entry.file_size_bytes / (1024**3)
-        parts.append(f"Size: {size_gib:.1f} GiB")
-    if entry.parse_error:
-        parts.append(f"Metadata: {_short_parse_error(entry.parse_error)}")
-    return "  |  ".join(parts)
+    return "  |  ".join(model_detail_parts(entry))
 
 
 def _find_model_index_entry(
@@ -275,11 +263,3 @@ def _find_model_index_entry(
         if entry.path == path or Path(entry.path).name == filename:
             return entry
     return None
-
-
-def _short_parse_error(error: str) -> str:
-    """Keep parse error display compact in profile rows."""
-    first_line = error.splitlines()[0] if error else ""
-    if len(first_line) <= 64:
-        return first_line
-    return f"{first_line[:61]}..."

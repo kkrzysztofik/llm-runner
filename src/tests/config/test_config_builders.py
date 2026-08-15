@@ -1564,6 +1564,72 @@ class TestServerConfigResolution:
         assert cfg.port == 9999
         assert cfg.threads == 16
 
+    def test_create_server_config_coerces_invalid_tri_state(self) -> None:
+        """Invalid reasoning_preserve/fit values resolve to auto at builder boundary."""
+        registry = create_default_profile_registry()
+        profile = registry.get_profile("summary-balanced")
+        cfg = create_server_config_from_profile(
+            profile,
+            {"reasoning_preserve": "bogus", "fit": "yes"},
+        )
+        assert cfg.reasoning_preserve == "auto"
+        assert cfg.fit == "auto"
+
+    def test_create_server_config_coerces_optional_numeric_strings(self) -> None:
+        """Optional sampling/ctx fields from dict overrides should coerce to numbers."""
+        registry = create_default_profile_registry()
+        profile = registry.get_profile("summary-balanced")
+        cfg = create_server_config_from_profile(
+            profile,
+            {
+                "ctx_checkpoints": "64",
+                "temperature": "1.0",
+                "top_k": "20",
+                "top_p": "0.95",
+                "min_p": "0.0",
+                "presence_penalty": "0.1",
+                "repeat_penalty": "1.05",
+            },
+        )
+        assert cfg.ctx_checkpoints == 64
+        assert cfg.temperature == 1.0
+        assert cfg.top_k == 20
+        assert cfg.top_p == 0.95
+        assert cfg.min_p == 0.0
+        assert cfg.presence_penalty == 0.1
+        assert cfg.repeat_penalty == 1.05
+
+    def test_server_config_normalizes_invalid_enums_and_rejects_negative_checkpoints(
+        self,
+    ) -> None:
+        """ServerConfig boundary coerces bad enums and rejects negative ctx_checkpoints."""
+        cfg = ServerConfig(
+            model="/m.gguf",
+            alias="t",
+            device="cuda:0",
+            port=8080,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=8,
+            load_mode="not-a-mode",
+            reasoning_preserve="maybe",
+            fit="sometimes",
+        )
+        assert cfg.load_mode == "auto"
+        assert cfg.reasoning_preserve == "auto"
+        assert cfg.fit == "auto"
+        with pytest.raises(ValueError, match="ctx_checkpoints"):
+            ServerConfig(
+                model="/m.gguf",
+                alias="t",
+                device="cuda:0",
+                port=8080,
+                ctx_size=4096,
+                ubatch_size=512,
+                threads=8,
+                ctx_checkpoints=-1,
+            )
+
     def test_resolve_profile_config(self) -> None:
         """resolve_profile_config should return ServerConfig for a known profile."""
         registry = create_default_profile_registry()
@@ -2285,6 +2351,24 @@ def test_resolution_is_deterministic() -> None:
         return dict(vars(cfg))
 
     assert json.dumps(to_dict(res1), sort_keys=True) == json.dumps(to_dict(res2), sort_keys=True)
+
+
+def test_merge_config_overrides_propagates_server_defaults_runtime_fields() -> None:
+    """Configured server_defaults runtime fields should flow into merged ServerConfig."""
+    defaults = Config()
+    defaults.server_defaults.load_mode = "dio"
+    defaults.server_defaults.reasoning_preserve = "on"
+    defaults.server_defaults.fit = "off"
+    defaults.server_defaults.ctx_checkpoints = 32
+    defaults.server_defaults.temperature = 0.8
+
+    result = merge_config_overrides(defaults, slot_config={"port": 8080})
+
+    assert result.load_mode == "dio"
+    assert result.reasoning_preserve == "on"
+    assert result.fit == "off"
+    assert result.ctx_checkpoints == 32
+    assert result.temperature == 0.8
 
 
 def test_command_generation_is_deterministic() -> None:
