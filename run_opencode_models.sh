@@ -332,6 +332,7 @@ build_server_cmd() {
   local mmproj_path="${19:-}"
   local poll_ms="${20:-50}"
   local batch_size="${21:-2048}"
+  local load_mode="${22:-auto}"
 
   cmd_ref=(
     "$server_bin"
@@ -365,7 +366,11 @@ build_server_cmd() {
     --ubatch-size "$ubatch_size"
     --threads "$threads"
     --poll "$poll_ms"
-    --mmap
+  )
+
+  [[ -n "$load_mode" && "$load_mode" != "auto" ]] && cmd_ref+=(--load-mode "$load_mode")
+
+  cmd_ref+=(
     --host "$HOST"
     --port "$port"
     --no-webui
