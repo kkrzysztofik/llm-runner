@@ -1564,6 +1564,17 @@ class TestServerConfigResolution:
         assert cfg.port == 9999
         assert cfg.threads == 16
 
+    def test_create_server_config_rejects_invalid_tri_state(self) -> None:
+        """Invalid reasoning_preserve/fit values resolve to auto at builder boundary."""
+        registry = create_default_profile_registry()
+        profile = registry.get_profile("summary-balanced")
+        cfg = create_server_config_from_profile(
+            profile,
+            {"reasoning_preserve": "bogus", "fit": "yes"},
+        )
+        assert cfg.reasoning_preserve == "auto"
+        assert cfg.fit == "auto"
+
     def test_resolve_profile_config(self) -> None:
         """resolve_profile_config should return ServerConfig for a known profile."""
         registry = create_default_profile_registry()

@@ -26,6 +26,7 @@ from .profiles import (
 )
 from .server import ServerConfig
 from .spec_decode import SpeculativeDecodingConfig
+from .tri_state import resolve_fit, resolve_reasoning_preserve
 
 _SPEC_DECODE_FIELDS: frozenset[str] = frozenset(
     field.name for field in dataclasses.fields(SpeculativeDecodingConfig)
@@ -201,9 +202,9 @@ def _config_data_to_server_config(data: dict[str, Any]) -> ServerConfig:
         mmproj_offload=bool(config_data.get("mmproj_offload", True)),
         load_mode=resolve_load_mode(config_data),
         no_host_buffer=bool(config_data.get("no_host_buffer", False)),
-        reasoning_preserve=str(config_data.get("reasoning_preserve", "auto")),
+        reasoning_preserve=resolve_reasoning_preserve(config_data),
         reasoning_budget_message=str(config_data.get("reasoning_budget_message", "")),
-        fit=str(config_data.get("fit", "auto")),
+        fit=resolve_fit(config_data),
         ctx_checkpoints=config_data.get("ctx_checkpoints"),
         temperature=config_data.get("temperature"),
         top_k=config_data.get("top_k"),
