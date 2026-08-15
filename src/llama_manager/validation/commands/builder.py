@@ -154,8 +154,10 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         "--port",
         str(cfg.port),
         "--metrics",
-        "--no-webui",
     ]
+
+    if not cfg.webui:
+        cmd.append("--no-webui")
 
     if cfg.threads_batch > 0:
         cmd.extend(["--threads-batch", str(cfg.threads_batch)])

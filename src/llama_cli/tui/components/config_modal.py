@@ -84,6 +84,7 @@ class ConfigPayload:
     default_mmproj_offload: bool = True
     default_load_mode: str = "auto"
     default_no_host_buffer: bool = False
+    default_webui: bool = False
     default_fit: str = "auto"
     default_ctx_checkpoints: str = ""
     default_temperature: str = ""
@@ -149,6 +150,7 @@ class ConfigPayload:
             "server_defaults.mmproj_offload": self.default_mmproj_offload,
             "server_defaults.load_mode": self.default_load_mode,
             "server_defaults.no_host_buffer": self.default_no_host_buffer,
+            "server_defaults.webui": self.default_webui,
             "server_defaults.fit": self.default_fit,
             "server_defaults.ctx_checkpoints": _optional_config_int(self.default_ctx_checkpoints),
             "server_defaults.temperature": _optional_config_float(self.default_temperature),
@@ -543,6 +545,7 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             default_mmproj_offload=self.query_one("#cfg-default_mmproj_offload", Checkbox).value,
             default_load_mode=str(self.query_one("#cfg-default_load_mode", Select).value or "auto"),
             default_no_host_buffer=self.query_one("#cfg-default_no_host_buffer", Checkbox).value,
+            default_webui=self.query_one("#cfg-default_webui", Checkbox).value,
             default_fit=str(self.query_one("#cfg-default_fit", Select).value or "auto"),
             default_ctx_checkpoints=self.query_one(
                 "#cfg-default_ctx_checkpoints", Input
