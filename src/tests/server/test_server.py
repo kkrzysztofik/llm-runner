@@ -260,15 +260,18 @@ class TestBuildServerCmd:
             self._minimal_cfg(
                 spec_type="ngram-mod",
                 spec_ngram_size_n=12,
-                draft_min=1,
-                draft_max=8,
+                draft_min=8,
+                draft_max=32,
             )
         )
         assert "--spec-type" in cmd
         assert "ngram-mod" in cmd
-        assert cmd[cmd.index("--spec-ngram-size-n") + 1] == "12"
-        assert cmd[cmd.index("--draft-min") + 1] == "1"
-        assert cmd[cmd.index("--draft-max") + 1] == "8"
+        assert cmd[cmd.index("--spec-ngram-mod-n-match") + 1] == "12"
+        assert cmd[cmd.index("--spec-ngram-mod-n-min") + 1] == "8"
+        assert cmd[cmd.index("--spec-ngram-mod-n-max") + 1] == "32"
+        assert "--spec-ngram-size-n" not in cmd
+        assert "--draft-min" not in cmd
+        assert "--draft-max" not in cmd
 
     def test_draft_mtp_spec_flags(self) -> None:
         cmd = build_server_cmd(

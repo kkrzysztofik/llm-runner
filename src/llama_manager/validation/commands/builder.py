@@ -245,11 +245,11 @@ def _append_ngram_speculative_flags(cmd: list[str], spec: Any) -> None:
         [
             _SPEC_TYPE_FLAG,
             _SPEC_TYPE_NGRAM_MOD,
-            "--spec-ngram-size-n",
+            "--spec-ngram-mod-n-match",
             str(spec.spec_ngram_size_n),
-            "--draft-min",
+            "--spec-ngram-mod-n-min",
             str(spec.draft_min),
-            "--draft-max",
+            "--spec-ngram-mod-n-max",
             str(spec.draft_max),
         ]
     )
