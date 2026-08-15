@@ -677,8 +677,7 @@ def test_roundtrip_dflash_fields(xdg_config_home: Path) -> None:
         ),
         kv_unified=True,
         mmproj_offload=True,
-        mmap=False,
-        mlock=True,
+        load_mode="mlock",
         no_host_buffer=True,
         backend="llama_cpp",
     )
@@ -695,8 +694,7 @@ def test_roundtrip_dflash_fields(xdg_config_home: Path) -> None:
     assert lp.spec_decode.reasoning_format == "deepseek"
     assert lp.kv_unified is True
     assert lp.mmproj_offload is True
-    assert lp.mmap is False
-    assert lp.mlock is True
+    assert lp.load_mode == "mlock"
     assert lp.no_host_buffer is True
 
 
@@ -743,8 +741,7 @@ def test_roundtrip_smaller_model_flags(xdg_config_home: Path) -> None:
         threads=16,
         kv_unified=True,
         mmproj_offload=False,
-        mmap=False,
-        mlock=True,
+        load_mode="mlock",
         no_host_buffer=True,
         backend="llama_cpp",
     )
@@ -754,8 +751,7 @@ def test_roundtrip_smaller_model_flags(xdg_config_home: Path) -> None:
     lp = loaded[0]
     assert lp.kv_unified is True
     assert lp.mmproj_offload is False
-    assert lp.mmap is False
-    assert lp.mlock is True
+    assert lp.load_mode == "mlock"
     assert lp.no_host_buffer is True
 
 
@@ -783,8 +779,7 @@ def test_roundtrip_dflash_with_all_smaller_model_flags(xdg_config_home: Path) ->
         ),
         kv_unified=True,
         mmproj_offload=True,
-        mmap=False,
-        mlock=True,
+        load_mode="mlock",
         no_host_buffer=True,
         backend="llama_cpp",
     )
@@ -803,6 +798,5 @@ def test_roundtrip_dflash_with_all_smaller_model_flags(xdg_config_home: Path) ->
     # BeeLlama flags
     assert lp.kv_unified is True
     assert lp.mmproj_offload is True
-    assert lp.mmap is False
-    assert lp.mlock is True
+    assert lp.load_mode == "mlock"
     assert lp.no_host_buffer is True

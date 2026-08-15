@@ -10,6 +10,7 @@ from loguru import logger
 
 from ..gpu_telemetry import get_gpu_identifier
 from .defaults import Config, SmokeProbeConfiguration
+from .load_mode import resolve_load_mode
 from .profile_cache import (
     PROFILE_OVERRIDE_FIELDS,
     ProfileFlavor,
@@ -153,8 +154,7 @@ def _profile_to_config_data(profile: SlotProfileSpec) -> dict[str, Any]:
         "mmproj": profile.mmproj,
         "kv_unified": profile.kv_unified,
         "mmproj_offload": profile.mmproj_offload,
-        "mmap": profile.mmap,
-        "mlock": profile.mlock,
+        "load_mode": profile.load_mode,
         "no_host_buffer": profile.no_host_buffer,
     }
 
@@ -189,8 +189,7 @@ def _config_data_to_server_config(data: dict[str, Any]) -> ServerConfig:
         mmproj=str(config_data.get("mmproj", "")),
         kv_unified=bool(config_data.get("kv_unified", False)),
         mmproj_offload=bool(config_data.get("mmproj_offload", True)),
-        mmap=bool(config_data.get("mmap", True)),
-        mlock=bool(config_data.get("mlock", False)),
+        load_mode=resolve_load_mode(config_data),
         no_host_buffer=bool(config_data.get("no_host_buffer", False)),
         spec_decode=SpeculativeDecodingConfig(
             spec_type=str(spec_data.get("spec_type", "")),

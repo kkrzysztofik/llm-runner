@@ -176,8 +176,7 @@ class ServerDefaultsConfig:
     # -- BeeLlama runtime defaults --
     kv_unified: bool = False
     mmproj_offload: bool = True
-    mmap: bool = True
-    mlock: bool = False
+    load_mode: str = "auto"
     no_host_buffer: bool = False
 
     @property

@@ -365,27 +365,16 @@ class TestBuildServerCmd:
         cmd = build_server_cmd(self._minimal_cfg())
         assert "--kv-unified" not in cmd
 
-    def test_smaller_model_no_mmap_flag(self) -> None:
-        """--no-mmap flag is emitted when mmap is False."""
-        cmd = build_server_cmd(self._minimal_cfg(mmap=False))
-        assert "--no-mmap" in cmd
+    def test_load_mode_auto_omits_flag(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(load_mode="auto"))
+        assert "--load-mode" not in cmd
         assert "--mmap" not in cmd
-
-    def test_smaller_model_mmap_flag(self) -> None:
-        """--mmap flag is emitted when mmap is True."""
-        cmd = build_server_cmd(self._minimal_cfg(mmap=True))
-        assert "--mmap" in cmd
-        assert "--no-mmap" not in cmd
-
-    def test_smaller_model_mlock_flag(self) -> None:
-        """--mlock flag is emitted when mlock is True."""
-        cmd = build_server_cmd(self._minimal_cfg(mlock=True))
-        assert "--mlock" in cmd
-
-    def test_smaller_model_no_mlock_by_default(self) -> None:
-        """--mlock flag is absent by default."""
-        cmd = build_server_cmd(self._minimal_cfg())
         assert "--mlock" not in cmd
+
+    def test_load_mode_mmap_emits(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(load_mode="mmap"))
+        i = cmd.index("--load-mode")
+        assert cmd[i + 1] == "mmap"
 
     def test_smaller_model_no_host_buffer_flag(self) -> None:
         """--no-host flag is emitted when no_host_buffer is True."""
@@ -413,14 +402,12 @@ class TestBuildServerCmd:
             self._minimal_cfg(
                 kv_unified=True,
                 mmproj_offload=True,
-                mmap=False,
-                mlock=True,
+                load_mode="mlock",
                 no_host_buffer=True,
             )
         )
         assert "--kv-unified" in cmd
-        assert "--no-mmap" in cmd
-        assert "--mlock" in cmd
+        assert cmd[cmd.index("--load-mode") + 1] == "mlock"
         assert "--no-host" in cmd
         assert "--no-mmproj-offload" not in cmd
 

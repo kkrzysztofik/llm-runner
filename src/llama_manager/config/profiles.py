@@ -49,8 +49,7 @@ class SlotProfileSpec(SpeculativeDecodingFieldsMixin):
     spec_decode: SpeculativeDecodingConfig = field(default_factory=SpeculativeDecodingConfig)
     kv_unified: bool = False
     mmproj_offload: bool = True
-    mmap: bool = True
-    mlock: bool = False
+    load_mode: str = "auto"
     no_host_buffer: bool = False
 
     def __init__(  # noqa: S107 - intentional explicit init with spec-decode overrides
@@ -100,8 +99,7 @@ class SlotProfileSpec(SpeculativeDecodingFieldsMixin):
         spec_dflash_cross_ctx: int | None = None,
         kv_unified: bool | None = None,
         mmproj_offload: bool | None = None,
-        mmap: bool | None = None,
-        mlock: bool | None = None,
+        load_mode: str | None = None,
         no_host_buffer: bool | None = None,
     ) -> None:
         object.__setattr__(self, "profile_id", profile_id)
@@ -139,8 +137,7 @@ class SlotProfileSpec(SpeculativeDecodingFieldsMixin):
         object.__setattr__(
             self, "mmproj_offload", mmproj_offload if mmproj_offload is not None else True
         )
-        object.__setattr__(self, "mmap", mmap if mmap is not None else True)
-        object.__setattr__(self, "mlock", mlock if mlock is not None else False)
+        object.__setattr__(self, "load_mode", load_mode if load_mode is not None else "auto")
         object.__setattr__(
             self, "no_host_buffer", no_host_buffer if no_host_buffer is not None else False
         )

@@ -73,8 +73,7 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
     spec_decode: SpeculativeDecodingConfig = field(default_factory=SpeculativeDecodingConfig)
     kv_unified: bool = False
     mmproj_offload: bool = True
-    mmap: bool = True
-    mlock: bool = False
+    load_mode: str = "auto"
     no_host_buffer: bool = False
 
     def __init__(  # noqa: S107 - intentional explicit init with spec-decode overrides
@@ -122,8 +121,7 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
         spec_dflash_cross_ctx: int | None = None,
         kv_unified: bool | None = None,
         mmproj_offload: bool | None = None,
-        mmap: bool | None = None,
-        mlock: bool | None = None,
+        load_mode: str | None = None,
         no_host_buffer: bool | None = None,
     ) -> None:
         self.model = model
@@ -155,10 +153,8 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
             self.kv_unified = kv_unified
         if mmproj_offload is not None:
             self.mmproj_offload = mmproj_offload
-        if mmap is not None:
-            self.mmap = mmap
-        if mlock is not None:
-            self.mlock = mlock
+        if load_mode is not None:
+            self.load_mode = load_mode
         if no_host_buffer is not None:
             self.no_host_buffer = no_host_buffer
         self.__post_init__()

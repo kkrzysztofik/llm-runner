@@ -189,12 +189,8 @@ def _append_optional_server_flags(cmd: list[str], cfg: ServerConfig) -> None:
         cmd.append("--kv-unified")
     if not cfg.mmproj_offload:
         cmd.append("--no-mmproj-offload")
-    if cfg.mmap:
-        cmd.append("--mmap")
-    else:
-        cmd.append("--no-mmap")
-    if cfg.mlock:
-        cmd.append("--mlock")
+    if cfg.load_mode and cfg.load_mode != "auto":
+        cmd.extend(["--load-mode", cfg.load_mode])
     if cfg.no_host_buffer:
         cmd.append("--no-host")
 

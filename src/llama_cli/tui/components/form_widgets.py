@@ -175,8 +175,7 @@ def config_profile_prefill(config: Config) -> dict[str, str]:
         "spec-dflash-cross-ctx": str(spec.spec_dflash_cross_ctx),
         "kv-unified": "true" if defaults.kv_unified else "false",
         "mmproj-offload": "true" if defaults.mmproj_offload else "false",
-        "mmap": "true" if defaults.mmap else "false",
-        "mlock": "true" if defaults.mlock else "false",
+        "load-mode": defaults.load_mode,
         "no-host-buffer": "true" if defaults.no_host_buffer else "false",
     }
 
@@ -522,20 +521,13 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             label_classes=cfg_label,
             row_classes=cfg_row,
         ),
-        checkbox_row(
-            "MMap",
-            "default_mmap",
-            defaults.mmap,
+        field_row(
+            "Load Mode",
+            "default_load_mode",
+            defaults.load_mode,
             id_prefix=prefix,
             label_classes=cfg_label,
-            row_classes=cfg_row,
-        ),
-        checkbox_row(
-            "MLock",
-            "default_mlock",
-            defaults.mlock,
-            id_prefix=prefix,
-            label_classes=cfg_label,
+            input_classes=cfg_input,
             row_classes=cfg_row,
         ),
         checkbox_row(

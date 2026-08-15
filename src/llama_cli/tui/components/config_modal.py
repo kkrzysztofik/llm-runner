@@ -78,8 +78,7 @@ class ConfigPayload:
     default_spec_dflash_cross_ctx: str = ""
     default_kv_unified: bool = False
     default_mmproj_offload: bool = True
-    default_mmap: bool = True
-    default_mlock: bool = False
+    default_load_mode: str = "auto"
     default_no_host_buffer: bool = False
     restart: bool = False
     clean_cache: bool = False
@@ -134,8 +133,7 @@ class ConfigPayload:
             "server_defaults.spec_dflash_cross_ctx": self.default_spec_dflash_cross_ctx,
             "server_defaults.kv_unified": self.default_kv_unified,
             "server_defaults.mmproj_offload": self.default_mmproj_offload,
-            "server_defaults.mmap": self.default_mmap,
-            "server_defaults.mlock": self.default_mlock,
+            "server_defaults.load_mode": self.default_load_mode,
             "server_defaults.no_host_buffer": self.default_no_host_buffer,
         }
 
@@ -452,8 +450,8 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             ).value.strip(),
             default_kv_unified=self.query_one("#cfg-default_kv_unified", Checkbox).value,
             default_mmproj_offload=self.query_one("#cfg-default_mmproj_offload", Checkbox).value,
-            default_mmap=self.query_one("#cfg-default_mmap", Checkbox).value,
-            default_mlock=self.query_one("#cfg-default_mlock", Checkbox).value,
+            default_load_mode=self.query_one("#cfg-default_load_mode", Input).value.strip()
+            or "auto",
             default_no_host_buffer=self.query_one("#cfg-default_no_host_buffer", Checkbox).value,
         )
 

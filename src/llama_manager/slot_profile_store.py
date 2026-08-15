@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .common.profile_io import read_profile_toml, write_profile_toml
+from .config.load_mode import resolve_load_mode
 from .config.profiles import SlotProfileSpec
 
 logger = logging.getLogger(__name__)
@@ -152,8 +153,7 @@ def _profile_to_dict(profile: SlotProfileSpec) -> dict[str, Any]:
         "spec_dflash_cross_ctx": spec.spec_dflash_cross_ctx,
         "kv_unified": profile.kv_unified,
         "mmproj_offload": profile.mmproj_offload,
-        "mmap": profile.mmap,
-        "mlock": profile.mlock,
+        "load_mode": profile.load_mode,
         "no_host_buffer": profile.no_host_buffer,
     }
 
@@ -205,8 +205,7 @@ def _profile_from_dict(data: dict[str, Any]) -> SlotProfileSpec:
         spec_dflash_cross_ctx=int(data.get("spec_dflash_cross_ctx", 0)),
         kv_unified=data.get("kv_unified", False),
         mmproj_offload=data.get("mmproj_offload", True),
-        mmap=data.get("mmap", True),
-        mlock=data.get("mlock", False),
+        load_mode=resolve_load_mode(data),
         no_host_buffer=data.get("no_host_buffer", False),
     )
 

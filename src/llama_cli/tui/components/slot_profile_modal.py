@@ -110,8 +110,7 @@ class SlotProfilePayload:
     spec_dflash_cross_ctx: int = 0
     kv_unified: bool = False
     mmproj_offload: bool = True
-    mmap: bool = True
-    mlock: bool = False
+    load_mode: str = "auto"
     no_host_buffer: bool = False
     save_and_add_slot: bool = False
     original_profile_id: str = ""  # filled for edits
@@ -388,8 +387,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "spec-dflash-cross-ctx": str(spec_decode.spec_dflash_cross_ctx),
             "kv-unified": "true" if spec.kv_unified else "false",
             "mmproj-offload": "true" if spec.mmproj_offload else "false",
-            "mmap": "true" if spec.mmap else "false",
-            "mlock": "true" if spec.mlock else "false",
+            "load-mode": spec.load_mode,
             "no-host-buffer": "true" if spec.no_host_buffer else "false",
         }
 
@@ -465,8 +463,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             spec_dflash_cross_ctx=self._parse_int("profile-spec-dflash-cross-ctx", 0),
             kv_unified=self.query_one("#profile-kv-unified", Checkbox).value,
             mmproj_offload=self.query_one("#profile-mmproj-offload", Checkbox).value,
-            mmap=self.query_one("#profile-mmap", Checkbox).value,
-            mlock=self.query_one("#profile-mlock", Checkbox).value,
+            load_mode=self.query_one("#profile-load-mode", Input).value.strip() or "auto",
             no_host_buffer=self.query_one("#profile-no-host-buffer", Checkbox).value,
             save_and_add_slot=save_and_add_slot,
             original_profile_id=(self._profile.profile_id if self._profile else ""),
@@ -575,12 +572,7 @@ def _build_advanced_fields(prefill: dict[str, str]) -> Collapsible:
             "mmproj-offload",
             prefill.get("mmproj-offload", "true").lower() in ("1", "true", "yes", "on"),
         ),
-        checkbox_row(
-            "MMap", "mmap", prefill.get("mmap", "true").lower() in ("1", "true", "yes", "on")
-        ),
-        checkbox_row(
-            "MLock", "mlock", prefill.get("mlock", "false").lower() in ("1", "true", "yes", "on")
-        ),
+        field_row("Load Mode", "load-mode", prefill.get("load-mode", "auto")),
         checkbox_row(
             "No Host Buffer",
             "no-host-buffer",
@@ -862,7 +854,6 @@ def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -
         ),
         kv_unified=payload.kv_unified,
         mmproj_offload=payload.mmproj_offload,
-        mmap=payload.mmap,
-        mlock=payload.mlock,
+        load_mode=payload.load_mode,
         no_host_buffer=payload.no_host_buffer,
     )

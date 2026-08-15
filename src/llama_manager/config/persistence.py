@@ -240,8 +240,6 @@ _BOOL_FIELDS: frozenset[str] = frozenset(
         "server_defaults.use_jinja",
         "server_defaults.kv_unified",
         "server_defaults.mmproj_offload",
-        "server_defaults.mmap",
-        "server_defaults.mlock",
         "server_defaults.no_host_buffer",
     }
 )
