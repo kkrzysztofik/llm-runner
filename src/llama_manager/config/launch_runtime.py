@@ -14,7 +14,7 @@ class LaunchRuntimeOverrides(TypedDict, total=False):
     mmproj_offload: bool | None
     load_mode: str | None
     no_host_buffer: bool | None
-    webui: bool | None
+    ui: bool | None
     reasoning_preserve: str | None
     reasoning_budget_message: str | None
     fit: str | None
@@ -35,7 +35,7 @@ class LaunchRuntimeFields:
     mmproj_offload: bool = field(default=True, kw_only=True)
     load_mode: str = field(default="auto", kw_only=True)
     no_host_buffer: bool = field(default=False, kw_only=True)
-    webui: bool = field(default=False, kw_only=True)
+    ui: bool = field(default=False, kw_only=True)
     reasoning_preserve: str = field(default="auto", kw_only=True)
     reasoning_budget_message: str = field(default="", kw_only=True)
     fit: str = field(default="auto", kw_only=True)

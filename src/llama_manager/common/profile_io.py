@@ -124,7 +124,7 @@ def _profile_lines(profile: dict[str, Any]) -> list[str]:
             f"mmproj_offload = {str(profile.get('mmproj_offload', True)).lower()}",
             f"load_mode = {json.dumps(profile.get('load_mode', 'auto'))}",
             f"no_host_buffer = {str(profile.get('no_host_buffer', False)).lower()}",
-            f"webui = {str(profile.get('webui', False)).lower()}",
+            f"ui = {str(profile.get('ui', False)).lower()}",
             f"reasoning_preserve = {json.dumps(profile.get('reasoning_preserve', 'auto'))}",
             f"reasoning_budget_message = {json.dumps(profile.get('reasoning_budget_message', ''))}",
             f"fit = {json.dumps(profile.get('fit', 'auto'))}",

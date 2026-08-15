@@ -59,7 +59,7 @@ _DEFAULT_TO_SERVER_DEFAULTS: dict[str, str] = {
     "default_spec_draft_cache_type_v": "spec_draft_cache_type_v",
     "default_spec_draft_device": "spec_draft_device",
     "default_load_mode": "load_mode",
-    "default_webui": "webui",
+    "default_ui": "ui",
     "default_reasoning_preserve": "reasoning_preserve",
     "default_reasoning_budget_message": "reasoning_budget_message",
     "default_fit": "fit",

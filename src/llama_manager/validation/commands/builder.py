@@ -156,8 +156,8 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         "--metrics",
     ]
 
-    if not cfg.webui:
-        cmd.append("--no-webui")
+    if not cfg.ui:
+        cmd.append("--no-ui")
 
     if cfg.threads_batch > 0:
         cmd.extend(["--threads-batch", str(cfg.threads_batch)])

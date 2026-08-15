@@ -333,7 +333,7 @@ build_server_cmd() {
   local poll_ms="${20:-50}"
   local batch_size="${21:-2048}"
   local load_mode="${22:-auto}"
-  local webui="${23:-false}"
+  local ui="${23:-false}"
 
   cmd_ref=(
     "$server_bin"
@@ -375,7 +375,7 @@ build_server_cmd() {
     --host "$HOST"
     --port "$port"
   )
-  [[ "$webui" != "true" ]] && cmd_ref+=(--no-webui)
+  [[ "$ui" != "true" ]] && cmd_ref+=(--no-ui)
 }
 
 prefix_output() {

@@ -82,7 +82,7 @@ _PERSISTED_SECTIONS: dict[str, tuple[str, ...]] = {
         "mmproj_offload",
         "load_mode",
         "no_host_buffer",
-        "webui",
+        "ui",
         "reasoning_preserve",
         "reasoning_budget_message",
         "fit",
@@ -290,7 +290,7 @@ _BOOL_FIELDS: frozenset[str] = frozenset(
         "server_defaults.kv_unified",
         "server_defaults.mmproj_offload",
         "server_defaults.no_host_buffer",
-        "server_defaults.webui",
+        "server_defaults.ui",
     }
 )
 

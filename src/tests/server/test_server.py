@@ -217,13 +217,13 @@ class TestBuildServerCmd:
         idx = cmd.index("--ctx-size")
         assert cmd[idx + 1] == "16384"
 
-    def test_no_webui_flag_present_by_default(self) -> None:
+    def test_no_ui_flag_present_by_default(self) -> None:
         cmd = build_server_cmd(self._minimal_cfg())
-        assert "--no-webui" in cmd
+        assert "--no-ui" in cmd
 
-    def test_webui_enabled_omits_no_webui_flag(self) -> None:
-        cmd = build_server_cmd(self._minimal_cfg(webui=True))
-        assert "--no-webui" not in cmd
+    def test_ui_enabled_omits_no_ui_flag(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(ui=True))
+        assert "--no-ui" not in cmd
 
     def test_metrics_flag_present_for_runtime_stats(self) -> None:
         cmd = build_server_cmd(self._minimal_cfg())

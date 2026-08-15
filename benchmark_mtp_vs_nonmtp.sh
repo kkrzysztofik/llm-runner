@@ -105,7 +105,7 @@ start_server() {
     --split-mode layer
     --parallel 1
     --mmap
-    --no-webui
+    --no-ui
     --no-cache-prompt
     --chat-template-kwargs '{"preserve_thinking":true}'
   )
