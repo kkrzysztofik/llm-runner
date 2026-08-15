@@ -980,6 +980,27 @@ async def test_speculative_fields_follow_selected_spec_type() -> None:
 
 
 @pytest.mark.anyio
+async def test_combined_spec_type_is_selectable_and_shows_both_field_groups() -> None:
+    """A comma-separated spec type must mount and reveal every member's fields."""
+    modal = RunProfileModal()
+    app = App[None]()
+
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+
+        spec_type = modal.query_one("#profile-spec-type", Select)
+        spec_type.value = "draft-mtp,ngram-mod"
+        await pilot.pause()
+
+        for field_id in ("spec-ngram-size-n", "draft-min", "draft-max", "spec-draft-n-max"):
+            row = modal.query_one(f".profile-spec-field-{field_id}")
+            assert str(row.styles.display) == "block"
+        row = modal.query_one(".profile-spec-field-spec-draft-model")
+        assert str(row.styles.display) == "none"
+
+
+@pytest.mark.anyio
 async def test_modal_cancel_button_dismisses_none() -> None:
     modal = RunProfileModal()
     result_holder: list[object] = []

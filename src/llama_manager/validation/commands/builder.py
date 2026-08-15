@@ -243,16 +243,14 @@ def _append_speculative_flags(cmd: list[str], cfg: ServerConfig) -> None:
 
 
 def _append_ngram_speculative_flags(cmd: list[str], spec: Any) -> None:
-    cmd.extend(
-        [
-            "--spec-ngram-mod-n-match",
-            str(spec.spec_ngram_size_n),
-            "--spec-ngram-mod-n-min",
-            str(spec.draft_min),
-            "--spec-ngram-mod-n-max",
-            str(spec.draft_max),
-        ]
-    )
+    # Unset fields default to 0; emitting them would override llama.cpp's own
+    # defaults (24/48/64) with a degenerate config.
+    if spec.spec_ngram_size_n > 0:
+        cmd.extend(["--spec-ngram-mod-n-match", str(spec.spec_ngram_size_n)])
+    if spec.draft_min > 0:
+        cmd.extend(["--spec-ngram-mod-n-min", str(spec.draft_min)])
+    if spec.draft_max > 0:
+        cmd.extend(["--spec-ngram-mod-n-max", str(spec.draft_max)])
 
 
 def _append_draft_mtp_flags(cmd: list[str], spec: Any) -> None:

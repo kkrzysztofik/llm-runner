@@ -57,11 +57,15 @@ FIT_CHOICES: tuple[tuple[str, str], ...] = (
     ("off", "off"),
 )
 
+# Values must match llama_manager.config.spec_decode._VALID_SPEC_TYPES, plus any
+# comma-separated combination we want selectable. A Select rejects a value that is
+# not listed here at mount time, so every storable spec_type needs an entry.
 SPEC_TYPE_CHOICES: tuple[tuple[str, str], ...] = (
     ("(none)", ""),
     ("ngram-mod", "ngram-mod"),
     ("draft-mtp", "draft-mtp"),
     ("draft-dflash", "draft-dflash"),
+    ("draft-mtp,ngram-mod", "draft-mtp,ngram-mod"),
 )
 
 DEFAULT_PARALLEL_CHOICES: tuple[tuple[str, str], ...] = (

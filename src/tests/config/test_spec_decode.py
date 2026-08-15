@@ -37,8 +37,8 @@ class TestSpecTypeValidation:
         assert cfg.spec_type == ""
 
     def test_spec_type_rejects_unknown(self) -> None:
-        """Unknown spec_type raises ValueError."""
-        with pytest.raises(ValueError, match="spec_type must be"):
+        """Unknown spec_type raises ValueError naming the offending member."""
+        with pytest.raises(ValueError, match="spec_type member 'unknown-type' is unknown"):
             SpeculativeDecodingConfig(spec_type="unknown-type")
 
     def test_comma_separated_spec_types_are_accepted(self) -> None:
@@ -50,6 +50,12 @@ class TestSpecTypeValidation:
         """Every member of the list must be a known spec type."""
         with pytest.raises(ValueError, match="spec_type"):
             SpeculativeDecodingConfig(spec_type="draft-mtp,bogus")
+
+    def test_spec_type_whitespace_is_normalized(self) -> None:
+        """Stored spec_type is canonical, so consumers never see stray spaces."""
+        cfg = SpeculativeDecodingConfig(spec_type="draft-mtp, ngram-mod")
+        assert cfg.spec_type == "draft-mtp,ngram-mod"
+        assert cfg["spec_type"] == "draft-mtp,ngram-mod"
 
     def test_spec_type_with_no_members_is_rejected(self) -> None:
         """A non-empty spec_type that yields no members is not silently accepted."""

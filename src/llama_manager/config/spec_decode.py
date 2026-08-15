@@ -35,6 +35,9 @@ class SpeculativeDecodingConfig(dict[str, object]):
 
     def __post_init__(self) -> None:
         _validate_speculative_decoding(self)
+        # Normalize once here so every consumer (argv builder, profile store,
+        # profile IO, TUI prefill) sees the same canonical comma-joined form.
+        self.spec_type = ",".join(spec_type_members(self.spec_type))
         self.clear()
         self.update(
             {
@@ -88,7 +91,7 @@ def _validate_spec_type(config: SpeculativeDecodingConfig) -> None:
         raise ValueError(f"spec_type must be '' or a comma-separated list of: {known}")
     for member in members:
         if member not in _VALID_SPEC_TYPES:
-            raise ValueError(f"spec_type must be one of: {known} (got '{member}')")
+            raise ValueError(f"spec_type member '{member}' is unknown; valid members: {known}")
     if "draft-dflash" in members:
         _validate_dflash_config(config)
 

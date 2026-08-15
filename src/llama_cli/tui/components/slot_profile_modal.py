@@ -14,7 +14,7 @@ from llama_manager.config import Config
 from llama_manager.config.launch_runtime import LaunchRuntimeFields
 from llama_manager.config.load_mode import LOAD_MODE_VALUES
 from llama_manager.config.profiles import SlotProfileSpec
-from llama_manager.config.spec_decode import SpeculativeDecodingConfig
+from llama_manager.config.spec_decode import SpeculativeDecodingConfig, spec_type_members
 from llama_manager.config.tri_state import TRI_STATE_VALUES
 from llama_manager.model_index import ModelIndexEntry
 
@@ -336,7 +336,11 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
 
     def _set_speculative_field_visibility(self, spec_type: str) -> None:
         """Show only speculative decoding fields used by the selected spec type."""
-        visible = set(_SPEC_FIELDS_BY_TYPE.get(spec_type, ()))
+        visible = {
+            field_id
+            for member in spec_type_members(spec_type)
+            for field_id in _SPEC_FIELDS_BY_TYPE.get(member, ())
+        }
         for field_id in _SPEC_FIELD_IDS:
             for row in self.query(f".profile-spec-field-{field_id}"):
                 row.styles.display = "block" if field_id in visible else "none"

@@ -273,6 +273,18 @@ class TestBuildServerCmd:
         assert "--draft-min" not in cmd
         assert "--draft-max" not in cmd
 
+    @pytest.mark.parametrize(
+        "flag",
+        ["--spec-ngram-mod-n-match", "--spec-ngram-mod-n-min", "--spec-ngram-mod-n-max"],
+    )
+    def test_unset_ngram_fields_are_omitted(self, flag: str) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(spec_type="ngram-mod"))
+        assert flag not in cmd
+
+    def test_normalized_spec_type_emits_single_argv_token(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(spec_type="draft-mtp, ngram-mod"))
+        assert cmd[cmd.index("--spec-type") + 1] == "draft-mtp,ngram-mod"
+
     def test_unset_spec_draft_n_max_is_omitted(self) -> None:
         cmd = build_server_cmd(self._minimal_cfg(spec_type="draft-mtp"))
         assert "--spec-draft-n-max" not in cmd
