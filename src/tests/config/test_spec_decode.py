@@ -51,6 +51,11 @@ class TestSpecTypeValidation:
         with pytest.raises(ValueError, match="spec_type"):
             SpeculativeDecodingConfig(spec_type="draft-mtp,bogus")
 
+    def test_spec_type_with_no_members_is_rejected(self) -> None:
+        """A non-empty spec_type that yields no members is not silently accepted."""
+        with pytest.raises(ValueError, match="spec_type"):
+            SpeculativeDecodingConfig(spec_type=" , ")
+
 
 class TestDFlashDraftSourceValidation:
     """DFlash requires exactly one draft source."""

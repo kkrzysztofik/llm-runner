@@ -273,6 +273,10 @@ class TestBuildServerCmd:
         assert "--draft-min" not in cmd
         assert "--draft-max" not in cmd
 
+    def test_unset_spec_draft_n_max_is_omitted(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(spec_type="draft-mtp"))
+        assert "--spec-draft-n-max" not in cmd
+
     def test_combined_spec_types_emit_both_flag_groups(self) -> None:
         cmd = build_server_cmd(
             self._minimal_cfg(

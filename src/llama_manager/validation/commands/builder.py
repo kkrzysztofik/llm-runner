@@ -256,7 +256,8 @@ def _append_ngram_speculative_flags(cmd: list[str], spec: Any) -> None:
 
 
 def _append_draft_mtp_flags(cmd: list[str], spec: Any) -> None:
-    cmd.extend(["--spec-draft-n-max", str(spec.spec_draft_n_max)])
+    if spec.spec_draft_n_max > 0:
+        cmd.extend(["--spec-draft-n-max", str(spec.spec_draft_n_max)])
     if spec.spec_draft_p_min > 0:
         cmd.extend(["--spec-draft-p-min", str(spec.spec_draft_p_min)])
     # llama-server flags omit "cache" (--spec-draft-type-k/v), unlike field names.
