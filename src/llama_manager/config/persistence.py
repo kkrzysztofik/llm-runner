@@ -292,6 +292,18 @@ _BOOL_FIELDS: frozenset[str] = frozenset(
     }
 )
 
+_NULLABLE_OPTIONAL_FIELDS: frozenset[str] = frozenset(
+    {
+        "server_defaults.ctx_checkpoints",
+        "server_defaults.temperature",
+        "server_defaults.top_k",
+        "server_defaults.top_p",
+        "server_defaults.min_p",
+        "server_defaults.presence_penalty",
+        "server_defaults.repeat_penalty",
+    }
+)
+
 
 @dataclasses.dataclass
 class ConfigUpdateResult:
@@ -307,6 +319,8 @@ def _coerce_config_field_value(
     raw_value: object,
 ) -> tuple[object | None, str | None]:
     """Return (coerced_value, error). value is None when coercion fails."""
+    if raw_value is None and field_name in _NULLABLE_OPTIONAL_FIELDS:
+        return None, None
     if field_name in _INT_FIELDS:
         try:
             return int(raw_value), None  # type: ignore[arg-type]

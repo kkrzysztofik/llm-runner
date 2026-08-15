@@ -10,6 +10,8 @@ from textual.widgets import Button, Checkbox, Input, Label, Select
 
 from llama_manager.build_pipeline.models import SOURCE_FLAVOR_DEFAULTS
 from llama_manager.config import Config
+from llama_manager.config.load_mode import LOAD_MODE_VALUES
+from llama_manager.config.tri_state import TRI_STATE_VALUES
 
 from .form_widgets import (
     CONFIG_ROW_SELECT_CLASSES,
@@ -60,6 +62,8 @@ class ConfigPayload:
     default_reasoning_mode: str = ""
     default_reasoning_format: str = ""
     default_reasoning_budget: str = ""
+    default_reasoning_preserve: str = "auto"
+    default_reasoning_budget_message: str = ""
     default_use_jinja: bool = False
     default_profile_chat_template_kwargs: str = ""
     default_mmproj: str = ""
@@ -80,6 +84,14 @@ class ConfigPayload:
     default_mmproj_offload: bool = True
     default_load_mode: str = "auto"
     default_no_host_buffer: bool = False
+    default_fit: str = "auto"
+    default_ctx_checkpoints: str = ""
+    default_temperature: str = ""
+    default_top_k: str = ""
+    default_top_p: str = ""
+    default_min_p: str = ""
+    default_presence_penalty: str = ""
+    default_repeat_penalty: str = ""
     restart: bool = False
     clean_cache: bool = False
 
@@ -115,6 +127,8 @@ class ConfigPayload:
             "server_defaults.reasoning_mode": self.default_reasoning_mode,
             "server_defaults.reasoning_format": self.default_reasoning_format,
             "server_defaults.reasoning_budget": self.default_reasoning_budget,
+            "server_defaults.reasoning_preserve": self.default_reasoning_preserve,
+            "server_defaults.reasoning_budget_message": self.default_reasoning_budget_message,
             "server_defaults.use_jinja": self.default_use_jinja,
             "server_defaults.chat_template_kwargs": self.default_profile_chat_template_kwargs,
             "server_defaults.mmproj": self.default_mmproj,
@@ -135,7 +149,78 @@ class ConfigPayload:
             "server_defaults.mmproj_offload": self.default_mmproj_offload,
             "server_defaults.load_mode": self.default_load_mode,
             "server_defaults.no_host_buffer": self.default_no_host_buffer,
+            "server_defaults.fit": self.default_fit,
+            "server_defaults.ctx_checkpoints": _optional_config_int(self.default_ctx_checkpoints),
+            "server_defaults.temperature": _optional_config_float(self.default_temperature),
+            "server_defaults.top_k": _optional_config_int(self.default_top_k),
+            "server_defaults.top_p": _optional_config_float(self.default_top_p),
+            "server_defaults.min_p": _optional_config_float(self.default_min_p),
+            "server_defaults.presence_penalty": _optional_config_float(
+                self.default_presence_penalty
+            ),
+            "server_defaults.repeat_penalty": _optional_config_float(self.default_repeat_penalty),
         }
+
+
+def _optional_config_int(raw: str) -> int | None:
+    """Return None for empty optional integer fields."""
+    stripped = raw.strip()
+    if not stripped:
+        return None
+    return int(stripped)
+
+
+def _optional_config_float(raw: str) -> float | None:
+    """Return None for empty optional float fields."""
+    stripped = raw.strip()
+    if not stripped:
+        return None
+    return float(stripped)
+
+
+def _validate_config_payload(payload: ConfigPayload) -> list[str]:
+    """Validate enum and optional numeric fields before save."""
+    errors: list[str] = []
+    if payload.default_load_mode not in LOAD_MODE_VALUES:
+        errors.append(f"Invalid load mode: {payload.default_load_mode!r}")
+    if payload.default_reasoning_preserve not in TRI_STATE_VALUES:
+        errors.append(f"Invalid reasoning preserve: {payload.default_reasoning_preserve!r}")
+    if payload.default_fit not in TRI_STATE_VALUES:
+        errors.append(f"Invalid fit: {payload.default_fit!r}")
+
+    optional_int_fields = (
+        ("ctx checkpoints", payload.default_ctx_checkpoints),
+        ("top k", payload.default_top_k),
+    )
+    for label, raw in optional_int_fields:
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        try:
+            value = int(stripped)
+        except ValueError:
+            errors.append(f"Invalid {label}: {raw!r}")
+            continue
+        if label == "ctx checkpoints" and value < 0:
+            errors.append(f"Invalid ctx checkpoints: {value} (must be >= 0)")
+
+    optional_float_fields = (
+        ("temperature", payload.default_temperature),
+        ("top p", payload.default_top_p),
+        ("min p", payload.default_min_p),
+        ("presence penalty", payload.default_presence_penalty),
+        ("repeat penalty", payload.default_repeat_penalty),
+    )
+    for label, raw in optional_float_fields:
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        try:
+            float(stripped)
+        except ValueError:
+            errors.append(f"Invalid {label}: {raw!r}")
+
+    return errors
 
 
 class ConfigModal(ModalScreen[ConfigPayload | None]):
@@ -412,6 +497,12 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             default_reasoning_budget=self.query_one(
                 "#cfg-default_reasoning_budget", Input
             ).value.strip(),
+            default_reasoning_preserve=str(
+                self.query_one("#cfg-default_reasoning_preserve", Select).value or "auto"
+            ),
+            default_reasoning_budget_message=self.query_one(
+                "#cfg-default_reasoning_budget_message", Input
+            ).value.strip(),
             default_use_jinja=self.query_one("#cfg-default_use_jinja", Checkbox).value,
             default_profile_chat_template_kwargs=self.query_one(
                 "#cfg-default_profile_chat_template_kwargs", Input
@@ -450,9 +541,22 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             ).value.strip(),
             default_kv_unified=self.query_one("#cfg-default_kv_unified", Checkbox).value,
             default_mmproj_offload=self.query_one("#cfg-default_mmproj_offload", Checkbox).value,
-            default_load_mode=self.query_one("#cfg-default_load_mode", Input).value.strip()
-            or "auto",
+            default_load_mode=str(self.query_one("#cfg-default_load_mode", Select).value or "auto"),
             default_no_host_buffer=self.query_one("#cfg-default_no_host_buffer", Checkbox).value,
+            default_fit=str(self.query_one("#cfg-default_fit", Select).value or "auto"),
+            default_ctx_checkpoints=self.query_one(
+                "#cfg-default_ctx_checkpoints", Input
+            ).value.strip(),
+            default_temperature=self.query_one("#cfg-default_temperature", Input).value.strip(),
+            default_top_k=self.query_one("#cfg-default_top_k", Input).value.strip(),
+            default_top_p=self.query_one("#cfg-default_top_p", Input).value.strip(),
+            default_min_p=self.query_one("#cfg-default_min_p", Input).value.strip(),
+            default_presence_penalty=self.query_one(
+                "#cfg-default_presence_penalty", Input
+            ).value.strip(),
+            default_repeat_penalty=self.query_one(
+                "#cfg-default_repeat_penalty", Input
+            ).value.strip(),
         )
 
     # ------------------------------------------------------------------
@@ -469,12 +573,21 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
         if event.button.id == "cancel-config":
             self.dismiss(None)
         elif event.button.id == "save-config":
-            self.dismiss(self._collect_values())
+            self._dismiss_if_valid(restart=False)
         elif event.button.id == "save-restart-config":
-            values = self._collect_values()
-            values.restart = True
-            self.dismiss(values)
+            self._dismiss_if_valid(restart=True)
         elif event.button.id == "clean-model-cache":
             values = self._collect_values()
             values.clean_cache = True
             self.dismiss(values)
+
+    def _dismiss_if_valid(self, *, restart: bool) -> None:
+        values = self._collect_values()
+        errors = _validate_config_payload(values)
+        if errors:
+            for error in errors:
+                self.notify(error, severity="error")
+            return
+        if restart:
+            values.restart = True
+        self.dismiss(values)

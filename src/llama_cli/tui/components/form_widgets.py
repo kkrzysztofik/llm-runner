@@ -36,6 +36,27 @@ REASONING_FORMAT_CHOICES: tuple[tuple[str, str], ...] = (
     ("deepseek", "deepseek"),
 )
 
+LOAD_MODE_CHOICES: tuple[tuple[str, str], ...] = (
+    ("auto", "auto"),
+    ("none", "none"),
+    ("mmap", "mmap"),
+    ("mlock", "mlock"),
+    ("mmap+mlock", "mmap+mlock"),
+    ("dio", "dio"),
+)
+
+REASONING_PRESERVE_CHOICES: tuple[tuple[str, str], ...] = (
+    ("auto", "auto"),
+    ("on", "on"),
+    ("off", "off"),
+)
+
+FIT_CHOICES: tuple[tuple[str, str], ...] = (
+    ("auto", "auto"),
+    ("on", "on"),
+    ("off", "off"),
+)
+
 SPEC_TYPE_CHOICES: tuple[tuple[str, str], ...] = (
     ("(none)", ""),
     ("ngram-mod", "ngram-mod"),
@@ -56,6 +77,11 @@ CONFIG_SELECT_CLASSES = "form-input config-select"
 ROW_CLASSES = "form-row profile-row"
 ROW_SELECT_CLASSES = "form-row profile-row profile-row-select"
 CONFIG_ROW_SELECT_CLASSES = "form-row config-row config-row-select"
+
+
+def _optional_numeric_display(value: int | float | None) -> str:
+    """Format optional numeric config values for form inputs."""
+    return "" if value is None else str(value)
 
 
 def field_row(
@@ -177,6 +203,16 @@ def config_profile_prefill(config: Config) -> dict[str, str]:
         "mmproj-offload": "true" if defaults.mmproj_offload else "false",
         "load-mode": defaults.load_mode,
         "no-host-buffer": "true" if defaults.no_host_buffer else "false",
+        "reasoning-preserve": defaults.reasoning_preserve,
+        "reasoning-budget-message": defaults.reasoning_budget_message,
+        "fit": defaults.fit,
+        "ctx-checkpoints": _optional_numeric_display(defaults.ctx_checkpoints),
+        "temperature": _optional_numeric_display(defaults.temperature),
+        "top-k": _optional_numeric_display(defaults.top_k),
+        "top-p": _optional_numeric_display(defaults.top_p),
+        "min-p": _optional_numeric_display(defaults.min_p),
+        "presence-penalty": _optional_numeric_display(defaults.presence_penalty),
+        "repeat-penalty": _optional_numeric_display(defaults.repeat_penalty),
     }
 
 
@@ -468,6 +504,25 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             input_classes=cfg_input,
             row_classes=cfg_row,
         ),
+        select_row(
+            "Reasoning preserve",
+            "default_reasoning_preserve",
+            REASONING_PRESERVE_CHOICES,
+            defaults.reasoning_preserve,
+            id_prefix=prefix,
+            label_classes=cfg_label,
+            input_classes=cfg_select,
+            row_classes=cfg_row_select,
+        ),
+        field_row(
+            "Reasoning budget message",
+            "default_reasoning_budget_message",
+            defaults.reasoning_budget_message,
+            id_prefix=prefix,
+            label_classes=cfg_label,
+            input_classes=cfg_input,
+            row_classes=cfg_row,
+        ),
         checkbox_row(
             "Use Jinja",
             "default_use_jinja",
@@ -521,14 +576,15 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             label_classes=cfg_label,
             row_classes=cfg_row,
         ),
-        field_row(
+        select_row(
             "Load Mode",
             "default_load_mode",
+            LOAD_MODE_CHOICES,
             defaults.load_mode,
             id_prefix=prefix,
             label_classes=cfg_label,
-            input_classes=cfg_input,
-            row_classes=cfg_row,
+            input_classes=cfg_select,
+            row_classes=cfg_row_select,
         ),
         checkbox_row(
             "No Host Buffer",
@@ -536,6 +592,86 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             defaults.no_host_buffer,
             id_prefix=prefix,
             label_classes=cfg_label,
+            row_classes=cfg_row,
+        ),
+        select_row(
+            "Fit",
+            "default_fit",
+            FIT_CHOICES,
+            defaults.fit,
+            id_prefix=prefix,
+            label_classes=cfg_label,
+            input_classes=cfg_select,
+            row_classes=cfg_row_select,
+        ),
+        field_row(
+            "Ctx checkpoints",
+            "default_ctx_checkpoints",
+            _optional_numeric_display(defaults.ctx_checkpoints),
+            id_prefix=prefix,
+            type="integer",
+            label_classes=cfg_label,
+            input_classes=cfg_input,
+            row_classes=cfg_row,
+        ),
+        field_row(
+            "Temperature",
+            "default_temperature",
+            _optional_numeric_display(defaults.temperature),
+            id_prefix=prefix,
+            type="number",
+            label_classes=cfg_label,
+            input_classes=cfg_input,
+            row_classes=cfg_row,
+        ),
+        field_row(
+            "Top K",
+            "default_top_k",
+            _optional_numeric_display(defaults.top_k),
+            id_prefix=prefix,
+            type="integer",
+            label_classes=cfg_label,
+            input_classes=cfg_input,
+            row_classes=cfg_row,
+        ),
+        field_row(
+            "Top P",
+            "default_top_p",
+            _optional_numeric_display(defaults.top_p),
+            id_prefix=prefix,
+            type="number",
+            label_classes=cfg_label,
+            input_classes=cfg_input,
+            row_classes=cfg_row,
+        ),
+        field_row(
+            "Min P",
+            "default_min_p",
+            _optional_numeric_display(defaults.min_p),
+            id_prefix=prefix,
+            type="number",
+            label_classes=cfg_label,
+            input_classes=cfg_input,
+            row_classes=cfg_row,
+        ),
+        field_row(
+            "Presence penalty",
+            "default_presence_penalty",
+            _optional_numeric_display(defaults.presence_penalty),
+            id_prefix=prefix,
+            type="number",
+            label_classes=cfg_label,
+            input_classes=cfg_input,
+            row_classes=cfg_row,
+        ),
+        field_row(
+            "Repeat penalty",
+            "default_repeat_penalty",
+            _optional_numeric_display(defaults.repeat_penalty),
+            id_prefix=prefix,
+            type="number",
+            label_classes=cfg_label,
+            input_classes=cfg_input,
             row_classes=cfg_row,
         ),
         title="Profile / server defaults",
