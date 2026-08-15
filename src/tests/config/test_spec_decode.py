@@ -2,6 +2,7 @@
 
 import pytest
 
+from llama_cli.tui.components.form_widgets import SPEC_TYPE_CHOICES
 from llama_manager.config import SpeculativeDecodingConfig
 
 
@@ -50,6 +51,23 @@ class TestSpecTypeValidation:
         """Every member of the list must be a known spec type."""
         with pytest.raises(ValueError, match="spec_type"):
             SpeculativeDecodingConfig(spec_type="draft-mtp,bogus")
+
+    def test_every_tui_spec_type_choice_is_a_valid_config(self) -> None:
+        """The TUI dropdown must not offer a value the config layer rejects."""
+        for _, value in SPEC_TYPE_CHOICES:
+            if value:
+                # A draft source is supplied unconditionally; draft-dflash requires one.
+                cfg = SpeculativeDecodingConfig(
+                    spec_type=value, spec_draft_model="/models/draft.gguf"
+                )
+                assert cfg.spec_type == value
+
+    def test_spec_type_members_are_sorted_and_deduped(self) -> None:
+        """Order and repeats are meaningless to llama.cpp, so store one spelling."""
+        assert SpeculativeDecodingConfig(spec_type="ngram-mod,draft-mtp").spec_type == (
+            "draft-mtp,ngram-mod"
+        )
+        assert SpeculativeDecodingConfig(spec_type="ngram-mod,ngram-mod").spec_type == "ngram-mod"
 
     def test_spec_type_whitespace_is_normalized(self) -> None:
         """Stored spec_type is canonical, so consumers never see stray spaces."""

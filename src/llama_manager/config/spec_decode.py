@@ -37,7 +37,10 @@ class SpeculativeDecodingConfig(dict[str, object]):
         _validate_speculative_decoding(self)
         # Normalize once here so every consumer (argv builder, profile store,
         # profile IO, TUI prefill) sees the same canonical comma-joined form.
-        self.spec_type = ",".join(spec_type_members(self.spec_type))
+        # Sorting and deduping is safe: llama.cpp reduces --spec-type to a bitmask
+        # (common_get_enabled_speculative_configs) and then applies its own hardcoded
+        # speculator priority, so member order and repeats carry no meaning.
+        self.spec_type = ",".join(dict.fromkeys(sorted(spec_type_members(self.spec_type))))
         self.clear()
         self.update(
             {

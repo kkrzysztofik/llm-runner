@@ -1001,6 +1001,32 @@ async def test_combined_spec_type_is_selectable_and_shows_both_field_groups() ->
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("stored_spec_type", ["draft-mtp,ngram-mod", "draft-dflash,draft-mtp"])
+async def test_modal_mounts_with_combined_spec_type_prefill(stored_spec_type: str) -> None:
+    """A stored combination must survive mount, listed in the dropdown or not."""
+    spec = RunProfileSpec(
+        profile_id="combo",
+        model="/models/test.gguf",
+        alias="combo",
+        device="CUDA:0",
+        port=8080,
+        ctx_size=4096,
+        ubatch_size=512,
+        threads=8,
+        spec_type=stored_spec_type,
+        spec_draft_model="/models/draft.gguf",
+    )
+    modal = RunProfileModal(profile=spec)
+    app = App[None]()
+
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+
+        assert modal.query_one("#profile-spec-type", Select).value == stored_spec_type
+
+
+@pytest.mark.anyio
 async def test_modal_cancel_button_dismisses_none() -> None:
     modal = RunProfileModal()
     result_holder: list[object] = []

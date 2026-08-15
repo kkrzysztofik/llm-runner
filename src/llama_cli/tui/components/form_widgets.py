@@ -68,6 +68,20 @@ SPEC_TYPE_CHOICES: tuple[tuple[str, str], ...] = (
     ("draft-mtp,ngram-mod", "draft-mtp,ngram-mod"),
 )
 
+
+def spec_type_choices(value: str) -> tuple[tuple[str, str], ...]:
+    """Return the spec type choices, widened to include ``value``.
+
+    A Select raises InvalidSelectValueError at mount for any value it was not
+    given, so a stored spec_type that is valid but not listed above (an
+    unanticipated combination) would take the modal down. Append it instead of
+    falling back to "", which would silently blank the field and lose it on save.
+    """
+    if not value or any(value == choice for _, choice in SPEC_TYPE_CHOICES):
+        return SPEC_TYPE_CHOICES
+    return (*SPEC_TYPE_CHOICES, (value, value))
+
+
 DEFAULT_PARALLEL_CHOICES: tuple[tuple[str, str], ...] = (
     ("1", "1"),
     ("4", "4"),
@@ -556,7 +570,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         select_row(
             "Spec type",
             "default_spec_type",
-            SPEC_TYPE_CHOICES,
+            spec_type_choices(spec.spec_type),
             spec.spec_type,
             id_prefix=prefix,
             label_classes=cfg_label,

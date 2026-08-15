@@ -28,12 +28,12 @@ from .form_widgets import (
     ROW_CLASSES,
     ROW_SELECT_CLASSES,
     SELECT_CLASSES,
-    SPEC_TYPE_CHOICES,
     cache_type_row,
     checkbox_row,
     config_profile_prefill,
     field_row,
     select_row,
+    spec_type_choices,
 )
 from .model_details import model_detail_parts
 
@@ -744,7 +744,12 @@ def _build_sampling_fields(prefill: dict[str, str]) -> Collapsible:
 def _build_speculative_fields(prefill: dict[str, str]) -> Collapsible:
     """Build the collapsed speculative decoding section."""
     return Collapsible(
-        select_row("Spec Type", "spec-type", SPEC_TYPE_CHOICES, prefill.get("spec-type", "")),
+        select_row(
+            "Spec Type",
+            "spec-type",
+            spec_type_choices(prefill.get("spec-type", "")),
+            prefill.get("spec-type", ""),
+        ),
         field_row(
             "Ngram Size N",
             "spec-ngram-size-n",
