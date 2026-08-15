@@ -18,6 +18,7 @@ from llama_cli.tui.components.slot_profile_modal import (
 )
 from llama_cli.tui.components.slot_profile_modal import (
     _parse_n_gpu_layers,
+    payload_to_slot_profile_spec,
 )
 from llama_manager.config import Config, ServerDefaultsConfig
 from llama_manager.config.profiles import SlotProfileSpec as RunProfileSpec
@@ -42,7 +43,77 @@ def test_payload_defaults() -> None:
     assert payload.n_gpu_layers == "all"
     assert payload.threads == 8
     assert payload.chat_template_kwargs == ""
+    assert payload.load_mode == "auto"
+    assert payload.reasoning_preserve == "auto"
+    assert payload.reasoning_budget_message == ""
+    assert payload.fit == "auto"
+    assert payload.ctx_checkpoints is None
+    assert payload.temperature is None
+    assert payload.top_k is None
+    assert payload.top_p is None
+    assert payload.min_p is None
+    assert payload.presence_penalty is None
+    assert payload.repeat_penalty is None
     assert payload.save_and_add_slot is False
+
+
+def test_payload_new_fields_map_to_flat_profile_fields() -> None:
+    payload = RunProfilePayload(
+        model="/models/model.gguf",
+        load_mode="mmap+mlock",
+        reasoning_preserve="on",
+        reasoning_budget_message="think carefully",
+        fit="off",
+        ctx_checkpoints=4,
+        temperature=0.7,
+        top_k=40,
+        top_p=0.9,
+        min_p=0.05,
+        presence_penalty=0.2,
+        repeat_penalty=1.1,
+    )
+
+    spec = payload_to_slot_profile_spec("test", payload)
+
+    assert spec.load_mode == "mmap+mlock"
+    assert spec.reasoning_preserve == "on"
+    assert spec.reasoning_budget_message == "think carefully"
+    assert spec.fit == "off"
+    assert spec.ctx_checkpoints == 4
+    assert spec.temperature == 0.7
+    assert spec.top_k == 40
+    assert spec.top_p == 0.9
+    assert spec.min_p == 0.05
+    assert spec.presence_penalty == 0.2
+    assert spec.repeat_penalty == 1.1
+    assert not hasattr(spec.spec_decode, "reasoning_preserve")
+
+
+def test_payload_empty_optional_values_remain_unset() -> None:
+    spec = payload_to_slot_profile_spec(
+        "test",
+        RunProfilePayload(model="/models/model.gguf"),
+    )
+
+    assert spec.ctx_checkpoints is None
+    assert spec.temperature is None
+    assert spec.top_k is None
+    assert spec.top_p is None
+    assert spec.min_p is None
+    assert spec.presence_penalty is None
+    assert spec.repeat_penalty is None
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (("load_mode", "bogus"), ("reasoning_preserve", "bogus"), ("fit", "bogus")),
+)
+def test_payload_to_spec_rejects_invalid_enums(field: str, value: str) -> None:
+    payload = RunProfilePayload(model="/models/model.gguf")
+    setattr(payload, field, value)
+
+    with pytest.raises(ValueError, match="Invalid"):
+        payload_to_slot_profile_spec("test", payload)
 
 
 def test_payload_custom_values() -> None:
@@ -204,6 +275,17 @@ def test_modal_edit_prefills_values() -> None:
         n_gpu_layers=99,
         server_bin="/usr/bin/llama-server",
         chat_template_kwargs='{"key": "val"}',
+        load_mode="mmap",
+        reasoning_preserve="on",
+        reasoning_budget_message="keep thinking",
+        fit="off",
+        ctx_checkpoints=3,
+        temperature=0.6,
+        top_k=32,
+        top_p=0.8,
+        min_p=0.1,
+        presence_penalty=0.2,
+        repeat_penalty=1.05,
         backend="llama_cpp",
     )
     modal = RunProfileModal(profile=spec)
@@ -219,6 +301,17 @@ def test_modal_edit_prefills_values() -> None:
     assert prefill["n-gpu-layers"] == "99"
     assert prefill["threads"] == "16"
     assert prefill["chat-template-kwargs"] == '{"key": "val"}'
+    assert prefill["load-mode"] == "mmap"
+    assert prefill["reasoning-preserve"] == "on"
+    assert prefill["reasoning-budget-message"] == "keep thinking"
+    assert prefill["fit"] == "off"
+    assert prefill["ctx-checkpoints"] == "3"
+    assert prefill["temperature"] == "0.6"
+    assert prefill["top-k"] == "32"
+    assert prefill["top-p"] == "0.8"
+    assert prefill["min-p"] == "0.1"
+    assert prefill["presence-penalty"] == "0.2"
+    assert prefill["repeat-penalty"] == "1.05"
 
 
 def test_modal_edit_prefills_empty_label() -> None:
@@ -628,8 +721,8 @@ def test_modal_create_has_empty_selected_model_path() -> None:
 
 
 @pytest.mark.anyio
-async def test_modal_advanced_section_collapsed_by_default() -> None:
-    """Advanced profile fields should live in a collapsed Collapsible section."""
+async def test_modal_themed_sections_collapsed_by_default() -> None:
+    """Profile tuning fields should be grouped into collapsed themed sections."""
     modal = RunProfileModal()
     app = App[None]()
 
@@ -637,15 +730,30 @@ async def test_modal_advanced_section_collapsed_by_default() -> None:
         await app.push_screen(modal)
         await pilot.pause()
 
-        advanced = modal.query_one("#profile-advanced-collapsible", Collapsible)
-        assert advanced.title == "Advanced"
-        assert advanced.collapsed is True
+        expected = {
+            "profile-runtime-collapsible": "Runtime",
+            "profile-memory-collapsible": "Memory",
+            "profile-reasoning-collapsible": "Reasoning",
+            "profile-sampling-collapsible": "Sampling",
+            "profile-speculative-collapsible": "Speculative",
+        }
+        for section_id, title in expected.items():
+            section = modal.query_one(f"#{section_id}", Collapsible)
+            assert section.title == title
+            assert section.collapsed is True
+            assert section.has_class("profile-advanced-options")
 
-        modal.query_one("#profile-server-bin", Input)
-        modal.query_one("#profile-port", Input)
-        modal.query_one("#profile-ubatch-size", Input)
-        modal.query_one("#profile-n-gpu-layers", Input)
-        modal.query_one("#profile-threads", Input)
+        assert modal.query_one("#profile-load-mode", Select).has_class("profile-select")
+        assert modal.query_one("#profile-fit", Select).has_class("profile-select")
+        assert modal.query_one("#profile-reasoning-preserve", Select).has_class("profile-select")
+        modal.query_one("#profile-ctx-checkpoints", Input)
+        modal.query_one("#profile-temperature", Input)
+        modal.query_one("#profile-chat-template-kwargs", Input)
+
+        assert not modal.query("#profile-mmap")
+        assert not modal.query("#profile-mlock")
+        speculative = modal.query_one("#profile-speculative-collapsible", Collapsible)
+        assert not speculative.query("#profile-reasoning-preserve")
 
 
 @pytest.mark.anyio
@@ -902,6 +1010,12 @@ async def test_modal_save_button_returns_payload() -> None:
         await app.push_screen(modal, on_result)
         await pilot.pause()
         modal.query_one("#profile-profile-id", Input).value = "saved-profile"
+        modal.query_one("#profile-load-mode", Select).value = "mmap+mlock"
+        modal.query_one("#profile-reasoning-preserve", Select).value = "on"
+        modal.query_one("#profile-fit", Select).value = "off"
+        modal.query_one("#profile-ctx-checkpoints", Input).value = "5"
+        modal.query_one("#profile-temperature", Input).value = "0.75"
+        modal.query_one("#profile-top-k", Input).value = "40"
         await pilot.click(modal.query_one("#save-profile", Button))
         await pilot.pause()
 
@@ -909,6 +1023,13 @@ async def test_modal_save_button_returns_payload() -> None:
     payload = result_holder[0]
     assert isinstance(payload, RunProfilePayload)
     assert payload.profile_id == "saved-profile"
+    assert payload.load_mode == "mmap+mlock"
+    assert payload.reasoning_preserve == "on"
+    assert payload.fit == "off"
+    assert payload.ctx_checkpoints == 5
+    assert payload.temperature == 0.75
+    assert payload.top_k == 40
+    assert payload.top_p is None
     assert payload.save_and_add_slot is False
 
 
