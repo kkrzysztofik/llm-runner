@@ -66,9 +66,9 @@ def _validate_speculative_decoding(config: SpeculativeDecodingConfig) -> None:
         raise ValueError("spec_draft_p_min must be non-negative")
     if config.spec_draft_p_min > 1.0:
         raise ValueError("spec_draft_p_min must be <= 1.0")
-    if config.spec_type not in ("", "ngram-mod", "draft-mtp", "dflash"):
-        raise ValueError("spec_type must be '', 'ngram-mod', 'draft-mtp', or 'dflash'")
-    if config.spec_type == "dflash":
+    if config.spec_type not in ("", "ngram-mod", "draft-mtp", "draft-dflash"):
+        raise ValueError("spec_type must be '', 'ngram-mod', 'draft-mtp', or 'draft-dflash'")
+    if config.spec_type == "draft-dflash":
         _validate_dflash_config(config)
     if config.spec_dflash_cross_ctx < 0:
         raise ValueError("spec_dflash_cross_ctx must be non-negative")
@@ -76,7 +76,9 @@ def _validate_speculative_decoding(config: SpeculativeDecodingConfig) -> None:
 
 def _validate_dflash_config(config: SpeculativeDecodingConfig) -> None:
     if not config.spec_draft_model and not config.spec_draft_hf:
-        raise ValueError("spec_draft_model or spec_draft_hf required when spec_type is 'dflash'")
+        raise ValueError(
+            "spec_draft_model or spec_draft_hf required when spec_type is 'draft-dflash'"
+        )
     if config.spec_draft_model and config.spec_draft_hf:
         raise ValueError("spec_draft_model and spec_draft_hf are mutually exclusive")
 

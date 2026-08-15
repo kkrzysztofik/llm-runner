@@ -20,7 +20,7 @@ from ...config import (
 # ---------------------------------------------------------------------------
 
 _SPEC_TYPE_FLAG: Final = "--spec-type"
-_SPEC_TYPE_DFLASH: Final = "dflash"
+_SPEC_TYPE_DFLASH: Final = "draft-dflash"
 _SPEC_TYPE_DRAFT_MTP: Final = "draft-mtp"
 _SPEC_TYPE_NGRAM_MOD: Final = "ngram-mod"
 

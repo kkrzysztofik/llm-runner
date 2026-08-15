@@ -956,7 +956,7 @@ async def test_speculative_fields_follow_selected_spec_type() -> None:
                 "spec-draft-cache-type-v",
                 "spec-draft-device",
             },
-            "dflash": {
+            "draft-dflash": {
                 "spec-draft-model",
                 "spec-draft-hf",
                 "spec-draft-ngl",

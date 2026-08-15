@@ -709,7 +709,7 @@ def test_roundtrip_dflash_fields(xdg_config_home: Path) -> None:
         ubatch_size=512,
         threads=8,
         spec_decode=SpeculativeDecodingConfig(
-            spec_type="dflash",
+            spec_type="draft-dflash",
             spec_draft_model="/models/draft.gguf",
             spec_draft_ngl="all",
             spec_dflash_cross_ctx=512,
@@ -727,7 +727,7 @@ def test_roundtrip_dflash_fields(xdg_config_home: Path) -> None:
     loaded = load_custom_run_profiles()
     assert len(loaded) == 1
     lp = loaded[0]
-    assert lp.spec_decode.spec_type == "dflash"
+    assert lp.spec_decode.spec_type == "draft-dflash"
     assert lp.spec_decode.spec_draft_model == "/models/draft.gguf"
     assert lp.spec_decode.spec_draft_ngl == "all"
     assert lp.spec_decode.spec_dflash_cross_ctx == 512
@@ -753,7 +753,7 @@ def test_roundtrip_dflash_hf_draft(xdg_config_home: Path) -> None:
         ubatch_size=256,
         threads=4,
         spec_decode=SpeculativeDecodingConfig(
-            spec_type="dflash",
+            spec_type="draft-dflash",
             spec_draft_hf="Anbeeld/Qwen3.6-27B-DFlash-GGUF:IQ4_XS",
             spec_draft_ngl=32,
         ),
@@ -763,7 +763,7 @@ def test_roundtrip_dflash_hf_draft(xdg_config_home: Path) -> None:
     loaded = load_custom_run_profiles()
     assert len(loaded) == 1
     lp = loaded[0]
-    assert lp.spec_decode.spec_type == "dflash"
+    assert lp.spec_decode.spec_type == "draft-dflash"
     assert lp.spec_decode.spec_draft_hf == "Anbeeld/Qwen3.6-27B-DFlash-GGUF:IQ4_XS"
     assert lp.spec_decode.spec_draft_ngl == 32
     assert lp.spec_decode.spec_draft_model == ""
@@ -810,7 +810,7 @@ def test_roundtrip_dflash_with_all_smaller_model_flags(xdg_config_home: Path) ->
         ubatch_size=1024,
         threads=16,
         spec_decode=SpeculativeDecodingConfig(
-            spec_type="dflash",
+            spec_type="draft-dflash",
             spec_draft_model="/models/draft.gguf",
             spec_draft_ngl="all",
             spec_dflash_cross_ctx=1024,
@@ -829,7 +829,7 @@ def test_roundtrip_dflash_with_all_smaller_model_flags(xdg_config_home: Path) ->
     assert len(loaded) == 1
     lp = loaded[0]
     # DFlash fields
-    assert lp.spec_decode.spec_type == "dflash"
+    assert lp.spec_decode.spec_type == "draft-dflash"
     assert lp.spec_decode.spec_draft_model == "/models/draft.gguf"
     assert lp.spec_decode.spec_draft_ngl == "all"
     assert lp.spec_decode.spec_dflash_cross_ctx == 1024

@@ -63,7 +63,7 @@ _SPEC_FIELDS_BY_TYPE = {
         "spec-draft-cache-type-v",
         "spec-draft-device",
     ),
-    "dflash": (
+    "draft-dflash": (
         "spec-draft-model",
         "spec-draft-hf",
         "spec-draft-ngl",

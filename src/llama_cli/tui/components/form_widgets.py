@@ -61,7 +61,7 @@ SPEC_TYPE_CHOICES: tuple[tuple[str, str], ...] = (
     ("(none)", ""),
     ("ngram-mod", "ngram-mod"),
     ("draft-mtp", "draft-mtp"),
-    ("dflash", "dflash"),
+    ("draft-dflash", "draft-dflash"),
 )
 
 DEFAULT_PARALLEL_CHOICES: tuple[tuple[str, str], ...] = (

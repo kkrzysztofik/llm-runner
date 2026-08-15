@@ -295,14 +295,14 @@ class TestBuildServerCmd:
         """DFlash with local draft model emits correct flags."""
         cmd = build_server_cmd(
             self._minimal_cfg(
-                spec_type="dflash",
+                spec_type="draft-dflash",
                 spec_draft_model="/models/draft.gguf",
                 spec_draft_ngl="all",
                 spec_dflash_cross_ctx=512,
             )
         )
         assert "--spec-type" in cmd
-        assert "dflash" in cmd
+        assert "draft-dflash" in cmd
         assert "--spec-draft-model" in cmd
         assert "/models/draft.gguf" in cmd
         assert "--spec-draft-ngl" in cmd
@@ -314,7 +314,7 @@ class TestBuildServerCmd:
         """DFlash with HF draft emits --spec-draft-hf."""
         cmd = build_server_cmd(
             self._minimal_cfg(
-                spec_type="dflash",
+                spec_type="draft-dflash",
                 spec_draft_hf="Anbeeld/Qwen3.6-27B-DFlash-GGUF:IQ4_XS",
             )
         )
@@ -325,7 +325,7 @@ class TestBuildServerCmd:
         """DFlash with integer spec_draft_ngl emits numeric value."""
         cmd = build_server_cmd(
             self._minimal_cfg(
-                spec_type="dflash",
+                spec_type="draft-dflash",
                 spec_draft_model="/models/draft.gguf",
                 spec_draft_ngl=42,
             )
@@ -336,7 +336,7 @@ class TestBuildServerCmd:
         """DFlash omits --spec-dflash-cross-ctx when value is 0."""
         cmd = build_server_cmd(
             self._minimal_cfg(
-                spec_type="dflash",
+                spec_type="draft-dflash",
                 spec_draft_model="/models/draft.gguf",
                 spec_dflash_cross_ctx=0,
             )
@@ -347,7 +347,7 @@ class TestBuildServerCmd:
         """DFlash with reasoning mode/format emits reasoning flags."""
         cmd = build_server_cmd(
             self._minimal_cfg(
-                spec_type="dflash",
+                spec_type="draft-dflash",
                 spec_draft_model="/models/draft.gguf",
                 reasoning_mode="on",
                 reasoning_format="deepseek",
