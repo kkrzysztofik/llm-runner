@@ -354,6 +354,27 @@ def test_profile_to_dict_handles_string_ngl() -> None:
     assert d["n_gpu_layers"] == "all"
 
 
+def test_profile_from_dict_migrates_mmap_mlock() -> None:
+    p = _profile_from_dict(
+        {
+            "profile_id": "t",
+            "model": "/m.gguf",
+            "alias": "t",
+            "device": "cuda:0",
+            "port": 8080,
+            "ctx_size": 4096,
+            "ubatch_size": 512,
+            "threads": 8,
+            "mmap": False,
+            "mlock": True,
+        }
+    )
+    assert p.load_mode == "mlock"
+    d = _profile_to_dict(p)
+    assert d["load_mode"] == "mlock"
+    assert "mmap" not in d and "mlock" not in d
+
+
 def test_profile_from_dict_applies_defaults() -> None:
     """_profile_from_dict should fill in defaults for missing keys."""
     minimal: dict[str, Any] = {

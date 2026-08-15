@@ -20,6 +20,8 @@ from .defaults import (
     ServerDefaultsConfig,
     SmokeConfig,
 )
+from .load_mode import resolve_load_mode
+from .tri_state import resolve_fit, resolve_reasoning_preserve
 
 _PERSISTED_SECTIONS: dict[str, tuple[str, ...]] = {
     "paths": (
@@ -76,10 +78,25 @@ _PERSISTED_SECTIONS: dict[str, tuple[str, ...]] = {
         "spec_draft_cache_type_k",
         "spec_draft_cache_type_v",
         "spec_draft_device",
+        "kv_unified",
+        "mmproj_offload",
+        "load_mode",
+        "no_host_buffer",
+        "reasoning_preserve",
+        "reasoning_budget_message",
+        "fit",
+        "ctx_checkpoints",
+        "temperature",
+        "top_k",
+        "top_p",
+        "min_p",
+        "presence_penalty",
+        "repeat_penalty",
     ),
 }
 
 _TOP_LEVEL_FIELDS: tuple[str, ...] = ("log_file_level", "log_stderr_level")
+_LEGACY_SERVER_DEFAULTS_KEYS: tuple[str, ...] = ("mmap", "mlock")
 _UPDATE_FIELDS: frozenset[str] = frozenset(
     f"{section}.{field}" for section, fields in _PERSISTED_SECTIONS.items() for field in fields
 ) | frozenset(_TOP_LEVEL_FIELDS)
@@ -123,6 +140,10 @@ def load_config_overrides_from_file(path: Path) -> dict[str, Any]:
         section_data = raw.get(section)
         if isinstance(section_data, dict):
             values = {field: section_data[field] for field in fields if field in section_data}
+            if section == "server_defaults":
+                for legacy_key in _LEGACY_SERVER_DEFAULTS_KEYS:
+                    if legacy_key in section_data:
+                        values[legacy_key] = section_data[legacy_key]
             if values:
                 overrides[section] = values
     for field in _TOP_LEVEL_FIELDS:
@@ -149,7 +170,10 @@ def save_config_to_file(config: Config, path: Path) -> None:
         lines.append(f"[{section}]")
         section_config = getattr(config, section)
         for field in fields:
-            lines.append(f"{field} = {_toml_value(getattr(section_config, field))}")
+            value = getattr(section_config, field)
+            if value is None:
+                continue
+            lines.append(f"{field} = {_toml_value(value)}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -175,6 +199,8 @@ def build_config() -> Config:
         file_overrides["paths"] = paths_overrides
 
     kwargs = dict(file_overrides)
+    if "server_defaults" in kwargs:
+        kwargs["server_defaults"] = _normalize_server_defaults_section(kwargs["server_defaults"])
     for section, cls in (
         ("paths", PathsConfig),
         ("build", BuildPipelineConfig),
@@ -186,6 +212,17 @@ def build_config() -> Config:
             kwargs[section] = cls(**kwargs[section])
 
     return Config(**kwargs)
+
+
+def _normalize_server_defaults_section(section_data: dict[str, Any]) -> dict[str, Any]:
+    """Resolve legacy keys and tri-state fields when loading server_defaults."""
+    normalized = dict(section_data)
+    normalized["load_mode"] = resolve_load_mode(section_data)
+    normalized.pop("mmap", None)
+    normalized.pop("mlock", None)
+    normalized["reasoning_preserve"] = resolve_reasoning_preserve(section_data)
+    normalized["fit"] = resolve_fit(section_data)
+    return normalized
 
 
 def _toml_value(value: Any) -> str:
@@ -224,13 +261,24 @@ _INT_FIELDS: frozenset[str] = frozenset(
         "server_defaults.draft_max",
         "server_defaults.spec_draft_n_max",
         "server_defaults.spec_dflash_cross_ctx",
+        "server_defaults.ctx_checkpoints",
+        "server_defaults.top_k",
         "deployment.summary_balanced_port",
         "deployment.summary_fast_port",
         "deployment.qwen35_port",
     }
 )
 
-_FLOAT_FIELDS: frozenset[str] = frozenset({"server_defaults.spec_draft_p_min"})
+_FLOAT_FIELDS: frozenset[str] = frozenset(
+    {
+        "server_defaults.spec_draft_p_min",
+        "server_defaults.temperature",
+        "server_defaults.top_p",
+        "server_defaults.min_p",
+        "server_defaults.presence_penalty",
+        "server_defaults.repeat_penalty",
+    }
+)
 
 _BOOL_TRUE_TOKENS: frozenset[str] = frozenset({"1", "true", "yes", "on"})
 _BOOL_FALSE_TOKENS: frozenset[str] = frozenset({"0", "false", "no", "off"})
