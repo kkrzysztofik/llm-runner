@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from ..common.validators import validate_port_range
 from .errors import ErrorCode, ErrorDetail
+from .launch_runtime import LaunchRuntimeFields, apply_launch_runtime, split_launch_runtime_kwargs
 from .load_mode import LOAD_MODE_VALUES
 from .spec_decode import (
     SpeculativeDecodingConfig,
@@ -18,7 +19,7 @@ _SLOT_ID_PATTERN = re.compile(r"[^a-z0-9_-]")
 
 
 @dataclass
-class ServerConfig(SpeculativeDecodingFieldsMixin):
+class ServerConfig(SpeculativeDecodingFieldsMixin, LaunchRuntimeFields):
     """Configuration for a single llama.cpp server instance.
 
     Each instance targets a specific GPU device and loads a specific model.
@@ -73,20 +74,6 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
     threads_batch: int = 0
     mmproj: str = ""
     spec_decode: SpeculativeDecodingConfig = field(default_factory=SpeculativeDecodingConfig)
-    kv_unified: bool = False
-    mmproj_offload: bool = True
-    load_mode: str = "auto"
-    no_host_buffer: bool = False
-    reasoning_preserve: str = "auto"
-    reasoning_budget_message: str = ""
-    fit: str = "auto"
-    ctx_checkpoints: int | None = None
-    temperature: float | None = None
-    top_k: int | None = None
-    top_p: float | None = None
-    min_p: float | None = None
-    presence_penalty: float | None = None
-    repeat_penalty: float | None = None
 
     def __init__(  # noqa: S107 - intentional explicit init with spec-decode overrides
         self,
@@ -131,21 +118,14 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
         spec_draft_hf: str | None = None,
         spec_draft_ngl: int | str | None = None,
         spec_dflash_cross_ctx: int | None = None,
-        kv_unified: bool | None = None,
-        mmproj_offload: bool | None = None,
-        load_mode: str | None = None,
-        no_host_buffer: bool | None = None,
-        reasoning_preserve: str | None = None,
-        reasoning_budget_message: str | None = None,
-        fit: str | None = None,
-        ctx_checkpoints: int | None = None,
-        temperature: float | None = None,
-        top_k: int | None = None,
-        top_p: float | None = None,
-        min_p: float | None = None,
-        presence_penalty: float | None = None,
-        repeat_penalty: float | None = None,
+        **runtime_overrides: object,
     ) -> None:
+        runtime, unexpected = split_launch_runtime_kwargs(runtime_overrides)
+        if unexpected:
+            unexpected_name = next(iter(unexpected))
+            raise TypeError(
+                f"ServerConfig.__init__() got unexpected keyword argument {unexpected_name!r}"
+            )
         self.model = model
         self.alias = alias
         self.device = device
@@ -171,34 +151,7 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
         self.threads_batch = threads_batch
         self.mmproj = mmproj
         self.spec_decode = resolve_speculative_decoding_config(spec_decode, locals())
-        if kv_unified is not None:
-            self.kv_unified = kv_unified
-        if mmproj_offload is not None:
-            self.mmproj_offload = mmproj_offload
-        if load_mode is not None:
-            self.load_mode = load_mode
-        if no_host_buffer is not None:
-            self.no_host_buffer = no_host_buffer
-        if reasoning_preserve is not None:
-            self.reasoning_preserve = reasoning_preserve
-        if reasoning_budget_message is not None:
-            self.reasoning_budget_message = reasoning_budget_message
-        if fit is not None:
-            self.fit = fit
-        if ctx_checkpoints is not None:
-            self.ctx_checkpoints = ctx_checkpoints
-        if temperature is not None:
-            self.temperature = temperature
-        if top_k is not None:
-            self.top_k = top_k
-        if top_p is not None:
-            self.top_p = top_p
-        if min_p is not None:
-            self.min_p = min_p
-        if presence_penalty is not None:
-            self.presence_penalty = presence_penalty
-        if repeat_penalty is not None:
-            self.repeat_penalty = repeat_penalty
+        apply_launch_runtime(self, runtime, frozen=False)
         self.__post_init__()
 
     def __post_init__(self) -> None:

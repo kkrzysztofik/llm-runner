@@ -5,6 +5,12 @@ from dataclasses import dataclass, field
 
 from ..common.text import sanitize_filename_component
 from ..common.validators import validate_port_range
+from .launch_runtime import (
+    LaunchRuntimeAttributeMixin,
+    LaunchRuntimeFields,
+    apply_launch_runtime,
+    split_launch_runtime_kwargs,
+)
 from .spec_decode import (
     SpeculativeDecodingConfig,
     SpeculativeDecodingFieldsMixin,
@@ -17,7 +23,7 @@ class SlotProfileError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class SlotProfileSpec(SpeculativeDecodingFieldsMixin):
+class SlotProfileSpec(SpeculativeDecodingFieldsMixin, LaunchRuntimeAttributeMixin):
     """Typed data definition for one launchable llama-server slot profile."""
 
     profile_id: str
@@ -47,20 +53,7 @@ class SlotProfileSpec(SpeculativeDecodingFieldsMixin):
     threads_batch: int = 0
     mmproj: str = ""
     spec_decode: SpeculativeDecodingConfig = field(default_factory=SpeculativeDecodingConfig)
-    kv_unified: bool = False
-    mmproj_offload: bool = True
-    load_mode: str = "auto"
-    no_host_buffer: bool = False
-    reasoning_preserve: str = "auto"
-    reasoning_budget_message: str = ""
-    fit: str = "auto"
-    ctx_checkpoints: int | None = None
-    temperature: float | None = None
-    top_k: int | None = None
-    top_p: float | None = None
-    min_p: float | None = None
-    presence_penalty: float | None = None
-    repeat_penalty: float | None = None
+    launch_runtime: LaunchRuntimeFields = field(default_factory=LaunchRuntimeFields)
 
     def __init__(  # noqa: S107 - intentional explicit init with spec-decode overrides
         self,
@@ -107,21 +100,14 @@ class SlotProfileSpec(SpeculativeDecodingFieldsMixin):
         spec_draft_hf: str | None = None,
         spec_draft_ngl: int | str | None = None,
         spec_dflash_cross_ctx: int | None = None,
-        kv_unified: bool | None = None,
-        mmproj_offload: bool | None = None,
-        load_mode: str | None = None,
-        no_host_buffer: bool | None = None,
-        reasoning_preserve: str | None = None,
-        reasoning_budget_message: str | None = None,
-        fit: str | None = None,
-        ctx_checkpoints: int | None = None,
-        temperature: float | None = None,
-        top_k: int | None = None,
-        top_p: float | None = None,
-        min_p: float | None = None,
-        presence_penalty: float | None = None,
-        repeat_penalty: float | None = None,
+        **runtime_overrides: object,
     ) -> None:
+        runtime, unexpected = split_launch_runtime_kwargs(runtime_overrides)
+        if unexpected:
+            unexpected_name = next(iter(unexpected))
+            raise TypeError(
+                f"SlotProfileSpec.__init__() got unexpected keyword argument {unexpected_name!r}"
+            )
         object.__setattr__(self, "profile_id", profile_id)
         object.__setattr__(self, "model", model)
         object.__setattr__(self, "alias", alias)
@@ -153,32 +139,7 @@ class SlotProfileSpec(SpeculativeDecodingFieldsMixin):
         except ValueError as exc:
             raise SlotProfileError(str(exc)) from exc
         object.__setattr__(self, "spec_decode", resolved_spec_decode)
-        object.__setattr__(self, "kv_unified", kv_unified if kv_unified is not None else False)
-        object.__setattr__(
-            self, "mmproj_offload", mmproj_offload if mmproj_offload is not None else True
-        )
-        object.__setattr__(self, "load_mode", load_mode if load_mode is not None else "auto")
-        object.__setattr__(
-            self, "no_host_buffer", no_host_buffer if no_host_buffer is not None else False
-        )
-        object.__setattr__(
-            self,
-            "reasoning_preserve",
-            reasoning_preserve if reasoning_preserve is not None else "auto",
-        )
-        object.__setattr__(
-            self,
-            "reasoning_budget_message",
-            reasoning_budget_message if reasoning_budget_message is not None else "",
-        )
-        object.__setattr__(self, "fit", fit if fit is not None else "auto")
-        object.__setattr__(self, "ctx_checkpoints", ctx_checkpoints)
-        object.__setattr__(self, "temperature", temperature)
-        object.__setattr__(self, "top_k", top_k)
-        object.__setattr__(self, "top_p", top_p)
-        object.__setattr__(self, "min_p", min_p)
-        object.__setattr__(self, "presence_penalty", presence_penalty)
-        object.__setattr__(self, "repeat_penalty", repeat_penalty)
+        apply_launch_runtime(self, runtime, frozen=True, nested=True)
         self.__post_init__()
 
     def __post_init__(self) -> None:

@@ -11,6 +11,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Collapsible, Input, Label, ListItem, ListView, Select
 
 from llama_manager.config import Config
+from llama_manager.config.launch_runtime import LaunchRuntimeFields
 from llama_manager.config.load_mode import LOAD_MODE_VALUES
 from llama_manager.config.profiles import SlotProfileSpec
 from llama_manager.config.spec_decode import SpeculativeDecodingConfig
@@ -34,6 +35,7 @@ from .form_widgets import (
     field_row,
     select_row,
 )
+from .model_details import model_detail_parts
 
 _DEFAULT_DEVICE = "CUDA:0"
 
@@ -71,7 +73,7 @@ _SPEC_FIELDS_BY_TYPE = {
 
 
 @dataclass
-class SlotProfilePayload:
+class SlotProfilePayload(LaunchRuntimeFields):
     """Payload from the slot profile modal."""
 
     profile_id: str = ""
@@ -113,20 +115,6 @@ class SlotProfilePayload:
     spec_draft_hf: str = ""
     spec_draft_ngl: int | str = ""
     spec_dflash_cross_ctx: int = 0
-    kv_unified: bool = False
-    mmproj_offload: bool = True
-    load_mode: str = "auto"
-    no_host_buffer: bool = False
-    reasoning_preserve: str = "auto"
-    reasoning_budget_message: str = ""
-    fit: str = "auto"
-    ctx_checkpoints: int | None = None
-    temperature: float | None = None
-    top_k: int | None = None
-    top_p: float | None = None
-    min_p: float | None = None
-    presence_penalty: float | None = None
-    repeat_penalty: float | None = None
     save_and_add_slot: bool = False
     original_profile_id: str = ""  # filled for edits
 
@@ -342,7 +330,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         """Show model selection and metadata in stable plain labels."""
         self.query_one("#profile-selected-model", Label).update(_selected_model_text(entry.path))
         details = self.query_one("#profile-model-details", Label)
-        parts = _model_detail_parts(entry)
+        parts = model_detail_parts(entry)
         details.update("  |  ".join(parts))
         details.styles.display = "block" if parts else "none"
 
@@ -363,6 +351,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
     def _profile_to_prefill(self, spec: SlotProfileSpec) -> dict[str, str]:
         """Convert SlotProfileSpec to prefill dict for form fields."""
         spec_decode = spec.spec_decode
+        runtime = spec.launch_runtime
         return {
             "profile-id": spec.profile_id,
             "label": spec.alias if spec.alias != spec.profile_id else "",
@@ -380,8 +369,8 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "reasoning-mode": spec_decode.reasoning_mode,
             "reasoning-format": spec_decode.reasoning_format,
             "reasoning-budget": spec_decode.reasoning_budget,
-            "reasoning-preserve": spec.reasoning_preserve,
-            "reasoning-budget-message": spec.reasoning_budget_message,
+            "reasoning-preserve": runtime.reasoning_preserve,
+            "reasoning-budget-message": runtime.reasoning_budget_message,
             "use-jinja": "true" if spec.use_jinja else "false",
             "cache-type-k": spec.cache_type_k,
             "cache-type-v": spec.cache_type_v,
@@ -405,18 +394,18 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "spec-draft-hf": spec_decode.spec_draft_hf,
             "spec-draft-ngl": str(spec_decode.spec_draft_ngl),
             "spec-dflash-cross-ctx": str(spec_decode.spec_dflash_cross_ctx),
-            "kv-unified": "true" if spec.kv_unified else "false",
-            "mmproj-offload": "true" if spec.mmproj_offload else "false",
-            "load-mode": spec.load_mode,
-            "no-host-buffer": "true" if spec.no_host_buffer else "false",
-            "fit": spec.fit,
-            "ctx-checkpoints": _optional_numeric_display(spec.ctx_checkpoints),
-            "temperature": _optional_numeric_display(spec.temperature),
-            "top-k": _optional_numeric_display(spec.top_k),
-            "top-p": _optional_numeric_display(spec.top_p),
-            "min-p": _optional_numeric_display(spec.min_p),
-            "presence-penalty": _optional_numeric_display(spec.presence_penalty),
-            "repeat-penalty": _optional_numeric_display(spec.repeat_penalty),
+            "kv-unified": "true" if runtime.kv_unified else "false",
+            "mmproj-offload": "true" if runtime.mmproj_offload else "false",
+            "load-mode": runtime.load_mode,
+            "no-host-buffer": "true" if runtime.no_host_buffer else "false",
+            "fit": runtime.fit,
+            "ctx-checkpoints": _optional_numeric_display(runtime.ctx_checkpoints),
+            "temperature": _optional_numeric_display(runtime.temperature),
+            "top-k": _optional_numeric_display(runtime.top_k),
+            "top-p": _optional_numeric_display(runtime.top_p),
+            "min-p": _optional_numeric_display(runtime.min_p),
+            "presence-penalty": _optional_numeric_display(runtime.presence_penalty),
+            "repeat-penalty": _optional_numeric_display(runtime.repeat_penalty),
         }
 
     def action_cancel(self) -> None:
@@ -941,31 +930,6 @@ def _relative_model_path(path: str, config: Config | None = None) -> str:
         except ValueError:
             pass
     return model_path.name
-
-
-def _model_detail_parts(entry: ModelIndexEntry) -> list[str]:
-    """Return compact model metadata parts for the modal details label."""
-    parts = []
-    if entry.architecture:
-        parts.append(f"Arch: {entry.architecture}")
-    if entry.quantization_type:
-        parts.append(f"Quant: {entry.quantization_type}")
-    max_context_length = entry.max_context_length or entry.context_length
-    if max_context_length:
-        parts.append(f"Max Ctx: {max_context_length}")
-    if entry.file_size_bytes:
-        size_gib = entry.file_size_bytes / (1024**3)
-        parts.append(f"Size: {size_gib:.1f} GiB")
-    if entry.parse_error:
-        parts.append(f"Metadata: {_short_parse_error(entry.parse_error)}")
-    return parts
-
-
-def _short_parse_error(error: str) -> str:
-    """Convert long parse exceptions into a UI-sized message."""
-    if "timed out after" in error:
-        return "parse timed out; using filename/cache fallback"
-    return error.split(" for ", maxsplit=1)[0]
 
 
 def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -> SlotProfileSpec:
