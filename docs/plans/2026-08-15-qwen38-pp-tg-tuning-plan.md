@@ -227,20 +227,30 @@ Expected: FAIL — `ValueError` on the comma value
 In `spec_decode.py`, replace the membership check:
 
 ```python
-_VALID_SPEC_TYPES: frozenset[str] = frozenset(
-    {"ngram-mod", "draft-mtp", "draft-dflash"}
-)
+_VALID_SPEC_TYPES: frozenset[str] = frozenset({"ngram-mod", "draft-mtp", "draft-dflash"})
 
 
-def _spec_type_members(spec_type: str) -> list[str]:
-    """Split a comma-separated ``--spec-type`` value into its members."""
-    return [part.strip() for part in spec_type.split(",") if part.strip()]
+def spec_type_members(spec_type: str) -> list[str]:
+    """Split a comma-separated ``--spec-type`` value into trimmed members.
+
+    Empty components (e.g. ``draft-mtp,,ngram-mod`` or a trailing comma) raise
+    ``ValueError`` rather than being silently dropped.
+    """
+    if not spec_type:
+        return []
+    members: list[str] = []
+    for part in spec_type.split(","):
+        stripped = part.strip()
+        if not stripped:
+            raise ValueError("spec_type must not contain empty comma-separated components")
+        members.append(stripped)
+    return members
 ```
 
 and in `_validate_speculative_decoding`:
 
 ```python
-    members = _spec_type_members(config.spec_type)
+    members = spec_type_members(config.spec_type)
     if config.spec_type and not members:
         raise ValueError("spec_type must not be blank")
     for member in members:
@@ -252,8 +262,7 @@ and in `_validate_speculative_decoding`:
         _validate_dflash_config(config)
 ```
 
-Export `_spec_type_members` as `spec_type_members` (no leading underscore) so the
-command builder can import it.
+Export `spec_type_members` (no leading underscore) so the command builder can import it.
 
 **Step 4: Emit `--spec-type` once, then each member's flags**
 
@@ -266,7 +275,7 @@ def _append_speculative_flags(cmd: list[str], cfg: ServerConfig) -> None:
     members = spec_type_members(spec.spec_type)
     if not members:
         return
-    cmd.extend([_SPEC_TYPE_FLAG, spec.spec_type])
+    cmd.extend([_SPEC_TYPE_FLAG, ",".join(members)])
     if _SPEC_TYPE_NGRAM_MOD in members:
         _append_ngram_speculative_flags(cmd, spec)
     if _SPEC_TYPE_DRAFT_MTP in members:
@@ -351,7 +360,8 @@ Follow `ctx_checkpoints` as the template — it is already wired through every l
 - Modify: `src/llama_manager/slot_profile_store.py:162`, `:224`
 - Modify: `src/llama_manager/common/profile_io.py:132`
 - Modify: `src/llama_cli/tui/components/slot_profile_modal.py` and `config_modal.py` and `form_widgets.py` (mirror every `ctx_checkpoints` occurrence)
-- Test: `src/tests/server/test_server.py`, `src/tests/config/test_config_builders.py`
+- Test: `src/tests/server/test_server.py`, `src/tests/config/test_config_builders.py`,
+  `src/tests/config/test_config_persistence.py`, `src/tests/config/test_slot_profile_store.py`
 
 **Step 1: Write the failing tests**
 
@@ -369,6 +379,13 @@ Follow `ctx_checkpoints` as the template — it is already wired through every l
         with pytest.raises(ValueError, match="split_mode"):
             make_server_config(split_mode="sideways")
 ```
+
+Also add persistence round-trips for `split_mode` (and later `checkpoint_min_step` in
+Task 6) using the existing config/profile store helpers:
+
+- Save/load restores the field on `ServerDefaultsConfig` / slot profiles.
+- Explicit runtime overrides passed into `create_server_config_from_profile` (or
+  equivalent) take precedence over values loaded from disk.
 
 **Step 2: Run to verify they fail**
 
@@ -518,12 +535,13 @@ from llama_manager.validation.commands.builder import build_server_cmd
 
 # Each variant is a dict of ServerConfig field overrides. Keep the list short and
 # ordered: the winner of each stage is folded into BASE before the next stage.
+# Stage 1 varies only ubatch_size; measure batch_size only after the ubatch winner
+# is locked (separate stage / follow-up VARIANTS list).
 VARIANTS: list[dict[str, object]] = [
     {},  # control — current profile settings
     {"ubatch_size": 512},
     {"ubatch_size": 1024},
     {"ubatch_size": 2048},
-    {"ubatch_size": 1024, "batch_size": 4096},
 ]
 
 PORT = 18081
@@ -544,9 +562,11 @@ def build_prompt(repo_root: Path) -> str:
     return "".join(chunks) + "\n\nSummarise the module layout above in one sentence.\n"
 
 
-def wait_for_health(port: int, timeout_s: int = 600) -> None:
+def wait_for_health(port: int, proc: subprocess.Popen[bytes], timeout_s: int = 600) -> None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"server exited early with code {proc.returncode}")
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as resp:
                 if resp.status == 200:
@@ -570,14 +590,27 @@ def complete(port: int, prompt: str) -> dict[str, float]:
 
 
 def run_variant(base_cmd: list[str], overrides: dict[str, object], prompt: str) -> dict[str, object]:
-    proc = subprocess.Popen(base_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = subprocess.Popen(
+        base_cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    stderr_tail = b""
     try:
-        wait_for_health(PORT)
+        wait_for_health(PORT, proc)
         complete(PORT, prompt)  # cold: populates the prompt cache
         timings = complete(PORT, prompt)  # warm: the number we record
+    except Exception:
+        if proc.stderr is not None:
+            stderr_tail = proc.stderr.read()[-4096:]
+        raise RuntimeError(stderr_tail.decode(errors="replace")) from None
     finally:
         proc.terminate()
-        proc.wait(timeout=120)
+        try:
+            proc.wait(timeout=120)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=30)
     return {
         "variant": json.dumps(overrides, sort_keys=True),
         "pp_tok_s": round(timings["prompt_per_second"], 2),
@@ -710,9 +743,17 @@ Skip it and say so in the results.
 
 ## Task 10: Stage 3 — MTP draft sweep
 
-**Step 1: Edit `VARIANTS`** to hold stage 1+2 winners constant and vary the draft:
+**Step 1: Edit `VARIANTS`** to hold stage 1+2 winners constant and vary the draft.
+Define `BASE` first from the previous-stage winner so unpacking works:
 
 ```python
+# Fold stage 1 (ubatch) + stage 2 (batch_size / split_mode) winners here.
+BASE: dict[str, object] = {
+    "ubatch_size": 1024,  # replace with measured winners
+    "batch_size": 4096,
+    "split_mode": "layer",
+}
+
 VARIANTS = [
     {**BASE, "spec_draft_p_min": 0.75, "spec_draft_n_max": 7},   # control
     {**BASE, "spec_draft_p_min": 0.60, "spec_draft_n_max": 7},
@@ -739,6 +780,7 @@ acceptance is a measurement artefact, not a win.
 ## Task 11: Stage 4 — spec-type combination
 
 **Step 1: Add one variant:** `{**BASE, "spec_type": "draft-mtp,ngram-mod"}`
+(reuse the same `BASE` dict defined for Stage 3, updated with the Stage 3 draft winners).
 with the stage 3 winning draft settings, plus `spec_ngram_size_n=24`,
 `draft_min=48`, `draft_max=64` (this build's defaults).
 

@@ -80,6 +80,13 @@ class TestSpecTypeValidation:
         with pytest.raises(ValueError, match="spec_type"):
             SpeculativeDecodingConfig(spec_type=" , ")
 
+    def test_spec_type_empty_components_are_rejected(self) -> None:
+        """Empty comma-separated components are errors, not silently dropped."""
+        with pytest.raises(ValueError, match="empty comma-separated"):
+            SpeculativeDecodingConfig(spec_type="draft-mtp,,ngram-mod")
+        with pytest.raises(ValueError, match="empty comma-separated"):
+            SpeculativeDecodingConfig(spec_type="draft-mtp,")
+
 
 class TestDFlashDraftSourceValidation:
     """DFlash requires exactly one draft source."""

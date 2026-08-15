@@ -233,7 +233,7 @@ def _append_speculative_flags(cmd: list[str], cfg: ServerConfig) -> None:
     members = spec_type_members(spec.spec_type)
     if not members:
         return
-    cmd.extend([_SPEC_TYPE_FLAG, spec.spec_type])
+    cmd.extend([_SPEC_TYPE_FLAG, ",".join(members)])
     if _SPEC_TYPE_NGRAM_MOD in members:
         _append_ngram_speculative_flags(cmd, spec)
     if _SPEC_TYPE_DRAFT_MTP in members:

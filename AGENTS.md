@@ -205,9 +205,16 @@ All three CI checks must pass before merging:
 
 Additionally:
 
-- **audit** — `uv run pip-audit` for known CVEs in dependencies
-- **SonarCloud** — quality gate / SAST on PRs and pushes (when `SONAR_TOKEN` is set)
-- **CodeQL** — GitHub Default Setup code scanning (configured under `.github/codeql/`)
+- **audit** — `uv run pip-audit` for known CVEs in dependencies. CI ignores
+  `CVE-2026-3219` and `PYSEC-2026-196` in `pip` because `pip` is only a transitive
+  **dev** dependency of `pip-audit` (via `pip-api`), not a runtime dependency of
+  llm-runner; revisit when upgrading `pip-audit` / `pip-api`.
+- **SonarCloud** — quality gate / SAST on pushes and same-repository pull
+  requests when `SONAR_TOKEN` is set (fork PRs are skipped — secrets unavailable).
+- **CodeQL** — GitHub Default Setup code scanning; apply
+  `.github/codeql/codeql-config.yml` by setting repository property
+  `github-codeql-config-file` to that path, then re-saving Default Setup (see
+  `.github/codeql/README.md`).
 
 Pre-commit hooks run the same ruff and pyright checks locally on every commit.
 

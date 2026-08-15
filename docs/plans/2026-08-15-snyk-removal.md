@@ -35,6 +35,8 @@ Expected: job names include `lint`, `typecheck`, `test`, `audit`, `sonarcloud` o
 **Step 3: Commit**
 
 ```bash
+uv run pre-commit run --all-files
+uv run pytest
 git add .github/workflows/ci.yml
 git commit -m "$(cat <<'EOF'
 ci: remove Snyk security scan job
@@ -59,8 +61,10 @@ Write `.github/codeql/codeql-config.yml`:
 ```yaml
 name: "CodeQL Configuration"
 
-# Used by CodeQL Default Setup when present under .github/codeql/.
-# Reference: https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/customizing-advanced-setup-for-code-scanning#specifying-directories-to-scan
+# Default Setup applies this file only when the repository property
+# `github-codeql-config-file` is set to `.github/codeql/codeql-config.yml`, then
+# Default Setup is re-saved / CodeQL is re-run. See .github/codeql/README.md.
+# Reference: https://docs.github.com/en/code-security/concepts/code-scanning/repository-properties
 
 paths-ignore:
   - "**/tests/**"
@@ -89,10 +93,16 @@ cache/build paths from analysis.
 
 This repo uses **CodeQL Default Setup** (Settings → Code security and analysis).
 
-1. After changing `codeql-config.yml`, refresh the configuration:
+Default Setup does **not** auto-load this file from disk alone. Point the
+repository property `github-codeql-config-file` at
+`.github/codeql/codeql-config.yml`, then refresh Default Setup so the merge takes
+effect.
+
+1. Set `github-codeql-config-file` = `.github/codeql/codeql-config.yml`
+2. After changing `codeql-config.yml` (or the property), refresh Default Setup:
    - **Settings** → **Code security and analysis** → **CodeQL analysis** (Default) → **Edit**
    - Click **Save changes** (or disable then re-enable Default Setup).
-2. Re-run CodeQL on a PR (re-run jobs or push) to confirm ignored paths drop out.
+3. Re-run CodeQL on a PR (re-run jobs or push) to confirm ignored paths drop out.
 
 ## Advanced Setup (fallback)
 
@@ -105,6 +115,8 @@ Do not enable both at once.
 **Step 3: Commit**
 
 ```bash
+uv run pre-commit run --all-files
+uv run pytest
 git add .github/codeql/codeql-config.yml .github/codeql/README.md
 git commit -m "$(cat <<'EOF'
 ci: add CodeQL path-ignore config for Default Setup
@@ -157,12 +169,12 @@ Keep vulnerability cadence and routine refresh sections as-is (still `pip-audit`
 **Step 3: Grep scrub**
 
 ```bash
-rg -in 'snyk|SNYK' AGENTS.md docs/ .opencode/ .github/
+rg -in 'snyk|SNYK' AGENTS.md docs/ .opencode/ .github/ --glob '!docs/plans/2026-08-15-snyk-removal*.md'
 ```
 
-Expected: empty (design doc may mention Snyk historically — that is fine; if the design path matches, allow `docs/plans/2026-08-15-snyk-removal*.md` only).
+Expected: empty. (The intentional Snyk-removal design/plan files may still mention Snyk.)
 
-Stricter check excluding plans:
+Stricter check excluding all plans:
 
 ```bash
 rg -in 'snyk|SNYK' AGENTS.md .opencode/ .github/ --glob '!docs/plans/**'
@@ -173,6 +185,8 @@ Expected: empty.
 **Step 4: Commit**
 
 ```bash
+uv run pre-commit run --all-files
+uv run pytest
 git add AGENTS.md
 git commit -m "$(cat <<'EOF'
 docs: document pip-audit, CodeQL, and Sonar as the security stack
@@ -213,11 +227,17 @@ Include:
 ```markdown
 ## Post-merge (manual)
 - [ ] Delete repo secret `SNYK_TOKEN` (Settings → Secrets and variables → Actions)
-- [ ] CodeQL Default Setup → Edit → Save so `.github/codeql/codeql-config.yml` is applied
+- [ ] Set repository property `github-codeql-config-file` to `.github/codeql/codeql-config.yml`
+- [ ] CodeQL Default Setup → Edit → Save so the config file is merged into Default Setup
 - [ ] Confirm next CodeQL run respects `paths-ignore` (tests/venv noise reduced)
 ```
 
-**Step 4: Push** when the user asks (do not push unless requested).
+**Step 4: Push** when the user asks (do not push unless requested). Immediately before push:
+
+```bash
+uv run pre-commit run --all-files
+uv run pytest
+```
 
 ---
 

@@ -1,7 +1,9 @@
 name: "CodeQL Configuration"
 
-# Used by CodeQL Default Setup when present under .github/codeql/.
-# Reference: https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/customizing-advanced-setup-for-code-scanning#specifying-directories-to-scan
+# Default Setup applies this file only when the repository property
+# `github-codeql-config-file` is set to `.github/codeql/codeql-config.yml`, then
+# Default Setup is re-saved / CodeQL is re-run. See .github/codeql/README.md.
+# Reference: https://docs.github.com/en/code-security/concepts/code-scanning/repository-properties
 
 paths-ignore:
   - "**/tests/**"

@@ -8,8 +8,20 @@ _VALID_SPEC_TYPES: frozenset[str] = frozenset({"ngram-mod", "draft-mtp", "draft-
 
 
 def spec_type_members(spec_type: str) -> list[str]:
-    """Split a comma-separated ``--spec-type`` value into its members."""
-    return [part.strip() for part in spec_type.split(",") if part.strip()]
+    """Split a comma-separated ``--spec-type`` value into trimmed members.
+
+    Empty components (e.g. ``draft-mtp,,ngram-mod`` or a trailing comma) raise
+    ``ValueError`` rather than being silently dropped.
+    """
+    if not spec_type:
+        return []
+    members: list[str] = []
+    for part in spec_type.split(","):
+        stripped = part.strip()
+        if not stripped:
+            raise ValueError("spec_type must not contain empty comma-separated components")
+        members.append(stripped)
+    return members
 
 
 @dataclass

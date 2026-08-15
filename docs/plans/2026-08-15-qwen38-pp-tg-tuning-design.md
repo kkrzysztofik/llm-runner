@@ -63,13 +63,15 @@ produces nothing.
 ## Sweep order
 
 Each stage is measured against a fixed replayed agent prompt at ~160k ctx, PP and TG
-recorded separately, winner carried into the next stage.
+recorded separately, winner carried into the next stage. Keep **one experimental
+variable per stage** (no combined knobs until the prior winner is locked).
 
-1. `ubatch_size` 256 → 512 → 1024 → 2048, `batch_size` 1024 → 4096
-2. `split_mode` layer vs row (vs none where it fits)
-3. `spec_draft_p_min` 0.75 → 0.6 → 0.5 × `spec_draft_n_max` 7 → 10
-4. `spec_type` `draft-mtp` vs `draft-mtp,ngram-mod`
-5. `ctx_checkpoints` / `checkpoint_min_step` against a mid-context divergence replay
+1. `ubatch_size` 256 → 512 → 1024 → 2048 (hold `batch_size` at the profile default)
+2. `batch_size` 1024 → 2048 → 4096 (hold the stage-1 `ubatch_size` winner)
+3. `split_mode` layer vs row (vs none where it fits)
+4. `spec_draft_p_min` 0.75 → 0.6 → 0.5 × `spec_draft_n_max` 7 → 10
+5. `spec_type` `draft-mtp` vs `draft-mtp,ngram-mod`
+6. `ctx_checkpoints` / `checkpoint_min_step` against a mid-context divergence replay
 
 `UD-Q6_K_XL` is deferred: it is only worth downloading if the Q8 sweep plateaus, and
 it then requires a quality gate (`llama-perplexity --kl-divergence` against Q8 as

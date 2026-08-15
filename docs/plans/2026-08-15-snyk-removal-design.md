@@ -68,10 +68,11 @@ Create:
 - `.github/codeql/codeql-config.yml` — short `paths-ignore` list for noise paths
   (`**/tests/**`, `**/.venv/**`, `**/node_modules/**`, `**/coverage/**`, common
   build/cache dirs). No vendor trees like anyka’s `anyka_reference/`.
-- `.github/codeql/README.md` — Default Setup is primary; after changing the config,
-  **Settings → Code security → CodeQL analysis → Edit → Save**; advanced workflow
-  only as fallback if Default Setup ignores the file (do **not** commit advanced
-  workflow in this change).
+- `.github/codeql/README.md` — Default Setup is primary. Set repository property
+  `github-codeql-config-file` to `.github/codeql/codeql-config.yml`, then
+  **Settings → Code security → CodeQL analysis → Edit → Save** so the file is
+  merged into Default Setup. Advanced workflow only as fallback if Default Setup
+  still ignores the file (do **not** commit advanced workflow in this change).
 
 ### 3. Docs
 
@@ -89,9 +90,11 @@ Unchanged aside from deleting Snyk:
 
 ### 5. Verification
 
-1. `rg -in 'snyk|SNYK' .github/ AGENTS.md docs/ .opencode/` → empty
+1. `rg -in 'snyk|SNYK' .github/ AGENTS.md docs/ .opencode/ --glob '!docs/plans/2026-08-15-snyk-removal*.md'` → empty
+   (the intentional Snyk-removal design/plan files may still mention Snyk)
 2. Confirm `ci.yml` still has `audit` + `sonarcloud`; no `snyk`
-3. Post-merge manual: delete `SNYK_TOKEN`; re-save CodeQL Default Setup
+3. Post-merge manual: delete `SNYK_TOKEN`; set `github-codeql-config-file` to
+   `.github/codeql/codeql-config.yml` and re-save CodeQL Default Setup
 
 ## Consequences
 
