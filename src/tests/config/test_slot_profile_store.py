@@ -375,6 +375,26 @@ def test_profile_from_dict_migrates_mmap_mlock() -> None:
     assert "mmap" not in d and "mlock" not in d
 
 
+def test_profile_from_dict_normalizes_invalid_tri_state() -> None:
+    """Invalid persisted reasoning_preserve/fit values normalize to auto."""
+    p = _profile_from_dict(
+        {
+            "profile_id": "t",
+            "model": "/m.gguf",
+            "alias": "t",
+            "device": "cuda:0",
+            "port": 8080,
+            "ctx_size": 4096,
+            "ubatch_size": 512,
+            "threads": 8,
+            "reasoning_preserve": "bogus",
+            "fit": "yes",
+        }
+    )
+    assert p.reasoning_preserve == "auto"
+    assert p.fit == "auto"
+
+
 def test_profile_from_dict_applies_defaults() -> None:
     """_profile_from_dict should fill in defaults for missing keys."""
     minimal: dict[str, Any] = {

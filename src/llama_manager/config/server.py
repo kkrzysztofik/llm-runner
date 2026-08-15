@@ -5,11 +5,13 @@ from dataclasses import dataclass, field
 
 from ..common.validators import validate_port_range
 from .errors import ErrorCode, ErrorDetail
+from .load_mode import LOAD_MODE_VALUES
 from .spec_decode import (
     SpeculativeDecodingConfig,
     SpeculativeDecodingFieldsMixin,
     resolve_speculative_decoding_config,
 )
+from .tri_state import TRI_STATE_VALUES
 
 # Regex pattern for slot ID normalization: strip, lowercase, allow only a-z0-9_-
 _SLOT_ID_PATTERN = re.compile(r"[^a-z0-9_-]")
@@ -214,6 +216,14 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
             raise ValueError("threads_batch must be non-negative")
         if not isinstance(self.spec_decode, SpeculativeDecodingConfig):
             raise ValueError("spec_decode must be a SpeculativeDecodingConfig")
+        if self.load_mode not in LOAD_MODE_VALUES:
+            self.load_mode = "auto"
+        if self.reasoning_preserve not in TRI_STATE_VALUES:
+            self.reasoning_preserve = "auto"
+        if self.fit not in TRI_STATE_VALUES:
+            self.fit = "auto"
+        if self.ctx_checkpoints is not None and self.ctx_checkpoints < 0:
+            raise ValueError("ctx_checkpoints must be non-negative")
 
 
 @dataclass

@@ -82,9 +82,11 @@ Config modal: same fields with full `server_defaults` parity. Select for enums; 
 
 ## Validation & tests
 
-- Enums must be in allowed sets at save.
+- UI save: enums must be in allowed sets (reject invalid input).
+- Read-time / builder boundary: invalid persisted `reasoning_preserve` / `fit` normalize to `"auto"` via tri-state resolvers; invalid `load_mode` normalizes to `"auto"` (or via `resolve_load_mode` for legacy mmap/mlock).
+- `ServerConfig` rejects negative `ctx_checkpoints`.
 - Sampling / ctx_checkpoints: empty OK; else parse as number (checkpoints ≥ 0).
-- Tests: cmd builder omit/emit matrix; store migration + round-trip; config persistence; modal payload for new sections.
+- Tests: cmd builder omit/emit matrix; store migration + round-trip; invalid TOML tri-state → `auto`; config persistence; modal payload for new sections.
 
 ## Out of scope
 

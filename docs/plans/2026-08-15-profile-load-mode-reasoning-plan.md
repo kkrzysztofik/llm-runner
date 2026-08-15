@@ -60,14 +60,17 @@
 # src/tests/config/test_load_mode.py
 from llama_manager.config.load_mode import resolve_load_mode
 
+
 def test_resolve_explicit_load_mode() -> None:
     assert resolve_load_mode({"load_mode": "dio"}) == "dio"
+
 
 def test_resolve_legacy_mmap_mlock() -> None:
     assert resolve_load_mode({"mmap": True, "mlock": False}) == "mmap"
     assert resolve_load_mode({"mmap": True, "mlock": True}) == "mmap+mlock"
     assert resolve_load_mode({"mmap": False, "mlock": True}) == "mlock"
     assert resolve_load_mode({"mmap": False, "mlock": False}) == "none"
+
 
 def test_resolve_missing_defaults_auto() -> None:
     assert resolve_load_mode({}) == "auto"
@@ -81,6 +84,7 @@ def test_load_mode_auto_omits_flag(self) -> None:
     assert "--load-mode" not in cmd
     assert "--mmap" not in cmd
     assert "--mlock" not in cmd
+
 
 def test_load_mode_mmap_emits(self) -> None:
     cmd = build_server_cmd(self._minimal_cfg(load_mode="mmap"))
@@ -99,6 +103,7 @@ uv run pytest src/tests/config/test_load_mode.py src/tests/server/test_server.py
 ```python
 # src/llama_manager/config/load_mode.py
 LOAD_MODE_VALUES = frozenset({"auto", "none", "mmap", "mlock", "mmap+mlock", "dio"})
+
 
 def resolve_load_mode(data: dict[str, object]) -> str:
     raw = data.get("load_mode")
@@ -181,14 +186,17 @@ def test_reasoning_preserve_on(self) -> None:
     cmd = build_server_cmd(self._minimal_cfg(reasoning_preserve="on"))
     assert "--reasoning-preserve" in cmd
 
+
 def test_reasoning_preserve_off(self) -> None:
     cmd = build_server_cmd(self._minimal_cfg(reasoning_preserve="off"))
     assert "--no-reasoning-preserve" in cmd
+
 
 def test_reasoning_preserve_auto_omits(self) -> None:
     cmd = build_server_cmd(self._minimal_cfg(reasoning_preserve="auto"))
     assert "--reasoning-preserve" not in cmd
     assert "--no-reasoning-preserve" not in cmd
+
 
 def test_fit_and_sampling_emit_when_set(self) -> None:
     cmd = build_server_cmd(
@@ -272,18 +280,20 @@ uv run pytest src/tests/server/test_server.py -k "reasoning_preserve or fit_and_
 
 ```python
 def test_profile_from_dict_migrates_mmap_mlock() -> None:
-    p = _profile_from_dict({
-        "profile_id": "t",
-        "model": "/m.gguf",
-        "alias": "t",
-        "device": "cuda:0",
-        "port": 8080,
-        "ctx_size": 4096,
-        "ubatch_size": 512,
-        "threads": 8,
-        "mmap": False,
-        "mlock": True,
-    })
+    p = _profile_from_dict(
+        {
+            "profile_id": "t",
+            "model": "/m.gguf",
+            "alias": "t",
+            "device": "cuda:0",
+            "port": 8080,
+            "ctx_size": 4096,
+            "ubatch_size": 512,
+            "threads": 8,
+            "mmap": False,
+            "mlock": True,
+        }
+    )
     assert p.load_mode == "mlock"
     d = _profile_to_dict(p)
     assert d["load_mode"] == "mlock"

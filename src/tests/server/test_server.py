@@ -407,7 +407,11 @@ class TestBuildServerCmd:
         assert cmd[cmd.index("--ctx-checkpoints") + 1] == "64"
         assert cmd[cmd.index("--temp") + 1] == "1.0"
         assert cmd[cmd.index("--top-k") + 1] == "20"
-        assert "--reasoning-budget-message" in cmd
+        assert cmd[cmd.index("--top-p") + 1] == "0.95"
+        assert cmd[cmd.index("--min-p") + 1] == "0.0"
+        assert cmd[cmd.index("--presence-penalty") + 1] == "0.0"
+        assert cmd[cmd.index("--repeat-penalty") + 1] == "1.0"
+        assert cmd[cmd.index("--reasoning-budget-message") + 1] == "stop thinking"
 
     def test_smaller_model_no_host_buffer_flag(self) -> None:
         """--no-host flag is emitted when no_host_buffer is True."""

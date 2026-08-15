@@ -373,7 +373,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "ubatch-size": str(spec.ubatch_size),
             "n-gpu-layers": str(spec.n_gpu_layers),
             "threads": str(spec.threads),
-            "chat-template-kwargs": spec.chat_template_kwargs or "{}",
+            "chat-template-kwargs": spec.chat_template_kwargs,
             "device": spec.device or _DEFAULT_DEVICE,
             "bind-address": spec.bind_address,
             "tensor-split": spec.tensor_split,
@@ -713,7 +713,7 @@ def _build_reasoning_fields(prefill: dict[str, str]) -> Collapsible:
         field_row(
             "Chat Template Kwargs (JSON, optional)",
             "chat-template-kwargs",
-            prefill.get("chat-template-kwargs", "{}"),
+            prefill.get("chat-template-kwargs", ""),
         ),
         title="Reasoning",
         collapsed=True,
