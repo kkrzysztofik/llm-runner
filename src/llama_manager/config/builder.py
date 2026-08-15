@@ -156,6 +156,16 @@ def _profile_to_config_data(profile: SlotProfileSpec) -> dict[str, Any]:
         "mmproj_offload": profile.mmproj_offload,
         "load_mode": profile.load_mode,
         "no_host_buffer": profile.no_host_buffer,
+        "reasoning_preserve": profile.reasoning_preserve,
+        "reasoning_budget_message": profile.reasoning_budget_message,
+        "fit": profile.fit,
+        "ctx_checkpoints": profile.ctx_checkpoints,
+        "temperature": profile.temperature,
+        "top_k": profile.top_k,
+        "top_p": profile.top_p,
+        "min_p": profile.min_p,
+        "presence_penalty": profile.presence_penalty,
+        "repeat_penalty": profile.repeat_penalty,
     }
 
 
@@ -191,6 +201,16 @@ def _config_data_to_server_config(data: dict[str, Any]) -> ServerConfig:
         mmproj_offload=bool(config_data.get("mmproj_offload", True)),
         load_mode=resolve_load_mode(config_data),
         no_host_buffer=bool(config_data.get("no_host_buffer", False)),
+        reasoning_preserve=str(config_data.get("reasoning_preserve", "auto")),
+        reasoning_budget_message=str(config_data.get("reasoning_budget_message", "")),
+        fit=str(config_data.get("fit", "auto")),
+        ctx_checkpoints=config_data.get("ctx_checkpoints"),
+        temperature=config_data.get("temperature"),
+        top_k=config_data.get("top_k"),
+        top_p=config_data.get("top_p"),
+        min_p=config_data.get("min_p"),
+        presence_penalty=config_data.get("presence_penalty"),
+        repeat_penalty=config_data.get("repeat_penalty"),
         spec_decode=SpeculativeDecodingConfig(
             spec_type=str(spec_data.get("spec_type", "")),
             spec_ngram_size_n=int(spec_data.get("spec_ngram_size_n", 0)),

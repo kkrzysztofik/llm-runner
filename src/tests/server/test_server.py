@@ -376,6 +376,39 @@ class TestBuildServerCmd:
         i = cmd.index("--load-mode")
         assert cmd[i + 1] == "mmap"
 
+    def test_reasoning_preserve_on(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(reasoning_preserve="on"))
+        assert "--reasoning-preserve" in cmd
+
+    def test_reasoning_preserve_off(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(reasoning_preserve="off"))
+        assert "--no-reasoning-preserve" in cmd
+
+    def test_reasoning_preserve_auto_omits(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(reasoning_preserve="auto"))
+        assert "--reasoning-preserve" not in cmd
+        assert "--no-reasoning-preserve" not in cmd
+
+    def test_fit_and_sampling_emit_when_set(self) -> None:
+        cmd = build_server_cmd(
+            self._minimal_cfg(
+                fit="off",
+                ctx_checkpoints=64,
+                temperature=1.0,
+                top_k=20,
+                top_p=0.95,
+                min_p=0.0,
+                presence_penalty=0.0,
+                repeat_penalty=1.0,
+                reasoning_budget_message="stop thinking",
+            )
+        )
+        assert cmd[cmd.index("--fit") + 1] == "off"
+        assert cmd[cmd.index("--ctx-checkpoints") + 1] == "64"
+        assert cmd[cmd.index("--temp") + 1] == "1.0"
+        assert cmd[cmd.index("--top-k") + 1] == "20"
+        assert "--reasoning-budget-message" in cmd
+
     def test_smaller_model_no_host_buffer_flag(self) -> None:
         """--no-host flag is emitted when no_host_buffer is True."""
         cmd = build_server_cmd(self._minimal_cfg(no_host_buffer=True))

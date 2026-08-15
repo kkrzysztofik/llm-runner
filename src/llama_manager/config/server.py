@@ -75,6 +75,16 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
     mmproj_offload: bool = True
     load_mode: str = "auto"
     no_host_buffer: bool = False
+    reasoning_preserve: str = "auto"
+    reasoning_budget_message: str = ""
+    fit: str = "auto"
+    ctx_checkpoints: int | None = None
+    temperature: float | None = None
+    top_k: int | None = None
+    top_p: float | None = None
+    min_p: float | None = None
+    presence_penalty: float | None = None
+    repeat_penalty: float | None = None
 
     def __init__(  # noqa: S107 - intentional explicit init with spec-decode overrides
         self,
@@ -123,6 +133,16 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
         mmproj_offload: bool | None = None,
         load_mode: str | None = None,
         no_host_buffer: bool | None = None,
+        reasoning_preserve: str | None = None,
+        reasoning_budget_message: str | None = None,
+        fit: str | None = None,
+        ctx_checkpoints: int | None = None,
+        temperature: float | None = None,
+        top_k: int | None = None,
+        top_p: float | None = None,
+        min_p: float | None = None,
+        presence_penalty: float | None = None,
+        repeat_penalty: float | None = None,
     ) -> None:
         self.model = model
         self.alias = alias
@@ -157,6 +177,26 @@ class ServerConfig(SpeculativeDecodingFieldsMixin):
             self.load_mode = load_mode
         if no_host_buffer is not None:
             self.no_host_buffer = no_host_buffer
+        if reasoning_preserve is not None:
+            self.reasoning_preserve = reasoning_preserve
+        if reasoning_budget_message is not None:
+            self.reasoning_budget_message = reasoning_budget_message
+        if fit is not None:
+            self.fit = fit
+        if ctx_checkpoints is not None:
+            self.ctx_checkpoints = ctx_checkpoints
+        if temperature is not None:
+            self.temperature = temperature
+        if top_k is not None:
+            self.top_k = top_k
+        if top_p is not None:
+            self.top_p = top_p
+        if min_p is not None:
+            self.min_p = min_p
+        if presence_penalty is not None:
+            self.presence_penalty = presence_penalty
+        if repeat_penalty is not None:
+            self.repeat_penalty = repeat_penalty
         self.__post_init__()
 
     def __post_init__(self) -> None:

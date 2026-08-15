@@ -193,6 +193,28 @@ def _append_optional_server_flags(cmd: list[str], cfg: ServerConfig) -> None:
         cmd.extend(["--load-mode", cfg.load_mode])
     if cfg.no_host_buffer:
         cmd.append("--no-host")
+    if cfg.reasoning_preserve == "on":
+        cmd.append("--reasoning-preserve")
+    elif cfg.reasoning_preserve == "off":
+        cmd.append("--no-reasoning-preserve")
+    if cfg.reasoning_budget_message:
+        cmd.extend(["--reasoning-budget-message", cfg.reasoning_budget_message])
+    if cfg.fit in ("on", "off"):
+        cmd.extend(["--fit", cfg.fit])
+    if cfg.ctx_checkpoints is not None:
+        cmd.extend(["--ctx-checkpoints", str(cfg.ctx_checkpoints)])
+    if cfg.temperature is not None:
+        cmd.extend(["--temp", str(cfg.temperature)])
+    if cfg.top_k is not None:
+        cmd.extend(["--top-k", str(cfg.top_k)])
+    if cfg.top_p is not None:
+        cmd.extend(["--top-p", str(cfg.top_p)])
+    if cfg.min_p is not None:
+        cmd.extend(["--min-p", str(cfg.min_p)])
+    if cfg.presence_penalty is not None:
+        cmd.extend(["--presence-penalty", str(cfg.presence_penalty)])
+    if cfg.repeat_penalty is not None:
+        cmd.extend(["--repeat-penalty", str(cfg.repeat_penalty)])
 
 
 def _server_device_arg(device: str) -> str:

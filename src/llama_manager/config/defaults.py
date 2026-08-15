@@ -178,6 +178,16 @@ class ServerDefaultsConfig:
     mmproj_offload: bool = True
     load_mode: str = "auto"
     no_host_buffer: bool = False
+    reasoning_preserve: str = "auto"
+    reasoning_budget_message: str = ""
+    fit: str = "auto"
+    ctx_checkpoints: int | None = None
+    temperature: float | None = None
+    top_k: int | None = None
+    top_p: float | None = None
+    min_p: float | None = None
+    presence_penalty: float | None = None
+    repeat_penalty: float | None = None
 
     @property
     def spec_decode(self) -> SpeculativeDecodingConfig:
