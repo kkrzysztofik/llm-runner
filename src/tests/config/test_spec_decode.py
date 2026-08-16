@@ -2,19 +2,25 @@
 
 import pytest
 
+from llama_cli.tui.components.form_widgets import SPEC_TYPE_CHOICES
 from llama_manager.config import SpeculativeDecodingConfig
 
 
 class TestSpecTypeValidation:
     """spec_type accepts valid values and rejects unknown types."""
 
-    def test_spec_type_accepts_dflash(self) -> None:
-        """DFlash spec_type is accepted."""
+    def test_dflash_spec_type_uses_build_enum_name(self) -> None:
+        """DFlash spec_type uses the llama.cpp enum member name."""
         cfg = SpeculativeDecodingConfig(
-            spec_type="dflash",
+            spec_type="draft-dflash",
             spec_draft_model="/path/to/draft.gguf",
         )
-        assert cfg.spec_type == "dflash"
+        assert cfg.spec_type == "draft-dflash"
+
+    def test_legacy_dflash_spec_type_is_rejected(self) -> None:
+        """The old bare 'dflash' name is not a valid spec_type."""
+        with pytest.raises(ValueError, match="spec_type"):
+            SpeculativeDecodingConfig(spec_type="dflash", spec_draft_model="/m.gguf")
 
     def test_spec_type_accepts_ngram_mod(self) -> None:
         """ngram-mod spec_type is accepted."""
@@ -32,9 +38,54 @@ class TestSpecTypeValidation:
         assert cfg.spec_type == ""
 
     def test_spec_type_rejects_unknown(self) -> None:
-        """Unknown spec_type raises ValueError."""
-        with pytest.raises(ValueError, match="spec_type must be"):
+        """Unknown spec_type raises ValueError naming the offending member."""
+        with pytest.raises(ValueError, match="spec_type member 'unknown-type' is unknown"):
             SpeculativeDecodingConfig(spec_type="unknown-type")
+
+    def test_comma_separated_spec_types_are_accepted(self) -> None:
+        """--spec-type takes a comma-separated list of members."""
+        cfg = SpeculativeDecodingConfig(spec_type="draft-mtp,ngram-mod")
+        assert cfg.spec_type == "draft-mtp,ngram-mod"
+
+    def test_unknown_member_of_spec_type_list_is_rejected(self) -> None:
+        """Every member of the list must be a known spec type."""
+        with pytest.raises(ValueError, match="spec_type"):
+            SpeculativeDecodingConfig(spec_type="draft-mtp,bogus")
+
+    def test_every_tui_spec_type_choice_is_a_valid_config(self) -> None:
+        """The TUI dropdown must not offer a value the config layer rejects."""
+        for _, value in SPEC_TYPE_CHOICES:
+            if value:
+                # A draft source is supplied unconditionally; draft-dflash requires one.
+                cfg = SpeculativeDecodingConfig(
+                    spec_type=value, spec_draft_model="/models/draft.gguf"
+                )
+                assert cfg.spec_type == value
+
+    def test_spec_type_members_are_sorted_and_deduped(self) -> None:
+        """Order and repeats are meaningless to llama.cpp, so store one spelling."""
+        assert SpeculativeDecodingConfig(spec_type="ngram-mod,draft-mtp").spec_type == (
+            "draft-mtp,ngram-mod"
+        )
+        assert SpeculativeDecodingConfig(spec_type="ngram-mod,ngram-mod").spec_type == "ngram-mod"
+
+    def test_spec_type_whitespace_is_normalized(self) -> None:
+        """Stored spec_type is canonical, so consumers never see stray spaces."""
+        cfg = SpeculativeDecodingConfig(spec_type="draft-mtp, ngram-mod")
+        assert cfg.spec_type == "draft-mtp,ngram-mod"
+        assert cfg["spec_type"] == "draft-mtp,ngram-mod"
+
+    def test_spec_type_with_no_members_is_rejected(self) -> None:
+        """A non-empty spec_type that yields no members is not silently accepted."""
+        with pytest.raises(ValueError, match="spec_type"):
+            SpeculativeDecodingConfig(spec_type=" , ")
+
+    def test_spec_type_empty_components_are_rejected(self) -> None:
+        """Empty comma-separated components are errors, not silently dropped."""
+        with pytest.raises(ValueError, match="empty comma-separated"):
+            SpeculativeDecodingConfig(spec_type="draft-mtp,,ngram-mod")
+        with pytest.raises(ValueError, match="empty comma-separated"):
+            SpeculativeDecodingConfig(spec_type="draft-mtp,")
 
 
 class TestDFlashDraftSourceValidation:
@@ -43,13 +94,13 @@ class TestDFlashDraftSourceValidation:
     def test_dflash_requires_exactly_one_draft_source_neither(self) -> None:
         """DFlash with neither draft source raises ValueError."""
         with pytest.raises(ValueError, match="spec_draft_model or spec_draft_hf required"):
-            SpeculativeDecodingConfig(spec_type="dflash")
+            SpeculativeDecodingConfig(spec_type="draft-dflash")
 
     def test_dflash_requires_exactly_one_draft_source_both(self) -> None:
         """DFlash with both draft sources raises ValueError."""
         with pytest.raises(ValueError, match="mutually exclusive"):
             SpeculativeDecodingConfig(
-                spec_type="dflash",
+                spec_type="draft-dflash",
                 spec_draft_model="/path/to/model",
                 spec_draft_hf="repo:quant",
             )
@@ -57,7 +108,7 @@ class TestDFlashDraftSourceValidation:
     def test_dflash_accepts_local_draft_model(self) -> None:
         """DFlash with exactly one local draft model passes."""
         cfg = SpeculativeDecodingConfig(
-            spec_type="dflash",
+            spec_type="draft-dflash",
             spec_draft_model="/path/to/model",
         )
         assert cfg.spec_draft_model == "/path/to/model"
@@ -66,7 +117,7 @@ class TestDFlashDraftSourceValidation:
     def test_dflash_accepts_hf_draft(self) -> None:
         """DFlash with exactly one HF draft passes."""
         cfg = SpeculativeDecodingConfig(
-            spec_type="dflash",
+            spec_type="draft-dflash",
             spec_draft_hf="repo:quant",
         )
         assert cfg.spec_draft_hf == "repo:quant"
@@ -80,7 +131,7 @@ class TestDFlashCrossCtxValidation:
         """Negative spec_dflash_cross_ctx raises ValueError."""
         with pytest.raises(ValueError, match="spec_dflash_cross_ctx must be non-negative"):
             SpeculativeDecodingConfig(
-                spec_type="dflash",
+                spec_type="draft-dflash",
                 spec_draft_model="/path/to/model",
                 spec_dflash_cross_ctx=-1,
             )
@@ -88,7 +139,7 @@ class TestDFlashCrossCtxValidation:
     def test_dflash_accepts_zero_cross_ctx(self) -> None:
         """Zero spec_dflash_cross_ctx is accepted."""
         cfg = SpeculativeDecodingConfig(
-            spec_type="dflash",
+            spec_type="draft-dflash",
             spec_draft_model="/path/to/model",
             spec_dflash_cross_ctx=0,
         )
@@ -97,7 +148,7 @@ class TestDFlashCrossCtxValidation:
     def test_dflash_accepts_positive_cross_ctx(self) -> None:
         """Positive spec_dflash_cross_ctx is accepted."""
         cfg = SpeculativeDecodingConfig(
-            spec_type="dflash",
+            spec_type="draft-dflash",
             spec_draft_model="/path/to/model",
             spec_dflash_cross_ctx=512,
         )
@@ -110,7 +161,7 @@ class TestDFlashDraftNgl:
     def test_dflash_draft_ngl_as_int(self) -> None:
         """spec_draft_ngl accepts an integer."""
         cfg = SpeculativeDecodingConfig(
-            spec_type="dflash",
+            spec_type="draft-dflash",
             spec_draft_model="/path/to/model",
             spec_draft_ngl=32,
         )
@@ -119,7 +170,7 @@ class TestDFlashDraftNgl:
     def test_dflash_draft_ngl_as_string_all(self) -> None:
         """spec_draft_ngl accepts 'all' string."""
         cfg = SpeculativeDecodingConfig(
-            spec_type="dflash",
+            spec_type="draft-dflash",
             spec_draft_model="/path/to/model",
             spec_draft_ngl="all",
         )
@@ -128,7 +179,7 @@ class TestDFlashDraftNgl:
     def test_dflash_draft_ngl_default_empty(self) -> None:
         """spec_draft_ngl defaults to empty string."""
         cfg = SpeculativeDecodingConfig(
-            spec_type="dflash",
+            spec_type="draft-dflash",
             spec_draft_model="/path/to/model",
         )
         assert cfg.spec_draft_ngl == ""
@@ -222,14 +273,14 @@ class TestSpeculativeDecodingConfigDictBehavior:
     def test_dict_contains_all_fields(self) -> None:
         """Config dict representation contains all field keys."""
         cfg = SpeculativeDecodingConfig(
-            spec_type="dflash",
+            spec_type="draft-dflash",
             spec_draft_model="/path/to/model",
             spec_dflash_cross_ctx=512,
         )
         assert "spec_type" in cfg
         assert "spec_draft_model" in cfg
         assert "spec_dflash_cross_ctx" in cfg
-        assert cfg["spec_type"] == "dflash"
+        assert cfg["spec_type"] == "draft-dflash"
         assert cfg["spec_draft_model"] == "/path/to/model"
         assert cfg["spec_dflash_cross_ctx"] == 512
 

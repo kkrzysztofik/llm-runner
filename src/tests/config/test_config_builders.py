@@ -1328,7 +1328,7 @@ class TestRunProfileSpec:
 
     def test_invalid_spec_type_raises(self) -> None:
         """Unknown spec_type values should raise RunProfileError."""
-        with pytest.raises(RunProfileError, match="spec_type must be"):
+        with pytest.raises(RunProfileError, match="spec_type member 'invalid' is unknown"):
             RunProfileSpec(
                 profile_id="test",
                 model="/path/to/model.gguf",

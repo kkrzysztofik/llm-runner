@@ -44,6 +44,7 @@ def test_payload_defaults() -> None:
     assert payload.threads == 8
     assert payload.chat_template_kwargs == ""
     assert payload.load_mode == "auto"
+    assert payload.split_mode == "layer"
     assert payload.reasoning_preserve == "auto"
     assert payload.reasoning_budget_message == ""
     assert payload.fit == "auto"
@@ -61,6 +62,7 @@ def test_payload_new_fields_map_to_flat_profile_fields() -> None:
     payload = RunProfilePayload(
         model="/models/model.gguf",
         load_mode="mmap+mlock",
+        split_mode="row",
         reasoning_preserve="on",
         reasoning_budget_message="think carefully",
         fit="off",
@@ -76,6 +78,7 @@ def test_payload_new_fields_map_to_flat_profile_fields() -> None:
     spec = payload_to_slot_profile_spec("test", payload)
 
     assert spec.load_mode == "mmap+mlock"
+    assert spec.split_mode == "row"
     assert spec.reasoning_preserve == "on"
     assert spec.reasoning_budget_message == "think carefully"
     assert spec.fit == "off"
@@ -106,7 +109,12 @@ def test_payload_empty_optional_values_remain_unset() -> None:
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    (("load_mode", "bogus"), ("reasoning_preserve", "bogus"), ("fit", "bogus")),
+    (
+        ("load_mode", "bogus"),
+        ("split_mode", "bogus"),
+        ("reasoning_preserve", "bogus"),
+        ("fit", "bogus"),
+    ),
 )
 def test_payload_to_spec_rejects_invalid_enums(field: str, value: str) -> None:
     payload = RunProfilePayload(model="/models/model.gguf")
@@ -956,7 +964,7 @@ async def test_speculative_fields_follow_selected_spec_type() -> None:
                 "spec-draft-cache-type-v",
                 "spec-draft-device",
             },
-            "dflash": {
+            "draft-dflash": {
                 "spec-draft-model",
                 "spec-draft-hf",
                 "spec-draft-ngl",
@@ -977,6 +985,53 @@ async def test_speculative_fields_follow_selected_spec_type() -> None:
             for field_id in hidden_ids:
                 row = modal.query_one(f".profile-spec-field-{field_id}")
                 assert str(row.styles.display) == "none"
+
+
+@pytest.mark.anyio
+async def test_combined_spec_type_is_selectable_and_shows_both_field_groups() -> None:
+    """A comma-separated spec type must mount and reveal every member's fields."""
+    modal = RunProfileModal()
+    app = App[None]()
+
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+
+        spec_type = modal.query_one("#profile-spec-type", Select)
+        spec_type.value = "draft-mtp,ngram-mod"
+        await pilot.pause()
+
+        for field_id in ("spec-ngram-size-n", "draft-min", "draft-max", "spec-draft-n-max"):
+            row = modal.query_one(f".profile-spec-field-{field_id}")
+            assert str(row.styles.display) == "block"
+        row = modal.query_one(".profile-spec-field-spec-draft-model")
+        assert str(row.styles.display) == "none"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stored_spec_type", ["draft-mtp,ngram-mod", "draft-dflash,draft-mtp"])
+async def test_modal_mounts_with_combined_spec_type_prefill(stored_spec_type: str) -> None:
+    """A stored combination must survive mount, listed in the dropdown or not."""
+    spec = RunProfileSpec(
+        profile_id="combo",
+        model="/models/test.gguf",
+        alias="combo",
+        device="CUDA:0",
+        port=8080,
+        ctx_size=4096,
+        ubatch_size=512,
+        threads=8,
+        spec_type=stored_spec_type,
+        spec_draft_model="/models/draft.gguf",
+    )
+    modal = RunProfileModal(profile=spec)
+    app = App[None]()
+
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+
+        assert modal.query_one("#profile-spec-type", Select).value == stored_spec_type
 
 
 @pytest.mark.anyio
@@ -1011,6 +1066,7 @@ async def test_modal_save_button_returns_payload() -> None:
         await pilot.pause()
         modal.query_one("#profile-profile-id", Input).value = "saved-profile"
         modal.query_one("#profile-load-mode", Select).value = "mmap+mlock"
+        modal.query_one("#profile-split-mode", Select).value = "row"
         modal.query_one("#profile-reasoning-preserve", Select).value = "on"
         modal.query_one("#profile-fit", Select).value = "off"
         modal.query_one("#profile-ctx-checkpoints", Input).value = "5"
@@ -1024,6 +1080,7 @@ async def test_modal_save_button_returns_payload() -> None:
     assert isinstance(payload, RunProfilePayload)
     assert payload.profile_id == "saved-profile"
     assert payload.load_mode == "mmap+mlock"
+    assert payload.split_mode == "row"
     assert payload.reasoning_preserve == "on"
     assert payload.fit == "off"
     assert payload.ctx_checkpoints == 5

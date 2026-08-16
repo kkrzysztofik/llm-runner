@@ -75,7 +75,7 @@ from .server import (
     validate_slot_id,
     validate_slot_port,
 )
-from .spec_decode import SpeculativeDecodingConfig
+from .spec_decode import SpeculativeDecodingConfig, spec_type_members
 from .tri_state import TRI_STATE_VALUES, resolve_fit, resolve_reasoning_preserve, resolve_tri_state
 
 __all__ = [
@@ -96,6 +96,7 @@ __all__ = [
     "ModelSlot",
     "ServerConfig",
     "SpeculativeDecodingConfig",
+    "spec_type_members",
     "LOAD_MODE_VALUES",
     "resolve_load_mode",
     "TRI_STATE_VALUES",

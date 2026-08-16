@@ -13,6 +13,7 @@ from ...config import (
     ErrorDetail,
     ServerConfig,
     VRamRecommendation,
+    spec_type_members,
 )
 
 # ---------------------------------------------------------------------------
@@ -20,7 +21,7 @@ from ...config import (
 # ---------------------------------------------------------------------------
 
 _SPEC_TYPE_FLAG: Final = "--spec-type"
-_SPEC_TYPE_DFLASH: Final = "dflash"
+_SPEC_TYPE_DFLASH: Final = "draft-dflash"
 _SPEC_TYPE_DRAFT_MTP: Final = "draft-mtp"
 _SPEC_TYPE_NGRAM_MOD: Final = "ngram-mod"
 
@@ -127,7 +128,7 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         "--n-gpu-layers",
         str(cfg.n_gpu_layers),
         "--split-mode",
-        "layer",
+        cfg.split_mode,
         "--ctx-size",
         str(cfg.ctx_size),
         "--flash-attn",
@@ -153,8 +154,10 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         "--port",
         str(cfg.port),
         "--metrics",
-        "--no-webui",
     ]
+
+    if not cfg.ui:
+        cmd.append("--no-ui")
 
     if cfg.threads_batch > 0:
         cmd.extend(["--threads-batch", str(cfg.threads_batch)])
@@ -229,36 +232,32 @@ def _server_device_arg(device: str) -> str:
 def _append_speculative_flags(cmd: list[str], cfg: ServerConfig) -> None:
     """Append llama-server speculative decoding flags when configured."""
     spec = cfg.spec_decode
-    if spec.spec_type == _SPEC_TYPE_NGRAM_MOD:
+    members = spec_type_members(spec.spec_type)
+    if not members:
+        return
+    cmd.extend([_SPEC_TYPE_FLAG, ",".join(members)])
+    if _SPEC_TYPE_NGRAM_MOD in members:
         _append_ngram_speculative_flags(cmd, spec)
-        return
-    if spec.spec_type not in (_SPEC_TYPE_DRAFT_MTP, _SPEC_TYPE_DFLASH):
-        return
-    if spec.spec_type == _SPEC_TYPE_DRAFT_MTP:
+    if _SPEC_TYPE_DRAFT_MTP in members:
         _append_draft_mtp_flags(cmd, spec)
-        return
-    _append_dflash_flags(cmd, spec)
+    if _SPEC_TYPE_DFLASH in members:
+        _append_dflash_flags(cmd, spec)
 
 
 def _append_ngram_speculative_flags(cmd: list[str], spec: Any) -> None:
-    cmd.extend(
-        [
-            _SPEC_TYPE_FLAG,
-            _SPEC_TYPE_NGRAM_MOD,
-            "--spec-ngram-size-n",
-            str(spec.spec_ngram_size_n),
-            "--draft-min",
-            str(spec.draft_min),
-            "--draft-max",
-            str(spec.draft_max),
-        ]
-    )
+    # Unset fields default to 0; emitting them would override llama.cpp's own
+    # defaults (24/48/64) with a degenerate config.
+    if spec.spec_ngram_size_n > 0:
+        cmd.extend(["--spec-ngram-mod-n-match", str(spec.spec_ngram_size_n)])
+    if spec.draft_min > 0:
+        cmd.extend(["--spec-ngram-mod-n-min", str(spec.draft_min)])
+    if spec.draft_max > 0:
+        cmd.extend(["--spec-ngram-mod-n-max", str(spec.draft_max)])
 
 
 def _append_draft_mtp_flags(cmd: list[str], spec: Any) -> None:
-    cmd.extend(
-        [_SPEC_TYPE_FLAG, _SPEC_TYPE_DRAFT_MTP, "--spec-draft-n-max", str(spec.spec_draft_n_max)]
-    )
+    if spec.spec_draft_n_max > 0:
+        cmd.extend(["--spec-draft-n-max", str(spec.spec_draft_n_max)])
     if spec.spec_draft_p_min > 0:
         cmd.extend(["--spec-draft-p-min", str(spec.spec_draft_p_min)])
     # llama-server flags omit "cache" (--spec-draft-type-k/v), unlike field names.
@@ -271,7 +270,6 @@ def _append_draft_mtp_flags(cmd: list[str], spec: Any) -> None:
 
 
 def _append_dflash_flags(cmd: list[str], spec: Any) -> None:
-    cmd.extend([_SPEC_TYPE_FLAG, _SPEC_TYPE_DFLASH])
     if spec.spec_draft_model:
         cmd.extend(["--spec-draft-model", spec.spec_draft_model])
     if spec.spec_draft_hf:

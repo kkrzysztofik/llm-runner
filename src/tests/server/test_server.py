@@ -217,9 +217,13 @@ class TestBuildServerCmd:
         idx = cmd.index("--ctx-size")
         assert cmd[idx + 1] == "16384"
 
-    def test_no_webui_flag_present(self) -> None:
+    def test_no_ui_flag_present_by_default(self) -> None:
         cmd = build_server_cmd(self._minimal_cfg())
-        assert "--no-webui" in cmd
+        assert "--no-ui" in cmd
+
+    def test_ui_enabled_omits_no_ui_flag(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(ui=True))
+        assert "--no-ui" not in cmd
 
     def test_metrics_flag_present_for_runtime_stats(self) -> None:
         cmd = build_server_cmd(self._minimal_cfg())
@@ -260,15 +264,49 @@ class TestBuildServerCmd:
             self._minimal_cfg(
                 spec_type="ngram-mod",
                 spec_ngram_size_n=12,
-                draft_min=1,
-                draft_max=8,
+                draft_min=8,
+                draft_max=32,
             )
         )
         assert "--spec-type" in cmd
         assert "ngram-mod" in cmd
-        assert cmd[cmd.index("--spec-ngram-size-n") + 1] == "12"
-        assert cmd[cmd.index("--draft-min") + 1] == "1"
-        assert cmd[cmd.index("--draft-max") + 1] == "8"
+        assert cmd[cmd.index("--spec-ngram-mod-n-match") + 1] == "12"
+        assert cmd[cmd.index("--spec-ngram-mod-n-min") + 1] == "8"
+        assert cmd[cmd.index("--spec-ngram-mod-n-max") + 1] == "32"
+        assert "--spec-ngram-size-n" not in cmd
+        assert "--draft-min" not in cmd
+        assert "--draft-max" not in cmd
+
+    @pytest.mark.parametrize(
+        "flag",
+        ["--spec-ngram-mod-n-match", "--spec-ngram-mod-n-min", "--spec-ngram-mod-n-max"],
+    )
+    def test_unset_ngram_fields_are_omitted(self, flag: str) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(spec_type="ngram-mod"))
+        assert flag not in cmd
+
+    def test_normalized_spec_type_emits_single_argv_token(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(spec_type="draft-mtp, ngram-mod"))
+        assert cmd[cmd.index("--spec-type") + 1] == "draft-mtp,ngram-mod"
+
+    def test_unset_spec_draft_n_max_is_omitted(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(spec_type="draft-mtp"))
+        assert "--spec-draft-n-max" not in cmd
+
+    def test_combined_spec_types_emit_both_flag_groups(self) -> None:
+        cmd = build_server_cmd(
+            self._minimal_cfg(
+                spec_type="draft-mtp,ngram-mod",
+                spec_draft_n_max=8,
+                spec_ngram_size_n=12,
+                draft_min=8,
+                draft_max=32,
+            )
+        )
+        assert cmd[cmd.index("--spec-type") + 1] == "draft-mtp,ngram-mod"
+        assert cmd.count("--spec-type") == 1
+        assert cmd[cmd.index("--spec-draft-n-max") + 1] == "8"
+        assert cmd[cmd.index("--spec-ngram-mod-n-match") + 1] == "12"
 
     def test_draft_mtp_spec_flags(self) -> None:
         cmd = build_server_cmd(
@@ -292,14 +330,14 @@ class TestBuildServerCmd:
         """DFlash with local draft model emits correct flags."""
         cmd = build_server_cmd(
             self._minimal_cfg(
-                spec_type="dflash",
+                spec_type="draft-dflash",
                 spec_draft_model="/models/draft.gguf",
                 spec_draft_ngl="all",
                 spec_dflash_cross_ctx=512,
             )
         )
         assert "--spec-type" in cmd
-        assert "dflash" in cmd
+        assert "draft-dflash" in cmd
         assert "--spec-draft-model" in cmd
         assert "/models/draft.gguf" in cmd
         assert "--spec-draft-ngl" in cmd
@@ -311,7 +349,7 @@ class TestBuildServerCmd:
         """DFlash with HF draft emits --spec-draft-hf."""
         cmd = build_server_cmd(
             self._minimal_cfg(
-                spec_type="dflash",
+                spec_type="draft-dflash",
                 spec_draft_hf="Anbeeld/Qwen3.6-27B-DFlash-GGUF:IQ4_XS",
             )
         )
@@ -322,7 +360,7 @@ class TestBuildServerCmd:
         """DFlash with integer spec_draft_ngl emits numeric value."""
         cmd = build_server_cmd(
             self._minimal_cfg(
-                spec_type="dflash",
+                spec_type="draft-dflash",
                 spec_draft_model="/models/draft.gguf",
                 spec_draft_ngl=42,
             )
@@ -333,7 +371,7 @@ class TestBuildServerCmd:
         """DFlash omits --spec-dflash-cross-ctx when value is 0."""
         cmd = build_server_cmd(
             self._minimal_cfg(
-                spec_type="dflash",
+                spec_type="draft-dflash",
                 spec_draft_model="/models/draft.gguf",
                 spec_dflash_cross_ctx=0,
             )
@@ -344,7 +382,7 @@ class TestBuildServerCmd:
         """DFlash with reasoning mode/format emits reasoning flags."""
         cmd = build_server_cmd(
             self._minimal_cfg(
-                spec_type="dflash",
+                spec_type="draft-dflash",
                 spec_draft_model="/models/draft.gguf",
                 reasoning_mode="on",
                 reasoning_format="deepseek",
@@ -412,6 +450,19 @@ class TestBuildServerCmd:
         assert cmd[cmd.index("--presence-penalty") + 1] == "0.0"
         assert cmd[cmd.index("--repeat-penalty") + 1] == "1.0"
         assert cmd[cmd.index("--reasoning-budget-message") + 1] == "stop thinking"
+
+    def test_split_mode_defaults_to_layer(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg())
+        assert cmd[cmd.index("--split-mode") + 1] == "layer"
+
+    def test_split_mode_override_is_emitted(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(split_mode="row"))
+        assert cmd[cmd.index("--split-mode") + 1] == "row"
+        assert cmd.count("--split-mode") == 1
+
+    def test_invalid_split_mode_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="split_mode"):
+            self._minimal_cfg(split_mode="sideways")
 
     def test_smaller_model_no_host_buffer_flag(self) -> None:
         """--no-host flag is emitted when no_host_buffer is True."""

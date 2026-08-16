@@ -8,6 +8,8 @@ from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import Checkbox, Collapsible, Input, Label, Select
 
+from llama_manager.config.server import SPLIT_MODE_VALUES
+
 if TYPE_CHECKING:
     from llama_manager.config import Config
 
@@ -45,6 +47,8 @@ LOAD_MODE_CHOICES: tuple[tuple[str, str], ...] = (
     ("dio", "dio"),
 )
 
+SPLIT_MODE_CHOICES: tuple[tuple[str, str], ...] = tuple((v, v) for v in SPLIT_MODE_VALUES)
+
 REASONING_PRESERVE_CHOICES: tuple[tuple[str, str], ...] = (
     ("auto", "auto"),
     ("on", "on"),
@@ -57,12 +61,30 @@ FIT_CHOICES: tuple[tuple[str, str], ...] = (
     ("off", "off"),
 )
 
+# Values must match llama_manager.config.spec_decode._VALID_SPEC_TYPES, plus any
+# comma-separated combination we want selectable. A Select rejects a value that is
+# not listed here at mount time, so every storable spec_type needs an entry.
 SPEC_TYPE_CHOICES: tuple[tuple[str, str], ...] = (
     ("(none)", ""),
     ("ngram-mod", "ngram-mod"),
     ("draft-mtp", "draft-mtp"),
-    ("dflash", "dflash"),
+    ("draft-dflash", "draft-dflash"),
+    ("draft-mtp,ngram-mod", "draft-mtp,ngram-mod"),
 )
+
+
+def spec_type_choices(value: str) -> tuple[tuple[str, str], ...]:
+    """Return the spec type choices, widened to include ``value``.
+
+    A Select raises InvalidSelectValueError at mount for any value it was not
+    given, so a stored spec_type that is valid but not listed above (an
+    unanticipated combination) would take the modal down. Append it instead of
+    falling back to "", which would silently blank the field and lose it on save.
+    """
+    if not value or any(value == choice for _, choice in SPEC_TYPE_CHOICES):
+        return SPEC_TYPE_CHOICES
+    return (*SPEC_TYPE_CHOICES, (value, value))
+
 
 DEFAULT_PARALLEL_CHOICES: tuple[tuple[str, str], ...] = (
     ("1", "1"),
@@ -202,7 +224,9 @@ def config_profile_prefill(config: Config) -> dict[str, str]:
         "kv-unified": "true" if defaults.kv_unified else "false",
         "mmproj-offload": "true" if defaults.mmproj_offload else "false",
         "load-mode": defaults.load_mode,
+        "split-mode": defaults.split_mode,
         "no-host-buffer": "true" if defaults.no_host_buffer else "false",
+        "ui": "true" if defaults.ui else "false",
         "reasoning-preserve": defaults.reasoning_preserve,
         "reasoning-budget-message": defaults.reasoning_budget_message,
         "fit": defaults.fit,
@@ -552,7 +576,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
         select_row(
             "Spec type",
             "default_spec_type",
-            SPEC_TYPE_CHOICES,
+            spec_type_choices(spec.spec_type),
             spec.spec_type,
             id_prefix=prefix,
             label_classes=cfg_label,
@@ -586,10 +610,28 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             input_classes=cfg_select,
             row_classes=cfg_row_select,
         ),
+        select_row(
+            "Split Mode",
+            "default_split_mode",
+            SPLIT_MODE_CHOICES,
+            defaults.split_mode,
+            id_prefix=prefix,
+            label_classes=cfg_label,
+            input_classes=cfg_select,
+            row_classes=cfg_row_select,
+        ),
         checkbox_row(
             "No Host Buffer",
             "default_no_host_buffer",
             defaults.no_host_buffer,
+            id_prefix=prefix,
+            label_classes=cfg_label,
+            row_classes=cfg_row,
+        ),
+        checkbox_row(
+            "UI",
+            "default_ui",
+            defaults.ui,
             id_prefix=prefix,
             label_classes=cfg_label,
             row_classes=cfg_row,

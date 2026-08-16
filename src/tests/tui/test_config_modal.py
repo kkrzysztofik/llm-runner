@@ -59,6 +59,7 @@ _DEFAULT_TO_SERVER_DEFAULTS: dict[str, str] = {
     "default_spec_draft_cache_type_v": "spec_draft_cache_type_v",
     "default_spec_draft_device": "spec_draft_device",
     "default_load_mode": "load_mode",
+    "default_ui": "ui",
     "default_reasoning_preserve": "reasoning_preserve",
     "default_reasoning_budget_message": "reasoning_budget_message",
     "default_fit": "fit",
@@ -359,11 +360,13 @@ class TestConfigModalCollectValues:
             await app.push_screen(modal)
             await pilot.pause()
             load_mode = modal.query_one("#cfg-default_load_mode", Select)
+            split_mode = modal.query_one("#cfg-default_split_mode", Select)
             reasoning_preserve = modal.query_one("#cfg-default_reasoning_preserve", Select)
             fit = modal.query_one("#cfg-default_fit", Select)
             payload = modal._collect_values()
 
         assert load_mode.value == "mmap"
+        assert split_mode.value == "layer"
         assert reasoning_preserve.value == "on"
         assert fit.value == "off"
         assert payload.default_load_mode == "mmap"

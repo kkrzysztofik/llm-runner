@@ -4,6 +4,25 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
+_VALID_SPEC_TYPES: frozenset[str] = frozenset({"ngram-mod", "draft-mtp", "draft-dflash"})
+
+
+def spec_type_members(spec_type: str) -> list[str]:
+    """Split a comma-separated ``--spec-type`` value into trimmed members.
+
+    Empty components (e.g. ``draft-mtp,,ngram-mod`` or a trailing comma) raise
+    ``ValueError`` rather than being silently dropped.
+    """
+    if not spec_type:
+        return []
+    members: list[str] = []
+    for part in spec_type.split(","):
+        stripped = part.strip()
+        if not stripped:
+            raise ValueError("spec_type must not contain empty comma-separated components")
+        members.append(stripped)
+    return members
+
 
 @dataclass
 class SpeculativeDecodingConfig(dict[str, object]):
@@ -28,6 +47,12 @@ class SpeculativeDecodingConfig(dict[str, object]):
 
     def __post_init__(self) -> None:
         _validate_speculative_decoding(self)
+        # Normalize once here so every consumer (argv builder, profile store,
+        # profile IO, TUI prefill) sees the same canonical comma-joined form.
+        # Sorting and deduping is safe: llama.cpp reduces --spec-type to a bitmask
+        # (common_get_enabled_speculative_configs) and then applies its own hardcoded
+        # speculator priority, so member order and repeats carry no meaning.
+        self.spec_type = ",".join(dict.fromkeys(sorted(spec_type_members(self.spec_type))))
         self.clear()
         self.update(
             {
@@ -66,17 +91,31 @@ def _validate_speculative_decoding(config: SpeculativeDecodingConfig) -> None:
         raise ValueError("spec_draft_p_min must be non-negative")
     if config.spec_draft_p_min > 1.0:
         raise ValueError("spec_draft_p_min must be <= 1.0")
-    if config.spec_type not in ("", "ngram-mod", "draft-mtp", "dflash"):
-        raise ValueError("spec_type must be '', 'ngram-mod', 'draft-mtp', or 'dflash'")
-    if config.spec_type == "dflash":
-        _validate_dflash_config(config)
+    _validate_spec_type(config)
     if config.spec_dflash_cross_ctx < 0:
         raise ValueError("spec_dflash_cross_ctx must be non-negative")
 
 
+def _validate_spec_type(config: SpeculativeDecodingConfig) -> None:
+    """Validate every member of the comma-separated ``spec_type`` value."""
+    if not config.spec_type:
+        return
+    members = spec_type_members(config.spec_type)
+    known = ", ".join(sorted(_VALID_SPEC_TYPES))
+    if not members:
+        raise ValueError(f"spec_type must be '' or a comma-separated list of: {known}")
+    for member in members:
+        if member not in _VALID_SPEC_TYPES:
+            raise ValueError(f"spec_type member '{member}' is unknown; valid members: {known}")
+    if "draft-dflash" in members:
+        _validate_dflash_config(config)
+
+
 def _validate_dflash_config(config: SpeculativeDecodingConfig) -> None:
     if not config.spec_draft_model and not config.spec_draft_hf:
-        raise ValueError("spec_draft_model or spec_draft_hf required when spec_type is 'dflash'")
+        raise ValueError(
+            "spec_draft_model or spec_draft_hf required when spec_type is 'draft-dflash'"
+        )
     if config.spec_draft_model and config.spec_draft_hf:
         raise ValueError("spec_draft_model and spec_draft_hf are mutually exclusive")
 
