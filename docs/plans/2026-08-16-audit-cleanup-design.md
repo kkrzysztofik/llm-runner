@@ -291,11 +291,14 @@ library-root dashboard pair:
   and the ~20 one-line model pass-through props the app routinely
   bypasses (`controller.model.X`) — keep the externally used few.
 - Build-request console-prompt flow: `request_build`, `_build_request`
-  prop, build branches in `cancel_pending_prompt` / `check_action` /
+  prop, `cancel_pending_prompt`, `check_action` build branch,
   `viewmodel.can_select_build_target`, `model.build_request`,
   `CommandMenuState.build_request` — nothing ever sets the flag
-  (BuildModalScreen replaced it). Keep `cancel_pending_prompt`'s
-  non-build branch (Escape-bound) and the binding.
+  (BuildModalScreen replaced it). NOTE: `cancel_pending_prompt` has no
+  non-build branch; the live Escape/ctrl+c behavior is the `interrupt()`
+  fallthrough in `action_cancel_pending_prompt` (dispatch shutdown when no
+  risk prompt is pending, else refresh). Keep that binding + action
+  (simplified), delete the dead flag chain.
 - View-model build passthroughs (`build_selected_backends`,
   `build_in_progress`, `build_result`, `build_error`,
   `build_selected_backends_options`, `build_stage`,

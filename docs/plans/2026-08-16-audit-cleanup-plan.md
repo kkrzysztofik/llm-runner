@@ -52,73 +52,174 @@ gate → commit → push. No half-applied deletion ever lands on `int`.
 
 ## Task 1: Orchestration / slot / probe dead code
 
+> Rewritten from the verified inventory in
+> `.superpowers/sdd/2026-08-16-audit-cleanup-plan/task-1-report.md` — the
+> original brief had 12 confirmed discrepancies (wrong file paths,
+> nonexistent symbols, missing affected files/tests). All file:line
+> references below were re-verified against the tree on 2026-08-16.
+
 **Files:**
-- Modify: `src/llama_manager/orchestration/manager.py`, `audit.py`,
-  `launcher.py`, `slot_state.py`, `smoke.py`, `risk_ack.py`,
-  `slot_lockfile.py`, `types.py`, `src/llama_manager/slot_state.py`,
-  `src/llama_manager/smoke.py`
-- Test: `src/tests/test_launcher.py`, `src/tests/test_probe_config_models.py`, `src/tests/test_slot_lockfile.py`, `src/tests/orchestration/*`, `src/tests/test_launch_flow.py` (whichever exist — `rtk ls src/tests` first)
+- Modify (production): `src/llama_manager/orchestration/manager.py`,
+  `orchestration/audit.py`, `orchestration/launcher.py`,
+  `orchestration/slot_lockfile.py`, `orchestration/types.py`,
+  `orchestration/risk.py`, `orchestration/launch.py`,
+  `orchestration/artifact.py`, `orchestration/__init__.py`,
+  `src/llama_manager/slot_state.py`, `src/llama_manager/smoke.py`,
+  `src/llama_manager/risk_ack.py`, `src/llama_manager/dry_run.py`,
+  `src/llama_manager/probe/smoke.py`, `src/llama_manager/probe/__init__.py`
+- Test (delete/fix tests in): `src/tests/runtime/test_launcher.py`,
+  `src/tests/runtime/test_slot_lockfile.py`,
+  `src/tests/runtime/test_launch_flow.py`,
+  `src/tests/runtime/test_audit_redaction.py`,
+  `src/tests/smoke/test_probe_config_models.py`,
+  `src/tests/smoke/test_smoke_lifecycle.py`,
+  `src/tests/smoke/test_smoke_manager.py`,
+  `src/tests/system/test_foundation_contracts.py`,
+  `src/tests/tui/test_tui.py`, `src/tests/cli/test_server_runner.py`,
+  `src/tests/slot/test_slot_state.py`
 
 **Interfaces:**
 - Consumes: nothing from other tasks.
-- Produces: `ServerManager` with only `stream_pipe`, `wait_for_processes`,
-  `close_log_pipe`, `launch_slot` surface; `risk_ack.issue_risk_prompt_if_needed`
-  (tokenless ack); `SlotRuntime`/`ArtifactMetadata`/`ProcessMetadata` gone.
+- Produces: `ServerManager` with the test-only API removed (live surface
+  kept: `start_server_background` / `start_servers` / `launch_all_slots` /
+  `shutdown_slot` / `cleanup_servers`, lock helpers, and the module-level
+  `stream_pipe` / `wait_for_processes` in `launcher.py`); tokenless risk
+  ack — `acknowledge_risk` without an `ack_token` param (the
+  `issue_ack_token` / `validate_ack_token` chain is gone);
+  `SlotRuntime` / `ArtifactMetadata` / `ProcessMetadata` /
+  `ConsecutiveFailureCounter` gone.
 
 - [ ] **Step 1: Verify deadness** (each grep must return zero production
   callers outside the listed owners before deleting that symbol):
 
 ```bash
 cd /home/kmk/llm-runner
-for s in on_interrupt on_terminate run_server_foreground acquire_lock check_lock_stale \
-         ConsecutiveFailureCounter SlotRuntime ArtifactMetadata ProcessMetadata \
-         is_success launch_count issue_ack_token validate_ack_token \
-         _build_launch_status_messages risk_result log_path; do
-  echo "== $s =="; rtk grep -rn "$s" src/llama_cli src/llama_manager --type py | grep -v tests
+# Expected: zero production callers (fully dead)
+for s in on_interrupt on_terminate _stream_pipe _wait_for_processes \
+         _format_output run_server_foreground _build_launch_status_messages \
+         ConsecutiveFailureCounter SlotRuntime ArtifactMetadata ProcessMetadata; do
+  echo "== $s =="; rtk grep -rnw "$s" src/llama_cli src/llama_manager --include='*.py' | grep -v tests
 done
+# Expected: only the hits listed here (all in scope)
+#   acquire_lock     -> ServerManager.acquire_lock (manager.py:384) is dead;
+#                       build_pipeline/lock.py:16 acquire_lock is LIVE — do not touch
+#   check_lock_stale -> manager.py:396 + slot_lockfile.py:48 (both dead)
+#   issue_ack_token / validate_ack_token -> the ack chain in Step 5
+#   log_path         -> AuditLogger file machinery (audit.py) + manager.py:49,59
+for s in acquire_lock check_lock_stale issue_ack_token validate_ack_token log_path; do
+  echo "== $s =="; rtk grep -rnw "$s" src/llama_cli src/llama_manager --include='*.py' | grep -v tests
+done
+# Expected: LIVE — do NOT delete: is_success, launch_count (LaunchResult
+# methods, types.py:43-46,56-58), risk_result (LaunchOrchestrationResult
+# field, types.py:70, consumed by tui/controller.py:1379-1381),
+# lifecycle_audit (AuditLogger accessor property, audit.py:91-94 — there is
+# no get_events method)
 ```
 
 - [ ] **Step 2: Delete ServerManager test-only API** from
-  `orchestration/manager.py` + `orchestration/__init__.py` re-exports:
-  `on_interrupt`, `on_terminate`, `_stream_pipe`, `_wait_for_processes`,
-  `_format_output`, `run_server_foreground`, `acquire_lock`,
-  `check_lock_stale`; and `slot_lockfile.check_lock_stale`.
+  `orchestration/manager.py`: `on_interrupt` (158-161), `on_terminate`
+  (163-166), `_stream_pipe` (172-180), `_wait_for_processes` (182-184),
+  `_format_output` (186-190), `run_server_foreground` (231-234),
+  `acquire_lock` (384-388), `check_lock_stale` (396-400); and
+  `slot_lockfile.check_lock_stale` (slot_lockfile.py:48-64). These are
+  methods — there are no `orchestration/__init__.py` re-exports to remove
+  for them. Keep `build_pipeline/lock.py::acquire_lock` (live — used by
+  build_pipeline/pipeline.py:356).
 
-- [ ] **Step 3: Delete the file-based audit log** from `orchestration/audit.py`:
-  file open/rotate/append/fchmod machinery and the `log_path` parameter
-  threaded through `audit.py` → `manager.py`. Keep the in-memory
-  `record_event` list + `get_events`.
+- [ ] **Step 3: Delete the file-based audit log** from
+  `orchestration/audit.py`: `_AUDIT_LOG_MAX_BYTES` / `_AUDIT_LOG_MAX_FILES`
+  (12-14), `_rotate_audit_log` (17-40), `_append_audit_log` (43-64), the
+  `log_path` parameter of `AuditLogger.__init__` (70-71), and the file
+  append in `record_event` (84-89); drop the `audit_log_path` parameter
+  threaded through `manager.py` (49, 59 — no caller passes it). Keep the
+  in-memory `record_event` list + the `lifecycle_audit` property
+  (audit.py:91-94).
 
-- [ ] **Step 4: Delete probe dead surface** from `orchestration/slot_state.py`
-  and `orchestration/smoke.py`: `ConsecutiveFailureCounter`,
-  `SlotRuntime`, `ArtifactMetadata`, `ProcessMetadata`, `LaunchResult`
-  dead fields (`is_success`, `launch_count`), the 5 duplicated permission
-  constants in `types.py` (artifact.py keeps its own copies),
-  `_build_launch_status_messages`, the `SmokeTarget.backend` field (keep the
-  other SmokeTarget fields), the `SmokeTarget.aliases` list→str rename is NOT
-  in scope.
+- [ ] **Step 4: Delete dead dataclasses + probe surface.**
+  - `orchestration/types.py`: `ProcessMetadata` (26-31), `SlotRuntime`
+    (74-99), and the 5 duplicated permission constants (12-15, 17-22, 23:
+    `ARTIFACT_CHECK_NAME`, `OWNER_ONLY_PERMISSIONS_FAILURE`,
+    `PERMISSION_SUPPORT_HINT`, `PERMISSION_WRITABILITY_HINT`,
+    `MAX_COLLISION_RETRIES`) — `artifact.py` keeps its own copies
+    (artifact.py:15-25). `LOCKFILE_FIX_SUGGESTION` (types.py:16) is LIVE
+    (manager.py:39, slot_lockfile.py:20) — keep. `LaunchResult.is_success`
+    (56-58) and `LaunchResult.launch_count` (43-46) are LIVE — keep.
+  - `orchestration/artifact.py`: `ArtifactMetadata` (39-54).
+  - `orchestration/__init__.py`: drop the `ArtifactMetadata` (6, 52),
+    `SlotRuntime` (33, 60), `ProcessMetadata` (32, 61) re-exports.
+  - `probe/smoke.py`: `ConsecutiveFailureCounter` (194-227);
+    `probe/__init__.py`: drop its import (5) + `__all__` entry (22).
+  - `orchestration/launch.py`: `_build_launch_status_messages` (98-120) —
+    zero call sites.
+  - `src/llama_manager/smoke.py`: the `SmokeTarget.backend` field (50) +
+    its two construction sites (86, 103) + docstring line (43) — no
+    production readers (`run_smoke_probes` uses host/port/model only).
+    Keep the other `SmokeTarget` fields (`slot_id`, `model`, `host`,
+    `port`).
+  - **D11 follow-up:** deleting the 5 constants from types.py breaks
+    `launch.py:20` (`from .types import ARTIFACT_CHECK_NAME, ...`), which
+    is used only by launch.py's dead `_artifact_error` (52-58 — a duplicate
+    of artifact.py's own `_artifact_error`, zero call sites). Delete that
+    dead function and trim the import to
+    `from .types import LaunchOrchestrationResult, LaunchResult`.
 
-- [ ] **Step 5: Cut the ack-token ceremony.** In `risk_ack.py` delete
-  `issue_ack_token` and `validate_ack_token`; in `orchestration/manager.py`
-  (or wherever `evaluate_risks`/`acknowledge_risk` live — grep
-  `issue_ack_token` for the call chain), drop the `token` param/return and
-  the `f"ack:{attempt_id}"` generation. Keep attempt_id-scoped ack state and
-  the `RISK_ACK` constants. Remove the constant-None `risk_result` parameter
-  from `_evaluate_and_handle_risks`.
+- [ ] **Step 5: Cut the ack-token ceremony (full chain).** `issue_ack_token`
+  has LIVE production callers — the whole chain is in scope (verified):
+
+  ```
+  launch_orchestrate            launch.py:253        ack_token = server_manager.issue_ack_token(id)
+    -> _evaluate_and_handle_risks  launch.py:65 (param), 82, 259
+           -> risk_ack.evaluate_risks       risk_ack.py:86 (param)
+                -> _collect_risky_details   risk_ack.py:39 (param)
+                     -> manager.acknowledge_risk(..., ack_token=)  manager.py:89,91
+                          -> RiskAckManager.acknowledge_risk       risk.py:36, 43-44
+  dry_run._build_dry_run_result dry_run.py:158 -> _risk_warnings (dry_run.py:192 param,
+                                   159, 199) -> risk_ack.evaluate_risks
+  ```
+
+  Exact edits:
+  - `orchestration/risk.py`: delete `issue_ack_token` (20-23) and
+    `validate_ack_token` (25-29); drop the `ack_token` param + the
+    ValueError check (36, 43-44) from `acknowledge_risk`. Keep
+    `begin_launch_attempt`, the attempt-scoped `_risky_acknowledged_cache`,
+    `is_risk_acknowledged`, `clear_all`.
+  - `orchestration/manager.py`: delete delegates `issue_ack_token` (78-79)
+    and `validate_ack_token` (81-82); drop the `ack_token` param from
+    `acknowledge_risk` (84-91).
+  - `src/llama_manager/risk_ack.py`: drop the `ack_token` param from
+    `evaluate_risks` (86) and `_collect_risky_details` (39) + its
+    pass-through (120, 76) and docstring (48).
+  - `orchestration/launch.py`: delete line 253 (the `issue_ack_token`
+    call); drop the `ack_token` param (65), the arg (82), and the call-site
+    arg (259). Also drop the constant-None `risk_result` param (68) — the
+    only caller (255-262) relies on the default.
+  - `src/llama_manager/dry_run.py`: delete line 158; drop `ack_token` from
+    `_risk_warnings` (192) and the call (159, 199).
+  - Keep (verified live): `LaunchOrchestrationResult.risk_result` field
+    (consumed by `llama_cli/tui/controller.py:1379-1381`); `RISK_ACK_LABEL`
+    (`risk_ack.py:15`, passed as a risk_type by
+    `cli/commands/dry_run.py:175`); all `begin_launch_attempt` /
+    `is_risk_acknowledged` / tokenless `acknowledge_risk` call sites.
 
 - [ ] **Step 6: Fix remaining cross-file bits.**
   - `slot_lockfile.py`: replace `from .launch import _lockfile_error` with
-    `from .lockfile import _lockfile_error`.
-  - `resolve_slot_runtime_status`: delete the dead
-    `getattr`/`pid_exists` fallback branch (keep the live path).
+    `from .lockfile import _lockfile_error` (verified behaviorally
+    identical: launch.py:45-49 vs lockfile.py:57-60 — same signature, same
+    `ErrorCode.LOCKFILE_INTEGRITY_FAILURE` + `LOCKFILE_CHECK_NAME`).
+  - `resolve_slot_runtime_status` (src/llama_manager/slot_state.py): delete
+    the dead `pid_exists` fallback branch (97-100) + the `pid_exists`
+    parameter (69) — the sole production caller
+    (`llama_cli/tui/viewmodel.py:229`) passes either `None` (handled at
+    90-91) or a `ProcessHandle` that always has `.poll`
+    (protocol, launcher.py:57-63).
   - Confirm `risk_ack.py` is the single owner of the
     `RISK_ACK_LABEL = "warning_bypass"` literal. The dead copy in
     `tui/constants.py` is deleted in Task 6 Step 9 (design assigns it to
     batch 6) — do NOT delete it here.
 
 - [ ] **Step 7: Rewrite `_SubprocessHandle`** in
-  `orchestration/launcher.py` (replaces the class at ~line 93 and the wrap at
-  ~line 80):
+  `orchestration/launcher.py` (replaces the class at line 93-120 and the
+  wrap at line 80):
 
 ```python
 class _ServerProc(subprocess.Popen[str]):
@@ -135,23 +236,68 @@ class _ServerProc(subprocess.Popen[str]):
 
   In the spawn site, replace `_SubprocessHandle(subprocess.Popen(...))` with
   `_ServerProc(...)` keeping the existing `cmd` args, `stdout/stderr=PIPE,
-  text=True, bufsize=1`, the `# noqa: S603` and the safe-argv comment. Remove
-  `type: ignore` lines that vanish with the wrapper. `ProcessHandle` protocol
-  conformance: `pid`/`stdout`/`stderr`/`poll` come from `Popen` itself.
+  text=True, bufsize=1`, the `# noqa: S603` and the safe-argv comment.
+  `ProcessHandle` protocol conformance: `pid`/`stdout`/`stderr`/`poll` come
+  from `Popen` itself. NOTE: pyright may still flag the `Popen ->
+  ProcessHandle` structural return (Popen declares `stdout: TextIO | None`,
+  the protocol wants `TextIOWrapper`) — if so, KEEP the existing
+  `# type: ignore[return-value]` on that line; delete other ignores that
+  truly vanish. `from io import TextIOWrapper` in launcher.py stays (used
+  by the `ProcessHandle` protocol).
 
-- [ ] **Step 8: Shrink `resolve_smoke_targets`** (smoke.py): after resolving
-  the profile-id list, build targets with one comprehension instead of the
-  both/slot special branches (behavior identical — both branches already
-  produce the same `(profile_id, aliases)` list, aliases singular).
+  **Test updates (D10):** `src/tests/runtime/test_launcher.py` references
+  the wrapper class directly — update: import at line 14
+  (`_SubprocessHandle` → `_ServerProc`), `isinstance` checks at 122 and 218,
+  class `TestSubprocessHandleWaitTimeout` (143), and
+  `handle._proc.terminate()` / `handle._proc.wait()` at 139-140 and 153-154
+  — `_ServerProc` *is* the Popen, so `._proc` access disappears; call
+  `handle.terminate()` / `handle.wait()` directly (drop the
+  `# type: ignore[reportAttributeAccessIssue]` comments on those lines).
+
+- [ ] **Step 8: Shrink `resolve_smoke_targets`**
+  (src/llama_manager/smoke.py): after resolving the profile-id list, build
+  targets with one comprehension instead of the both/slot special branches
+  (behavior identical — both branches already produce equivalent
+  `SmokeTarget` lists; verified by reading both branches at smoke.py:75-110).
+  Note: `SmokeTarget` has fields `slot_id, model, host, port, backend` —
+  there is no `profile_id` or `aliases` field.
 
 - [ ] **Step 9: Prune tests.** In the test files named under Files: delete
-  tests for every symbol removed in Steps 2–6 (`run_server_foreground`,
-  lock acquire/stale, `_ConsecutiveFailureCounter` sections of
-  `test_probe_config_models.py`, `SlotRuntime`/`ArtifactMetadata`
-  constructor tests, ack-token tests, `_build_launch_status_messages`).
+  tests for every symbol removed in Steps 2–6:
+  - `runtime/test_launcher.py`: `on_interrupt`/`on_terminate` tests
+    (707-730), `_wait_for_processes` (236-254), `_format_output` (635-674),
+    `run_server_foreground` (676-705), the `validate_ack_token` class
+    (532-558), the invalid-token ValueError test (602-609), and the
+    Step-7 `_SubprocessHandle` references (D10 above).
+  - `tui/test_tui.py`: `on_interrupt`/`on_terminate` tests (823-857).
+  - `runtime/test_audit_redaction.py`: `_stream_pipe` tests (143-212),
+    `SlotRuntime` top import (21) + class (~968-1180), audit
+    rotate/append/fchmod tests (1716-1787). Keep the rest (2474 lines).
+  - `smoke/test_probe_config_models.py`: `ConsecutiveFailureCounter`
+    import (17) + T032 section (861-~965).
+  - `smoke/test_smoke_lifecycle.py`: `SlotRuntime` top import (21) + class
+    `TestStateMachineLifecycle` (25-439). Keep `TestTuiVsCliSmokeParity`
+    (441+) and `TestDryRunSmokeFlagBundleOutput` (674+).
+  - `system/test_foundation_contracts.py`: `ArtifactMetadata` top import
+    (30, remove one name) + tests (571-603).
+  - `cli/test_server_runner.py`: delete
+    `test_ack_token_validation_is_attempt_scoped` (914-920).
+  - `smoke/test_smoke_manager.py`: delete `test_both_targets_have_backend`
+    (38-44), fix `TestSmokeTarget` (435-458, incl. 452), strip `backend=`
+    kwargs from ~16 `SmokeTarget(...)` constructions (168-408).
+  - `slot/test_slot_state.py`: delete `_NoPollProcess` (8-12) and the 3
+    fallback tests (43-59, incl. the 2 `pid_exists=` tests). Keep the
+    poll-based tests.
+  - `runtime/test_slot_lockfile.py`: delete
+    `TestCheckLockStale.test_no_lockfile_returns_false` (53-61) and whole
+    `TestCheckLockStaleErrorDetail` (158-173). Note: `TestCheckLockStale`
+    also *contains* `shutdown_slot` tests (63-155) that must stay
+    (misplaced under that class name) — rename or move when cutting.
+  - `runtime/test_launch_flow.py`: drop the `ack_token` mock-setup lines
+    (383, 425, 469, 526); line 320 is a stale comment — remove.
   Tests that build `ServerManager` purely to exercise removed methods go
-  with them. Keep tests for `stream_pipe`, `wait_for_processes`,
-  `launch_slot`, lockfile `acquire`/`release` (production API).
+  with them. Keep tests for `start_server_background` / `start_servers` /
+  `launch_all_slots`, lockfile `acquire`/`release` (production API).
 
 - [ ] **Step 10: Gate + commit + push**
 
@@ -166,20 +312,26 @@ git add -A -- src/ && git commit -m "chore(cleanup): batch 1 — orchestration/s
 
 **Files:**
 - Modify: `src/llama_manager/toolchain/detector.py`, `toolchain/__init__.py`,
+  `toolchain/constants.py`,
   `build_pipeline/models.py`, `build_pipeline/pipeline.py`,
   `build_pipeline/orchestration.py`, `build_pipeline/utils.py`,
-  `build_pipeline/clone.py`, `build_pipeline/status.py`,
+  `build_pipeline/lock.py`, `build_pipeline/__init__.py`,
+  `build_pipeline/stages/clone.py`, `build_pipeline/status.py`,
   `build_pipeline/_context.py` (only if it imports deleted helpers),
-  `src/llama_cli/commands/build.py`, `src/llama_manager/setup_venv.py`
-- Test: `src/tests/build/test_toolchain.py`, `test_pipeline_orchestration.py`,
-  `test_pipeline_clone_sources.py`, `test_build_cli.py`,
-  `test_build_config.py`, `test_setup_toolchain.py`
+  `src/llama_cli/commands/build.py`, `src/llama_manager/setup_venv.py`,
+  `src/llama_cli/tui/components/build.py`
+- Test: `src/tests/system/test_toolchain.py`, `test_setup_toolchain.py`,
+  `test_foundation_contracts.py` (toolchain sections),
+  `src/tests/build/test_build_pipeline_orchestration.py`
+  (`run_both_backends` tests), `test_build_config.py`
+  (`is_success`/`binary_size_mb` tests)
 
 **Interfaces:**
 - Consumes: nothing from other tasks.
-- Produces: `BuildPipeline.run_build_for_backend` (only entry),
-  `tools_present` (no `ToolchainHint`), `VenvResult` without accessor methods,
-  `BuildBackend` = SYCL|CUDA only.
+- Produces: `BuildPipeline.run_build_for_backend` (only entry). The
+  tool-presence surface stays `detect_tool` / `detect_toolchain` /
+  `ToolchainStatus` (toolchain/detector.py:237); `VenvResult`
+  (setup_venv.py) keeps no accessor methods; `BuildBackend` = SYCL|CUDA only.
 
 - [ ] **Step 1: Verify deadness**
 
@@ -194,40 +346,52 @@ for s in parse_version version_at_least CMAKE_MINIMUM_VERSION ToolchainHint \
 done
 ```
 
-- [ ] **Step 2: Toolchain.** Delete `parse_version`, `version_at_least`,
-  `CMAKE_MINIMUM_VERSION` from `toolchain/detector.py` (keep
-  `TOOL_VERSION_MISMATCH` handling if it only *emits* — grep first). Delete
-  the 7 `*_HINT` re-exports + `SYCL/CUDA_REQUIRED_TOOLS` from
+- [ ] **Step 2: Toolchain.** Delete `parse_version` / `version_at_least`
+  from `toolchain/detector.py` (:198/:223) + their re-exports
+  (`toolchain/__init__.py:22-23,51-52`) and `CMAKE_MINIMUM_VERSION` from
+  `toolchain/constants.py:11` (re-exported in `toolchain/__init__.py:5,45`)
+  (keep `TOOL_VERSION_MISMATCH` handling if it only *emits* — grep first).
+  Delete the 7 `*_HINT` re-exports + `SYCL/CUDA_REQUIRED_TOOLS` from
   `toolchain/__init__.py` (sole consumer already imports from
   `.constants`). Delete `_get_detect_tool()` / `_get_oneapi_bin()` indirection
-  in `detector.py` — call `detect_tool` / `_ONEAPI_BIN` directly. Delete
-  `_COMMON_MISSING_TOOLS` comprehension in the detector (reconstruct the set
-  inline where tests previously patched it — see Step 7 for the test-side
-  move).
+  in `detector.py` (:39/:30) — call `detect_tool` / `_INTEL_ONEAPI_BIN`
+  directly (move the `_INTEL_ONEAPI_BIN` constant from
+  `toolchain/__init__.py:27` to a module-level constant in `detector.py`).
+  Delete the `_COMMON_MISSING_TOOLS` tuple literal in the detector (:80-85)
+  and inline it into `detect_toolchain` (:301 — its only consumer; no test
+  references it).
 
 - [ ] **Step 3: Venv + models.** In `setup_venv.py`: delete
-  `VenvResult.is_valid` / `get_python_path` / `get_pip_path`; delete the
-  Windows `Scripts` fallback branches (Linux-only project). In
-  `build_pipeline/models.py`: delete `ToolchainHint.format_hint` /
-  `is_url_available` / `required_for` + the initializer list args; delete
-  `BuildArtifact.is_success` / `binary_size_mb`; delete
+  `VenvResult.is_valid` / `get_python_path` / `get_pip_path` (:33/:43/:55);
+  delete the Windows `Scripts` fallback branches (Linux-only project). In
+  `toolchain/constants.py`: delete `ToolchainHint.format_hint` /
+  `is_url_available` / `required_for` (:33/:29/:26) + the initializer list
+  args. In `build_pipeline/models.py`: delete
+  `BuildArtifact.is_success` / `binary_size_mb` (:101/:106); delete
   `BuildConfig.CMAKE_C_COMPILER_SYCL` / `CMAKE_CXX_COMPILER_SYCL` ClassVars
-  (configure() hardcodes `icx`/`icpx` already); delete `MSG_SOURCES_NOT_GIT_REPO`;
-  delete `BuildBackend.BOTH`.
+  (:43/:44 — configure() hardcodes `icx`/`icpx` already at
+  `stages/configure.py:150-151`); delete `MSG_SOURCES_NOT_GIT_REPO`
+  (`build_pipeline/utils.py:24`); delete `BuildBackend.BOTH` (models.py:23).
 
-- [ ] **Step 4: Pipeline.** Delete `BuildPipeline.run_both_backends` (callers
-  already loop `run_build_for_backend`); delete `get_lock_error_message` and
-  its callers' indirection (the lock-contention path returns the static
-  message directly — keep the message string).
+- [ ] **Step 4: Pipeline.** Delete `BuildPipeline.run_both_backends`
+  (pipeline.py:321 — callers already loop `run_build_for_backend` in
+  `tui/controller.py:1266,1332`); also delete the `BuildBackend.BOTH` guard
+  in `run()` (pipeline.py:202) since BOTH no longer exists. Delete
+  `get_lock_error_message` (lock.py:117) + its re-export
+  (`build_pipeline/__init__.py:8,37`) + the import (pipeline.py:11) + the
+  dead `_get_lock_error_message` delegator (pipeline.py:372-373, never
+  called).
 
-- [ ] **Step 5: clone.py + status.py.** Delete the
-  `source_existed_before_clone` parameter chain (always False end-to-end);
-  replace `getattr(config, "clone_timeout", 120)` with a module constant
-  `CLONE_TIMEOUT_S = 120` in clone.py (verify no real `config.clone_timeout`
-  exists first); replace the `build_shallow_clone` `getattr(config,
-  "shallow_clone", ...)` with the actual `config.shallow_clone` (and the same
-  getattr in `tui/components/build.py:629`); delete the unreachable
-  `if not parts` guard in `status.py`.
+- [ ] **Step 5: stages/clone.py + status.py.** Delete the
+  `source_existed_before_clone` parameter chain (stages/clone.py:49-50,120,
+  180,189 — always False end-to-end; keep the `source_exists()` check at
+  :192); replace `getattr(ctx.config, "clone_timeout", 120)`
+  (stages/clone.py:142) with a module constant `CLONE_TIMEOUT_S = 120`
+  (verified: `BuildConfig` has no `clone_timeout` field); replace
+  `getattr(config, "build_shallow_clone", True)` with the actual
+  `config.shallow_clone` (models.py:54) at `tui/components/build.py:629,631`
+  and `build_pipeline/orchestration.py:119`; delete the unreachable
+  `if not parts` guard in `status.py:220`.
 
 - [ ] **Step 6: Rewrites (exact code).**
 
@@ -304,20 +468,35 @@ def _send_kill_signal(proc: subprocess.Popen[str], process_group_id: int | None)
   - `_default_build_dir`: single expression.
 
 - [ ] **Step 7: Prune + move tests.**
-  - `test_toolchain.py`: delete all version-parsing suites; move the
-    `_get_detect_tool` patch targets to
+  - `test_toolchain.py`: delete the version-parsing suites
+    (`TestParseVersion` :110-183, `TestVersionAtLeast` :186-233) and the
+    `parse_version` / `version_at_least` imports (:21-22); move the
+    `_get_detect_tool` / `_get_oneapi_bin` patch targets (currently
+    `patch("llama_manager.toolchain.detect_tool")` ×12 at :410-549 and
+    `patch("llama_manager.toolchain._INTEL_ONEAPI_BIN")` at :359) to
     `monkeypatch.setattr(detector, "detect_tool", ...)` and
-    `monkeypatch.setattr(detector, "_ONEAPI_BIN", ...)` in the remaining
-    detector tests.
-  - `test_pipeline_orchestration.py`: delete `run_both_backends` tests;
-    `test_pipeline_clone_sources.py`: delete tests exercising
-    `source_existed_before_clone` / the `clone_timeout` getattr (replace with
-    the constant if they test the timeout behavior).
-  - `test_build_cli.py` / `test_build_config.py`: delete tests for
-    `CMAKE_*_COMPILER_SYCL`, `is_success`, `binary_size_mb`,
-    `MSG_SOURCES_NOT_GIT_REPO`.
-  - `test_setup_toolchain.py`: delete `is_valid`/`get_*_path` tests and the
-    Windows-branch tests.
+    `monkeypatch.setattr(detector, "_INTEL_ONEAPI_BIN", ...)` in the
+    remaining detector tests.
+  - `test_build_pipeline_orchestration.py`: delete the `run_both_backends`
+    tests (:531-574). `test_pipeline_orchestration.py` covers the kept
+    `run_build_for_backend` / `_merge_config_overrides` — no change.
+  - `test_pipeline_clone_sources.py`: no change — no test references
+    `source_existed_before_clone` or `clone_timeout` (verified); the
+    offline-continue tests (:1311+, :1759+) keep working via the
+    `source_exists()` check at `stages/clone.py:192`.
+  - `test_build_config.py`: delete the `is_success` tests (:161-197), the
+    `binary_size_mb` tests (:199-235) and the `:583-585` assertions.
+    `CMAKE_*_COMPILER_SYCL` / `MSG_SOURCES_NOT_GIT_REPO` have no test
+    references (verified); `test_build_cli.py` has none either — no change.
+  - `test_setup_toolchain.py`: delete the version-parsing tests (:285-310)
+    and the `parse_version` / `version_at_least` imports (:32-33). No
+    `is_valid`/`get_*_path`/Windows-branch tests exist (verified).
+  - `test_foundation_contracts.py` (toolchain sections): delete
+    `test_version_parsing_and_comparison` (:1609-1620) and
+    `test_toolchain_hint_structure` (:1641-1653); drop the
+    `parse_version` / `version_at_least` / `ToolchainHint` names from the
+    import (:1265-1271); move the 7 `patch("llama_manager.toolchain.detect_tool")`
+    targets (:1281-1382, :1668) to the detector module like above.
 
 - [ ] **Step 8: Gate + commit + push**
 
@@ -334,17 +513,22 @@ git add -A -- src/ && git commit -m "chore(cleanup): batch 2 — build pipeline 
 - Modify: `src/llama_manager/validation/commands/builder.py`,
   `src/llama_manager/validation/validators.py`,
   `src/llama_manager/config/errors.py`
-- Test: `src/tests/system/test_foundation_contracts.py`,
-  `src/tests/system/test_toolchain.py` (version sections),
-  `src/tests/system/test_server.py` (validator tests),
-  `src/tests/test_validation*` (whatever exists)
+- Test: `src/tests/server/test_server.py` (validator +
+  MultiValidationError tests), `src/tests/system/test_foundation_contracts.py`
+  (validate_slots + sort_errors/error_count sections),
+  `src/tests/server/test_dry_run_schema.py` (sort_errors calls +
+  validate_backend_eligibility tests),
+  `src/tests/runtime/test_launch_flow.py` +
+  `src/tests/runtime/test_audit_redaction.py` (error_count assertions)
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `validation/validators.py` keeps ONLY `require_model`,
-  `validate_port`, `validate_ports`, `validate_server_config` (+ their
-  helpers). `errors.py` keeps the dataclasses + `MultiValidationError`
-  without `sort_errors`/`error_count`.
+- Produces: `validation/validators.py` keeps `require_model`,
+  `validate_port`, `validate_ports`, `validate_server_config`,
+  `require_executable` (live: `commands/profile.py:154`,
+  `server_runner.py:251`) and `detect_risky_operations` (live:
+  `risk_ack.py:53-58`), plus their helpers. `errors.py` keeps the dataclasses
+  + `MultiValidationError` without `sort_errors`/`error_count`.
 
 - [ ] **Step 1: Verify deadness**
 
@@ -372,26 +556,58 @@ done
   re-export NOW — batch 3 owns it (GgufParseError and DoctorCheckStatus
   also live in enums.py but are deleted in Task 5).
   The CLI `doctor` command has its OWN equivalents in
-  `llama_cli/commands/doctor.py` — never touch that file.
+  `llama_cli/commands/doctor.py` (its local `DoctorCheckResult` at
+  doctor.py:66 — never touch that file). Also drop the deleted names from
+  the re-export lists in `validation/__init__.py` (:4-14, :47-55) and
+  `validation/commands/__init__.py` (:3-15, :23-28).
 
 - [ ] **Step 3: Delete the dead validator chain** from
-  `validation/validators.py`: `validate_slots`, `_validate_slot`,
-  `_validate_duplicate_slots`, `_convert_results_to_errors`,
-  `validate_threads`, `validate_backend_eligibility`. Keep
-  `require_model`, `validate_port`, `validate_ports`,
-  `validate_server_config` and their live helpers (`require_executable` and
-  friends are used by `commands/profile.py` — grep before touching).
+  `validation/validators.py`: `validate_slots` (:167), `_validate_slot`
+  (:100), `_validate_duplicate_slots` (:81), `_convert_results_to_errors`
+  (:157 — its only production caller of `sort_validation_errors`, making
+  that builder.py function dead too), `validate_threads` (:28).
+  `validate_backend_eligibility` (:64) is **live** — its only production
+  caller is the kept `validate_server_config` (validators.py:78; used by
+  `dry_run.py:163`): inline its body into `validate_server_config` and drop
+  the standalone function + its `validation/__init__.py` re-exports
+  (:20, :34). Keep `require_model`, `validate_port`, `validate_ports`,
+  `validate_server_config`, `require_executable` (live:
+  `commands/profile.py:154`, `server_runner.py:251`) and
+  `detect_risky_operations` (live: `risk_ack.py:53-58`).
 
 - [ ] **Step 4: Delete `errors.py` test-only API**:
   `MultiValidationError.sort_errors` and `.error_count` (plus any now-unused
   imports like the error-code sorting helper they pulled in).
 
-- [ ] **Step 5: Prune tests.** `test_foundation_contracts.py`: delete the
-  sections covering the symbols above (the file mixes live + dead coverage —
-  keep everything that imports the survivors). `test_toolchain.py`: delete
-  any remaining `assess_vram_risk`/fingerprint tests (version suites already
-  handled in Task 2 if they were there). `test_server.py`: delete
-  `validate_threads` / slot-validation tests.
+- [ ] **Step 5: Prune tests.**
+  - `src/tests/server/test_server.py`: delete `TestValidateThreads` (:85),
+    `TestSortValidationErrors` (:503), `TestComputeMachineFingerprint`
+    (:606), `TestCheckHardwareAllowlist` (:738), `TestAssessVramRisk`
+    (:826), `TestFR005ErrorOrdering` (:1054), `TestSC002DenominatorCounting`
+    (:1168), `TestFR005DeterministicOrdering` (:1302); drop the
+    `error_count` tests inside `TestFR005MultiValidationErrorSchema`
+    (:1003-1051, keep the `has_errors_field` test at :990); remove the
+    `sort_validation_errors` / `validate_threads` imports (:12, :15).
+    Keep `TestValidatePort` (:20), `TestValidatePorts` (:72),
+    `TestBuildServerCmd` (:117), `TestFR005SingleErrorSchema` (:921),
+    `TestMultiValidationErrorFieldTypes` (:1273).
+  - `src/tests/system/test_foundation_contracts.py`: delete the
+    `validate_slots` section (:290+) and the
+    `sort_errors`/`error_count` coverage (:148-212, :231, :317, :329, :377,
+    :703, :752, :816, :856, :946, :999, :1060, :1110, :1147, :1195); drop
+    the `validate_slots` import (:41). Keep everything that imports the
+    survivors.
+  - `src/tests/server/test_dry_run_schema.py`: drop the 6
+    `mve.sort_errors()` calls (:593, :648, :711, :763, :802, :852); delete
+    the `validate_backend_eligibility` tests (:1485+) + import (:942) if
+    Step 3 inlines the function (keep `validate_server_config` tests at
+    :1534+).
+  - `src/tests/runtime/test_launch_flow.py`: replace the `.error_count`
+    assertions with `len(errors)` (:730, :774, :854, :981-1009).
+  - `src/tests/runtime/test_audit_redaction.py`: replace the `.error_count`
+    assertion (:81) with `len(errors)`.
+  - `test_toolchain.py`: no `assess_vram_risk`/fingerprint tests exist
+    (verified) — no change here.
 
 - [ ] **Step 6: Gate + commit + push**
 
@@ -405,14 +621,19 @@ git add -A -- src/ && git commit -m "chore(cleanup): batch 3 — validation clus
 ## Task 4: Reports, logging, profile_orchestrator copy
 
 **Files:**
-- Modify/delete: `src/llama_manager/reports/` (shrink, not delete module),
+- Modify/delete: `src/llama_manager/reports/` (shrink, not delete module —
+  `reports/rotation.py` becomes a docstring-only stub after Step 2; it is
+  NOT on the approved deletion list),
   `src/llama_manager/reports/redaction.py` (DELETE — folded into
   `common/security.py`), `src/llama_manager/logging_setup.py`,
   `src/llama_manager/profile_orchestrator.py`,
   `src/llama_manager/common/security.py`,
   `src/llama_cli/server_runner.py` (configure_logging_split caller)
-- Test: `src/tests/system/test_reports.py`, `test_logging_setup.py`,
-  `src/tests/cli/test_profile_cli.py`, `test_security*` (redaction tests)
+- Test: `src/tests/system/test_reports.py`,
+  `src/tests/test_logging_setup.py` (top-level tests dir, not system/),
+  `src/tests/cli/test_profile_cli.py`,
+  `src/tests/runtime/test_security_helpers.py` (existing common.security
+  test module — receives the moved redact_sensitive tests)
 
 **Interfaces:**
 - Consumes: nothing from other tasks.
@@ -437,12 +658,16 @@ rtk grep -rn "from .reports" src/llama_manager/reports/ --type py
 rtk grep -rn "from .redaction\|from ..reports.redaction\|reports import" src/ --include="*.py" 2>/dev/null | grep -v __pycache__ | grep -v tests
 ```
 
-- [ ] **Step 2: Reports.** Delete the mutating-action cluster from
-  `reports/` (find it — likely `reports/mutating.py` or in
-  `reports/__init__.py`: `MutatingActionLogEntry`, `log_mutating_action`,
-  `_rotate_mutating_log`, `rotate_reports` + their log-file paths/rotation
-  helpers). Keep `write_failure_report` and its helpers (live from
-  `build_pipeline/_context.py:120`).
+- [ ] **Step 2: Reports.** Delete the mutating-action cluster:
+  `reports/failure.py` — `MutatingActionLogEntry` (:70),
+  `log_mutating_action` (:215) + the `from .rotation import
+  _rotate_mutating_log` import (:11); `reports/rotation.py` —
+  `rotate_reports` (:15) and `_rotate_mutating_log` (:57) — leaving
+  `rotation.py` as a docstring-only stub (not on the approved deletion
+  list). Drop the deleted names from `reports/__init__.py` (import block
+  :3-10, `__all__` :12-18). Keep `FailureReport` (:15) and
+  `write_failure_report` (:132) and its helpers (live from
+  `build_pipeline/_context.py:110`).
 
 - [ ] **Step 3: Fold redaction — VERBATIM move, do NOT re-target at
   `redact_log_line`.** DEVIATION NOTE (from the design doc wording "fold
@@ -464,10 +689,11 @@ rtk grep -rn "from .redaction\|from ..reports.redaction\|reports import" src/ --
     the kept `write_failure_report` — it keeps redacting, from the new
     home), and `reports/__init__.py:9,13` (remove the re-export +
     `__all__` entry).
-  - `LogBuffer` is unaffected (it already uses `redact_log_line`).
-  - The `redact_sensitive` test class in `test_reports.py` moves to
-    `src/tests/test_security.py` (or the existing security test module)
-    with UNCHANGED assertions.
+   - `LogBuffer` is unaffected (it already uses `redact_log_line`).
+   - The `TestRedactSensitive` class in `test_reports.py` (:375) moves to
+     `src/tests/runtime/test_security_helpers.py` (the existing
+     `common.security` test module) with UNCHANGED assertions, importing
+     `redact_sensitive` from `llama_manager.common.security`.
 
 - [ ] **Step 4: Merge logging config.** In `logging_setup.py`:
   - Delete `_JsonLogEnvelope`, `_format_json`, `_json_default` (json path
@@ -561,19 +787,23 @@ def configure_logging(
     `configure_logging()` — unchanged.
 
 - [ ] **Step 5: Profile orchestrator copy.** Delete from
-  `profile_orchestrator.py`: `run_profile`, `create_profile_record`,
-  `_default_subprocess_runner`, `detect_backend`, `_stream_to_text`,
-  `DriverVersionProvider`, and the benchmark-timeout module constants
-  (grep each — the CLI `cmd_profile` re-implements all of them with
-  cancellation support). KEEP (imported by `commands/profile.py`):
-  `resolve_profile_slot`, `resolve_benchmark_config`,
-  `resolve_benchmark_binary`, `get_driver_version` and the private
-  helpers those four need (`_BENCHMARK_*` config plumbing,
-  `BenchmarkConfig` import). Also delete the pipeline-patch targets in
-  `test_profile_cli.py` (tests that `monkeypatch.setattr(orchestrator,
-  "run_profile"...)` — switch those tests to patch
-  `llama_cli.commands.profile` internals instead, or delete if they only
-  exercised the deleted copy).
+  `profile_orchestrator.py`: `run_profile` (:364), `create_profile_record`
+  (:319), `_default_subprocess_runner` (:481), `detect_backend` (:132 —
+  the CLI `commands/profile.py` has its own local `_detect_backend` at
+  :53), `_stream_to_text` (:521 — CLI local copy at profile.py:373),
+  `DriverVersionProvider` (:49), `BENCHMARK_RUN_TIMEOUT_SECONDS` (:41) and
+  `BENCHMARK_PROMPT_TOKENS` (:42) (both used only by the deleted
+  `run_profile`/`_default_subprocess_runner`), and the now-unused imports
+  `compute_driver_version_hash` / `write_profile` (:34) and
+  `get_gpu_identifier` (:35). KEEP (imported by `commands/profile.py:44-48`):
+  `resolve_profile_slot` (:83), `resolve_benchmark_config` (:154),
+  `resolve_benchmark_binary` (:216), `get_driver_version` (:301), the
+  `BenchmarkConfig` dataclass (:58 — returned by `resolve_benchmark_config`)
+  and the private helpers those need (`_query_nvidia_driver` :249,
+  `_query_sycl_driver` :274). `test_profile_cli.py`: NO change — it has
+  zero `run_profile` references; its patch targets
+  (`llama_manager.profile_orchestrator.create_default_profile_registry`
+  ×9, `.resolve_benchmark_binary` ×1) point at kept names.
 
 - [ ] **Step 6: Prune tests.** `test_reports.py`: delete the
   mutating/rotate/redaction sections; keep the `write_failure_report` tests.
@@ -581,7 +811,9 @@ def configure_logging(
   `configure_logging(stderr_level=X, ...)` (~25 call sites); rewire the four
   `configure_logging_split(...)` tests (lines ~452–492) to
   `configure_logging(...)`; delete tests for the JSON-envelope helpers.
-  `test_security*`: redact_sensitive URL tests → `redact_log_line`.
+   `src/tests/runtime/test_security_helpers.py`: receives the moved
+   `TestRedactSensitive` class (per Step 3 — UNCHANGED assertions; there
+   are no URL tests to re-target, `redact_sensitive` has no URL pattern).
 
 - [ ] **Step 7: Gate + commit + push**
 
@@ -602,14 +834,19 @@ git add -A -- src/ && git commit -m "chore(cleanup): batch 4 — reports/logging
   `config/spec_decode.py`, `config/profile_cache.py` (not — flavor is
   Task 8), `src/llama_manager/common/profile_io.py`, `common/file_ops.py`,
   `common/validators.py`, `common/security.py` (safe_log),
-  `common/errors.py` (error_message), `config/launch_runtime.py`,
+  `config/errors.py` (ErrorDetail.error_message — NOT common/errors.py,
+  which does not exist), `config/launch_runtime.py`,
   `src/llama_manager/metadata/` (leftovers), `src/llama_manager/slot_profile_store.py`
 - Delete (WHOLE, spec-approved): `src/tests/config/test_dashboard_controller_save_profile.py`,
   `src/tests/config/test_dashboard_view_model.py`
 - Test: `src/tests/config/test_config_persistence.py`,
   `test_config_builders.py`, `test_profile_cache.py`, `test_slot_profile_store.py`,
-  `test_spec_decode.py`, `test_metadata.py`, `test_model_index.py`,
-  `test_launch_runtime.py` (if exists)
+  `test_spec_decode.py`, `src/tests/system/test_metadata.py`,
+  `src/tests/system/test_gguf_reader.py`, `src/tests/config/test_model_index.py`,
+  `src/tests/server/test_dry_run_artifacts.py` (create_summary_balanced_cfg
+  fixture at :85,88), `src/tests/tui/test_config_modal.py` (expected field
+  sets include the deleted defaults fields),
+  `test_launch_runtime.py` (does not exist — verified)
 
 **Interfaces:**
 - Consumes: nothing from other tasks.
@@ -633,8 +870,12 @@ done
 - [ ] **Step 2: Delete the legacy factory trio** from
   `config/builder.py` (`create_summary_balanced_cfg`,
   `create_summary_fast_cfg`, `create_qwen35_cfg`) and their re-exports in
-  `config/__init__.py` (+ `llama_manager/__init__.py` if it re-exports them —
-  grep). Their test section in `test_config_builders.py` goes too.
+  `config/__init__.py` (:7,10,11 + `__all__` :146,149,150;
+  `llama_manager/__init__.py` does NOT re-export them — verified). Their
+  test section in `test_config_builders.py` (:233+) goes too, plus the
+  `create_summary_balanced_cfg` import + call in
+  `src/tests/server/test_dry_run_artifacts.py` (:85, :88 — replace with a
+  direct `ServerConfig(...)` construction).
 
 - [ ] **Step 3: Persistence rewrite.** In `config/persistence.py`:
 
@@ -799,26 +1040,45 @@ def _toml_scalar(value: Any) -> str:
 
 - [ ] **Step 5: Spec decode cleanup.** In `config/spec_decode.py`: delete
   `SpeculativeDecodingFieldsMixin` (12 flat pass-through properties —
-  production always reads `cfg.spec_decode.<field>`) and drop the
-  `dict` base from `SpeculativeDecodingConfig` (dict-style access
-  `cfg.spec_decode["key"]` is tests-only — update those tests to attribute
-  access). In `config/builder.py`: delete `_SPEC_DECODE_FIELDS` — import
-  `SPECULATIVE_DECODING_FIELD_NAMES` from `config.spec_decode` instead.
-  `config/enums.py`: delete `GgufParseError`.
+  production always reads `cfg.spec_decode.<field>`) and remove it from the
+  base classes of `SlotProfileSpec` (`config/profiles.py:26`) and
+  `ServerConfig` (`config/server.py:25`); drop the `dict` base from
+  `SpeculativeDecodingConfig` (dict-style access `cfg.spec_decode["key"]`
+  is tests-only — update those tests to attribute access). In
+  `config/builder.py`: delete `_SPEC_DECODE_FIELDS` (:31-33) — import
+  `SPECULATIVE_DECODING_FIELD_NAMES` from `config.spec_decode` (:123)
+  instead (identical content: both derive from
+  `SpeculativeDecodingConfig` fields; used by `_split_spec_decode_values`
+  at :35). `config/enums.py`: delete `GgufParseError` (:90).
 
 - [ ] **Step 6: Dead Config surface + metadata.** `config/defaults.py`:
-  delete `PathsConfig.venv_path`, `ServerDefaultsConfig.spec_decode`
-  property+setter, `model_qwen35_both`, `summary_balanced_port`?? — NO,
-  ports stay (persistence writes them); delete only what Step 1 proved dead:
-  `venv_path`, the `spec_decode` property/setter pair,   `ctx_size_both_*`-style
-  fields, and `tui_launch_timeout_s` / `probe_latency_threshold_s` (the
-  Step-3 derived field sets handle persistence coverage automatically —
-  no manual list edits needed).
-  `metadata/`: delete `_GGUF_V2/V3/V4_MAGIC`, `_GENERAL_NAME_PATTERN`,
-  `tokenizer_type` + `_detect_tokenizer_type_from_reader`, the
-  `model_name` parameter of `extract_gguf_metadata`, and the unused record
-  fields (verify via Step 1 greps — `tokenizer_type` etc. must show zero
-  production callers).
+  delete `PathsConfig.venv_path` (property at :60 — zero callers, verified),
+  the `ServerDefaultsConfig.spec_decode` SETTER only (:200-215 — zero
+  callers) — the GETTER (:179-198) is LIVE (`config.server_defaults.spec_decode`
+  in `tui/components/form_widgets.py:190,252`) and STAYS; delete the
+  dead `*_qwen35_both` / `ctx_size_both_*` fields (`n_gpu_layers_qwen35_both`,
+  `ubatch_size_qwen35_both`, `threads_qwen35_both`, `cache_type_qwen35_both_k/v`,
+  `ctx_size_both_summary` :124, `ctx_size_both_qwen35` :125 — all verified
+  zero references outside defaults.py) and `tui_launch_timeout_s` (:292) /
+  `probe_latency_threshold_s` (:294). KEEP `model_qwen35_both`
+  (deployment :245 — live: `persistence.py:38` + `test_config_modal.py:93`)
+  and all port fields (persistence writes them). The Step-3 derived field
+  sets handle persistence coverage automatically — no manual list edits
+  needed. Update `test_config_modal.py` expected field sets
+  (`_TOP_LEVEL_FIELDS` :125-137, `_DEPLOYMENT_FIELDS` :86-98) accordingly.
+  `metadata/`: delete `_GGUF_V2/V3/V4_MAGIC` (_types.py:9-11),
+  `_GENERAL_NAME_PATTERN` (_types.py:14-16), `tokenizer_type` record field
+  (_types.py:39 — zero production reads) + `_detect_tokenizer_type_from_reader`
+  (_reader.py:146), and the unused `GGUFMetadataRecord` fields
+  `raw_path`, `tokenizer_type`, `attention_head_count`,
+  `attention_head_count_kv`, `parse_timestamp`, `parse_timeout_s`,
+  `prefix_cap_bytes` (verified: `_append_parsed_entry` at
+  `model_index.py:389-412` copies only the other nine). (The audit's
+  "`model_name` parameter of `extract_gguf_metadata`" was a misread —
+  `extractor.py:50`'s signature is `model_path`, `prefix_cap_bytes`,
+  `parse_timeout_s`; there is no parameter to delete there.) Update
+  `test_metadata.py` / `test_gguf_reader.py` / `test_model_index.py`
+  constructors/assertions that reference the deleted fields.
 
 - [ ] **Step 7: Small config/common cuts.**
   - `builder.py::_profile_to_config_data`: replace the ~42 explicit
@@ -834,15 +1094,26 @@ def _toml_scalar(value: Any) -> str:
     hangs the whole scan` comment.
   - `common/validators.py`: delete `is_valid_port`.
   - `common/profile_io.py`: (done in Step 4 — `profile_dir_path`).
-  - `common/security.py`: delete `safe_log`.
+  - `common/security.py`: delete `safe_log` (:160-194 — zero production
+    callers; also drop it from the import in
+    `src/tests/runtime/test_security_helpers.py:3-8`).
   - `config/launch_runtime.py`: delete `LaunchRuntimeOverrides` +
-    `launch_runtime_as_dict` if Step 1 shows zero callers (the
-    `split_mode` field in `LaunchRuntime` dataclass + TypedDict STAYS —
-    it's live from commit `f70e54e`).
-  - `common/errors.py`: delete `ErrorDetail.error_message`.
-  - `common/file_ops.py`: merge `atomic_write`/`atomic_write_json` into one
-    helper with an optional serializer callback; update the two JSON
-    callers.
+    `launch_runtime_as_dict` (both verified zero callers outside
+    launch_runtime.py; the `split_mode` field in `LaunchRuntime` dataclass
+    + TypedDict STAYS — it's a plain string field, there is no `SplitMode`
+    enum).
+  - `config/errors.py`: delete `ErrorDetail.error_message` (:25-27 — zero
+    callers; the `.error_message` hits elsewhere are
+    `BuildResult.error_message`, a different class).
+  - `common/file_ops.py`: NO MERGE (audit misread) — `atomic_exclusive_create_json`
+    (:37, O_CREAT|O_EXCL lock-file create) and `atomic_write_json` (:58,
+    tempfile+rename overwrite) are semantically different primitives with 6
+    production callers (`build_pipeline/stages/finalize.py:90`,
+    `build_pipeline/lock.py:46,60`, `slot_stats.py:348,421`,
+    `config/profile_cache.py:374`, `orchestration/lockfile.py:121,237`,
+    `orchestration/artifact.py:97`). Keep both; no change here.
+    Merging would conflate exclusive-create with overwrite; skip unless
+    the intent was factoring the shared JSON serialization.
 
 - [ ] **Step 8: Gate + commit + push** (dashboard deletion is Step 9 —
   include it in this same commit):
@@ -872,16 +1143,18 @@ git commit -m "chore(cleanup): batch 5 — config cluster" && git push
 
 **Files:**
 - Modify: `src/llama_cli/tui/model.py`, `controller.py`, `viewmodel.py`,
-  `textual_app.py`, `components/build.py`, `components/gpu_stats.py`,
-  `components/system_health.py`,   `components/server_column_panel.py`,
-  `components/server_log.py`, `components/__init__.py`, `constants.py`,
-  all modals under `tui/modals/` (BINDINGS dedup step)
+  `textual_app.py`, `types.py`, `constants.py`, `system_status.tcss`,
+  `components/build.py`, `components/system_health.py`,
+  `components/server_column.py`, `components/server_log.py`,
+  `components/__init__.py`, `components/confirm_modal.py`,
+  `components/modal.py` (BINDINGS dedup step)
 - Delete (WHOLE, spec-approved — see Global Constraints list):
   `src/llama_cli/tui/components/system_status.py` (Step 7),
   `src/llama_cli/tui/components/gpu_telemetry.py` (Step 6)
-- Test: `src/tests/tui/test_tui.py`, `test_controller.py`,
-  `test_viewmodel.py`, `test_build_component.py`, `test_textual_app.py`,
-  `test_gpu_stats.py` (panel tests), `test_system_health*`
+- Test: `src/tests/tui/test_tui.py` (GPUStatsPanel + SystemHealth widget
+  tests live here — there is no `test_gpu_stats.py` / `test_system_health*`),
+  `test_controller.py`, `test_viewmodel.py`, `test_build_component.py`,
+  `test_textual_app.py`, `test_confirm_modal.py`
 
 **Interfaces:**
 - Consumes: Task 5's `SplitMode`/launch-runtime surface only if `build.py`
@@ -941,40 +1214,82 @@ git commit -m "chore(cleanup): batch 5 — config cluster" && git push
   with a grep of `controller.X` inside `textual_app.py` + `components/`).
 
 - [ ] **Step 4: Build-request console flow** (`model.py` + `controller.py`
-  + `viewmodel.py` + `CommandMenuState`):
-  delete `request_build`, the `_build_request` prop on model/viewmodel, the
-  build branch in `cancel_pending_prompt` (keep the Escape/ctrl-c branch
-  and the binding), the build branch in `check_action`,
-  `viewmodel.can_select_build_target`'s build-request clause,
-  `CommandMenuState.build_request`. Nothing sets the flag — BuildModalScreen
-  replaced it.
+  + `viewmodel.py` + `types.py` + `textual_app.py`):
+  The build-request flag is never set in production — `request_build`
+  (controller.py:425-430) has ZERO callers (BuildModalScreen replaced it) —
+  so the whole flag chain is dead. DELETE:
+  - `request_build` (controller.py:425-430)
+  - the `model.build_request` field (model.py:88)
+  - the `viewmodel.build_request` property (viewmodel.py:46)
+  - the `controller._build_request` property + setter (controller.py:303-307)
+  - `viewmodel.can_select_build_target` (viewmodel.py:59-60) and its
+    controller pass-through `controller.can_select_build_target`
+    (controller.py:372-373; zero production callers)
+  - `CommandMenuState.build_request` (types.py:22)
+  - the dead `if state.build_request: return action ==
+    "cancel_pending_prompt"` branch in `check_action`
+    (textual_app.py:144-145) — KEEP the rest of `check_action` (its
+    risk_prompt branch is live)
+  - `controller.cancel_pending_prompt` (controller.py:432-439) — always
+    returns False once the flag is gone
+  KEEP (live behavior, verified): the `ctrl+c` / `escape` bindings
+  (textual_app.py:96-101) and `action_cancel_pending_prompt` — their real
+  job is the `interrupt()` fallthrough: dispatch shutdown when no risk
+  prompt is pending, else refresh. Simplify the body now that
+  `cancel_pending_prompt` is gone (behavior identical — `cancelled` was
+  always False):
+
+```python
+    def action_cancel_pending_prompt(self) -> None:
+        if self.controller.interrupt():
+            self._dispatch_shutdown(exit_app=True)
+            return
+        self.refresh_dashboard()
+```
+
+  Tests: delete tests for the removed flag chain; keep and update the
+  `action_cancel_pending_prompt` tests to the simplified body (ctrl+c /
+  escape dispatch shutdown when no risk prompt is pending; refresh when a
+  risk prompt is pending).
 
 - [ ] **Step 5: View-model build pass-throughs** (`tui/viewmodel.py`):
   delete `build_selected_backends`, `build_in_progress`, `build_result`,
   `build_error`, `build_selected_backends_options`, `build_stage`,
-  `build_progress_percent` properties — build.py reads the model/wizard
-  state directly (verify per property with the Step 1 grep before deleting;
-  if any has a live reader, keep it and note why).
+  `build_progress_percent` properties (viewmodel.py:63-88) — build.py
+  reads the model/wizard   state directly (verified: zero readers of all
+  seven viewmodel properties). After this step, also delete the now
+  write-only model fields `build_selected_backends` (model.py:89, write in
+  `begin_build` controller.py:1186) and `build_result` (model.py:91, writes
+  at controller.py:1215,1241,1247 — the only reader was the deleted
+  viewmodel pass-through). KEEP the model
+  `build_in_progress` field + controller pass-through (controller.py:149-155,
+  read at textual_app.py:919) and the model `build_selected_backends_options`
+  / `build_error` / `build_progress` fields (live via build.py:1275,
+  controller.py:1219/1265, `_handle_build_progress`).
 
 - [ ] **Step 6: GPU telemetry widget + system health chain.**
   - Delete `GPUTelemetryWidget` + `_flatten_gpu_lines` — i.e. DELETE the
-    whole `components/gpu_telemetry.py` file (it contains nothing else;
-    file deletion #7 above), plus `viewmodel.gpu_telemetry_lines`,
-    `_format_gpu_stats_text`, and the `.gpu-telemetry*` CSS from
-    `textual_app.py`'s CSS block; remove the `GPUTelemetryWidget` import +
-    export from `components/__init__.py` (lines 6, 29). Test cleanup: the
-    3 test methods at `test_tui.py:292–334` (widget compose/visibility)
-    are deleted, and the assertion at `test_tui.py:2339`
-    (`assert not list(app.query(GPUTelemetryWidget))`) goes with the class.
+     whole `components/gpu_telemetry.py` file (it contains nothing else;
+     file deletion #7 above), plus `viewmodel.gpu_telemetry_lines`
+     (viewmodel.py:49), `_format_gpu_stats_text` (viewmodel.py:238), and
+     the `.gpu-telemetry*` CSS rules from `system_status.tcss:183-204`
+     (NOT textual_app.py — no such rules there); remove the
+     `GPUTelemetryWidget` import + export from `components/__init__.py`
+     (lines 6, 29). Test cleanup: the 3 test methods at `test_tui.py:292–334`
+     (widget compose/visibility) are deleted, and the assertion at
+     `test_tui.py:2339` (`assert not list(app.query(GPUTelemetryWidget))`)
+     goes with the class.
   - Delete the `SystemHealthRenderer` string-builder chain
-    (`render_cpu_usage`, `render_memory_swap_usage`, `render_system_info`,
-    `_format_core_grid_lines`, `_format_memory_row`, `_usage_bar`,
-    `_usage_color`, `_format_uptime`, `_task_summary`, `_load_summary`,
-    `_content_width`, `_memory_bar_width`, `_build_core_grid_rows`,
-    `MIN/MAX_CONTENT_WIDTH`, `CPU_CORE_*` constants) from
+    (`render_cpu_usage` :72, `render_memory_swap_usage` :82,
+    `_format_core_grid_lines` :165, `_format_memory_row` :186, `_usage_bar`
+    :126, `_usage_color` :130, `_format_uptime` :137, `_task_summary` :118,
+    `_load_summary` :121, `_content_width` :107, `_memory_bar_width` :112,
+    `_build_core_grid_rows` :142, `MIN/MAX_CONTENT_WIDTH` :64-65,
+    `CPU_CORE_BAR_WIDTH`/`CPU_CORE_CELL_WIDTH` :66-67) from
     `components/system_health.py` — the widgets compose the snapshots
-    directly. Keep the surviving `SystemHealthWidget` and
-    `SystemStatusWidget`-fold (Step 7).
+    directly. (There is no `render_system_info` — system info renders
+    inline via the widget's `system_info_snapshot()` :91-102.) Keep the
+    surviving `SystemHealthWidget` and `SystemStatusWidget`-fold (Step 7).
 
 - [ ] **Step 7: SystemStatusWidget fold.** `SystemStatusWidget`
   (`components/system_status.py`, 17 lines) exists only to set
@@ -991,8 +1306,9 @@ git commit -m "chore(cleanup): batch 5 — config cluster" && git push
     with the existing `system_health` import in that file.
   - DELETE `components/system_status.py` (file deletion #6 above); remove
     its import + export from `components/__init__.py` (lines 18, 36).
-  - Keep the `.system-status` CSS rule in textual_app.py (the class now
-    lives on `SystemHealthWidget` itself).
+  - No `.system-status` CSS rule exists anywhere (the class is only set in
+    Python) — nothing to keep. The `#alerts` rule in `system_status.tcss:1`
+    keeps applying because the id is preserved on `SystemHealthWidget`.
 
 - [ ] **Step 8: build.py dead helpers** (`components/build.py`):
   delete the module-level `_read_build_form_fields` (verbatim copy of the
@@ -1009,9 +1325,13 @@ git commit -m "chore(cleanup): batch 5 — config cluster" && git push
   - `tui/constants.py`: delete `RISK_ACK_LABEL` (ownership confirmed in
     Task 1 Step 6 — verify zero importers before deleting),
     `RISK_CONFIRM_PROMPT`, `STATUS_PREFIX`, `STYLE_BOLD_YELLOW`.
-  - Five modals re-declaring escape/ctrl-c cancel `BINDINGS` → import and
-    reuse `form_widgets.MODAL_CANCEL_BINDINGS` (2 modals already do — copy
-    the pattern).
+  - Three `BINDINGS` lists re-declare the escape/ctrl-c cancel pair →
+    import and reuse `form_widgets.MODAL_CANCEL_BINDINGS` (form_widgets.py:16):
+    `components/confirm_modal.py:18-20` and `components/modal.py:13-15` +
+    `modal.py:79-81` (two classes in modal.py). `config_modal.py:241` and
+    `slot_profile_modal.py:161` already use the shared constant — copy the
+    pattern. (No `tui/modals/` directory exists; modals live in
+    `components/`.)
 
 - [ ] **Step 10: Protocol + misc.**
   - `SystemHealthProvider` Protocol + `_EmptySystemHealthProvider` → type
@@ -1039,10 +1359,13 @@ def get_status_messages_since(self, since_ts: float) -> list[tuple[float, str]]:
         return [(ts, m) for ts, m in self.status_messages if ts > since_ts and ts >= cutoff]
 ```
 
-  - `AsyncSlotPlan` (controller.py) reduced to the fields it actually
-    carries: `(alias, profile_id, old_alias)` — drop
-    `success`/`messages` (always `True`/`[]`). Update its instantiation at
-    `controller.py:606` and any destructure sites.
+  - `AsyncSlotPlan` (controller.py:69-78) reduced to the fields its
+    consumers actually read: `(success, messages, old_alias)` — drop
+    `alias`/`profile_id` (never read; consumers use the separate
+    `new_cfg`/`profile_id` params). Verified readers: `plan.success`
+    (textual_app.py:674), `plan.messages` (:750), `plan.old_alias`
+    (:676-685). Update its instantiation at `controller.py:606-611` and
+    the test constructor at `test_textual_app.py:625`.
   - Core-grid layout math: the renderer (deleted in Step 6) owns
     `MIN_CONTENT_WIDTH` / `MAX_CONTENT_WIDTH` / `CPU_CORE_BAR_WIDTH` /
     `CPU_CORE_CELL_WIDTH` — `SystemHealthWidget` needs that clamp, so
@@ -1074,12 +1397,17 @@ git add -A -- src/ && git commit -m "chore(cleanup): batch 6 — TUI dead code" 
 
 **Files:**
 - Modify: `src/llama_manager/gpu_telemetry/level_zero.py` (DELETE — shim),
-  `gpu_telemetry/stats.py`, `gpu_telemetry/__init__.py`,
-  `gpu_telemetry/level_zero_telemetry.py`, `src/llama_manager/gpu_stats.py`,
+  `gpu_telemetry/stats.py`, `gpu_telemetry/vendor.py`,
+  `gpu_telemetry/__init__.py`, `gpu_telemetry/level_zero_sysfs.py`,
+  `gpu_telemetry/level_zero_fdinfo.py`,
   `src/llama_manager/system_stats.py`, `src/llama_manager/benchmark/`,
+  `src/llama_manager/profile_orchestrator.py`,
+  `src/llama_cli/commands/profile.py`,
   `src/llama_cli/tui/components/gpu_stats.py`, `components/system_health.py`
-- Test: `src/tests/test_gpu_stats.py`, `test_gpu_telemetry_stats.py`,
-  `test_benchmark.py`, `test_system_stats.py`, `test_foundation.py`
+  (there is no `src/llama_manager/gpu_stats.py` — the manager-level
+  `GPUStats` lives in `gpu_telemetry/stats.py`)
+- Test: `src/tests/system/test_gpu_stats.py`, `test_gpu_telemetry_stats.py`,
+  `test_benchmark.py`, `test_system_stats.py`, `test_foundation_contracts.py`
 
 **Interfaces:**
 - Consumes: nothing from Tasks 1–6 (TUI meter helper lands after Task 6).
@@ -1098,21 +1426,33 @@ done
 ```
 
 - [ ] **Step 2: level_zero shim.** DELETE `gpu_telemetry/level_zero.py`
-  (~72-line re-export shim — production uses only
-  `collect_level_zero_stats`). Point importers (`stats.py`,
-  `__init__.py`, 2 test imports) at `level_zero_telemetry`.
+  (72-line re-export shim — production uses only
+   `collect_level_zero_stats`). Point the 2 importers at
+   `level_zero_telemetry`: `stats.py:15` and `__init__.py:4`. No test
+  imports to update — tests patch `llama_manager.gpu_telemetry.stats.
+  collect_level_zero_stats` (test_gpu_telemetry_stats.py:244,294,317,337),
+  which keeps working since the name still lands in `stats`' namespace.
 
-- [ ] **Step 3: Dead stats API.** Delete from `gpu_telemetry/stats.py` and
-  `gpu_stats.py`: `collect_nvtop_stats` (legacy non-selector aggregate —
-  production uses `collect_nvtop_stats_for_selector`), `make_gpu_collector`,
+- [ ] **Step 3: Dead stats API.** Delete (verified zero production
+  callers): `collect_nvtop_stats` — defined in `gpu_telemetry/vendor.py:174`
+  (legacy non-selector aggregate — production uses
+  `collect_nvtop_stats_for_selector` at vendor.py:140), with its re-exports
+  in `gpu_telemetry/__init__.py:15,25`; `make_gpu_collector`
+  (`gpu_telemetry/stats.py:192` + `__init__.py:10,31`);
   `GPUStats.gpu_util` / `memory_util` / `format_stats_text`
-  (`test_viewmodel.py` asserts `format_stats_text` is never called — that
-  assertion + its callers go with the methods).
+  (`gpu_telemetry/stats.py:111` / `:118` / `:90`; `test_viewmodel.py:709,723`
+  asserts `format_stats_text` is never called — that assertion + its
+  callers go with the methods).
 
-- [ ] **Step 4: Parsing dups.** In `gpu_telemetry/level_zero_telemetry.py`
-  and adjacent: dedup `_safe_read_text` (sysfs + fdinfo copies → one
-  helper), `_unique_paths` ≈ `_unique_existing_dirs` → one, and the two
-  identical prefix-scan blocks → one loop.
+- [ ] **Step 4: Parsing dups.** In `gpu_telemetry/level_zero_sysfs.py` +
+  `level_zero_fdinfo.py`: dedup `_safe_read_text` (copies at
+  `level_zero_sysfs.py:17` and `level_zero_fdinfo.py:17` → one helper),
+  `_unique_paths` (sysfs.py:199) ≈ `_unique_existing_dirs` (sysfs.py:77)
+  → one, and the two similar `card*` drm prefix-scan blocks
+  (`_drm_paths_from_device_roots` sysfs.py:159-171 and
+  `_drm_paths_from_class_drm` sysfs.py:174-187) → one loop.
+  (`level_zero_telemetry.py` itself has no such dups — it's the ctypes
+  collector.)
 
 - [ ] **Step 5: system_stats TTL + uptime.**
   Replace the 8× `type: ignore` function-attribute TTL cache in
@@ -1136,9 +1476,19 @@ def _get_task_stats() -> dict:
   cache.) Replace `_format_uptime` with
   `str(datetime.timedelta(seconds=int(seconds)))`.
 
-- [ ] **Step 6: Benchmark.** Delete the `SubprocessResult` wrapper — call
-  `subprocess.run(..., check=True)` and use `CalledProcessResult` at the 2
-  call sites. Delete `_split_contiguous_blocks` (unreachable — input
+- [ ] **Step 6: Benchmark.** Delete the `SubprocessResult` wrapper
+  (`benchmark/runner.py:11-22`) — replace it with the stdlib
+  `subprocess.CompletedProcess` (attribute is `returncode`, not
+  `exit_code`). Update all sites: `run_benchmark` (runner.py:107-115,
+  reads `.exit_code`), the `BenchmarkRunner` alias (runner.py:27),
+  re-exports (`benchmark/__init__.py:9,15`), `profile_orchestrator.py:22`
+  (+ `_default_subprocess_runner`), and `commands/profile.py:29,184,190,250`
+  (+ the constructions at :258 exit_code=130 and in `_handle_timeout`
+  exit_code=124). Do NOT use `subprocess.run(..., check=True)` — non-zero
+  exit codes (130 cancel, 124 timeout, other failures) are part of the
+  runner protocol and `run_benchmark` maps them to `None`; keep the
+  injectable `BenchmarkRunner` seam (tests inject fake runners). Delete
+  `_split_contiguous_blocks` (benchmark/parser.py — unreachable, input
   pre-filtered to `|` lines) and call `_parse_table_block` directly.
 
 - [ ] **Step 7: Shared usage-meter helper.** In
@@ -1161,11 +1511,13 @@ def usage_fill(percent: float | None, width: int) -> str:
   they differ.
 
 - [ ] **Step 8: Prune tests.** `test_gpu_stats.py` /
-  `test_gpu_telemetry_stats.py`: delete `collect_nvtop_stats`
-  (non-selector), `make_gpu_collector`, `gpu_util`/`memory_util`/
-  `format_stats_text` tests. `test_benchmark.py`: delete
-  `SubprocessResult` + `_split_contiguous_blocks` tests.
-  `test_foundation.py`: delete any GPU stats API tests now orphaned.
+  `test_gpu_telemetry_stats.py` (both under `src/tests/system/`): delete
+  `collect_nvtop_stats` (non-selector — 9 call sites in
+  test_gpu_stats.py:101-208), `make_gpu_collector`,
+  `gpu_util`/`memory_util`/`format_stats_text` tests. `test_benchmark.py`:
+  delete `SubprocessResult` + `_split_contiguous_blocks` tests.
+  `test_foundation_contracts.py`: delete any GPU stats API tests now
+  orphaned.
 
 - [ ] **Step 9: Gate + commit + push**
 
@@ -1184,9 +1536,11 @@ git add -A -- src/ && git commit -m "chore(cleanup): batch 7 — gpu_telemetry +
   `src/llama_cli/commands/profile.py` (choices + docs),
   `src/llama_cli/tui/components/digital_clock.py`,
   `src/llama_manager/probe/provenance.py`, `AGENTS.md`
-- Test: `src/tests/test_ui_output.py`, `test_profile_cli.py`,
-  `test_profile_orchestrator.py`, `test_cli_parser.py`,
-  `test_tui.py` (logo), `test_provenance*`
+- Test: `src/tests/test_ui_output.py`, `src/tests/cli/test_profile_cli.py`,
+  `src/tests/config/test_profile_orchestrator.py`,
+  `src/tests/cli/test_cli_parser.py`, `src/tests/tui/test_tui.py` (logo),
+  `src/tests/smoke/test_probe_config_models.py` (provenance — no
+  `test_provenance*` file exists)
 
 **Interfaces:**
 - Produces: `emit_*` on rich Console (signatures unchanged);
@@ -1318,9 +1672,12 @@ def _resolve_sha() -> str:
 - [ ] **Step 5: AGENTS.md refresh (targeted edits only).**
   - Repo-layout block: replace the stale `llama_manager/` file list
     (`config.py`, `config_builder.py`, `server.py`, `process_manager.py`,
-    `gpu_stats.py`, `log_buffer.py`, `colors.py` — none exist) with the
-    current package layout. Match the file tree to what
-    `rtk ls src/llama_manager/` actually returns.
+    `gpu_stats.py`, `log_buffer.py`, `colors.py` — all but `log_buffer.py`
+    are gone; it still exists) with the current package layout. Match the
+    file tree to what `rtk ls src/llama_manager/` actually returns
+    (packages: benchmark, build_pipeline, common, config, gpu_telemetry,
+    metadata, orchestration, probe, reports, toolchain, validation +
+    top-level modules).
   - Python `3.12` → `3.14` in every spot (`.python-version`,
     `requires-python`, ruff target, pyright).
   - Architecture example: `create_summary_balanced_cfg(port=8080, threads=4)`
@@ -1339,19 +1696,22 @@ def _resolve_sha() -> str:
     (e.g. `re.sub(r"\033\[[0-9;]*m", "", captured)`), or construct
     `Console(file=..., force_terminal=True)`. Keep the semantic assertions
     (which stream, prefix, no prefix for `emit_plain`).
-  - `test_profile_cli.py`: lines 270/289/294/864/878 reference `quality` —
-    switch to `balanced`/`fast`, and ADD one test that `--flavor quality`
-    exits non-zero (argparse `choices` rejection).
-  - `test_profile_orchestrator.py:233`: `resolve_benchmark_config(cfg,
-    ProfileFlavor.QUALITY, config)` → delete that test (no QUALITY member).
-  - `test_cli_parser.py:510–513` (`flavor="quality"`): switch to a valid
+  - `src/tests/cli/test_profile_cli.py`: lines 270/289/294/864/877
+    reference `quality` — switch to `balanced`/`fast`, and ADD one test
+    that `--flavor quality` exits non-zero (argparse `choices` rejection).
+  - `src/tests/config/test_profile_orchestrator.py:233`:
+    `resolve_benchmark_config(cfg, ProfileFlavor.QUALITY, config)` →
+    delete that test (no QUALITY member).
+  - `src/tests/cli/test_cli_parser.py:506-513`
+    (`test_handle_profile_quality`, `flavor="quality"`): switch to a valid
     flavor or assert the parser now rejects `quality`.
-  - `test_tui.py`: logo tests — `LLM_RUNNER_LOGO` content string changes
-    (no padding). Update the literal or assert structural invariants
-    (row count = 7, contains `LLM` block).
-  - `test_provenance*`: `_resolve_sha` tests — delete the `.git/HEAD`
-    manual-parse cases; keep the `git rev-parse` success + failure cases
-    (mock `subprocess.run`).
+  - `src/tests/tui/test_tui.py`: logo tests (3 `LLM_RUNNER_LOGO` refs,
+    import at :124) — content string changes (no padding). Update the
+    literal or assert structural invariants (row count = 7, contains `LLM`
+    block).
+  - `src/tests/smoke/test_probe_config_models.py`: `_resolve_sha` /
+    provenance tests — delete the `.git/HEAD` manual-parse cases; keep the
+    `git rev-parse` success + failure cases (mock `subprocess.run`).
 
 - [ ] **Step 7: Final gate + commit + push**
 
@@ -1382,3 +1742,65 @@ git add -A -- src/ AGENTS.md && git commit -m "chore(cleanup): batch 8 — behav
   have live callers after cleanup).
 - 2 test files deleted whole (`test_dashboard_controller_save_profile.py`,
   `test_dashboard_view_model.py`).
+
+## Plan-fix verification log
+
+Per task: references checked against the tree (grep/read), references
+corrected in this pass, and NEEDS-DECISION items (final state). The
+interrupted run had already rewritten Tasks 1–8 from the verified
+inventories; this pass re-verified every file path, symbol name, and
+line number and fixed the residual drift.
+
+- **Task 1** (Orchestration/slot/probe): 58 refs checked, 0 corrected
+  (interrupted run's rewrite verified accurate — manager.py 8 symbols,
+  audit.py 7, types.py 12, artifact.py 7, probe/smoke.py, launch.py,
+  risk.py, slot_lockfile.py, slot_state.py, launcher.py, test_launcher.py
+  D10 all match). NEEDS-DECISION: none.
+- **Task 2** (Build pipeline + toolchain): 50 refs checked, 0 corrected
+  this pass (interrupted run had already fixed the toolchain package
+  path, `setup_venv.py`, and stage/test paths; line numbers re-verified).
+  RESOLVED (controller): `tools_present` was an audit misread — no such
+  symbol exists; the Interfaces line now cites the real surface
+  (`detect_tool`/`detect_toolchain`/`ToolchainStatus`).
+- **Task 3** (Validation clusters): 40 refs checked, 0 corrected
+  (builder.py 11, validators.py 10, enums.py 3, errors.py 3, doctor.py,
+  keep-list callers, 5 test paths + line numbers all match).
+  NEEDS-DECISION: none.
+- **Task 4** (Reports/logging/orchestrator copy): 45 refs checked,
+  0 corrected (failure.py 7, rotation.py 2, reports/__init__.py,
+  _context.py:110, redaction.py no-URL, security.py, profile_orchestrator
+  13 symbols, logging_setup 10, callers, 4 test paths all match; the
+  redaction DEVIATION NOTE is accurate). NEEDS-DECISION: none.
+- **Task 5** (Config cluster): 55 refs checked, 0 corrected
+  (builder.py, config/__init__.py, persistence.py 8, defaults.py 10,
+  enums.py, spec_decode.py, file_ops.py, validators.py, security.py,
+  errors.py, launch_runtime.py, metadata 6, profile_io.py, model_index.py,
+  8 test paths all match). RESOLVED (controller): 2 — (a) `model_name`
+  param of `extract_gguf_metadata` does not exist (audit misread; nothing
+  to delete there); (b) `atomic_write`/`atomic_write_json` merge dropped —
+  the two live helpers (`atomic_exclusive_create_json`, `atomic_write_json`)
+  are semantically different primitives, both kept.
+- **Task 6** (TUI dead code): 50 refs checked, 0 corrected
+  (server_column.py, gpu_telemetry.py, system_status.py 17 lines,
+  system_health.py 18 symbols, viewmodel.py, controller.py, textual_app.py,
+  form_widgets.py, 4 modal BINDINGS, constants.py 4, system_status.tcss,
+  test_tui.py all match). RESOLVED (controller): 1 — `cancel_pending_prompt`
+  has no non-build branch (audit misread); the live Escape/ctrl+c path is
+  the `interrupt()` fallthrough in `action_cancel_pending_prompt`. Step 4
+  rewritten: delete the dead flag chain, keep + simplify the binding/action.
+- **Task 7** (gpu_telemetry + benchmark): 40 refs checked, 1 corrected
+  (`stats.py:14` → `stats.py:15` for the `level_zero` import; level_zero.py
+  72 lines, vendor.py, __init__.py re-exports, sysfs/fdinfo dups,
+  system_stats.py, benchmark runner/parser, gpu_stats.py, 4 test paths
+  all match). NEEDS-DECISION: none.
+- **Task 8** (Behavior changes + AGENTS.md): 30 refs checked, 4 corrected
+  (test list → explicit paths; AGENTS.md layout claim "none exist" →
+  "all but `log_buffer.py` are gone"; typo "agaiences" → "against";
+  test line numbers 878→877 + explicit test names. ui_output.py 72 lines,
+  profile_cache.py:49, orchestrator quality branch, profile.py choices,
+  digital_clock.py 8 symbols, provenance.py:38-83, 6 test paths all match).
+  NEEDS-DECISION: none.
+
+**Total: 368 references checked, 5 corrected, 4 NEEDS-DECISION items —
+all 4 resolved by the controller (3 audit misreads voided, 1 live-behavior
+clarification incorporated into Step 4). No open items.**
