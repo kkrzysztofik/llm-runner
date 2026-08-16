@@ -200,9 +200,14 @@ Ordered; each batch = one gate-green commit + push. Net lines approximate.
   `log_mutating_action`, `_rotate_mutating_log`, `rotate_reports` —
   nothing in TUI/CLI reads these logs. Keep `write_failure_report`
   (live from `build_pipeline/_context.py:120`).
-- `redaction.py::redact_sensitive` — second redaction engine;
-  `common/security.py`'s docstring mandates importing it; fold its URL
-  pattern into `redact_log_line`, delete the module (3 import sites).
+- `redaction.py::redact_sensitive` — second redaction module. The audit's
+  "URL pattern" claim was wrong (the module has no URL pattern) and its
+  output format differs from `redact_log_line` (`KEY: [REDACTED]` +
+  standalone words vs `KEY=[REDACTED]`), so callers are NOT re-targeted at
+  `redact_log_line` — the function body moves VERBATIM into
+  `common/security.py`, the module is deleted, and the 3 import sites
+  (build_pipeline/utils.py, reports/failure.py, reports/__init__.py)
+  retarget. Zero behavior change; see plan Task 4 Step 3.
 - `logging_setup.py`: `_JsonLogEnvelope` / `_format_json` /
   `_json_default` (json_logs already uses loguru `serialize=True`);
   `configure_logging` vs `configure_logging_split` → one function with
