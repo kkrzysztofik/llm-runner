@@ -719,6 +719,7 @@ def test_roundtrip_dflash_fields(xdg_config_home: Path) -> None:
         kv_unified=True,
         mmproj_offload=True,
         load_mode="mlock",
+        split_mode="row",
         no_host_buffer=True,
         backend="llama_cpp",
     )
@@ -736,6 +737,7 @@ def test_roundtrip_dflash_fields(xdg_config_home: Path) -> None:
     assert lp.kv_unified is True
     assert lp.mmproj_offload is True
     assert lp.load_mode == "mlock"
+    assert lp.split_mode == "row"
     assert lp.no_host_buffer is True
 
 

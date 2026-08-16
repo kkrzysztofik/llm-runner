@@ -128,7 +128,7 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
         "--n-gpu-layers",
         str(cfg.n_gpu_layers),
         "--split-mode",
-        "layer",
+        cfg.split_mode,
         "--ctx-size",
         str(cfg.ctx_size),
         "--flash-attn",

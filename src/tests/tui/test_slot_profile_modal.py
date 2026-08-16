@@ -44,6 +44,7 @@ def test_payload_defaults() -> None:
     assert payload.threads == 8
     assert payload.chat_template_kwargs == ""
     assert payload.load_mode == "auto"
+    assert payload.split_mode == "layer"
     assert payload.reasoning_preserve == "auto"
     assert payload.reasoning_budget_message == ""
     assert payload.fit == "auto"
@@ -61,6 +62,7 @@ def test_payload_new_fields_map_to_flat_profile_fields() -> None:
     payload = RunProfilePayload(
         model="/models/model.gguf",
         load_mode="mmap+mlock",
+        split_mode="row",
         reasoning_preserve="on",
         reasoning_budget_message="think carefully",
         fit="off",
@@ -76,6 +78,7 @@ def test_payload_new_fields_map_to_flat_profile_fields() -> None:
     spec = payload_to_slot_profile_spec("test", payload)
 
     assert spec.load_mode == "mmap+mlock"
+    assert spec.split_mode == "row"
     assert spec.reasoning_preserve == "on"
     assert spec.reasoning_budget_message == "think carefully"
     assert spec.fit == "off"
@@ -106,7 +109,12 @@ def test_payload_empty_optional_values_remain_unset() -> None:
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    (("load_mode", "bogus"), ("reasoning_preserve", "bogus"), ("fit", "bogus")),
+    (
+        ("load_mode", "bogus"),
+        ("split_mode", "bogus"),
+        ("reasoning_preserve", "bogus"),
+        ("fit", "bogus"),
+    ),
 )
 def test_payload_to_spec_rejects_invalid_enums(field: str, value: str) -> None:
     payload = RunProfilePayload(model="/models/model.gguf")
@@ -1058,6 +1066,7 @@ async def test_modal_save_button_returns_payload() -> None:
         await pilot.pause()
         modal.query_one("#profile-profile-id", Input).value = "saved-profile"
         modal.query_one("#profile-load-mode", Select).value = "mmap+mlock"
+        modal.query_one("#profile-split-mode", Select).value = "row"
         modal.query_one("#profile-reasoning-preserve", Select).value = "on"
         modal.query_one("#profile-fit", Select).value = "off"
         modal.query_one("#profile-ctx-checkpoints", Input).value = "5"
@@ -1071,6 +1080,7 @@ async def test_modal_save_button_returns_payload() -> None:
     assert isinstance(payload, RunProfilePayload)
     assert payload.profile_id == "saved-profile"
     assert payload.load_mode == "mmap+mlock"
+    assert payload.split_mode == "row"
     assert payload.reasoning_preserve == "on"
     assert payload.fit == "off"
     assert payload.ctx_checkpoints == 5

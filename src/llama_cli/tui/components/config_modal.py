@@ -11,6 +11,7 @@ from textual.widgets import Button, Checkbox, Input, Label, Select
 from llama_manager.build_pipeline.models import SOURCE_FLAVOR_DEFAULTS
 from llama_manager.config import Config
 from llama_manager.config.load_mode import LOAD_MODE_VALUES
+from llama_manager.config.server import SPLIT_MODE_VALUES
 from llama_manager.config.tri_state import TRI_STATE_VALUES
 
 from .form_widgets import (
@@ -83,6 +84,7 @@ class ConfigPayload:
     default_kv_unified: bool = False
     default_mmproj_offload: bool = True
     default_load_mode: str = "auto"
+    default_split_mode: str = "layer"
     default_no_host_buffer: bool = False
     default_ui: bool = False
     default_fit: str = "auto"
@@ -149,6 +151,7 @@ class ConfigPayload:
             "server_defaults.kv_unified": self.default_kv_unified,
             "server_defaults.mmproj_offload": self.default_mmproj_offload,
             "server_defaults.load_mode": self.default_load_mode,
+            "server_defaults.split_mode": self.default_split_mode,
             "server_defaults.no_host_buffer": self.default_no_host_buffer,
             "server_defaults.ui": self.default_ui,
             "server_defaults.fit": self.default_fit,
@@ -185,6 +188,8 @@ def _validate_config_payload(payload: ConfigPayload) -> list[str]:
     errors: list[str] = []
     if payload.default_load_mode not in LOAD_MODE_VALUES:
         errors.append(f"Invalid load mode: {payload.default_load_mode!r}")
+    if payload.default_split_mode not in SPLIT_MODE_VALUES:
+        errors.append(f"Invalid split mode: {payload.default_split_mode!r}")
     if payload.default_reasoning_preserve not in TRI_STATE_VALUES:
         errors.append(f"Invalid reasoning preserve: {payload.default_reasoning_preserve!r}")
     if payload.default_fit not in TRI_STATE_VALUES:
@@ -544,6 +549,9 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             default_kv_unified=self.query_one("#cfg-default_kv_unified", Checkbox).value,
             default_mmproj_offload=self.query_one("#cfg-default_mmproj_offload", Checkbox).value,
             default_load_mode=str(self.query_one("#cfg-default_load_mode", Select).value or "auto"),
+            default_split_mode=str(
+                self.query_one("#cfg-default_split_mode", Select).value or "layer"
+            ),
             default_no_host_buffer=self.query_one("#cfg-default_no_host_buffer", Checkbox).value,
             default_ui=self.query_one("#cfg-default_ui", Checkbox).value,
             default_fit=str(self.query_one("#cfg-default_fit", Select).value or "auto"),

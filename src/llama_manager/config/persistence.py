@@ -81,6 +81,7 @@ _PERSISTED_SECTIONS: dict[str, tuple[str, ...]] = {
         "kv_unified",
         "mmproj_offload",
         "load_mode",
+        "split_mode",
         "no_host_buffer",
         "ui",
         "reasoning_preserve",

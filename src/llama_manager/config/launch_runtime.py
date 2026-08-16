@@ -13,6 +13,7 @@ class LaunchRuntimeOverrides(TypedDict, total=False):
     kv_unified: bool | None
     mmproj_offload: bool | None
     load_mode: str | None
+    split_mode: str | None
     no_host_buffer: bool | None
     ui: bool | None
     reasoning_preserve: str | None
@@ -34,6 +35,7 @@ class LaunchRuntimeFields:
     kv_unified: bool = field(default=False, kw_only=True)
     mmproj_offload: bool = field(default=True, kw_only=True)
     load_mode: str = field(default="auto", kw_only=True)
+    split_mode: str = field(default="layer", kw_only=True)
     no_host_buffer: bool = field(default=False, kw_only=True)
     ui: bool = field(default=False, kw_only=True)
     reasoning_preserve: str = field(default="auto", kw_only=True)

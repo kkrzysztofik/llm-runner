@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from llama_manager.config import Config
 from llama_manager.config.launch_runtime import LaunchRuntimeFields
 from llama_manager.config.load_mode import LOAD_MODE_VALUES
 from llama_manager.config.profiles import SlotProfileSpec
+from llama_manager.config.server import SPLIT_MODE_VALUES
 from llama_manager.config.spec_decode import SpeculativeDecodingConfig, spec_type_members
 from llama_manager.config.tri_state import TRI_STATE_VALUES
 from llama_manager.model_index import ModelIndexEntry
@@ -28,6 +30,7 @@ from .form_widgets import (
     ROW_CLASSES,
     ROW_SELECT_CLASSES,
     SELECT_CLASSES,
+    SPLIT_MODE_CHOICES,
     cache_type_row,
     checkbox_row,
     config_profile_prefill,
@@ -401,6 +404,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "kv-unified": "true" if runtime.kv_unified else "false",
             "mmproj-offload": "true" if runtime.mmproj_offload else "false",
             "load-mode": runtime.load_mode,
+            "split-mode": runtime.split_mode,
             "no-host-buffer": "true" if runtime.no_host_buffer else "false",
             "ui": "true" if runtime.ui else "false",
             "fit": runtime.fit,
@@ -443,11 +447,13 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         device_select = self.query_one("#profile-device", Select)
         device_val = str(device_select.value) if device_select.value else _DEFAULT_DEVICE
         load_mode = str(self.query_one("#profile-load-mode", Select).value or "auto")
+        split_mode = str(self.query_one("#profile-split-mode", Select).value or "layer")
         reasoning_preserve = str(
             self.query_one("#profile-reasoning-preserve", Select).value or "auto"
         )
         fit = str(self.query_one("#profile-fit", Select).value or "auto")
         self._validate_enum("load mode", load_mode, LOAD_MODE_VALUES)
+        self._validate_enum("split mode", split_mode, SPLIT_MODE_VALUES)
         self._validate_enum("reasoning preserve", reasoning_preserve, TRI_STATE_VALUES)
         self._validate_enum("fit", fit, TRI_STATE_VALUES)
 
@@ -511,6 +517,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             kv_unified=self.query_one("#profile-kv-unified", Checkbox).value,
             mmproj_offload=self.query_one("#profile-mmproj-offload", Checkbox).value,
             load_mode=load_mode,
+            split_mode=split_mode,
             no_host_buffer=self.query_one("#profile-no-host-buffer", Checkbox).value,
             ui=self.query_one("#profile-ui", Checkbox).value,
             fit=fit,
@@ -570,7 +577,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             ) from exc
 
     @staticmethod
-    def _validate_enum(label: str, value: str, allowed: frozenset[str]) -> None:
+    def _validate_enum(label: str, value: str, allowed: Collection[str]) -> None:
         """Reject values outside a profile enum's supported set."""
         if value not in allowed:
             raise ValueError(f"Invalid {label}: {value!r}")
@@ -661,6 +668,12 @@ def _build_memory_fields(prefill: dict[str, str]) -> Collapsible:
             "load-mode",
             LOAD_MODE_CHOICES,
             prefill.get("load-mode", "auto"),
+        ),
+        select_row(
+            "Split Mode",
+            "split-mode",
+            SPLIT_MODE_CHOICES,
+            prefill.get("split-mode", "layer"),
         ),
         checkbox_row(
             "No Host Buffer",
@@ -952,6 +965,8 @@ def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -
     """Build a ``SlotProfileSpec`` from a validated modal payload."""
     if payload.load_mode not in LOAD_MODE_VALUES:
         raise ValueError(f"Invalid load mode: {payload.load_mode!r}")
+    if payload.split_mode not in SPLIT_MODE_VALUES:
+        raise ValueError(f"Invalid split mode: {payload.split_mode!r}")
     if payload.reasoning_preserve not in TRI_STATE_VALUES:
         raise ValueError(f"Invalid reasoning preserve: {payload.reasoning_preserve!r}")
     if payload.fit not in TRI_STATE_VALUES:
@@ -1008,6 +1023,7 @@ def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -
         kv_unified=payload.kv_unified,
         mmproj_offload=payload.mmproj_offload,
         load_mode=payload.load_mode,
+        split_mode=payload.split_mode,
         no_host_buffer=payload.no_host_buffer,
         ui=payload.ui,
         reasoning_preserve=payload.reasoning_preserve,

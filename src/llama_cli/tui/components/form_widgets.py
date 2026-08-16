@@ -8,6 +8,8 @@ from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import Checkbox, Collapsible, Input, Label, Select
 
+from llama_manager.config.server import SPLIT_MODE_VALUES
+
 if TYPE_CHECKING:
     from llama_manager.config import Config
 
@@ -44,6 +46,8 @@ LOAD_MODE_CHOICES: tuple[tuple[str, str], ...] = (
     ("mmap+mlock", "mmap+mlock"),
     ("dio", "dio"),
 )
+
+SPLIT_MODE_CHOICES: tuple[tuple[str, str], ...] = tuple((v, v) for v in SPLIT_MODE_VALUES)
 
 REASONING_PRESERVE_CHOICES: tuple[tuple[str, str], ...] = (
     ("auto", "auto"),
@@ -220,6 +224,7 @@ def config_profile_prefill(config: Config) -> dict[str, str]:
         "kv-unified": "true" if defaults.kv_unified else "false",
         "mmproj-offload": "true" if defaults.mmproj_offload else "false",
         "load-mode": defaults.load_mode,
+        "split-mode": defaults.split_mode,
         "no-host-buffer": "true" if defaults.no_host_buffer else "false",
         "ui": "true" if defaults.ui else "false",
         "reasoning-preserve": defaults.reasoning_preserve,
@@ -600,6 +605,16 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             "default_load_mode",
             LOAD_MODE_CHOICES,
             defaults.load_mode,
+            id_prefix=prefix,
+            label_classes=cfg_label,
+            input_classes=cfg_select,
+            row_classes=cfg_row_select,
+        ),
+        select_row(
+            "Split Mode",
+            "default_split_mode",
+            SPLIT_MODE_CHOICES,
+            defaults.split_mode,
             id_prefix=prefix,
             label_classes=cfg_label,
             input_classes=cfg_select,

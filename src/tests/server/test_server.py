@@ -451,6 +451,19 @@ class TestBuildServerCmd:
         assert cmd[cmd.index("--repeat-penalty") + 1] == "1.0"
         assert cmd[cmd.index("--reasoning-budget-message") + 1] == "stop thinking"
 
+    def test_split_mode_defaults_to_layer(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg())
+        assert cmd[cmd.index("--split-mode") + 1] == "layer"
+
+    def test_split_mode_override_is_emitted(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(split_mode="row"))
+        assert cmd[cmd.index("--split-mode") + 1] == "row"
+        assert cmd.count("--split-mode") == 1
+
+    def test_invalid_split_mode_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="split_mode"):
+            self._minimal_cfg(split_mode="sideways")
+
     def test_smaller_model_no_host_buffer_flag(self) -> None:
         """--no-host flag is emitted when no_host_buffer is True."""
         cmd = build_server_cmd(self._minimal_cfg(no_host_buffer=True))

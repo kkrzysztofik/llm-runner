@@ -14,6 +14,9 @@ from .spec_decode import (
 )
 from .tri_state import TRI_STATE_VALUES
 
+# llama-server --split-mode choices, in display order.
+SPLIT_MODE_VALUES: tuple[str, ...] = ("none", "layer", "row", "tensor")
+
 # Regex pattern for slot ID normalization: strip, lowercase, allow only a-z0-9_-
 _SLOT_ID_PATTERN = re.compile(r"[^a-z0-9_-]")
 
@@ -175,6 +178,8 @@ class ServerConfig(SpeculativeDecodingFieldsMixin, LaunchRuntimeFields):
             self.reasoning_preserve = "auto"
         if self.fit not in TRI_STATE_VALUES:
             self.fit = "auto"
+        if self.split_mode not in SPLIT_MODE_VALUES:
+            raise ValueError(f"split_mode must be none/layer/row/tensor, got: {self.split_mode}")
         if self.ctx_checkpoints is not None and self.ctx_checkpoints < 0:
             raise ValueError("ctx_checkpoints must be non-negative")
 
