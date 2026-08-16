@@ -5,13 +5,6 @@ from unittest.mock import MagicMock
 from llama_manager.slot_state import resolve_slot_runtime_status
 
 
-class _NoPollProcess:
-    """Process-like object that has no poll() method."""
-
-    def __init__(self, pid: int | None = None) -> None:
-        self.pid = pid
-
-
 class TestResolveSlotRuntimeStatus:
     """Tests for resolve_slot_runtime_status function."""
 
@@ -38,24 +31,6 @@ class TestResolveSlotRuntimeStatus:
         proc = MagicMock()
         proc.poll.return_value = None
         result = resolve_slot_runtime_status("running", proc)
-        assert result == "running"
-
-    def test_process_no_pid_returns_crashed(self) -> None:
-        """Process with no poll method should return crashed."""
-        proc = _NoPollProcess(pid=None)
-        result = resolve_slot_runtime_status("running", proc)
-        assert result == "crashed"
-
-    def test_pid_exists_false_returns_crashed(self) -> None:
-        """Process whose pid does not exist should return crashed."""
-        proc = _NoPollProcess(pid=99999)
-        result = resolve_slot_runtime_status("running", proc, pid_exists=lambda _pid: False)
-        assert result == "crashed"
-
-    def test_pid_exists_true_returns_running(self) -> None:
-        """Process whose pid exists should return running."""
-        proc = _NoPollProcess(pid=12345)
-        result = resolve_slot_runtime_status("running", proc, pid_exists=lambda _pid: True)
         assert result == "running"
 
     def test_idle_state_unchanged_with_process(self) -> None:

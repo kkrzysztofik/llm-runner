@@ -911,15 +911,6 @@ def test_parse_tui_args_supports_acknowledge_risky_flag(monkeypatch: pytest.Monk
     assert parsed.acknowledge_risky is True
 
 
-def test_ack_token_validation_is_attempt_scoped() -> None:
-    manager = ServerManager()
-    attempt_id = manager.begin_launch_attempt("attempt-1")
-    valid_token = manager.issue_ack_token(attempt_id)
-
-    assert manager.validate_ack_token(attempt_id, valid_token) is True
-    assert manager.validate_ack_token(attempt_id, "ack:other") is False
-
-
 def test_cleanup_clears_attempt_ack_cache() -> None:
     manager = ServerManager()
     attempt_id = manager.begin_launch_attempt("attempt-1")

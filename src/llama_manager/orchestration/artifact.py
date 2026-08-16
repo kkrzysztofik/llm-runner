@@ -36,24 +36,6 @@ class DryRunArtifactPayload(TypedDict):
     environment_redacted: dict[str, Any]
 
 
-class ArtifactMetadata:
-    """FR-007: Artifact metadata for T012 persistence tracking."""
-
-    def __init__(
-        self,
-        artifact_type: str,
-        created_at: float,
-        slot_id: str | None = None,
-        additional_fields: dict[str, Any] | None = None,
-    ) -> None:
-        self.artifact_type = artifact_type
-        self.created_at = created_at
-        self.slot_id = slot_id
-        self.additional_fields: dict[str, Any] = (
-            additional_fields if additional_fields is not None else {}
-        )
-
-
 def write_artifact(
     runtime_dir: Path, _slot_id: str, data: DryRunArtifactPayload | dict[str, Any]
 ) -> Path:

@@ -27,7 +27,6 @@ from llama_manager.config import (
     normalize_slot_id,
 )
 from llama_manager.orchestration import (
-    ArtifactMetadata,
     LockMetadata,
     ValidationException,
     create_lock,
@@ -565,45 +564,6 @@ class TestWriteArtifact:
             exc_info.value.multi_error.errors[0].error_code
             == ErrorCode.ARTIFACT_PERSISTENCE_FAILURE
         )
-
-
-class TestArtifactMetadata:
-    """Tests for ArtifactMetadata dataclass."""
-
-    def test_required_fields(self) -> None:
-        """Should have required fields."""
-        metadata = ArtifactMetadata(artifact_type="test", created_at=1234567890.0)
-        assert metadata.artifact_type == "test"
-        assert metadata.created_at == 1234567890.0
-        assert metadata.slot_id is None
-        assert metadata.additional_fields == {}
-
-    def test_all_fields(self) -> None:
-        """Should accept all optional fields."""
-        metadata = ArtifactMetadata(
-            artifact_type="log",
-            created_at=1234567890.0,
-            slot_id="slot1",
-            additional_fields={"key": "value"},
-        )
-        assert metadata.artifact_type == "log"
-        assert metadata.slot_id == "slot1"
-        assert metadata.additional_fields == {"key": "value"}
-
-    def test_additional_fields_default_empty_dict(self) -> None:
-        """additional_fields should default to empty dict."""
-        metadata = ArtifactMetadata(
-            artifact_type="test", created_at=1234567890.0, additional_fields={}
-        )
-        assert metadata.additional_fields == {}
-        # Pyright knows __post_init__ initializes this
-        assert metadata.additional_fields is not None
-        # Mutating should not affect other instances
-        metadata.additional_fields["key"] = "value"
-        metadata2 = ArtifactMetadata(
-            artifact_type="test", created_at=1234567890.0, additional_fields={}
-        )
-        assert metadata2.additional_fields == {}
 
 
 class TestLockMetadata:

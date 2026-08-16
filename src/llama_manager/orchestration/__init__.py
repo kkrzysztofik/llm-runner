@@ -3,7 +3,6 @@
 from ..common.security import REDACTED_VALUE, redact_dict, redact_text
 from ..config import ValidationException
 from .artifact import (
-    ArtifactMetadata,
     DryRunArtifactPayload,
     write_artifact,
 )
@@ -29,8 +28,6 @@ from .risk import RiskAckManager
 from .types import (
     LaunchOrchestrationResult,
     LaunchResult,
-    ProcessMetadata,
-    SlotRuntime,
 )
 
 __all__ = [
@@ -49,7 +46,6 @@ __all__ = [
     # Artifact operations
     "write_artifact",
     "DryRunArtifactPayload",
-    "ArtifactMetadata",
     # Process launcher
     "ProcessHandle",
     "ProcessLauncher",
@@ -57,8 +53,6 @@ __all__ = [
     "DefaultProcessLauncher",
     # Server lifecycle
     "ServerManager",
-    "SlotRuntime",
-    "ProcessMetadata",
     "LaunchResult",
     "LaunchOrchestrationResult",
     "launch_orchestrate",

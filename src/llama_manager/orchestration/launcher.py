@@ -77,43 +77,23 @@ class DefaultProcessLauncher:
     """
 
     def launch(self, cmd: list[str]) -> ProcessHandle:
-        return _SubprocessHandle(  # type: ignore[return-value]
-            subprocess.Popen(  # noqa: S603
-                # safe: argv is a validated list[str] (no shell injection),
-                #   command source is built by build_server_cmd() from ServerConfig fields only
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-            )
-        )
+        return _ServerProc(  # type: ignore[return-value]
+            # safe: argv is a validated list[str] (no shell injection),
+            #   command source is built by build_server_cmd() from ServerConfig fields only
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )  # noqa: S603
 
 
-class _SubprocessHandle:
-    """Thin wrapper around ``subprocess.Popen`` implementing :class:`ProcessHandle`."""
-
-    def __init__(self, proc: subprocess.Popen[str]) -> None:
-        self._proc = proc
-
-    @property
-    def pid(self) -> int:
-        return self._proc.pid
-
-    @property
-    def stdout(self) -> TextIOWrapper:
-        return self._proc.stdout  # type: ignore[return-value]
-
-    @property
-    def stderr(self) -> TextIOWrapper:
-        return self._proc.stderr  # type: ignore[return-value]
-
-    def poll(self) -> int | None:
-        return self._proc.poll()
+class _ServerProc(subprocess.Popen[str]):
+    """Popen whose timed ``wait`` raises :class:`ProcessTimeoutError`."""
 
     def wait(self, timeout: float | None = None) -> int:
         try:
-            return self._proc.wait(timeout=timeout)  # type: ignore[arg-type]
+            return super().wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             raise ProcessTimeoutError(
                 f"process {self.pid} did not exit within {timeout}s",

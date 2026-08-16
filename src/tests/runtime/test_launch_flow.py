@@ -317,7 +317,6 @@ class TestServerManagerLaunchAllSlots:
         # Block slot1
         create_lock(runtime_dir, "slot1", pid=99999, port=8080)
 
-        # Mock subprocess and runtime dir resolution so acquire_lock uses the test dir
         with (
             patch("subprocess.Popen") as mock_popen,
             patch("psutil.pid_exists") as mock_exists,
@@ -380,7 +379,6 @@ class TestLaunchOrchestrate:
         mock_proc = Mock()
         mock_sm = Mock()
         mock_sm.begin_launch_attempt.return_value = "attempt-1"
-        mock_sm.issue_ack_token.return_value = "ack:attempt-1"
         mock_sm.launch_all_slots.return_value = LaunchResult(
             status="success", launched=["test"], warnings=None, errors=None
         )
@@ -422,7 +420,6 @@ class TestLaunchOrchestrate:
         cfg = make_server_config(alias="test", port=8080)
         mock_sm = Mock()
         mock_sm.begin_launch_attempt.return_value = "attempt-1"
-        mock_sm.issue_ack_token.return_value = "ack:attempt-1"
         mock_sm.launch_all_slots.return_value = LaunchResult(
             status="blocked",
             launched=[],
@@ -466,7 +463,6 @@ class TestLaunchOrchestrate:
         mock_proc = Mock()
         mock_sm = Mock()
         mock_sm.begin_launch_attempt.return_value = "attempt-1"
-        mock_sm.issue_ack_token.return_value = "ack:attempt-1"
         mock_sm.launch_all_slots.return_value = LaunchResult(
             status="degraded",
             launched=["slot1"],
@@ -523,7 +519,6 @@ class TestLaunchOrchestrate:
         mock_proc = Mock()
         mock_sm = Mock()
         mock_sm.begin_launch_attempt.return_value = "attempt-1"
-        mock_sm.issue_ack_token.return_value = "ack:attempt-1"
         mock_sm.launch_all_slots.return_value = LaunchResult(
             status="success", launched=["test"], warnings=None, errors=None
         )

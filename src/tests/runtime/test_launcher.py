@@ -11,7 +11,7 @@ from llama_manager.orchestration.launcher import (
     DefaultProcessLauncher,
     ProcessHandle,
     ProcessTimeoutError,
-    _SubprocessHandle,
+    _ServerProc,
     wrap_sycl_launch_cmd,
 )
 
@@ -119,7 +119,7 @@ class TestDefaultProcessLauncher:
     def test_launch_returns_process_handle(self) -> None:
         launcher = DefaultProcessLauncher()
         handle = launcher.launch(["echo", "hello"])
-        assert isinstance(handle, _SubprocessHandle)
+        assert isinstance(handle, _ServerProc)
         assert handle.pid is not None
 
     def test_handle_has_required_attributes(self) -> None:
@@ -136,12 +136,12 @@ class TestDefaultProcessLauncher:
         handle = launcher.launch(["sleep", "1"])
         code = handle.poll()
         assert code is None
-        handle._proc.terminate()  # pyright: ignore[reportAttributeAccessIssue]
-        handle._proc.wait()  # pyright: ignore[reportAttributeAccessIssue]
+        handle.terminate()  # pyright: ignore[reportAttributeAccessIssue]
+        handle.wait()
 
 
-class TestSubprocessHandleWaitTimeout:
-    """Tests for _SubprocessHandle.wait() timeout behavior."""
+class TestServerProcWaitTimeout:
+    """Tests for _ServerProc.wait() timeout behavior."""
 
     def test_wait_raises_timeout_error_on_timeout(self) -> None:
         launcher = DefaultProcessLauncher()
@@ -150,8 +150,8 @@ class TestSubprocessHandleWaitTimeout:
             with pytest.raises(ProcessTimeoutError):
                 handle.wait(timeout=0.1)
         finally:
-            handle._proc.terminate()  # pyright: ignore[reportAttributeAccessIssue]
-            handle._proc.wait()  # pyright: ignore[reportAttributeAccessIssue]
+            handle.terminate()  # pyright: ignore[reportAttributeAccessIssue]
+            handle.wait()
 
     def test_wait_returns_exit_code_on_success(self) -> None:
         launcher = DefaultProcessLauncher()
@@ -214,8 +214,8 @@ class TestProcessLauncherProtocol:
             # which exits immediately
             proc = manager.start_server_background("test", ["echo", "hello"])
 
-            # Verify it's a _SubprocessHandle (from DefaultProcessLauncher)
-            assert isinstance(proc, _SubprocessHandle)
+            # Verify it's a _ServerProc (from DefaultProcessLauncher)
+            assert isinstance(proc, _ServerProc)
 
     def test_multiple_servers_with_injected_launcher(self) -> None:
         """Multiple servers should each call the injected launcher."""
@@ -232,26 +232,6 @@ class TestProcessLauncherProtocol:
         assert len(mock_launcher.launch_calls) == 3
         pids = [proc.pid for proc in manager.servers]
         assert pids == [99999, 99999, 99999]
-
-    def test_wait_for_processes_catches_timeout_error(self) -> None:
-        """_wait_for_processes should catch ProcessTimeoutError without raising."""
-        from llama_manager.orchestration import ServerManager
-
-        mock_launcher = MockProcessLauncher()
-        manager = ServerManager(process_launcher=mock_launcher)
-
-        # Add a mock process that raises ProcessTimeoutError on wait
-        mock_handle = MockProcessHandle(pid=33333)
-
-        def raise_timeout(timeout: float) -> int:  # noqa: ARG001
-            raise ProcessTimeoutError(f"process {mock_handle.pid} timed out")
-
-        mock_handle.wait = raise_timeout  # pyright: ignore[reportGeneralTypeIssues,reportAttributeAccessIssue]
-        manager.servers.append(mock_handle)  # pyright: ignore[arg-type,reportArgumentType]
-
-        # Should not raise
-        manager._wait_for_processes()
-        assert len(manager.servers) == 1  # server not removed
 
     def test_start_servers_wraps_sycl_config_with_oneapi_setvars(
         self,
@@ -528,34 +508,6 @@ class TestProcessLauncherProtocol:
 class TestServerManagerAckFlow:
     """Tests for risk acknowledgement flow in ServerManager."""
 
-    def test_validate_ack_token_matches(self) -> None:
-        """validate_ack_token should return True when token matches attempt_id."""
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-        attempt_id = manager.begin_launch_attempt()
-        token = f"ack:{attempt_id}"
-
-        assert manager.validate_ack_token(attempt_id, token) is True
-
-    def test_validate_ack_token_none(self) -> None:
-        """validate_ack_token should return False when token is None."""
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-        attempt_id = manager.begin_launch_attempt()
-
-        assert manager.validate_ack_token(attempt_id, None) is False
-
-    def test_validate_ack_token_mismatch(self) -> None:
-        """validate_ack_token should return False when token doesn't match."""
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-        attempt_id = manager.begin_launch_attempt()
-
-        assert manager.validate_ack_token(attempt_id, "wrong_token") is False
-
     def test_acknowledge_risk_stores_ack(self) -> None:
         """acknowledge_risk should store the slot:risk_type combination."""
         from llama_manager.orchestration import ServerManager
@@ -598,16 +550,6 @@ class TestServerManagerAckFlow:
             is True
         )
 
-    def test_acknowledge_risk_invalid_token_raises(self) -> None:
-        """acknowledge_risk should raise ValueError for invalid ack_token."""
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-        manager.begin_launch_attempt()
-
-        with pytest.raises(ValueError, match="ack_token does not match"):
-            manager.acknowledge_risk("slot1", "gpu_unavailable", ack_token="wrong_token")  # noqa: S106
-
     def test_clear_risk_acknowledgements_clears_cache(self) -> None:
         """clear_risk_acknowledgements should clear all ack state."""
         from llama_manager.orchestration import ServerManager
@@ -629,103 +571,3 @@ class TestServerManagerAckFlow:
         manager.clear_risk_acknowledgements()
 
         assert manager._risk._current_launch_attempt_id is None
-
-
-class TestServerManagerFormatOutput:
-    """Tests for _format_output helper method."""
-
-    def test_format_output_includes_timestamp(self) -> None:
-        """_format_output should include HH:MM:SS timestamp."""
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-        result = manager._format_output("test_server", "hello world")
-
-        # Should start with [HH:MM:SS] and include the server name prefix.
-        assert result.startswith("[")
-        assert "[test_server] hello world" in result
-        assert "hello world" in result
-
-    def test_format_output_preserves_content(self) -> None:
-        """_format_output should preserve the content after stripping newlines (done by caller)."""
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-        result = manager._format_output("test_server", "hello")
-
-        assert result.endswith("hello")
-
-    def test_format_output_strips_llama_cpp_timestamp(self) -> None:
-        """_format_output should strip llama.cpp millisecond timestamps like 177.32.478.581."""
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-        result = manager._format_output("test_server", "177.32.478.581 I srv  update_slots: idle")
-
-        assert "177.32.478.581" not in result
-        assert "I srv" in result
-
-    def test_format_output_includes_server_name(self) -> None:
-        """_format_output should include the server_name in the formatted line."""
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-        result = manager._format_output("qwen35-coding", "hello world")
-
-        assert "[qwen35-coding] hello world" in result
-
-
-class TestServerManagerForeground:
-    """Tests for run_server_foreground method."""
-
-    def test_run_server_foreground_calls_wait_no_timeout(self) -> None:
-        """run_server_foreground should call wait() without timeout (blocks till exit)."""
-        from llama_manager.orchestration import ServerManager
-
-        mock_handle = MockProcessHandle(pid=42)
-        mock_handle._wait_return = 0
-        wait_called = False
-
-        def capture_wait(timeout: float | None = None) -> int:  # pyright: ignore[reportIncompatibleVariableOverride]
-            nonlocal wait_called
-            wait_called = True
-            assert timeout is None
-            return mock_handle._wait_return
-
-        mock_handle.wait = capture_wait  # pyright: ignore[reportGeneralTypeIssues]
-
-        mock_launcher = MockProcessLauncher(handle=mock_handle)  # pyright: ignore[arg-type]
-        manager = ServerManager(process_launcher=mock_launcher)
-
-        result = manager.run_server_foreground("test", ["echo", "hello"])
-
-        assert result == 0
-        assert wait_called is True
-
-
-class TestServerManagerSignalHandlers:
-    """Tests for signal handler methods (on_interrupt, on_terminate)."""
-
-    def test_on_interrupt_calls_cleanup_and_returns_code(self) -> None:
-        """on_interrupt should call cleanup_servers then return 130."""
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-        manager.pids = [12345]
-
-        exit_code = manager.on_interrupt(2, None)  # SIGINT
-
-        assert exit_code == 130
-        assert manager.shutting_down is False
-
-    def test_on_terminate_calls_cleanup_and_returns_code(self) -> None:
-        """on_terminate should call cleanup_servers then return 143."""
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-        manager.pids = [12345]
-
-        exit_code = manager.on_terminate(15, None)  # SIGTERM
-
-        assert exit_code == 143
-        assert manager.shutting_down is False

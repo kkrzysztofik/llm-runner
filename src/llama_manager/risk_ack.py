@@ -36,7 +36,6 @@ def _collect_risky_details(
     server_manager: ServerManager,
     launch_attempt_id: str,
     acknowledged: bool,
-    ack_token: str,
 ) -> tuple[bool, list[dict[str, Any]]]:
     """Collect unacknowledged risk details for a single config.
 
@@ -45,7 +44,6 @@ def _collect_risky_details(
         server_manager: ServerManager for risk acknowledgement tracking.
         launch_attempt_id: Current launch attempt identifier.
         acknowledged: Whether risks have been pre-acknowledged.
-        ack_token: Acknowledgement token for this attempt.
 
     Returns:
         Tuple of ``(has_unacknowledged_risks, risk_detail_entries)``.
@@ -73,7 +71,6 @@ def _collect_risky_details(
                 cfg.alias,
                 risk,
                 launch_attempt_id=launch_attempt_id,
-                ack_token=ack_token,
             )
 
     return has_unacknowledged, entries
@@ -83,7 +80,6 @@ def evaluate_risks(
     configs: list[ServerConfig],
     server_manager: ServerManager,
     launch_attempt_id: str,
-    ack_token: str,
     acknowledged: bool,
 ) -> RiskAckResult:
     """Evaluate risky operations across all configs and manage acknowledgement state.
@@ -92,7 +88,6 @@ def evaluate_risks(
         configs: List of server configurations to evaluate.
         server_manager: ServerManager for risk acknowledgement tracking.
         launch_attempt_id: Current launch attempt identifier.
-        ack_token: Acknowledgement token for this attempt.
         acknowledged: Whether risks have been pre-acknowledged
             (e.g. ``--acknowledge-risky``).
 
@@ -117,7 +112,7 @@ def evaluate_risks(
             configs[idx].risky_acknowledged = new_ack_list
 
         has_risk, details = _collect_risky_details(
-            cfg, server_manager, launch_attempt_id, acknowledged, ack_token
+            cfg, server_manager, launch_attempt_id, acknowledged
         )
         has_risks = has_risks or has_risk
         risk_details.extend(details)

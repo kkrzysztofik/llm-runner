@@ -155,8 +155,7 @@ def _build_dry_run_result(
 
     manager = ServerManager()
     launch_attempt_id = manager.begin_launch_attempt()
-    ack_token = manager.issue_ack_token(launch_attempt_id)
-    warnings.extend(_risk_warnings(configs, manager, launch_attempt_id, ack_token, acknowledged))
+    warnings.extend(_risk_warnings(configs, manager, launch_attempt_id, acknowledged))
 
     has_error = False
     for slot_id, server_cfg in zip(profile_ids, configs, strict=True):
@@ -189,14 +188,12 @@ def _risk_warnings(
     configs: list,
     manager: ServerManager,
     launch_attempt_id,
-    ack_token,
     acknowledged: bool,
 ) -> list[str]:
     risk_result = evaluate_risks(
         configs,
         manager,
         launch_attempt_id,
-        ack_token,
         acknowledged,
     )
     if not (

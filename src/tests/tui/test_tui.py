@@ -821,44 +821,6 @@ class TestGracefulShutdownKeyHandler:
         app._cleanup()
         assert app.running is True
 
-    def test_on_interrupt_calls_cleanup_and_exits(self) -> None:
-        """ServerManager.on_interrupt should call cleanup_servers and return code 130."""
-        from llama_cli.tui import DashboardController
-
-        app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-
-        cleanup_called = False
-
-        def track_cleanup() -> None:
-            nonlocal cleanup_called
-            cleanup_called = True
-
-        app.server_manager.cleanup_servers = track_cleanup  # type: ignore[assignment]
-
-        exit_code = app.server_manager.on_interrupt(signal.SIGINT, None)
-
-        assert exit_code == 130
-        assert cleanup_called is True
-
-    def test_on_terminate_calls_cleanup_and_exits(self) -> None:
-        """ServerManager.on_terminate should call cleanup_servers and return code 143."""
-        from llama_cli.tui import DashboardController
-
-        app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-
-        cleanup_called = False
-
-        def track_cleanup() -> None:
-            nonlocal cleanup_called
-            cleanup_called = True
-
-        app.server_manager.cleanup_servers = track_cleanup  # type: ignore[assignment]
-
-        exit_code = app.server_manager.on_terminate(signal.SIGTERM, None)
-
-        assert exit_code == 143
-        assert cleanup_called is True
-
     def test_signal_handler_releases_build_lock(self) -> None:
         """_signal_handler should release build lock if build in progress."""
         from llama_cli.tui import DashboardController

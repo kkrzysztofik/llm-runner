@@ -47,18 +47,8 @@ class TestReleaseSlotLock:
             assert not lockfile.exists()
 
 
-class TestCheckLockStale:
-    """Tests for check_lock_stale."""
-
-    def test_no_lockfile_returns_false(self, tmp_path: Path) -> None:
-        """Should return False when no lockfile exists."""
-        with patch("llama_manager.orchestration.slot_lockfile.resolve_runtime_dir") as mock_resolve:
-            mock_resolve.return_value = tmp_path
-            from llama_manager.orchestration.slot_lockfile import check_lock_stale
-
-            result = check_lock_stale("test-slot")
-
-            assert result is False
+class TestShutdownSlot:
+    """Tests for shutdown_slot."""
 
     def test_failed_ownership_returns_false(self, tmp_path: Path) -> None:
         """Should return False when ownership verification fails."""
@@ -151,24 +141,6 @@ class TestCheckLockStale:
                 )
 
                 result = shutdown_slot("test-slot", timeout=10.0)
-
-                assert result is False
-
-
-class TestCheckLockStaleErrorDetail:
-    """Tests for check_lock_stale with ErrorDetail."""
-
-    def test_error_detail_returns_false(self, tmp_path: Path) -> None:
-        """Should return False when read_lock returns ErrorDetail."""
-        with patch("llama_manager.orchestration.slot_lockfile.resolve_runtime_dir") as mock_resolve:
-            mock_resolve.return_value = tmp_path
-            with patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read:
-                mock_read.return_value = ErrorDetail(
-                    error_code=ErrorCode.CONFIG_ERROR, why_blocked="bad lock"
-                )
-                from llama_manager.orchestration.slot_lockfile import check_lock_stale
-
-                result = check_lock_stale("test-slot")
 
                 assert result is False
 

@@ -14,7 +14,6 @@ from llama_manager.config import (
     SmokeProbeStatus,
 )
 from llama_manager.probe import (
-    ConsecutiveFailureCounter,
     ProvenanceRecord,
     SmokeCompositeReport,
     SmokeProbeResult,
@@ -856,117 +855,6 @@ class TestApiKeyHeaderPrecedence:
             else:
                 assert headers["Authorization"] == expected_authorization
             assert "Content-Type" in headers
-
-
-# ---------------------------------------------------------------------------
-# T032 — ConsecutiveFailureCounter
-# ---------------------------------------------------------------------------
-
-
-class TestConsecutiveFailureCounter:
-    """T032: ConsecutiveFailureCounter — record_failure, record_success, reset."""
-
-    def test_initial_state(self) -> None:
-        """ConsecutiveFailureCounter should start with count=0 and no override."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        assert counter.count == 0
-        assert counter.model_id_override is None
-
-    def test_record_failure_increments_count(self) -> None:
-        """record_failure should increment count by 1."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        counter.record_failure()
-        assert counter.count == 1
-        counter.record_failure()
-        assert counter.count == 2
-        counter.record_failure()
-        assert counter.count == 3
-
-    def test_record_failure_sets_model_id_override(self) -> None:
-        """record_failure should set model_id_override when model_id is provided."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        counter.record_failure(model_id="Qwen3.5-2B")
-        assert counter.model_id_override == "Qwen3.5-2B"
-
-    def test_record_failure_without_model_id_preserves_override(self) -> None:
-        """record_failure without model_id should not change model_id_override."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        counter.record_failure(model_id="model-a")
-        assert counter.model_id_override == "model-a"
-        counter.record_failure()  # no model_id
-        assert counter.model_id_override == "model-a"  # unchanged
-
-    def test_record_failure_with_new_model_id_updates_override(self) -> None:
-        """record_failure with a new model_id should update model_id_override."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        counter.record_failure(model_id="model-a")
-        assert counter.model_id_override == "model-a"
-        counter.record_failure(model_id="model-b")
-        assert counter.model_id_override == "model-b"
-
-    def test_record_success_resets_counter(self) -> None:
-        """record_success should reset count to 0 and clear model_id_override."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        counter.record_failure(model_id="model-a")
-        assert counter.count == 1
-        assert counter.model_id_override == "model-a"
-
-        counter.record_success()
-        assert counter.count == 0
-        assert counter.model_id_override is None
-
-    def test_reset_clears_counter(self) -> None:
-        """reset should clear count and model_id_override."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        counter.record_failure(model_id="model-a")
-        counter.reset()
-        assert counter.count == 0
-        assert counter.model_id_override is None
-
-    def test_multiple_failures_different_slots(self) -> None:
-        """Different slots should track independent failure counts."""
-        counter1 = ConsecutiveFailureCounter(slot_id="slot1")
-        counter2 = ConsecutiveFailureCounter(slot_id="slot2")
-
-        counter1.record_failure()
-        counter1.record_failure()
-        counter2.record_failure()
-
-        assert counter1.count == 2
-        assert counter2.count == 1
-
-    def test_success_resets_only_own_counter(self) -> None:
-        """record_success on one counter should not affect another."""
-        counter1 = ConsecutiveFailureCounter(slot_id="slot1")
-        counter2 = ConsecutiveFailureCounter(slot_id="slot2")
-
-        counter1.record_failure()
-        counter1.record_failure()
-        counter2.record_failure()
-        counter2.record_failure()
-        counter2.record_failure()
-
-        counter2.record_success()
-
-        assert counter1.count == 2  # unchanged
-        assert counter2.count == 0  # reset
-
-    def test_full_failure_success_cycle(self) -> None:
-        """Full cycle: failures → success → failures should work correctly."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-
-        counter.record_failure(model_id="model-a")
-        counter.record_failure(model_id="model-a")
-        assert counter.count == 2
-        assert counter.model_id_override == "model-a"
-
-        counter.record_success()
-        assert counter.count == 0
-        assert counter.model_id_override is None
-
-        counter.record_failure(model_id="model-b")
-        assert counter.count == 1
-        assert counter.model_id_override == "model-b"
 
 
 # ---------------------------------------------------------------------------

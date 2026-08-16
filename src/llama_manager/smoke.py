@@ -40,14 +40,12 @@ class SmokeTarget:
         model: Path to the GGUF model file.
         host: Server hostname or IP address.
         port: Server HTTP port.
-        backend: Inference backend name (e.g. "llama_cpp").
     """
 
     slot_id: str
     model: str
     host: str
     port: int
-    backend: str
 
 
 # ---------------------------------------------------------------------------
@@ -72,42 +70,31 @@ def resolve_smoke_targets(
     """
     registry = create_default_profile_registry(config)
 
-    if mode == "both":
-        configs = [
-            resolve_profile_config(registry, profile_id)
-            for profile_id in SMOKE_MODE_PROFILE_IDS["both"]
-        ]
-        return [
-            SmokeTarget(
-                slot_id=cfg.alias,
-                model=cfg.model,
-                host=cfg.bind_address,
-                port=cfg.port,
-                backend=cfg.backend,
-            )
-            for cfg in configs
-        ]
-
     if mode == "slot" and slot_id:
         try:
             profile_id = resolve_profile_id(registry, slot_id)
             if profile_id is None:
                 return []
             configs = [resolve_profile_config(registry, profile_id)]
-            return [
-                SmokeTarget(
-                    slot_id=cfg.alias,
-                    model=cfg.model,
-                    host=cfg.bind_address,
-                    port=cfg.port,
-                    backend=cfg.backend,
-                )
-                for cfg in configs
-            ]
         except Exception:
             return []
+    elif mode == "both":
+        configs = [
+            resolve_profile_config(registry, profile_id)
+            for profile_id in SMOKE_MODE_PROFILE_IDS["both"]
+        ]
+    else:
+        return []
 
-    return []
+    return [
+        SmokeTarget(
+            slot_id=cfg.alias,
+            model=cfg.model,
+            host=cfg.bind_address,
+            port=cfg.port,
+        )
+        for cfg in configs
+    ]
 
 
 # ---------------------------------------------------------------------------

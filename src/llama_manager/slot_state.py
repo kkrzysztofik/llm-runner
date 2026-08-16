@@ -1,9 +1,6 @@
 """Pure library for computing slot state transition messages and runtime liveness."""
 
-from collections.abc import Callable
 from typing import Any
-
-import psutil
 
 from .config.enums import SlotState
 
@@ -66,7 +63,6 @@ def compute_slot_transition(
 def resolve_slot_runtime_status(
     current_state: str,
     process: Any | None,
-    pid_exists: Callable[[int], bool] = psutil.pid_exists,
 ) -> str:
     """Resolve the runtime liveness status of a server slot.
 
@@ -78,7 +74,6 @@ def resolve_slot_runtime_status(
     Args:
         current_state: The slot's logical state (e.g. ``"running"``, ``"idle"``).
         process: The subprocess.Popen handle or None.
-        pid_exists: Injectable callable for testing (defaults to psutil.pid_exists).
 
     Returns:
         The resolved status string — either the unchanged current state
@@ -91,12 +86,7 @@ def resolve_slot_runtime_status(
         return SlotState.CRASHED.value
 
     poll = getattr(process, "poll", None)
-    if poll is not None:
-        if poll() is not None:
-            return SlotState.CRASHED.value
-    else:
-        pid = getattr(process, "pid", None)
-        if not (pid is not None and pid_exists(pid)):
-            return SlotState.CRASHED.value
+    if poll is not None and poll() is not None:
+        return SlotState.CRASHED.value
 
     return SlotState.RUNNING.value
