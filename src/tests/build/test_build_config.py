@@ -11,8 +11,6 @@ import json
 import time
 from pathlib import Path
 
-import pytest
-
 from llama_manager.build_pipeline import (
     BuildArtifact,
     BuildBackend,
@@ -157,82 +155,6 @@ class TestBuildArtifact:
         assert artifact.binary_size_bytes == 104857600
         assert artifact.build_log_path == tmp_path / "logs" / "build.log"
         assert artifact.failure_report_path is None
-
-    def test_build_artifact_is_success_true(self) -> None:
-        """BuildArtifact.is_success should return True when exit_code == 0."""
-        artifact = BuildArtifact(
-            artifact_type="llama-server",
-            backend=BuildBackend.SYCL,
-            created_at=time.time(),
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_commit_sha="abc123",
-            git_branch="main",
-            build_command=["echo", "test"],
-            build_duration_seconds=1.0,
-            exit_code=0,
-            binary_path=Path("/bin/test"),
-            binary_size_bytes=1024,
-            build_log_path=None,
-            failure_report_path=None,
-        )
-        assert artifact.is_success is True
-
-    def test_build_artifact_is_success_false(self) -> None:
-        """BuildArtifact.is_success should return False when exit_code != 0."""
-        artifact = BuildArtifact(
-            artifact_type="llama-server",
-            backend=BuildBackend.SYCL,
-            created_at=time.time(),
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_commit_sha="abc123",
-            git_branch="main",
-            build_command=["echo", "test"],
-            build_duration_seconds=1.0,
-            exit_code=1,
-            binary_path=None,
-            binary_size_bytes=None,
-            build_log_path=None,
-            failure_report_path=None,
-        )
-        assert artifact.is_success is False
-
-    def test_build_artifact_binary_size_mb_calculation(self) -> None:
-        """BuildArtifact.binary_size_mb should calculate correctly (bytes to MB)."""
-        artifact = BuildArtifact(
-            artifact_type="llama-server",
-            backend=BuildBackend.SYCL,
-            created_at=time.time(),
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_commit_sha="abc123",
-            git_branch="main",
-            build_command=["echo", "test"],
-            build_duration_seconds=1.0,
-            exit_code=0,
-            binary_path=Path("/bin/test"),
-            binary_size_bytes=104857600,  # 100 MB in bytes
-            build_log_path=None,
-            failure_report_path=None,
-        )
-        assert artifact.binary_size_mb == pytest.approx(100.0)
-
-    def test_build_artifact_binary_size_mb_none(self) -> None:
-        """BuildArtifact.binary_size_mb should return None when binary_size_bytes is None."""
-        artifact = BuildArtifact(
-            artifact_type="llama-server",
-            backend=BuildBackend.SYCL,
-            created_at=time.time(),
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_commit_sha="abc123",
-            git_branch="main",
-            build_command=["echo", "test"],
-            build_duration_seconds=1.0,
-            exit_code=1,
-            binary_path=None,
-            binary_size_bytes=None,
-            build_log_path=None,
-            failure_report_path=None,
-        )
-        assert artifact.binary_size_mb is None
 
     def test_build_artifact_created_at_default(self, tmp_path: Path) -> None:
         """BuildArtifact.created_at should be a float timestamp."""
@@ -579,7 +501,3 @@ class TestBuildArtifactContract:
         assert parsed["failure_report_path"] is None or isinstance(
             parsed["failure_report_path"], str
         )
-
-        # Verify is_success property works
-        assert artifact.is_success is True
-        assert artifact.binary_size_mb == pytest.approx(100.0)

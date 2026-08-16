@@ -217,8 +217,6 @@ def _fetch_remote_branch_sha(remote_url: str, branch: str) -> str | None:
     if not ls_remote_output:
         return None
     parts = ls_remote_output.split("\t")
-    if not parts:
-        return None
     remote_branch_sha = parts[0]
     logger.debug(
         "[status] remote HEAD for %s/%s = %s",

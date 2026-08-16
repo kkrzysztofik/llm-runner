@@ -13,7 +13,7 @@ import json
 import os
 import stat
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -1224,130 +1224,136 @@ from llama_manager.reports import FailureReport, write_failure_report
 from llama_manager.setup_venv import VenvResult, check_venv_integrity, create_venv, get_venv_path
 from llama_manager.toolchain import (
     ToolchainErrorDetail,
-    ToolchainHint,
     ToolchainStatus,
+    detector,
     get_toolchain_hints,
-    parse_version,
-    version_at_least,
 )
 
 
 class TestDetectToolchainIntegration:
     """Integration tests for detect_toolchain functionality."""
 
-    def test_detect_toolchain_basic(self) -> None:
+    def test_detect_toolchain_basic(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """detect_toolchain should return ToolchainStatus with correct structure."""
         # Mock detect_tool to return known values
-        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
-            # Simulate all tools present
-            mock_detect.return_value = (True, "1.0.0")
+        mock_detect = MagicMock()
+        monkeypatch.setattr(detector, "detect_tool", mock_detect)
+        # Simulate all tools present
+        mock_detect.return_value = (True, "1.0.0")
 
-            # Import here to avoid circular import
-            from llama_manager.toolchain import detect_toolchain
+        # Import here to avoid circular import
+        from llama_manager.toolchain import detect_toolchain
 
-            status = detect_toolchain()
+        status = detect_toolchain()
 
-            assert isinstance(status, ToolchainStatus)
-            # All fields should be set since we mocked detect_tool to return True
-            assert status.gcc is not None
-            assert status.make is not None
-            assert status.git is not None
-            assert status.cmake is not None
-            assert status.sycl_compiler is not None
-            assert status.cuda_toolkit is not None
-            assert status.nvtop is not None
+        assert isinstance(status, ToolchainStatus)
+        # All fields should be set since we mocked detect_tool to return True
+        assert status.gcc is not None
+        assert status.make is not None
+        assert status.git is not None
+        assert status.cmake is not None
+        assert status.sycl_compiler is not None
+        assert status.cuda_toolkit is not None
+        assert status.nvtop is not None
 
-    def test_detect_toolchain_partial_tools(self) -> None:
+    def test_detect_toolchain_partial_tools(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """detect_toolchain should handle partial tool availability."""
-        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
-            # Simulate some tools present, some missing
-            # Calls: gcc, make, git, cmake, icpx, icx, dpcpp, nvcc, nvtop
-            mock_detect.side_effect = [
-                (True, "11.4.0"),  # gcc
-                (True, "4.3"),  # make
-                (True, "2.37.0"),  # git
-                (True, "3.25.0"),  # cmake
-                (False, None),  # icpx (SYCL candidate 1)
-                (False, None),  # icx (SYCL candidate 2)
-                (False, None),  # dpcpp (SYCL candidate 3)
-                (True, "12.2.0"),  # nvcc (CUDA toolkit)
-                (True, "2.1.0"),  # nvtop
-            ]
+        mock_detect = MagicMock()
+        monkeypatch.setattr(detector, "detect_tool", mock_detect)
+        # Simulate some tools present, some missing
+        # Calls: gcc, make, git, cmake, icpx, icx, dpcpp, nvcc, nvtop
+        mock_detect.side_effect = [
+            (True, "11.4.0"),  # gcc
+            (True, "4.3"),  # make
+            (True, "2.37.0"),  # git
+            (True, "3.25.0"),  # cmake
+            (False, None),  # icpx (SYCL candidate 1)
+            (False, None),  # icx (SYCL candidate 2)
+            (False, None),  # dpcpp (SYCL candidate 3)
+            (True, "12.2.0"),  # nvcc (CUDA toolkit)
+            (True, "2.1.0"),  # nvtop
+        ]
 
-            from llama_manager.toolchain import detect_toolchain
+        from llama_manager.toolchain import detect_toolchain
 
-            status = detect_toolchain()
+        status = detect_toolchain()
 
-            assert status.gcc == "11.4.0"
-            assert status.sycl_compiler is None  # Missing
-            assert status.is_sycl_ready is False
-            assert status.is_cuda_ready is True
+        assert status.gcc == "11.4.0"
+        assert status.sycl_compiler is None  # Missing
+        assert status.is_sycl_ready is False
+        assert status.is_cuda_ready is True
 
-    def test_detect_toolchain_all_missing(self) -> None:
+    def test_detect_toolchain_all_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """detect_toolchain should handle all tools missing."""
-        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
-            # All tools missing
-            mock_detect.return_value = (False, None)
+        mock_detect = MagicMock()
+        monkeypatch.setattr(detector, "detect_tool", mock_detect)
+        # All tools missing
+        mock_detect.return_value = (False, None)
 
-            from llama_manager.toolchain import detect_toolchain
+        from llama_manager.toolchain import detect_toolchain
 
-            status = detect_toolchain()
+        status = detect_toolchain()
 
-            assert status.gcc is None
-            assert status.make is None
-            assert status.is_sycl_ready is False
-            assert status.is_cuda_ready is False
-            assert status.is_complete is False
+        assert status.gcc is None
+        assert status.make is None
+        assert status.is_sycl_ready is False
+        assert status.is_cuda_ready is False
+        assert status.is_complete is False
 
 
 class TestGetToolchainHintsIntegration:
     """Integration tests for get_toolchain_hints functionality."""
 
-    def test_get_toolchain_hints_sycl_integration(self) -> None:
+    def test_get_toolchain_hints_sycl_integration(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """get_toolchain_hints should return list of ToolchainErrorDetail for SYCL."""
-        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
-            # All tools missing
-            mock_detect.return_value = (False, None)
+        mock_detect = MagicMock()
+        monkeypatch.setattr(detector, "detect_tool", mock_detect)
+        # All tools missing
+        mock_detect.return_value = (False, None)
 
-            errors = get_toolchain_hints("sycl")
+        errors = get_toolchain_hints("sycl")
 
-            assert isinstance(errors, list)
-            assert len(errors) == 7  # gcc, make, git, cmake, dpcpp, icx, icpx
-            for error in errors:
-                assert isinstance(error, ToolchainErrorDetail)
-                assert error.error_code.value == "TOOLCHAIN_MISSING"
-                assert error.failed_check is not None
-                assert error.why_blocked is not None
-                assert error.how_to_fix is not None
+        assert isinstance(errors, list)
+        assert len(errors) == 7  # gcc, make, git, cmake, dpcpp, icx, icpx
+        for error in errors:
+            assert isinstance(error, ToolchainErrorDetail)
+            assert error.error_code.value == "TOOLCHAIN_MISSING"
+            assert error.failed_check is not None
+            assert error.why_blocked is not None
+            assert error.how_to_fix is not None
 
-    def test_get_toolchain_hints_cuda_integration(self) -> None:
+    def test_get_toolchain_hints_cuda_integration(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """get_toolchain_hints should return list of ToolchainErrorDetail for CUDA."""
-        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
-            # All tools missing
-            mock_detect.return_value = (False, None)
+        mock_detect = MagicMock()
+        monkeypatch.setattr(detector, "detect_tool", mock_detect)
+        # All tools missing
+        mock_detect.return_value = (False, None)
 
-            errors = get_toolchain_hints("cuda")
+        errors = get_toolchain_hints("cuda")
 
-            assert isinstance(errors, list)
-            assert len(errors) == 6  # gcc, make, git, cmake, nvcc, nvidia-smi
-            for error in errors:
-                assert isinstance(error, ToolchainErrorDetail)
-                assert error.error_code.value == "TOOLCHAIN_MISSING"
-                assert error.failed_check is not None
-                assert error.why_blocked is not None
-                assert error.how_to_fix is not None
+        assert isinstance(errors, list)
+        assert len(errors) == 6  # gcc, make, git, cmake, nvcc, nvidia-smi
+        for error in errors:
+            assert isinstance(error, ToolchainErrorDetail)
+            assert error.error_code.value == "TOOLCHAIN_MISSING"
+            assert error.failed_check is not None
+            assert error.why_blocked is not None
+            assert error.how_to_fix is not None
 
-    def test_get_toolchain_hints_empty_when_all_present(self) -> None:
+    def test_get_toolchain_hints_empty_when_all_present(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """get_toolchain_hints should return empty list when all tools present."""
-        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
-            # All tools present
-            mock_detect.return_value = (True, "1.0.0")
+        mock_detect = MagicMock()
+        monkeypatch.setattr(detector, "detect_tool", mock_detect)
+        # All tools present
+        mock_detect.return_value = (True, "1.0.0")
 
-            sycl_errors = get_toolchain_hints("sycl")
-            cuda_errors = get_toolchain_hints("cuda")
+        sycl_errors = get_toolchain_hints("sycl")
+        cuda_errors = get_toolchain_hints("cuda")
 
-            assert len(sycl_errors) == 0
-            assert len(cuda_errors) == 0
+        assert len(sycl_errors) == 0
+        assert len(cuda_errors) == 0
 
     def test_get_toolchain_hints_invalid_backend_raises(self) -> None:
         """get_toolchain_hints should raise ValueError for invalid backend."""
@@ -1567,18 +1573,6 @@ class TestWriteFailureReportIntegration:
 class TestPhase2Comprehensive:
     """Comprehensive tests covering all Phase 2 functionality."""
 
-    def test_version_parsing_and_comparison(self) -> None:
-        """Test version parsing and comparison for toolchain validation."""
-        # Test parse_version
-        assert parse_version("3.20.1") == (3, 20, 1)
-        assert parse_version("3.20") == (3, 20, 0)
-        assert parse_version("3.20.1ubuntu") == (3, 20, 1)
-
-        # Test version_at_least
-        assert version_at_least("3.20.1", "3.20.0") is True
-        assert version_at_least("3.19.0", "3.20.0") is False
-        assert version_at_least("3.14", "3.14") is True
-
     def test_toolchain_error_detail_structure(self) -> None:
         """Test ToolchainErrorDetail has all required fields."""
         from llama_manager.config import ErrorCode
@@ -1597,21 +1591,6 @@ class TestPhase2Comprehensive:
         assert error.how_to_fix == "sudo apt-get install gcc"
         assert error.docs_ref == "https://gcc.gnu.org/download.html"
 
-    def test_toolchain_hint_structure(self) -> None:
-        """Test ToolchainHint has all required fields."""
-        hint = ToolchainHint(
-            tool_name="gcc",
-            install_command="sudo apt-get install gcc",
-            install_url="https://gcc.gnu.org/download.html",
-            required_for=["sycl", "cuda"],
-        )
-
-        assert hint.tool_name == "gcc"
-        assert hint.install_command == "sudo apt-get install gcc"
-        assert hint.install_url == "https://gcc.gnu.org/download.html"
-        assert hint.required_for == ["sycl", "cuda"]
-        assert hint.is_url_available is True
-
     def test_venv_path_utility(self) -> None:
         """Test get_venv_path utility function."""
         # Test with default
@@ -1623,28 +1602,29 @@ class TestPhase2Comprehensive:
             assert "llm-runner" in str(result)
             assert "venv" in str(result)
 
-    def test_sycl_vs_cuda_toolchain_hints(self) -> None:
+    def test_sycl_vs_cuda_toolchain_hints(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that SYCL and CUDA hints return different tools."""
-        with patch("llama_manager.toolchain.detect_tool") as mock_detect:
-            mock_detect.return_value = (False, None)
+        mock_detect = MagicMock()
+        monkeypatch.setattr(detector, "detect_tool", mock_detect)
+        mock_detect.return_value = (False, None)
 
-            sycl_errors = get_toolchain_hints("sycl")
-            cuda_errors = get_toolchain_hints("cuda")
+        sycl_errors = get_toolchain_hints("sycl")
+        cuda_errors = get_toolchain_hints("cuda")
 
-            # Should have different tool names
-            sycl_tools = {e.failed_check for e in sycl_errors}
-            cuda_tools = {e.failed_check for e in cuda_errors}
+        # Should have different tool names
+        sycl_tools = {e.failed_check for e in sycl_errors}
+        cuda_tools = {e.failed_check for e in cuda_errors}
 
-            # Common tools overlap (gcc, make, git, cmake)
-            common = sycl_tools & cuda_tools
-            assert "gcc" in common
-            assert "make" in common
+        # Common tools overlap (gcc, make, git, cmake)
+        common = sycl_tools & cuda_tools
+        assert "gcc" in common
+        assert "make" in common
 
-            # SYCL-specific tools
-            assert sycl_tools == {"gcc", "make", "git", "cmake", "dpcpp", "icx", "icpx"}
+        # SYCL-specific tools
+        assert sycl_tools == {"gcc", "make", "git", "cmake", "dpcpp", "icx", "icpx"}
 
-            # CUDA-specific tools (no nvtop)
-            assert cuda_tools == {"gcc", "make", "git", "cmake", "nvcc", "nvidia-smi"}
+        # CUDA-specific tools (no nvtop)
+        assert cuda_tools == {"gcc", "make", "git", "cmake", "nvcc", "nvidia-smi"}
 
     def test_report_security(self, tmp_path: Path) -> None:
         """Test that failure reports properly handle sensitive data."""
@@ -1690,11 +1670,3 @@ class TestPhase2Comprehensive:
 
         assert result.was_created is True
         assert result.was_reused is False
-        assert result.is_valid is False  # Path doesn't exist
-
-        # Test path methods
-        python_path = result.get_python_path()
-        assert python_path.name == "python"
-
-        pip_path = result.get_pip_path()
-        assert pip_path.name == "pip"

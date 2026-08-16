@@ -674,11 +674,6 @@ class TestResolveBackendEnum:
         result = resolve_backend_enum("cuda")
         assert result == BuildBackend.CUDA
 
-    def test_valid_all(self) -> None:
-        """resolve_backend_enum('all') should return BuildBackend.BOTH."""
-        result = resolve_backend_enum("both")
-        assert result == BuildBackend.BOTH
-
     def test_valid_all_string_returns_none(self) -> None:
         """resolve_backend_enum('all') returns None because 'all' is not a valid BuildBackend value."""
         result = resolve_backend_enum("all")

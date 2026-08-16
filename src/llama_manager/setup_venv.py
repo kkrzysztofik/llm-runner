@@ -30,40 +30,6 @@ class VenvResult:
         """Check if an existing virtual environment was reused."""
         return self.reused and not self.created
 
-    @property
-    def is_valid(self) -> bool:
-        """Check if the virtual environment is valid and usable.
-
-        Returns:
-            True if the venv exists and is functional.
-        """
-        valid, _ = check_venv_integrity(self.venv_path)
-        return valid
-
-    def get_python_path(self) -> Path:
-        """Get the Python interpreter path for this virtual environment.
-
-        Returns:
-            Path to the Python interpreter in the virtual environment.
-        """
-        # Check if this is a Windows-style venv path (Scripts directory exists)
-        if (self.venv_path / "Scripts").exists():
-            return self.venv_path / "Scripts" / "python.exe"
-        else:
-            return self.venv_path / "bin" / "python"
-
-    def get_pip_path(self) -> Path:
-        """Get the pip executable path for this virtual environment.
-
-        Returns:
-            Path to the pip executable in the virtual environment.
-        """
-        # Check if this is a Windows-style venv path (Scripts directory exists)
-        if (self.venv_path / "Scripts").exists():
-            return self.venv_path / "Scripts" / "pip.exe"
-        else:
-            return self.venv_path / "bin" / "pip"
-
 
 def get_venv_path() -> Path:
     """Return the managed virtual environment path.
@@ -112,16 +78,8 @@ def create_venv(path: str | Path) -> VenvResult:
         venv.create(venv_path, with_pip=True, clear=False)
         created = True
 
-    # Determine activation command based on venv path structure
-    # Check if this is a Windows-style venv path (Scripts directory exists)
-    if (venv_path / "Scripts").exists():
-        # Windows-style venv
-        activation_script = venv_path / "Scripts" / "activate.bat"
-        activation_command = f'cmd /c "{activation_script}"'
-    else:
-        # Unix-style venv
-        activation_script = venv_path / "bin" / "activate"
-        activation_command = f"source {activation_script}"
+    activation_script = venv_path / "bin" / "activate"
+    activation_command = f"source {activation_script}"
 
     return VenvResult(
         venv_path=venv_path,
@@ -154,11 +112,7 @@ def check_venv_integrity(path: str | Path) -> tuple[bool, str | None]:
         return (False, "pyvenv.cfg missing")
 
     # Check if interpreter exists
-    # Check if this is a Windows-style venv path (Scripts directory exists)
-    if (venv_path / "Scripts").exists():
-        interpreter = venv_path / "Scripts" / "python.exe"
-    else:
-        interpreter = venv_path / "bin" / "python"
+    interpreter = venv_path / "bin" / "python"
 
     if not interpreter.exists():
         return (False, "interpreter not found in venv")

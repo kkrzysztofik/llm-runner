@@ -626,9 +626,9 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         )
         retry_delay_input = Input(value=str(config.build.retry_delay), classes="build-option-input")
         shallow_cb = Checkbox(
-            f"Shallow clone (default: {getattr(config, 'build_shallow_clone', True)})",
+            "Shallow clone (default: True)",
             classes="build-option-checkbox",
-            value=getattr(config, "build_shallow_clone", True),
+            value=True,
         )
         update_cb = Checkbox("Update sources", classes="build-option-checkbox", value=True)
         clean_cache_cb = Checkbox("Clean cmake cache", classes="build-option-checkbox", value=False)

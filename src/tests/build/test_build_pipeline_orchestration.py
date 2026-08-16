@@ -6,7 +6,6 @@ Covers:
 - _sleep_until_cancel_or_timeout
 - _run_stage_batch (all succeed, first fails, cancel before stage)
 - run() (success path, configure failure, build failure, cancel after build, finalize failure, exception)
-- run_both_backends (sequential results)
 - lock management
 """
 
@@ -14,9 +13,7 @@ import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from llama_manager.build_pipeline import BuildBackend, BuildConfig, BuildProgress, BuildResult
+from llama_manager.build_pipeline import BuildBackend, BuildConfig, BuildProgress
 from llama_manager.build_pipeline._context import _BuildContext
 from llama_manager.build_pipeline.pipeline import BuildPipeline
 
@@ -336,20 +333,6 @@ class TestRunStageBatch:
 class TestPipelineRun:
     """Tests for BuildPipeline.run()."""
 
-    def test_run_both_backend_raises(self, tmp_path: Path) -> None:
-        """run() should raise ValueError for BOTH backend."""
-        config = BuildConfig(
-            backend=BuildBackend.BOTH,
-            source_dir=tmp_path / "source",
-            build_dir=tmp_path / "build",
-            output_dir=tmp_path / "output",
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-        )
-        pipeline = BuildPipeline(config)
-        with pytest.raises(ValueError, match="BOTH"):
-            pipeline.run()
-
     def test_run_preflight_failure(self, tmp_path: Path) -> None:
         """Preflight failure returns error result without running clone."""
         with (
@@ -528,55 +511,6 @@ class TestPipelineRun:
         assert "boom" in result.error_message
 
 
-# ── run_both_backends ───────────────────────────────────────────────────────
-
-
-class TestRunBothBackends:
-    """Tests for BuildPipeline.run_both_backends()."""
-
-    def test_both_backends_runs_sequentially(self) -> None:
-        """Should run SYCL then CUDA sequentially."""
-        config = BuildConfig(
-            backend=BuildBackend.SYCL,
-            source_dir=Path("/tmp/source"),
-            build_dir=Path("/tmp/build"),
-            output_dir=Path("/tmp/output"),
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-        )
-        with patch.object(
-            BuildPipeline, "run", return_value=BuildResult(success=True, error_message="")
-        ) as mock_run:
-            pipeline = BuildPipeline(config)
-            pipeline.dry_run = True
-            results = pipeline.run_both_backends()
-        assert len(results) == 2
-        assert results[0].success is True  # SYCL
-        assert results[1].success is True  # CUDA
-        assert mock_run.call_count == 2  # SYCL then CUDA
-
-    def test_both_backends_first_fails(self) -> None:
-        """First backend failure does not prevent second from running."""
-        config = BuildConfig(
-            backend=BuildBackend.SYCL,
-            source_dir=Path("/tmp/source"),
-            build_dir=Path("/tmp/build"),
-            output_dir=Path("/tmp/output"),
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-        )
-        # Mock run to always fail
-        with patch.object(
-            BuildPipeline, "run", return_value=BuildResult(success=False, error_message="fail")
-        ):
-            pipeline = BuildPipeline(config)
-            pipeline.dry_run = True
-            results = pipeline.run_both_backends()
-        assert len(results) == 2
-        assert results[0].success is False
-        assert results[1].success is False
-
-
 # ── Lock management ─────────────────────────────────────────────────────────
 
 
@@ -647,18 +581,3 @@ class TestLockManagement:
         lock_path = tmp_path / "lock.json"
         # Missing file → stale
         assert pipeline._is_lock_stale(lock_path) is True
-
-    def test_get_lock_error_message_delegates(self, tmp_path: Path) -> None:
-        """_get_lock_error_message delegates to get_lock_error_message."""
-        config = BuildConfig(
-            backend=BuildBackend.SYCL,
-            source_dir=tmp_path / "source",
-            build_dir=tmp_path / "build",
-            output_dir=tmp_path / "output",
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-        )
-        pipeline = BuildPipeline(config)
-        lock_path = tmp_path / "lock.json"
-        msg = pipeline._get_lock_error_message(lock_path)
-        assert "could not be read" in msg

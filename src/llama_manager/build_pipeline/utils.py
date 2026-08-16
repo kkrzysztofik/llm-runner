@@ -21,10 +21,6 @@ from .models import BuildBackend
 
 # Message constants used across pipeline stages
 MSG_SOURCES_ALREADY_EXIST = "Sources already exist"
-MSG_SOURCES_NOT_GIT_REPO = (
-    "Source directory exists but is not a git repository; "
-    "remove it or point source_dir at an empty/nonexistent path"
-)
 
 # Intel oneAPI environment setup script (default install location)
 _INTEL_SETVARS_SH = Path("/opt/intel/oneapi/setvars.sh")
@@ -117,30 +113,29 @@ def _get_process_group_id(proc: subprocess.Popen[str], use_process_group: bool) 
     return None
 
 
-def _send_termination_signal(proc: subprocess.Popen[str], process_group_id: int | None) -> None:
-    """Send SIGTERM to process or process group."""
+def _signal_proc(
+    proc: subprocess.Popen[str],
+    process_group_id: int | None,
+    sig: int,
+    fallback: Callable[[], None],
+) -> None:
     try:
         if process_group_id is not None:
-            os.killpg(process_group_id, signal.SIGTERM)
+            os.killpg(process_group_id, sig)
         else:
-            proc.terminate()
+            fallback()
     except ProcessLookupError:
         pass
     except OSError:
-        proc.terminate()
+        fallback()
+
+
+def _send_termination_signal(proc: subprocess.Popen[str], process_group_id: int | None) -> None:
+    _signal_proc(proc, process_group_id, signal.SIGTERM, proc.terminate)
 
 
 def _send_kill_signal(proc: subprocess.Popen[str], process_group_id: int | None) -> None:
-    """Send SIGKILL to process or process group."""
-    try:
-        if process_group_id is not None:
-            os.killpg(process_group_id, signal.SIGKILL)
-        else:
-            proc.kill()
-    except ProcessLookupError:
-        pass
-    except OSError:
-        proc.kill()
+    _signal_proc(proc, process_group_id, signal.SIGKILL, proc.kill)
 
 
 def terminate_process_tree(proc: subprocess.Popen[str], *, use_process_group: bool = True) -> None:

@@ -8,7 +8,6 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import asdict
 from pathlib import Path
 
 from llama_cli.commands._output import emit_json, emit_json_str, emit_plain
@@ -20,6 +19,7 @@ from llama_manager.build_pipeline import (
     BuildResult,
 )
 from llama_manager.build_pipeline.models import SOURCE_FLAVOR_DEFAULTS
+from llama_manager.build_pipeline.utils import _format_duration
 from llama_manager.config import Config
 
 
@@ -33,16 +33,6 @@ def _format_bytes(size_bytes: int | None) -> str:
             return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
         size /= 1024
     raise AssertionError("unreachable")
-
-
-def _format_duration(seconds: float) -> str:
-    """Format build duration for CLI output."""
-    if seconds < 1:
-        return f"{seconds * 1000:.0f}ms"
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    minutes, remaining_seconds = divmod(seconds, 60)
-    return f"{int(minutes)}m {remaining_seconds:.0f}s"
 
 
 def _progress_summary(result: BuildResult) -> dict[str, object] | None:
@@ -203,14 +193,12 @@ def _get_backends(backend_arg: str) -> list[BuildBackend]:
         "cuda": [BuildBackend.CUDA],
         "both": [BuildBackend.SYCL, BuildBackend.CUDA],
     }
-    return backend_map.get(backend_arg, [BuildBackend.SYCL])
+    return backend_map[backend_arg]
 
 
 def _default_build_dir(source_dir: Path, backend: BuildBackend) -> Path:
     """Return the default build directory for a backend under the source root."""
-    if backend is BuildBackend.CUDA:
-        return source_dir / "build_cuda"
-    return source_dir / "build"
+    return source_dir / ("build_cuda" if backend is BuildBackend.CUDA else "build")
 
 
 def _create_build_config(
@@ -300,12 +288,7 @@ def _format_success_json(results: list[tuple[BuildBackend, BuildResult]]) -> str
     artifacts = []
     for _backend, result in results:
         if result.artifact:
-            artifact_dict = asdict(result.artifact)
-            # Convert all Path-like values to strings generically
-            for key, value in artifact_dict.items():
-                if isinstance(value, Path | os.PathLike):
-                    artifact_dict[key] = str(value)
-            artifacts.append(artifact_dict)
+            artifacts.append(result.artifact.to_dict())
     return json.dumps({"success": True, "artifacts": artifacts}, indent=2)
 
 

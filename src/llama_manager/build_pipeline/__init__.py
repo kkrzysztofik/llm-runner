@@ -5,7 +5,7 @@ Re-exports all symbols that were previously available from the
 continue to work without changes.
 """
 
-from .lock import acquire_lock, get_lock_error_message, is_lock_stale, release_lock
+from .lock import acquire_lock, is_lock_stale, release_lock
 from .models import (
     BuildArtifact,
     BuildBackend,
@@ -34,7 +34,6 @@ __all__ = [
     "run_build_for_backend",
     # Lock utilities
     "acquire_lock",
-    "get_lock_error_message",
     "is_lock_stale",
     "release_lock",
 ]

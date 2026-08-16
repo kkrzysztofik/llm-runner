@@ -2,8 +2,6 @@
 
 import re
 import subprocess
-import sys
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -25,23 +23,8 @@ if TYPE_CHECKING:
     from ..config import ErrorCode
 
 
-# Fallback paths for Intel oneAPI compilers (default install location)
-# Looked up lazily so tests can patch via llama_manager.toolchain._INTEL_ONEAPI_BIN
-def _get_oneapi_bin() -> Path:
-    """Get the Intel oneAPI bin path, allowing test overrides via package attribute."""
-    toolchain_pkg = sys.modules.get("llama_manager.toolchain")
-    if toolchain_pkg is not None and hasattr(toolchain_pkg, "_INTEL_ONEAPI_BIN"):
-        return Path(toolchain_pkg._INTEL_ONEAPI_BIN)
-    return Path("/opt/intel/oneapi/compiler/latest/bin")
-
-
-# Look up detect_tool from the package so tests can patch via llama_manager.toolchain.detect_tool
-def _get_detect_tool() -> Callable[[str, int | None], tuple[bool, str | None]]:
-    """Get detect_tool from the package namespace for testability."""
-    toolchain_pkg = sys.modules.get("llama_manager.toolchain")
-    if toolchain_pkg is not None and hasattr(toolchain_pkg, "detect_tool"):
-        return toolchain_pkg.detect_tool  # type: ignore[return-value]
-    return detect_tool
+# Fallback path for Intel oneAPI compilers (default install location)
+_INTEL_ONEAPI_BIN: Path = Path("/opt/intel/oneapi/compiler/latest/bin")
 
 
 def _extract_version(output: str, tool_name: str) -> str | None:
@@ -75,14 +58,6 @@ def _try_tool(cmd: list[str], name: str, timeout: int) -> tuple[bool, str | None
 
 
 _INTEL_ONEAPI_TOOLS = frozenset({"icpx", "icx", "dpcpp"})
-
-# (field_name, tool_name) for common build tools checked across all backends
-_COMMON_MISSING_TOOLS: tuple[tuple[str, str], ...] = (
-    ("gcc", "gcc"),
-    ("make", "make"),
-    ("git", "git"),
-    ("cmake", "cmake"),
-)
 
 
 def detect_tool(
@@ -119,7 +94,7 @@ def detect_tool(
         return (True, version)
 
     if tool_name in _INTEL_ONEAPI_TOOLS:
-        fallback = _get_oneapi_bin() / tool_name
+        fallback = _INTEL_ONEAPI_BIN / tool_name
         if fallback.exists():
             found, version = _try_tool([str(fallback), "--version"], tool_name, timeout)
             if found:
@@ -177,9 +152,8 @@ def get_toolchain_hints(backend: str) -> list["ToolchainErrorDetail"]:  # noqa: 
     required_tools, hints_map = backend_map[backend]
     missing: list[ToolchainErrorDetail] = []
 
-    _detect_tool = _get_detect_tool()
     for tool in required_tools:
-        found, _ = _detect_tool(tool, None)
+        found, _ = detect_tool(tool, None)
         if not found:
             hint = hints_map.get(tool, ToolchainHint(tool, f"install {tool}"))
             missing.append(
@@ -193,44 +167,6 @@ def get_toolchain_hints(backend: str) -> list["ToolchainErrorDetail"]:  # noqa: 
             )
 
     return missing
-
-
-def parse_version(version_str: str) -> tuple[int, ...]:
-    """Parse a version string into a tuple of integers.
-
-    Handles versions like "3.20.1" or "3.20" and normalizes suffixes.
-
-    Args:
-        version_str: Version string to parse (e.g., "3.20.1", "3.20", "3.20.1ubuntu")
-
-    Returns:
-        Tuple of integers representing the version (e.g., (3, 20, 1) or (3, 20, 0))
-    """
-    # Normalize: strip suffixes like "ubuntu", "deb", etc.
-    normalized = re.sub(
-        r"[-_](?:ubuntu|deb|linux|linux-gnu).*", "", version_str, flags=re.IGNORECASE
-    )
-    # Extract only numeric parts and dots
-    parts = re.findall(r"\d+", normalized)
-    # Convert to tuple of integers, defaulting to 0 for missing components
-    result: list[int] = [int(p) for p in parts]
-    # Ensure at least 3 components
-    while len(result) < 3:
-        result.append(0)
-    return tuple(result)
-
-
-def version_at_least(version_str: str, min_version: str) -> bool:
-    """Check if a version string is at least the minimum version.
-
-    Args:
-        version_str: Version string to check (e.g., "3.20.1")
-        min_version: Minimum required version string (e.g., "3.14")
-
-    Returns:
-        True if version_str >= min_version, False otherwise
-    """
-    return parse_version(version_str) >= parse_version(min_version)
 
 
 @dataclass
@@ -298,7 +234,12 @@ class ToolchainStatus:
 
         Checks gcc, make, git, and cmake — the tools shared by all backends.
         """
-        for field, name in _COMMON_MISSING_TOOLS:
+        for field, name in (
+            ("gcc", "gcc"),
+            ("make", "make"),
+            ("git", "git"),
+            ("cmake", "cmake"),
+        ):
             if getattr(self, field) is None:
                 missing.append(name)
 
@@ -349,31 +290,30 @@ def detect_toolchain() -> ToolchainStatus:
     Returns:
         ToolchainStatus with version information for all detected tools.
     """
-    _detect_tool = _get_detect_tool()
     status = ToolchainStatus()
 
     # Common tools
-    _, version = _detect_tool("gcc", None)
+    _, version = detect_tool("gcc", None)
     status.gcc = version
-    _, version = _detect_tool("make", None)
+    _, version = detect_tool("make", None)
     status.make = version
-    _, version = _detect_tool("git", None)
+    _, version = detect_tool("git", None)
     status.git = version
-    _, version = _detect_tool("cmake", None)
+    _, version = detect_tool("cmake", None)
     status.cmake = version
 
     # SYCL-specific tools — probe icpx first, then icx, then dpcpp;
     # set status.sycl_compiler to the version of the first found compiler.
     for _sycl_cand in ("icpx", "icx", "dpcpp"):
-        _, version = _detect_tool(_sycl_cand, None)
+        _, version = detect_tool(_sycl_cand, None)
         if version is not None:
             status.sycl_compiler = version
             break
 
     # CUDA-specific tools
-    _, version = _detect_tool("nvcc", None)
+    _, version = detect_tool("nvcc", None)
     status.cuda_toolkit = version
-    _, version = _detect_tool("nvtop", None)
+    _, version = detect_tool("nvtop", None)
     status.nvtop = version
 
     return status
