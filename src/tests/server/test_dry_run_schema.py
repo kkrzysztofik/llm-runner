@@ -19,6 +19,8 @@ Contract:
 
 from typing import Any
 
+import pytest
+
 from llama_manager.config import ErrorCode, ErrorDetail, ServerConfig
 from llama_manager.validation import (
     DryRunValidationSummary,
@@ -423,42 +425,36 @@ class TestFR003EnvironmentRedaction:
         env_keys = list(payload.environment_redacted.keys())
         assert len(env_keys) > 0
 
-    def test_environment_redacted_redacts_sensitive_values(self) -> None:
+    def test_environment_redacted_redacts_sensitive_values(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """FR-003: environment_redacted should redact sensitive values."""
-        import os
-
         # Set a sensitive env var
-        os.environ["API_KEY"] = "secret_value"
-        try:
-            payload = build_dry_run_slot_payload(
-                self._cfg(slot_id="slot1"),
-                slot_id="slot1",
-                validation_results=DryRunValidationSummary(passed=True, checks=[]),
-                warnings=[],
-            )
-            # API_KEY should be redacted
-            assert "API_KEY" in payload.environment_redacted
-            assert payload.environment_redacted["API_KEY"] == "[REDACTED]"
-        finally:
-            os.environ.pop("API_KEY", None)
+        monkeypatch.setenv("API_KEY", "secret_value")
+        payload = build_dry_run_slot_payload(
+            self._cfg(slot_id="slot1"),
+            slot_id="slot1",
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
+            warnings=[],
+        )
+        # API_KEY should be redacted
+        assert "API_KEY" in payload.environment_redacted
+        assert payload.environment_redacted["API_KEY"] == "[REDACTED]"
 
-    def test_environment_redacted_preserves_non_sensitive(self) -> None:
+    def test_environment_redacted_preserves_non_sensitive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """FR-003: environment_redacted should preserve non-sensitive values."""
-        import os
-
-        os.environ["MODEL_PATH"] = "/path/to/model.gguf"
-        try:
-            payload = build_dry_run_slot_payload(
-                self._cfg(slot_id="slot1"),
-                slot_id="slot1",
-                validation_results=DryRunValidationSummary(passed=True, checks=[]),
-                warnings=[],
-            )
-            # MODEL_PATH should NOT be redacted (not in KEY|TOKEN|SECRET|PASSWORD|AUTH)
-            if "MODEL_PATH" in payload.environment_redacted:
-                assert payload.environment_redacted["MODEL_PATH"] == "/path/to/model.gguf"
-        finally:
-            os.environ.pop("MODEL_PATH", None)
+        monkeypatch.setenv("MODEL_PATH", "/path/to/model.gguf")
+        payload = build_dry_run_slot_payload(
+            self._cfg(slot_id="slot1"),
+            slot_id="slot1",
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
+            warnings=[],
+        )
+        # MODEL_PATH should NOT be redacted (not in KEY|TOKEN|SECRET|PASSWORD|AUTH)
+        if "MODEL_PATH" in payload.environment_redacted:
+            assert payload.environment_redacted["MODEL_PATH"] == "/path/to/model.gguf"
 
 
 class TestFR003HardwareNotes:
@@ -811,8 +807,6 @@ import os
 import re
 import stat
 from pathlib import Path
-
-import pytest
 
 from llama_manager.config import MultiValidationError
 from llama_manager.orchestration import ValidationException, write_artifact

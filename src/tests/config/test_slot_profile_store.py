@@ -27,14 +27,14 @@ from llama_manager.slot_profile_store import (
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def xdg_config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Set XDG_CONFIG_HOME to a temp dir and return it."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     return tmp_path
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_profile() -> RunProfileSpec:
     """Return a minimal valid RunProfileSpec for testing."""
     return RunProfileSpec(
@@ -374,7 +374,8 @@ def test_profile_from_dict_migrates_mmap_mlock() -> None:
     assert p.load_mode == "mlock"
     d = _profile_to_dict(p)
     assert d["load_mode"] == "mlock"
-    assert "mmap" not in d and "mlock" not in d
+    assert "mmap" not in d
+    assert "mlock" not in d
 
 
 def test_profile_from_dict_normalizes_invalid_tri_state() -> None:

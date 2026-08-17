@@ -22,7 +22,7 @@ class BenchmarkResult:
 
 
 def _extract_first_float(text: str) -> float | None:
-    match = re.search(r"(\d*\.?\d+)", text)
+    match = re.search(r"((?:\d+\.)?\d+)", text)
     if match is None:
         return None
     try:

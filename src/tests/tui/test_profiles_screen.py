@@ -13,7 +13,7 @@ from llama_manager.config.profiles import SlotProfileSpec as RunProfileSpec
 from llama_manager.model_index import ModelIndexEntry
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_profiles() -> list[tuple[RunProfileSpec, str]]:
     """Return sample profiles for testing."""
     builtin = RunProfileSpec(
@@ -43,7 +43,7 @@ def sample_profiles() -> list[tuple[RunProfileSpec, str]]:
     return [(builtin, "builtin"), (custom, "custom")]
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_profiles_with_in_use() -> list[tuple[RunProfileSpec, str]]:
     """Return profiles where one is in use."""
     builtin = RunProfileSpec(

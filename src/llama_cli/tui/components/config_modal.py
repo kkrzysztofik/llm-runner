@@ -190,53 +190,53 @@ def _optional_config_float(raw: str) -> float | None:
     return float(stripped)
 
 
+def _validate_optional_number_field(
+    label: str, raw: str, *, is_int: bool, non_negative: bool = False
+) -> str | None:
+    """Return an error message for an optional numeric field, or None if valid."""
+    stripped = raw.strip()
+    if not stripped:
+        return None
+    try:
+        value = int(stripped) if is_int else float(stripped)
+    except ValueError:
+        return f"Invalid {label}: {raw!r}"
+    if is_int and non_negative and value < 0:
+        return f"Invalid {label}: {value} (must be >= 0)"
+    return None
+
+
 def _validate_config_payload(payload: ConfigPayload) -> list[str]:
     """Validate enum and optional numeric fields before save."""
     errors: list[str] = []
-    if payload.default_load_mode not in LOAD_MODE_VALUES:
-        errors.append(f"Invalid load mode: {payload.default_load_mode!r}")
-    if payload.default_split_mode not in SPLIT_MODE_VALUES:
-        errors.append(f"Invalid split mode: {payload.default_split_mode!r}")
-    if payload.default_reasoning_preserve not in TRI_STATE_VALUES:
-        errors.append(f"Invalid reasoning preserve: {payload.default_reasoning_preserve!r}")
-    if payload.default_reasoning_effort not in REASONING_EFFORT_VALUES:
-        errors.append(f"Invalid thinking level: {payload.default_reasoning_effort!r}")
-    if payload.default_fit not in TRI_STATE_VALUES:
-        errors.append(f"Invalid fit: {payload.default_fit!r}")
+    enum_fields = (
+        ("load mode", payload.default_load_mode, LOAD_MODE_VALUES),
+        ("split mode", payload.default_split_mode, SPLIT_MODE_VALUES),
+        ("reasoning preserve", payload.default_reasoning_preserve, TRI_STATE_VALUES),
+        ("thinking level", payload.default_reasoning_effort, REASONING_EFFORT_VALUES),
+        ("fit", payload.default_fit, TRI_STATE_VALUES),
+    )
+    for label, value, allowed in enum_fields:
+        if value not in allowed:
+            errors.append(f"Invalid {label}: {value!r}")
     if chat_template_kwargs_has_reasoning_effort(payload.default_profile_chat_template_kwargs):
         errors.append(REASONING_EFFORT_JSON_CONFLICT)
 
-    optional_int_fields = (
-        ("ctx checkpoints", payload.default_ctx_checkpoints),
-        ("top k", payload.default_top_k),
+    numeric_fields = (
+        ("ctx checkpoints", payload.default_ctx_checkpoints, True, True),
+        ("top k", payload.default_top_k, True, False),
+        ("temperature", payload.default_temperature, False, False),
+        ("top p", payload.default_top_p, False, False),
+        ("min p", payload.default_min_p, False, False),
+        ("presence penalty", payload.default_presence_penalty, False, False),
+        ("repeat penalty", payload.default_repeat_penalty, False, False),
     )
-    for label, raw in optional_int_fields:
-        stripped = raw.strip()
-        if not stripped:
-            continue
-        try:
-            value = int(stripped)
-        except ValueError:
-            errors.append(f"Invalid {label}: {raw!r}")
-            continue
-        if label == "ctx checkpoints" and value < 0:
-            errors.append(f"Invalid ctx checkpoints: {value} (must be >= 0)")
-
-    optional_float_fields = (
-        ("temperature", payload.default_temperature),
-        ("top p", payload.default_top_p),
-        ("min p", payload.default_min_p),
-        ("presence penalty", payload.default_presence_penalty),
-        ("repeat penalty", payload.default_repeat_penalty),
-    )
-    for label, raw in optional_float_fields:
-        stripped = raw.strip()
-        if not stripped:
-            continue
-        try:
-            float(stripped)
-        except ValueError:
-            errors.append(f"Invalid {label}: {raw!r}")
+    for label, raw, is_int, non_negative in numeric_fields:
+        error = _validate_optional_number_field(
+            label, raw, is_int=is_int, non_negative=non_negative
+        )
+        if error is not None:
+            errors.append(error)
 
     return errors
 

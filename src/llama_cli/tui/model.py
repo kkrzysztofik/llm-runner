@@ -120,8 +120,8 @@ class DashboardModel:
         """Return immutable cached telemetry for render-only dashboard code."""
         with self.system_health_lock:
             return DashboardSnapshot(
-                cpu_percentages=list(self.cached_cpu_percentages),
-                memory_usage_rows=list(self.cached_memory_usage_rows),
+                cpu_percentages=self.cached_cpu_percentages,
+                memory_usage_rows=self.cached_memory_usage_rows,
                 system_info=self.cached_system_info_snapshot,
                 gpu_stats_by_alias={
                     alias: dict(stats) for alias, stats in self.cached_gpu_stats_by_alias.items()
@@ -168,8 +168,8 @@ class DashboardModel:
     ) -> None:
         """Store system-health state collected off the UI thread."""
         with self.system_health_lock:
-            self.cached_cpu_percentages = list(cpu)
-            self.cached_memory_usage_rows = list(memory_rows)
+            self.cached_cpu_percentages = cpu
+            self.cached_memory_usage_rows = memory_rows
             self.cached_system_info_snapshot = system_info
 
     def snapshot_for_probe(self) -> tuple[tuple[str, GPUStats, ServerConfig], ...]:

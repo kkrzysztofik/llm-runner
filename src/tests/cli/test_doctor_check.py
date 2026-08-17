@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 from _pytest.capture import CaptureFixture
 
 from llama_cli.commands.doctor import (
@@ -236,15 +235,12 @@ class TestCmdDoctorCheck:
             captured = capsys.readouterr()
 
             # Should be valid JSON
-            try:
-                parsed = json.loads(captured.out)
-                assert "is_healthy" in parsed
-                assert "toolchain_complete" in parsed
-                assert "venv_exists" in parsed
-                assert "venv_intact" in parsed
-                assert "build_lock_free" in parsed
-            except json.JSONDecodeError:
-                pytest.fail("Output is not valid JSON")
+            parsed = json.loads(captured.out)
+            assert "is_healthy" in parsed
+            assert "toolchain_complete" in parsed
+            assert "venv_exists" in parsed
+            assert "venv_intact" in parsed
+            assert "build_lock_free" in parsed
 
     def test_doctor_check_stale_lock_detection(self, tmp_path, capsys) -> None:
         """doctor --check should detect stale build locks (T083)."""
@@ -391,14 +387,11 @@ class TestCmdDoctorRepair:
             captured = capsys.readouterr()
 
             # Should be valid JSON
-            try:
-                parsed = json.loads(captured.out)
-                assert "actions" in parsed
-                assert "performed_actions" in parsed
-                assert "failures" in parsed
-                assert "success" in parsed
-            except json.JSONDecodeError:
-                pytest.fail("Output is not valid JSON")
+            parsed = json.loads(captured.out)
+            assert "actions" in parsed
+            assert "performed_actions" in parsed
+            assert "failures" in parsed
+            assert "success" in parsed
 
 
 class TestDoctorSuccessPath:

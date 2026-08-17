@@ -51,6 +51,8 @@ from llama_manager.logging_setup import (
     update_stderr_level,
 )
 from llama_manager.slot_stats import (
+    ProfileStatsAggregate,
+    SlotStatsSnapshot,
     collect_slot_stats,
     load_profile_stats,
     load_slot_stats,
@@ -210,28 +212,60 @@ class DashboardController:
                 if updated.get(cfg.alias) != stats:
                     updated[cfg.alias] = stats
                     changed = True
-                    profile_id = profile_id_by_alias.get(cfg.alias)
-                    if profile_id is not None:
-                        profile_stats = update_profile_stats(
-                            profile_stats,
-                            profile_id,
-                            self._profile_stats_session_id(cfg.alias),
-                            stats,
-                        )
-                        profile_stats_changed = True
+                    profile_stats, stats_changed = self._record_profile_stats(
+                        profile_stats, profile_id_by_alias, cfg.alias, stats
+                    )
+                    profile_stats_changed |= stats_changed
             except Exception:
                 logger.exception("refresh_slot_stats: failed to collect for %s", cfg.alias)
-        if changed:
-            try:
-                self.model.apply_slot_stats_snapshot(updated, live_aliases=live_aliases)
-                save_slot_stats(updated)
-            except Exception:
-                logger.exception("refresh_slot_stats: failed to persist slot stats")
-        if profile_stats_changed:
-            try:
-                save_profile_stats(profile_stats)
-            except Exception:
-                logger.exception("refresh_slot_stats: failed to persist profile stats")
+        self._persist_slot_stats_if_changed(updated, live_aliases, changed)
+        self._persist_profile_stats_if_changed(profile_stats, profile_stats_changed)
+
+    def _record_profile_stats(
+        self,
+        profile_stats: dict[str, ProfileStatsAggregate],
+        profile_id_by_alias: dict[str, str | None],
+        alias: str,
+        stats: SlotStatsSnapshot,
+    ) -> tuple[dict[str, ProfileStatsAggregate], bool]:
+        """Fold a slot's live stats into the profile aggregate.
+
+        Returns ``(aggregate, changed)`` where *aggregate* is the (possibly new)
+        profile-stats dict and *changed* is True when a new aggregate was produced.
+        """
+        profile_id = profile_id_by_alias.get(alias)
+        if profile_id is None:
+            return profile_stats, False
+        updated = update_profile_stats(
+            profile_stats, profile_id, self._profile_stats_session_id(alias), stats
+        )
+        return updated, True
+
+    def _persist_slot_stats_if_changed(
+        self,
+        updated: dict[str, SlotStatsSnapshot],
+        live_aliases: set[str],
+        changed: bool,
+    ) -> None:
+        """Persist the slot-stats snapshot when it changed."""
+        if not changed:
+            return
+        try:
+            self.model.apply_slot_stats_snapshot(updated, live_aliases=live_aliases)
+            save_slot_stats(updated)
+        except Exception:
+            logger.exception("refresh_slot_stats: failed to persist slot stats")
+
+    def _persist_profile_stats_if_changed(
+        self, profile_stats: dict[str, ProfileStatsAggregate], changed: bool
+    ) -> None:
+        """Persist the profile-stats aggregate when it changed."""
+        if not changed:
+            return
+        try:
+            save_profile_stats(profile_stats)
+        except Exception:
+            logger.exception("refresh_slot_stats: failed to persist profile stats")
 
     def resolve_profile_id_for_config(
         self, cfg: ServerConfig, *, registry: Any | None = None
@@ -1131,12 +1165,12 @@ class DashboardController:
         """Load cached model index from disk."""
         with self._model_index_lock:
             if self._model_index_cache is not None:
-                return list(self._model_index_cache)
+                return self._model_index_cache
 
         entries = load_model_index()
         with self._model_index_lock:
             self._model_index_cache = entries
-        return list(entries)
+        return entries
 
     def refresh_model_index(
         self,

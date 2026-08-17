@@ -72,13 +72,15 @@ class TestValidMetadataExtraction:
         """Extracted record should have file_type (int or None)."""
         path = str(self._fixture_path("gguf_v3_valid.gguf"))
         record = extract_gguf_metadata(path)
-        assert record.file_type is None or isinstance(record.file_type, int)
+        if record.file_type is not None:
+            assert isinstance(record.file_type, int)
 
     def test_quantization_type_extracted(self) -> None:
         """Extracted record should have quantization_type (str or None)."""
         path = str(self._fixture_path("gguf_v3_valid.gguf"))
         record = extract_gguf_metadata(path)
-        assert record.quantization_type is None or isinstance(record.quantization_type, str)
+        if record.quantization_type is not None:
+            assert isinstance(record.quantization_type, str)
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +265,8 @@ class TestFilenameNormalization:
         """Invalid filename characters should be replaced with underscore."""
         # Control characters
         result = normalize_filename("my\x00model")
-        assert "my" in result and "model" in result
+        assert "my" in result
+        assert "model" in result
         # Forward slash
         assert normalize_filename("my/model") == "my_model"
         # Backslash
@@ -297,7 +300,8 @@ class TestFilenameNormalization:
         """Unicode characters outside ASCII range should be handled."""
         # Emoticon and other non-filename-safe chars
         result = normalize_filename("model\x01\x02test")
-        assert "model" in result and "test" in result
+        assert "model" in result
+        assert "test" in result
 
     def test_mixed_whitespace_and_underscores(self) -> None:
         """Mixed whitespace and underscores should be normalized."""

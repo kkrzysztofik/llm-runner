@@ -1056,10 +1056,8 @@ class TestControllerBuildBackground:
 
         controller._execute_build_loop(["sycl"], None)
 
-        assert (
-            controller.model.build_error is not None
-            and "build failed" in controller.model.build_error
-        )
+        assert controller.model.build_error is not None
+        assert "build failed" in controller.model.build_error
 
     def test_build_single_backend_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_build_single_backend should return True on successful build."""

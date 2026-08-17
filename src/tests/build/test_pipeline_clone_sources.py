@@ -1015,7 +1015,8 @@ class TestProvenanceFailureWarning:
 
             # Warning should be logged with specific message
             combined = " ".join(log_messages).lower()
-            assert "provenance" in combined and "write" in combined
+            assert "provenance" in combined
+            assert "write" in combined
         finally:
             logger.remove(handler_id)
 
@@ -1779,7 +1780,9 @@ class TestOfflineContinueCloneStage:
 
             # Should fail with network error
             assert progress.status == "failed"
-            assert "Network timeout" in progress.message or "Clone failed" in progress.message
+            assert any(
+                expected in progress.message for expected in ("Network timeout", "Clone failed")
+            )
 
     def test_clone_dry_run_mode(self, tmp_path: Path) -> None:
         """Clone stage should work in dry-run mode without actual git operations.

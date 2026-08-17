@@ -17,27 +17,27 @@ from llama_manager.slot_manager import add_slot_from_form
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def config() -> Config:
     return Config()
 
 
-@pytest.fixture()
+@pytest.fixture
 def default_registry(config: Config) -> SlotProfileRegistry:
     return create_default_profile_registry(config)
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_server_manager() -> MagicMock:
     return MagicMock(spec=ServerManager)
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_make_collector() -> Any:
     return MagicMock(return_value=MagicMock())
 
 
-@pytest.fixture()
+@pytest.fixture
 def base_state() -> dict[str, Any]:
     """Return a complete runtime-state dict matching the slot_manager expectations."""
     return {
@@ -49,7 +49,7 @@ def base_state() -> dict[str, Any]:
     }
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_server_manager_with_upsert(
     mock_server_manager: MagicMock,
     base_state: dict[str, Any],

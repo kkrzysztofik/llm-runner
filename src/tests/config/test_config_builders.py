@@ -1425,8 +1425,9 @@ class TestRunProfileRegistry:
 
     def test_duplicate_profile_ids_raises(self) -> None:
         """Duplicate profile_id should raise RunProfileError."""
+        spec = self._make_spec("a")
         with pytest.raises(RunProfileError):
-            RunProfileRegistry(profiles=(self._make_spec("a"), self._make_spec("a")))
+            RunProfileRegistry(profiles=(spec, spec))
 
     def test_get_profile_returns_spec(self) -> None:
         """get_profile should return the RunProfileSpec for a known id."""

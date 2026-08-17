@@ -302,13 +302,8 @@ class TestBenchmarkConfig:
             cache_type_v="q8_0",
         )
         # FrozenInstanceError is raised at runtime for frozen dataclasses
-        # We use a try/except to avoid pyright static analysis complaints
-        try:
+        with pytest.raises(dataclasses.FrozenInstanceError):
             cfg.model = "/other.gguf"  # type: ignore[reportGeneralTypeIssues]
-        except dataclasses.FrozenInstanceError, TypeError, AttributeError:
-            pass
-        else:
-            pytest.fail("Expected FrozenInstanceError or similar")
 
     def test_default_n_gpu_layers(self) -> None:
         """BenchmarkConfig should default n_gpu_layers to 99."""

@@ -944,7 +944,7 @@ class TestFullLifecycleAndShutdown:
             ),
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
             # Satisfy ownership check: mock Process.uids()
@@ -971,7 +971,7 @@ class TestFullLifecycleAndShutdown:
             patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
             patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_cleanup_kill),
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_proc_obj = mock_psutil.return_value
             mock_proc_obj.create_time.return_value = manager2.pid_metadata[54321]
@@ -1013,7 +1013,7 @@ class TestFullLifecycleAndShutdown:
             patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
             # Simulate AccessDenied during ownership check
@@ -1046,7 +1046,7 @@ class TestFullLifecycleAndShutdown:
             patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
             # Simulate NoSuchProcess during ownership check
@@ -1096,7 +1096,7 @@ class TestFullLifecycleAndShutdown:
             ),
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
             # Satisfy ownership check: mock Process.uids()
@@ -1132,7 +1132,7 @@ class TestFullLifecycleAndShutdown:
             ),
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
             # Satisfy ownership check: mock Process.uids()
@@ -1168,7 +1168,7 @@ class TestFullLifecycleAndShutdown:
             ),
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
             mock_uids = MagicMock()
@@ -1199,7 +1199,7 @@ class TestFullLifecycleAndShutdown:
             patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
             # Simulate NoSuchProcess
@@ -1229,7 +1229,7 @@ class TestFullLifecycleAndShutdown:
             patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
             # Simulate AccessDenied
@@ -1278,7 +1278,7 @@ class TestFullLifecycleAndShutdown:
             ),
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
             # Satisfy ownership check: mock Process.uids()

@@ -919,35 +919,16 @@ class DashboardApp(App[None]):
         # Sort panels by _slot_index so removal matches config indices.
         current_panels.sort(key=lambda p: p._slot_index)
         # Remove excess panels (highest indices first).
-        if len(current_panels) > needed:
-            for panel in current_panels[needed:]:
-                logger.debug(
-                    "_reconcile_server_log_panels: removing excess slot_index=%d",
-                    panel._slot_index,
-                )
-                await panel.remove()
+        for panel in current_panels[needed:]:
+            logger.debug(
+                "_reconcile_server_log_panels: removing excess slot_index=%d",
+                panel._slot_index,
+            )
+            await panel.remove()
         # Replace panels whose config no longer exists or is a placeholder.
         for panel in current_panels[:needed]:
-            col_state = self.view_model.column(panel._slot_index)
-            if col_state is None or not panel.query(ServerColumnPanel):
-                # Config at this index was removed or panel is a placeholder.
-                logger.debug(
-                    "_reconcile_server_log_panels: replacing panel slot_index=%d",
-                    panel._slot_index,
-                )
-                await panel.remove()
-                current_panels_after = list(container.query(ServerLogPanel))
-                next_panel = None
-                for p in current_panels_after:
-                    if p._slot_index > panel._slot_index:
-                        next_panel = p
-                        break
-                if next_panel is not None:
-                    await container.mount(
-                        ServerLogPanel(panel._slot_index, self.view_model), before=next_panel
-                    )
-                else:
-                    await container.mount(ServerLogPanel(panel._slot_index, self.view_model))
+            if self._panel_is_stale(panel):
+                await self._replace_server_log_panel(container, panel)
                 logger.debug(
                     "_reconcile_server_log_panels: replaced panel duration_ms=%.1f",
                     (time.perf_counter() - start) * 1000,
@@ -965,6 +946,29 @@ class DashboardApp(App[None]):
             needed,
             (time.perf_counter() - start) * 1000,
         )
+
+    def _panel_is_stale(self, panel: ServerLogPanel) -> bool:
+        """True when the panel's config was removed or it is a placeholder."""
+        col_state = self.view_model.column(panel._slot_index)
+        return col_state is None or not panel.query(ServerColumnPanel)
+
+    async def _replace_server_log_panel(self, container: Container, panel: ServerLogPanel) -> None:
+        """Replace one stale panel with a fresh one, keeping column order."""
+        logger.debug(
+            "_reconcile_server_log_panels: replacing panel slot_index=%d",
+            panel._slot_index,
+        )
+        await panel.remove()
+        current_panels_after = list(container.query(ServerLogPanel))
+        next_panel = next(
+            (p for p in current_panels_after if p._slot_index > panel._slot_index), None
+        )
+        if next_panel is not None:
+            await container.mount(
+                ServerLogPanel(panel._slot_index, self.view_model), before=next_panel
+            )
+        else:
+            await container.mount(ServerLogPanel(panel._slot_index, self.view_model))
 
     def _build_profile_options(self) -> list[tuple[str, str]]:
         options, config_id = _profile_options_cached(

@@ -13,7 +13,7 @@ from llama_manager.config.profiles import SlotProfileSpec
 from tests.support.helpers import make_server_config
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_controller() -> DashboardController:
     """Create a minimal DashboardController for profile CRUD testing."""
     configs = [make_server_config(alias="summary-balanced")]

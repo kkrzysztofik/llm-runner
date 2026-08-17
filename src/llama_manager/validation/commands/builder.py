@@ -119,15 +119,10 @@ def build_server_cmd(cfg: ServerConfig, default_bin: str | None = None) -> list[
 
 def _append_optional_server_flags(cmd: list[str], cfg: ServerConfig) -> None:
     """Append non-required server flags."""
-    spec = cfg.spec_decode
     if cfg.main_gpu != 0:
         cmd.extend(["--main-gpu", str(cfg.main_gpu)])
     if cfg.device:
         cmd.extend(["--device", _server_device_arg(cfg.device)])
-    if spec.reasoning_mode:
-        cmd.extend(["--reasoning", spec.reasoning_mode])
-    if spec.reasoning_format:
-        cmd.extend(["--reasoning-format", spec.reasoning_format])
     if cfg.tensor_split:
         cmd.extend(["--tensor-split", cfg.tensor_split])
     cmd.extend(
@@ -136,8 +131,6 @@ def _append_optional_server_flags(cmd: list[str], cfg: ServerConfig) -> None:
             merge_chat_template_kwargs(cfg.chat_template_kwargs, cfg.reasoning_effort),
         ]
     )
-    if spec.reasoning_budget:
-        cmd.extend(["--reasoning-budget", spec.reasoning_budget])
     if cfg.use_jinja:
         cmd.append("--jinja")
     if cfg.kv_unified:
@@ -148,6 +141,21 @@ def _append_optional_server_flags(cmd: list[str], cfg: ServerConfig) -> None:
         cmd.extend(["--load-mode", cfg.load_mode])
     if cfg.no_host_buffer:
         cmd.append("--no-host")
+    if cfg.ctx_checkpoints is not None:
+        cmd.extend(["--ctx-checkpoints", str(cfg.ctx_checkpoints)])
+    _append_reasoning_flags(cmd, cfg)
+    _append_sampling_flags(cmd, cfg)
+
+
+def _append_reasoning_flags(cmd: list[str], cfg: ServerConfig) -> None:
+    """Append reasoning, budget, and preserve flags."""
+    spec = cfg.spec_decode
+    if spec.reasoning_mode:
+        cmd.extend(["--reasoning", spec.reasoning_mode])
+    if spec.reasoning_format:
+        cmd.extend(["--reasoning-format", spec.reasoning_format])
+    if spec.reasoning_budget:
+        cmd.extend(["--reasoning-budget", spec.reasoning_budget])
     if cfg.reasoning_preserve == "on":
         cmd.append("--reasoning-preserve")
     elif cfg.reasoning_preserve == "off":
@@ -156,8 +164,10 @@ def _append_optional_server_flags(cmd: list[str], cfg: ServerConfig) -> None:
         cmd.extend(["--reasoning-budget-message", cfg.reasoning_budget_message])
     if cfg.fit in ("on", "off"):
         cmd.extend(["--fit", cfg.fit])
-    if cfg.ctx_checkpoints is not None:
-        cmd.extend(["--ctx-checkpoints", str(cfg.ctx_checkpoints)])
+
+
+def _append_sampling_flags(cmd: list[str], cfg: ServerConfig) -> None:
+    """Append optional sampling/temperature flags."""
     if cfg.temperature is not None:
         cmd.extend(["--temp", str(cfg.temperature)])
     if cfg.top_k is not None:

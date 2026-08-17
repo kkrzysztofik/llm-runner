@@ -23,7 +23,7 @@ from llama_manager.model_index import (
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def tmp_xdg_config(tmp_path: Path):
     """Set XDG_CACHE_HOME to tmp_path and return tmp_path for cleanup."""
     original = os.environ.get("XDG_CACHE_HOME")
@@ -35,7 +35,7 @@ def tmp_xdg_config(tmp_path: Path):
         os.environ["XDG_CACHE_HOME"] = original
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_model_dir(tmp_path: Path) -> Path:
     """Create a directory with fake .gguf files."""
     models_dir = tmp_path / "models"
@@ -50,7 +50,7 @@ def mock_model_dir(tmp_path: Path) -> Path:
     return models_dir
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_config(tmp_path: Path, mock_model_dir: Path) -> MagicMock:
     """Return a Config mock with paths.models_dir pointing to mock_model_dir."""
     cfg = MagicMock(spec=Config)

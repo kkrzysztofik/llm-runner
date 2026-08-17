@@ -66,7 +66,7 @@ _BACKEND_OPTIONS: list[tuple[str, str]] = [
     ("Both (SYCL + CUDA)", "both"),
 ]
 
-_BUILD_LOG_PCT = re.compile(r"^(\s*)(\[\s*\d+%\])(\s*)(.*)$")
+_BUILD_LOG_PCT = re.compile(r"^(\s*)(\[\s*\d+%\])((?>\s*))(.*)$")
 _PLACEHOLDER_PATH = Path("/dev/null")
 _UNKNOWN_ERROR = "Unknown error"
 
