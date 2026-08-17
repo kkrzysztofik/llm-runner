@@ -450,6 +450,11 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             row_classes=CONFIG_ROW_SELECT_CLASSES,
         )
 
+    def _select_value(self, select_id: str, default: str) -> str:
+        """Read a Select widget, falling back to a default when blank."""
+        value = self.query_one(select_id, Select).value
+        return str(value or default)
+
     def _collect_values(self) -> ConfigPayload:
         """Read all Input widgets and return a typed payload."""
         return ConfigPayload(
@@ -462,9 +467,7 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                 "#cfg-llama_server_bin_nvidia", Input
             ).value.strip(),
             host=self.query_one("#cfg-host", Input).value.strip(),
-            build_source_flavor=str(
-                self.query_one("#cfg-build_source_flavor", Select).value or "upstream"
-            ),
+            build_source_flavor=self._select_value("#cfg-build_source_flavor", "upstream"),
             build_git_remote=self.query_one("#cfg-build_git_remote", Input).value.strip(),
             build_git_branch=self.query_one("#cfg-build_git_branch", Input).value.strip(),
             smoke_listen_timeout_s=self.query_one(
@@ -479,8 +482,8 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             smoke_total_chat_timeout_s=self.query_one(
                 "#cfg-smoke_total_chat_timeout_s", Input
             ).value.strip(),
-            log_file_level=str(self.query_one("#cfg-log_file_level", Select).value or "DEBUG"),
-            log_stderr_level=str(self.query_one("#cfg-log_stderr_level", Select).value or "INFO"),
+            log_file_level=self._select_value("#cfg-log_file_level", "DEBUG"),
+            log_stderr_level=self._select_value("#cfg-log_stderr_level", "INFO"),
             default_profile_port=self.query_one("#cfg-default_profile_port", Input).value.strip(),
             default_profile_ctx_size=self.query_one(
                 "#cfg-default_profile_ctx_size", Input
@@ -498,29 +501,23 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             default_batch_size=self.query_one("#cfg-default_batch_size", Input).value.strip(),
             default_poll_ms=self.query_one("#cfg-default_poll_ms", Input).value.strip(),
             default_n_predict=self.query_one("#cfg-default_n_predict", Input).value.strip(),
-            default_parallel=str(self.query_one("#cfg-default_parallel", Select).value or "4"),
+            default_parallel=self._select_value("#cfg-default_parallel", "4"),
             default_threads_batch=self.query_one("#cfg-default_threads_batch", Input).value.strip(),
-            default_profile_cache_type_k=str(
-                self.query_one("#cfg-default_profile_cache_type_k", Select).value or "q8_0"
+            default_profile_cache_type_k=self._select_value(
+                "#cfg-default_profile_cache_type_k", "q8_0"
             ),
-            default_profile_cache_type_v=str(
-                self.query_one("#cfg-default_profile_cache_type_v", Select).value or "q8_0"
+            default_profile_cache_type_v=self._select_value(
+                "#cfg-default_profile_cache_type_v", "q8_0"
             ),
-            default_reasoning_mode=str(
-                self.query_one("#cfg-default_reasoning_mode", Select).value or "auto"
-            ),
-            default_reasoning_format=str(
-                self.query_one("#cfg-default_reasoning_format", Select).value or "none"
-            ),
+            default_reasoning_mode=self._select_value("#cfg-default_reasoning_mode", "auto"),
+            default_reasoning_format=self._select_value("#cfg-default_reasoning_format", "none"),
             default_reasoning_budget=self.query_one(
                 "#cfg-default_reasoning_budget", Input
             ).value.strip(),
-            default_reasoning_preserve=str(
-                self.query_one("#cfg-default_reasoning_preserve", Select).value or "auto"
+            default_reasoning_preserve=self._select_value(
+                "#cfg-default_reasoning_preserve", "auto"
             ),
-            default_reasoning_effort=str(
-                self.query_one("#cfg-default_reasoning_effort", Select).value or "medium"
-            ),
+            default_reasoning_effort=self._select_value("#cfg-default_reasoning_effort", "medium"),
             default_reasoning_budget_message=self.query_one(
                 "#cfg-default_reasoning_budget_message", Input
             ).value.strip(),
@@ -529,7 +526,7 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                 "#cfg-default_profile_chat_template_kwargs", Input
             ).value.strip(),
             default_mmproj=self.query_one("#cfg-default_mmproj", Input).value.strip(),
-            default_spec_type=str(self.query_one("#cfg-default_spec_type", Select).value or ""),
+            default_spec_type=self._select_value("#cfg-default_spec_type", ""),
             default_spec_ngram_size_n=self.query_one(
                 "#cfg-default_spec_ngram_size_n", Input
             ).value.strip(),
@@ -541,11 +538,11 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             default_spec_draft_p_min=self.query_one(
                 "#cfg-default_spec_draft_p_min", Input
             ).value.strip(),
-            default_spec_draft_cache_type_k=str(
-                self.query_one("#cfg-default_spec_draft_cache_type_k", Select).value or ""
+            default_spec_draft_cache_type_k=self._select_value(
+                "#cfg-default_spec_draft_cache_type_k", ""
             ),
-            default_spec_draft_cache_type_v=str(
-                self.query_one("#cfg-default_spec_draft_cache_type_v", Select).value or ""
+            default_spec_draft_cache_type_v=self._select_value(
+                "#cfg-default_spec_draft_cache_type_v", ""
             ),
             default_spec_draft_device=self.query_one(
                 "#cfg-default_spec_draft_device", Input
@@ -562,13 +559,11 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             ).value.strip(),
             default_kv_unified=self.query_one("#cfg-default_kv_unified", Checkbox).value,
             default_mmproj_offload=self.query_one("#cfg-default_mmproj_offload", Checkbox).value,
-            default_load_mode=str(self.query_one("#cfg-default_load_mode", Select).value or "auto"),
-            default_split_mode=str(
-                self.query_one("#cfg-default_split_mode", Select).value or "layer"
-            ),
+            default_load_mode=self._select_value("#cfg-default_load_mode", "auto"),
+            default_split_mode=self._select_value("#cfg-default_split_mode", "layer"),
             default_no_host_buffer=self.query_one("#cfg-default_no_host_buffer", Checkbox).value,
             default_ui=self.query_one("#cfg-default_ui", Checkbox).value,
-            default_fit=str(self.query_one("#cfg-default_fit", Select).value or "auto"),
+            default_fit=self._select_value("#cfg-default_fit", "auto"),
             default_ctx_checkpoints=self.query_one(
                 "#cfg-default_ctx_checkpoints", Input
             ).value.strip(),

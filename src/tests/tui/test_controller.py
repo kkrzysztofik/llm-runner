@@ -1012,7 +1012,7 @@ class TestControllerBuildBackground:
         )
         controller = _make_controller()
 
-        controller.begin_build(["sycl"], options={"sycl": None})
+        controller.begin_build(options={"sycl": None})
 
         assert controller.model.build_in_progress is True
         assert controller.build_in_progress is True
@@ -1028,7 +1028,7 @@ class TestControllerBuildBackground:
         controller = _make_controller()
         controller.model.build_selected_backends_options = {"cuda": MagicMock()}
 
-        controller.begin_build(["sycl"])
+        controller.begin_build()
 
         assert controller.model.build_selected_backends_options == {}
 
@@ -1153,7 +1153,7 @@ class TestControllerLoadModelIndex:
         disk_entries = [MagicMock()]
         monkeypatch.setattr(
             "llama_cli.tui.controller.load_model_index",
-            lambda cfg: disk_entries,
+            lambda: disk_entries,
         )
         controller = _make_controller()
 

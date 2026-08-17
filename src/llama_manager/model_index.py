@@ -91,14 +91,11 @@ def model_index_path() -> Path:
     return idx_dir / "model-index.json"
 
 
-def load_model_index(config: Config) -> list[ModelIndexEntry]:
+def load_model_index() -> list[ModelIndexEntry]:
     """Load cached model index from disk.
 
     Returns an empty list if the file is missing, corrupt, or has a
     stale schema version (forcing a full rescan).
-
-    Args:
-        config: The application Config instance.
 
     Returns:
         List of ``ModelIndexEntry`` objects, or ``[]`` on failure.
@@ -173,7 +170,7 @@ def refresh_model_index(
     )
 
     entries.sort(key=lambda e: e.normalized_stem)
-    _write_model_index(config, entries)
+    _write_model_index(entries)
 
     logger.info(
         "model index: done — %d entries, %d scanned, %d errors",
@@ -185,7 +182,7 @@ def refresh_model_index(
 
 
 def _build_old_lookup(config: Config) -> dict[str, ModelIndexEntry]:
-    return {e.path: e for e in load_model_index(config)}
+    return {e.path: e for e in load_model_index()}
 
 
 def _collect_unique_gguf_files(models_dir: Path) -> list[Path]:
@@ -375,7 +372,7 @@ def _append_fallback_entry(
     file_size: int,
     parse_error: str,
 ) -> None:
-    fallback_meta = _metadata_from_filename(abs_path, file_path.stem)
+    fallback_meta = _metadata_from_filename(file_path.stem)
     entries.append(
         ModelIndexEntry(
             path=abs_path,
@@ -408,12 +405,12 @@ def _emit_model_index_progress(
     """Publish one incremental scan update."""
     snapshot = sorted(entries, key=lambda e: e.normalized_stem)
     if progressive:
-        _write_model_index(config, snapshot)
+        _write_model_index(snapshot)
     if progress_callback is not None:
         progress_callback(snapshot, total_scanned, total_models, error_count)
 
 
-def _write_model_index(config: Config, entries: list[ModelIndexEntry]) -> None:
+def _write_model_index(entries: list[ModelIndexEntry]) -> None:
     """Write model index entries atomically to disk."""
     idx_path = model_index_path()
     tmp_path: str | None = None
@@ -444,7 +441,7 @@ def _write_model_index(config: Config, entries: list[ModelIndexEntry]) -> None:
                 os.unlink(tmp_path)
 
 
-def _metadata_from_filename(path: str, stem: str) -> GGUFMetadataRecord:
+def _metadata_from_filename(stem: str) -> GGUFMetadataRecord:
     """Build best-effort metadata from a model filename after parse failure."""
     import re
 

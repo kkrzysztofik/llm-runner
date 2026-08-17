@@ -113,7 +113,6 @@ def _get_process_group_id(proc: subprocess.Popen[str], use_process_group: bool) 
 
 
 def _signal_proc(
-    proc: subprocess.Popen[str],
     process_group_id: int | None,
     sig: int,
     fallback: Callable[[], None],
@@ -130,11 +129,11 @@ def _signal_proc(
 
 
 def _send_termination_signal(proc: subprocess.Popen[str], process_group_id: int | None) -> None:
-    _signal_proc(proc, process_group_id, signal.SIGTERM, proc.terminate)
+    _signal_proc(process_group_id, signal.SIGTERM, proc.terminate)
 
 
 def _send_kill_signal(proc: subprocess.Popen[str], process_group_id: int | None) -> None:
-    _signal_proc(proc, process_group_id, signal.SIGKILL, proc.kill)
+    _signal_proc(process_group_id, signal.SIGKILL, proc.kill)
 
 
 def terminate_process_tree(proc: subprocess.Popen[str], *, use_process_group: bool = True) -> None:

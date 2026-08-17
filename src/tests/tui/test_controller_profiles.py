@@ -492,7 +492,7 @@ def test_load_model_index_delegates(mock_controller: DashboardController) -> Non
         mock_load.return_value = []
         result = mock_controller.load_model_index()
 
-    mock_load.assert_called_once_with(mock_controller.config)
+    mock_load.assert_called_once_with()
     assert result == []
 
 

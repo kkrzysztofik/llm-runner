@@ -23,7 +23,7 @@ def chat_template_kwargs_has_reasoning_effort(ctk: str) -> bool:
         return False
     try:
         parsed: object = json.loads(ctk)
-    except TypeError, ValueError, json.JSONDecodeError:
+    except TypeError, ValueError:
         return False
     return isinstance(parsed, dict) and "reasoning_effort" in parsed
 
@@ -38,7 +38,7 @@ def merge_chat_template_kwargs(kwargs_json: str, reasoning_effort: str) -> str:
     else:
         try:
             parsed = json.loads(raw)
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        except (TypeError, ValueError) as exc:
             raise ValueError("chat_template_kwargs must be valid JSON") from exc
     if not isinstance(parsed, dict):
         raise ValueError("chat_template_kwargs must be a JSON object")

@@ -162,25 +162,23 @@ def test_from_dict_missing_fields() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_load_returns_empty_list_on_missing(tmp_xdg_config: Path, sample_config: MagicMock) -> None:
+def test_load_returns_empty_list_on_missing(tmp_xdg_config: Path) -> None:
     """load_model_index should return [] when cache file doesn't exist."""
-    result = load_model_index(sample_config)
+    result = load_model_index()
     assert result == []
 
 
-def test_load_returns_empty_list_on_corrupt_json(
-    tmp_xdg_config: Path, sample_config: MagicMock
-) -> None:
+def test_load_returns_empty_list_on_corrupt_json(tmp_xdg_config: Path) -> None:
     """load_model_index should return [] on corrupt JSON."""
     idx_path = model_index_path()
     idx_path.parent.mkdir(parents=True, exist_ok=True)
     idx_path.write_text("not json {{{")
 
-    result = load_model_index(sample_config)
+    result = load_model_index()
     assert result == []
 
 
-def test_load_returns_cached_entries(tmp_xdg_config: Path, sample_config: MagicMock) -> None:
+def test_load_returns_cached_entries(tmp_xdg_config: Path) -> None:
     """load_model_index should return entries from valid cache with schema version."""
     idx_path = model_index_path()
     idx_path.parent.mkdir(parents=True, exist_ok=True)
@@ -205,34 +203,30 @@ def test_load_returns_cached_entries(tmp_xdg_config: Path, sample_config: MagicM
     }
     idx_path.write_text(json.dumps(data))
 
-    result = load_model_index(sample_config)
+    result = load_model_index()
     assert len(result) == 1
     assert result[0].path == "/models/a.gguf"
     assert result[0].normalized_stem == "a"
 
 
-def test_load_returns_empty_on_missing_schema_version(
-    tmp_xdg_config: Path, sample_config: MagicMock
-) -> None:
+def test_load_returns_empty_on_missing_schema_version(tmp_xdg_config: Path) -> None:
     """load_model_index should return [] when schema_version is missing (old format)."""
     idx_path = model_index_path()
     idx_path.parent.mkdir(parents=True, exist_ok=True)
     idx_path.write_text(json.dumps([{"path": "/models/a.gguf"}]))
 
-    result = load_model_index(sample_config)
+    result = load_model_index()
     assert result == []
 
 
-def test_load_returns_empty_on_stale_schema_version(
-    tmp_xdg_config: Path, sample_config: MagicMock
-) -> None:
+def test_load_returns_empty_on_stale_schema_version(tmp_xdg_config: Path) -> None:
     """load_model_index should return [] when schema_version is stale."""
     idx_path = model_index_path()
     idx_path.parent.mkdir(parents=True, exist_ok=True)
     data = {"schema_version": 1, "entries": [{"path": "/models/a.gguf"}]}
     idx_path.write_text(json.dumps(data))
 
-    result = load_model_index(sample_config)
+    result = load_model_index()
     assert result == []
 
 
@@ -316,7 +310,7 @@ def test_refresh_progressive_writes_partial_cache(
     assert errors == 0
     assert len(entries) == 2
     assert mock_write.call_count == 3
-    progressive_sizes = [len(call.args[1]) for call in mock_write.call_args_list[:2]]
+    progressive_sizes = [len(call.args[0]) for call in mock_write.call_args_list[:2]]
     assert progressive_sizes == [1, 2]
 
 

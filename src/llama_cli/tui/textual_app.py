@@ -897,7 +897,7 @@ class DashboardApp(App[None]):
         if self.controller.build_in_progress:
             self.notify("A build is already running.", title="Build", severity="warning")
             return
-        self.controller.begin_build(backends, options=options, wizard=wizard)
+        self.controller.begin_build(options=options, wizard=wizard)
         self._run_build_worker(backends, wizard)
 
     @work(thread=True, group="build")

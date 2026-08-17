@@ -21,6 +21,11 @@ SPLIT_MODE_VALUES: tuple[str, ...] = ("none", "layer", "row", "tensor")
 _SLOT_ID_PATTERN = re.compile(r"[^a-z0-9_-]")
 
 
+def _coerce_value(value: str, allowed: frozenset[str] | tuple[str, ...], default: str) -> str:
+    """Return value if it is allowed, else fall back to default."""
+    return value if value in allowed else default
+
+
 @dataclass
 class ServerConfig(LaunchRuntimeFields):
     """Configuration for a single llama.cpp server instance.
@@ -172,14 +177,12 @@ class ServerConfig(LaunchRuntimeFields):
             raise ValueError("threads_batch must be non-negative")
         if not isinstance(self.spec_decode, SpeculativeDecodingConfig):
             raise ValueError("spec_decode must be a SpeculativeDecodingConfig")
-        if self.load_mode not in LOAD_MODE_VALUES:
-            self.load_mode = "auto"
-        if self.reasoning_preserve not in TRI_STATE_VALUES:
-            self.reasoning_preserve = "auto"
-        if self.reasoning_effort not in REASONING_EFFORT_VALUES:
-            self.reasoning_effort = "medium"
-        if self.fit not in TRI_STATE_VALUES:
-            self.fit = "auto"
+        self.load_mode = _coerce_value(self.load_mode, LOAD_MODE_VALUES, "auto")
+        self.reasoning_preserve = _coerce_value(self.reasoning_preserve, TRI_STATE_VALUES, "auto")
+        self.reasoning_effort = _coerce_value(
+            self.reasoning_effort, REASONING_EFFORT_VALUES, "medium"
+        )
+        self.fit = _coerce_value(self.fit, TRI_STATE_VALUES, "auto")
         if self.split_mode not in SPLIT_MODE_VALUES:
             raise ValueError(f"split_mode must be none/layer/row/tensor, got: {self.split_mode}")
         if self.ctx_checkpoints is not None and self.ctx_checkpoints < 0:

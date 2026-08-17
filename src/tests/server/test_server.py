@@ -177,8 +177,9 @@ class TestBuildServerCmd:
             assert self._kwargs_from_cmd(cmd)["reasoning_effort"] == level
 
     def test_reasoning_effort_conflict_in_json_raises(self) -> None:
+        cfg = self._minimal_cfg(chat_template_kwargs='{"reasoning_effort":"low"}')
         with pytest.raises(ValueError, match=REASONING_EFFORT_JSON_CONFLICT):
-            build_server_cmd(self._minimal_cfg(chat_template_kwargs='{"reasoning_effort":"low"}'))
+            build_server_cmd(cfg)
 
     def test_reasoning_budget_excluded_when_empty(self) -> None:
         cmd = build_server_cmd(self._minimal_cfg(reasoning_budget=""))

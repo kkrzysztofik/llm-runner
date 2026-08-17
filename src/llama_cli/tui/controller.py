@@ -942,7 +942,6 @@ class DashboardController:
 
     def begin_build(
         self,
-        backends: list[str],
         options: dict[str, BuildConfig | None] | None = None,
         wizard: Any = None,  # BuildModalScreen | None
     ) -> None:
@@ -952,7 +951,6 @@ class DashboardController:
         see ``DashboardApp.start_build``.
 
         Args:
-            backends: List of backend names to build.
             options: Optional build configuration options from the wizard.
             wizard: Optional wizard modal that stays open during the build.
         """
@@ -1135,7 +1133,7 @@ class DashboardController:
             if self._model_index_cache is not None:
                 return list(self._model_index_cache)
 
-        entries = load_model_index(self.config)
+        entries = load_model_index()
         with self._model_index_lock:
             self._model_index_cache = entries
         return list(entries)

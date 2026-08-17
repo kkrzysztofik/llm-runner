@@ -1556,9 +1556,7 @@ class TestDashboardAppBuildModalResult:
 
         app.start_build(["sycl"], options={"sycl": None}, wizard=None)
 
-        controller.begin_build.assert_called_once_with(
-            ["sycl"], options={"sycl": None}, wizard=None
-        )
+        controller.begin_build.assert_called_once_with(options={"sycl": None}, wizard=None)
         app._run_build_worker.assert_called_once_with(["sycl"], None)
 
     def test_start_build_refuses_second_concurrent_build(self) -> None:
