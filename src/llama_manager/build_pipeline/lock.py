@@ -110,26 +110,5 @@ def is_lock_stale(lock_path: Path) -> bool:
         # Lock is stale if PID is invalid or timeout exceeded
         return not pid_valid or lock.is_stale()
 
-    except json.JSONDecodeError, OSError, ValueError, TypeError:
+    except OSError, ValueError, TypeError:
         return True
-
-
-def get_lock_error_message(lock_path: Path) -> str:
-    """Return a human-readable error message for lock contention.
-
-    Args:
-        lock_path: Path to the contested lock file.
-
-    Returns:
-        Descriptive error string.
-    """
-    try:
-        with open(lock_path) as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            return "Build lock file exists but could not be read"
-        pid = data.get("pid", "unknown")
-        backend = data.get("backend", "unknown")
-        return f"Build lock already held by PID {pid} (backend: {backend})"
-    except OSError, json.JSONDecodeError, TypeError:
-        return "Build lock file exists but could not be read"

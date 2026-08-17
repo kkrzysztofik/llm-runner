@@ -504,13 +504,13 @@ class TestHandleProfileCase:
         assert result.sub_argv == ["slot1", "fast"]
 
     def test_handle_profile_quality(self) -> None:
-        """_handle_profile_case detects profile subcommand."""
-        from llama_cli.cli_parser import _handle_profile_case
+        """quality is no longer a valid flavor — the profile parser rejects it."""
+        from llama_cli.commands.profile import main as profile_main
 
-        result = _handle_profile_case(["profile", "slot1", "quality"])
-        assert result is not None
-        assert result.mode == "profile"
-        assert result.sub_argv == ["slot1", "quality"]
+        with pytest.raises(SystemExit) as exc_info:
+            profile_main(["slot1", "quality"])
+
+        assert exc_info.value.code == 1
 
     def test_handle_profile_with_json(self) -> None:
         """_handle_profile_case forwards --json in sub_argv."""
@@ -673,11 +673,6 @@ class TestResolveBackendEnum:
         """resolve_backend_enum('cuda') should return BuildBackend.CUDA."""
         result = resolve_backend_enum("cuda")
         assert result == BuildBackend.CUDA
-
-    def test_valid_all(self) -> None:
-        """resolve_backend_enum('all') should return BuildBackend.BOTH."""
-        result = resolve_backend_enum("both")
-        assert result == BuildBackend.BOTH
 
     def test_valid_all_string_returns_none(self) -> None:
         """resolve_backend_enum('all') returns None because 'all' is not a valid BuildBackend value."""

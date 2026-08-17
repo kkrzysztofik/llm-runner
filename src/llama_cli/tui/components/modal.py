@@ -1,19 +1,17 @@
 """AddSlotModal — modal form for adding a new server slot."""
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select
+
+from .form_widgets import MODAL_CANCEL_BINDINGS
 
 
 class RemoveSlotModal(ModalScreen[str | None]):
     """Modal selector for removing a live slot."""
 
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
-        Binding("ctrl+c", "cancel", "Cancel"),
-    ]
+    BINDINGS = MODAL_CANCEL_BINDINGS
 
     def __init__(self, slot_options: list[tuple[str, str]]) -> None:
         super().__init__()
@@ -73,13 +71,10 @@ class AddSlotModal(ModalScreen[dict[str, str] | None]):
 
     Accepts a list of ``(label, value)`` tuples for the profile dropdown and
     returns a ``dict`` with ``"profile"`` and ``"port"`` keys on submit, or
-    ``None`` on cancel.
+        ``None`` on cancel.
     """
 
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
-        Binding("ctrl+c", "cancel", "Cancel"),
-    ]
+    BINDINGS = MODAL_CANCEL_BINDINGS
 
     def __init__(self, profile_options: list[tuple[str, str]]) -> None:
         super().__init__()

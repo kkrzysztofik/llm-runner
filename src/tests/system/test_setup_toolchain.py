@@ -8,7 +8,6 @@ Test Tasks:
 - T057: Test toolchain errors with actionable hints (FR-005)
 - T058: Test venv lifecycle (create/reuse/integrity)
 - T059: Test tool detection timeout (FR-005.4)
-- T060: Test cmake too old error (FR-005)
 - T061: Test setup --check skips venv integrity
 - T062: Test venv integrity check detects corruption
 - T063: Test venv path fallback to ~/.cache
@@ -29,8 +28,6 @@ from llama_manager.setup_venv import (
 from llama_manager.toolchain import (
     ToolchainErrorDetail,
     detect_tool,
-    parse_version,
-    version_at_least,
 )
 
 
@@ -277,37 +274,6 @@ class TestToolDetectionTimeout:
                 text=True,
                 timeout=30,
             )
-
-
-class TestCMakeTooOldError:
-    """T060: Tests for cmake too old error (FR-005)."""
-
-    def test_version_at_least_cmake_minimum(self) -> None:
-        """version_at_least should work with CMAKE_MINIMUM_VERSION."""
-        # CMAKE_MINIMUM_VERSION is "3.14"
-        assert version_at_least("3.20.1", "3.14") is True
-        assert version_at_least("3.14.0", "3.14") is True
-        assert version_at_least("3.13.0", "3.14") is False
-
-    def test_parse_version_cmake_format(self) -> None:
-        """parse_version should handle CMake version format."""
-        assert parse_version("3.25.0") == (3, 25, 0)
-        assert parse_version("3.14.0") == (3, 14, 0)
-        assert parse_version("3.20") == (3, 20, 0)
-
-    def test_version_at_least_with_two_part_version(self) -> None:
-        """version_at_least should handle two-part version string."""
-        assert version_at_least("3.20", "3.14") is True
-        assert version_at_least("3.20", "3.20") is True
-        assert version_at_least("3.19", "3.20") is False
-
-    def test_version_at_least_cmake_too_old_error(self) -> None:
-        """version_at_least should detect when cmake is too old."""
-        # CMAKE_MINIMUM_VERSION is "3.14"
-        assert version_at_least("3.13.9", "3.14") is False
-        assert version_at_least("3.13.0", "3.14") is False
-        assert version_at_least("3.14.0", "3.14") is True
-        assert version_at_least("3.14.1", "3.14") is True
 
 
 class TestSetupCheckSkipsVenvIntegrity:

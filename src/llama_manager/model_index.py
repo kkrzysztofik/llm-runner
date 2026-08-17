@@ -7,16 +7,13 @@ and caches results atomically in a JSON file.
 import contextlib
 import json
 import logging
-import multiprocessing
 import os
 import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from queue import Empty
 from threading import Event
-from typing import Any, cast
 
 from .config.defaults import Config
 from .metadata import GGUFMetadataRecord, extract_gguf_metadata, normalize_filename
@@ -25,29 +22,6 @@ logger = logging.getLogger(__name__)
 
 ModelIndexProgressCallback = Callable[[list["ModelIndexEntry"], int, int, int], None]
 _INDEX_SCHEMA_VERSION = 2
-_METADATA_WORKER_TIMEOUT_GRACE_S = 1.0
-
-
-def _extract_metadata_worker(
-    model_path: str,
-    prefix_cap_bytes: int,
-    parse_timeout_s: float,
-    result_queue: Any,
-) -> None:
-    """Run GGUF metadata extraction in a child process for isolation."""
-    try:
-        result_queue.put(
-            (
-                "ok",
-                extract_gguf_metadata(
-                    model_path,
-                    prefix_cap_bytes=prefix_cap_bytes,
-                    parse_timeout_s=parse_timeout_s,
-                ),
-            )
-        )
-    except (OSError, ValueError, RuntimeError) as exc:
-        result_queue.put(("error", f"{type(exc).__name__}: {exc}"))
 
 
 def _extract_model_index_metadata(
@@ -55,37 +29,14 @@ def _extract_model_index_metadata(
     prefix_cap_bytes: int,
     parse_timeout_s: float,
 ) -> GGUFMetadataRecord:
-    """Extract model-index metadata outside the main process."""
+    """Extract model-index metadata with a thread timeout."""
+    # ponytail: single OS-thread timeout; per-file process if extraction hangs the whole scan
     timeout_s = max(float(parse_timeout_s), 0.1)
-    start_method = "fork" if "fork" in multiprocessing.get_all_start_methods() else "spawn"
-    ctx = cast(Any, multiprocessing.get_context(start_method))
-    result_queue = ctx.Queue(maxsize=1)
-    process = ctx.Process(
-        target=_extract_metadata_worker,
-        args=(model_path, prefix_cap_bytes, timeout_s, result_queue),
+    return extract_gguf_metadata(
+        model_path,
+        prefix_cap_bytes=prefix_cap_bytes,
+        parse_timeout_s=timeout_s,
     )
-    process.start()
-    process.join(timeout_s)
-
-    if process.is_alive():
-        process.terminate()
-        process.join(_METADATA_WORKER_TIMEOUT_GRACE_S)
-        if process.is_alive():
-            process.kill()
-            process.join(_METADATA_WORKER_TIMEOUT_GRACE_S)
-        raise TimeoutError(f"GGUF metadata parse timed out after {timeout_s}s for {model_path}")
-
-    try:
-        status, payload = result_queue.get(timeout=0.1)
-    except Empty:
-        raise RuntimeError(
-            f"GGUF metadata worker exited without a result for {model_path} "
-            f"(exit code {process.exitcode})"
-        ) from None
-
-    if status == "ok" and isinstance(payload, GGUFMetadataRecord):
-        return payload
-    raise RuntimeError(str(payload))
 
 
 @dataclass
@@ -124,41 +75,32 @@ def _file_mtime_iso(path: str) -> str:
     return datetime.fromtimestamp(mtime, tz=UTC).isoformat()
 
 
-def model_index_path(config: Config) -> Path:
+def model_index_path() -> Path:
     """Return the path to the model index JSON cache file.
 
     Returns ``$XDG_CACHE_HOME/llm-runner/model-index.json`` (default
     ``~/.cache/llm-runner/model-index.json``), creating the parent
     directory if needed.
 
-    Args:
-        config: The application Config instance. Currently unused — retained
-            so callers can pass their Config consistently. Will become
-            meaningful when the index location becomes config-driven.
-
     Returns:
         Path object pointing at the index JSON file.
     """
-    del config  # reserved for future config-driven path resolution
     xdg_cache = os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))
     idx_dir = Path(xdg_cache) / "llm-runner"
     idx_dir.mkdir(parents=True, exist_ok=True)
     return idx_dir / "model-index.json"
 
 
-def load_model_index(config: Config) -> list[ModelIndexEntry]:
+def load_model_index() -> list[ModelIndexEntry]:
     """Load cached model index from disk.
 
     Returns an empty list if the file is missing, corrupt, or has a
     stale schema version (forcing a full rescan).
 
-    Args:
-        config: The application Config instance.
-
     Returns:
         List of ``ModelIndexEntry`` objects, or ``[]`` on failure.
     """
-    idx_path = model_index_path(config)
+    idx_path = model_index_path()
     if not idx_path.exists():
         return []
     try:
@@ -228,7 +170,7 @@ def refresh_model_index(
     )
 
     entries.sort(key=lambda e: e.normalized_stem)
-    _write_model_index(config, entries)
+    _write_model_index(entries)
 
     logger.info(
         "model index: done — %d entries, %d scanned, %d errors",
@@ -240,7 +182,7 @@ def refresh_model_index(
 
 
 def _build_old_lookup(config: Config) -> dict[str, ModelIndexEntry]:
-    return {e.path: e for e in load_model_index(config)}
+    return {e.path: e for e in load_model_index()}
 
 
 def _collect_unique_gguf_files(models_dir: Path) -> list[Path]:
@@ -430,7 +372,7 @@ def _append_fallback_entry(
     file_size: int,
     parse_error: str,
 ) -> None:
-    fallback_meta = _metadata_from_filename(abs_path, file_path.stem)
+    fallback_meta = _metadata_from_filename(file_path.stem)
     entries.append(
         ModelIndexEntry(
             path=abs_path,
@@ -463,14 +405,14 @@ def _emit_model_index_progress(
     """Publish one incremental scan update."""
     snapshot = sorted(entries, key=lambda e: e.normalized_stem)
     if progressive:
-        _write_model_index(config, snapshot)
+        _write_model_index(snapshot)
     if progress_callback is not None:
         progress_callback(snapshot, total_scanned, total_models, error_count)
 
 
-def _write_model_index(config: Config, entries: list[ModelIndexEntry]) -> None:
+def _write_model_index(entries: list[ModelIndexEntry]) -> None:
     """Write model index entries atomically to disk."""
-    idx_path = model_index_path(config)
+    idx_path = model_index_path()
     tmp_path: str | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -499,7 +441,7 @@ def _write_model_index(config: Config, entries: list[ModelIndexEntry]) -> None:
                 os.unlink(tmp_path)
 
 
-def _metadata_from_filename(path: str, stem: str) -> GGUFMetadataRecord:
+def _metadata_from_filename(stem: str) -> GGUFMetadataRecord:
     """Build best-effort metadata from a model filename after parse failure."""
     import re
 
@@ -507,7 +449,6 @@ def _metadata_from_filename(path: str, stem: str) -> GGUFMetadataRecord:
     quant_match = re.search(r"(IQ\d_[A-Z]+|Q\d_[A-Z_]+|F16|F32)", stem)
     arch_match = re.search(r"(qwen3|qwen2|qwen|llama|mistral|phi3|phi)", stem, re.I)
     return GGUFMetadataRecord(
-        raw_path=path,
         normalized_stem=normalized,
         architecture=arch_match.group(1).lower() if arch_match else None,
         quantization_type=quant_match.group(1) if quant_match else None,

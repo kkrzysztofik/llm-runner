@@ -4,11 +4,8 @@ from .builder import (
     apply_profile_overrides,
     create_default_profile_registry,
     create_default_slot_profiles,
-    create_qwen35_cfg,
     create_server_config_from_profile,
     create_smoke_config,
-    create_summary_balanced_cfg,
-    create_summary_fast_cfg,
     create_tui_profile_registry,
     merge_config_overrides,
     resolve_profile_config,
@@ -23,14 +20,11 @@ from .defaults import (
     SmokeProbeConfiguration,
 )
 from .enums import (
-    DoctorCheckStatus,
     ErrorCode,
-    GgufParseError,
     SlotState,
     SmokeFailurePhase,
     SmokePhase,
     SmokeProbeStatus,
-    VRamRecommendation,
 )
 from .errors import ErrorDetail, MultiValidationError, ValidationException
 from .load_mode import LOAD_MODE_VALUES, resolve_load_mode
@@ -67,6 +61,14 @@ from .profiles import (
     resolve_backend_from_profile,
     resolve_profile_id,
 )
+from .reasoning_effort import (
+    REASONING_EFFORT_DEFAULT,
+    REASONING_EFFORT_JSON_CONFLICT,
+    REASONING_EFFORT_VALUES,
+    chat_template_kwargs_has_reasoning_effort,
+    merge_chat_template_kwargs,
+    resolve_reasoning_effort,
+)
 from .server import (
     ModelSlot,
     ServerConfig,
@@ -80,14 +82,11 @@ from .tri_state import TRI_STATE_VALUES, resolve_fit, resolve_reasoning_preserve
 
 __all__ = [
     # enums
-    "DoctorCheckStatus",
     "ErrorCode",
-    "GgufParseError",
     "SlotState",
     "SmokeFailurePhase",
     "SmokePhase",
     "SmokeProbeStatus",
-    "VRamRecommendation",
     # errors
     "ErrorDetail",
     "MultiValidationError",
@@ -99,6 +98,12 @@ __all__ = [
     "spec_type_members",
     "LOAD_MODE_VALUES",
     "resolve_load_mode",
+    "REASONING_EFFORT_DEFAULT",
+    "REASONING_EFFORT_JSON_CONFLICT",
+    "REASONING_EFFORT_VALUES",
+    "chat_template_kwargs_has_reasoning_effort",
+    "merge_chat_template_kwargs",
+    "resolve_reasoning_effort",
     "TRI_STATE_VALUES",
     "resolve_tri_state",
     "resolve_reasoning_preserve",
@@ -143,11 +148,8 @@ __all__ = [
     "create_default_profile_registry",
     "create_default_slot_profiles",
     "create_tui_profile_registry",
-    "create_qwen35_cfg",
     "create_server_config_from_profile",
     "create_smoke_config",
-    "create_summary_balanced_cfg",
-    "create_summary_fast_cfg",
     "merge_config_overrides",
     "resolve_profile_config",
     # persistence

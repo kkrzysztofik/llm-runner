@@ -1034,14 +1034,12 @@ class TestRunProbes:
                 model="/model1.gguf",
                 host="127.0.0.1",
                 port=8080,
-                backend="llama_cpp",
             ),
             SmokeTarget(
                 slot_id="slot2",
                 model="/model2.gguf",
                 host="127.0.0.1",
                 port=8081,
-                backend="llama_cpp",
             ),
         ]
         smoke_cfg = MagicMock()
@@ -1077,14 +1075,12 @@ class TestRunProbes:
                 model="/model1.gguf",
                 host="127.0.0.1",
                 port=8080,
-                backend="llama_cpp",
             ),
             SmokeTarget(
                 slot_id="slot2",
                 model="/model2.gguf",
                 host="127.0.0.1",
                 port=8081,
-                backend="llama_cpp",
             ),
         ]
         smoke_cfg = MagicMock()

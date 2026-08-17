@@ -149,3 +149,11 @@ def parse_float(value: Any) -> float | None:
         return float(str(value).replace("%", "").replace("W", "").strip())
     except ValueError:
         return None
+
+
+def _safe_read_text(path: str) -> str | None:
+    try:
+        with open(path) as file_obj:
+            return file_obj.read().strip()
+    except OSError:
+        return None

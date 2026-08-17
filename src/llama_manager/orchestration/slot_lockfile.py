@@ -1,4 +1,4 @@
-"""Slot-level lockfile management — acquire, release, staleness, shutdown."""
+"""Slot-level lockfile management — acquire, release, shutdown."""
 
 import os
 import signal
@@ -6,10 +6,10 @@ import time
 
 import psutil
 
-from ..config import Config, ErrorDetail
-from .launch import _lockfile_error
+from ..config import ErrorDetail
 from .lockfile import (
     _get_lock_path,
+    _lockfile_error,
     check_lockfile_integrity,
     create_lock,
     read_lock,
@@ -43,25 +43,6 @@ def release_slot_lock(slot_id: str) -> None:
 
     runtime_dir = resolve_runtime_dir()
     release_lock(runtime_dir, slot_id)
-
-
-def check_lock_stale(slot_id: str) -> bool:
-    """Check if a lockfile is stale."""
-
-    runtime_dir = resolve_runtime_dir()
-    lock_path = _get_lock_path(runtime_dir, slot_id)
-
-    if not lock_path.exists():
-        return False
-
-    metadata_result = read_lock(runtime_dir, slot_id, require_valid=False)
-    if metadata_result is None or isinstance(metadata_result, ErrorDetail):
-        return False
-
-    metadata = metadata_result
-    age = time.time() - metadata.started_at
-    stale_threshold = Config().lock_stale_threshold_s
-    return age > stale_threshold
 
 
 def shutdown_slot(slot_id: str, timeout: float = 10.0) -> bool:

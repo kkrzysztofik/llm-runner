@@ -7,8 +7,6 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from types import FrameType
-from typing import TextIO
 
 import psutil
 
@@ -44,11 +42,7 @@ __all__ = ["ServerManager"]
 class ServerManager:
     """Manages server processes with lifecycle audit trail."""
 
-    def __init__(
-        self,
-        audit_log_path: Path | None = None,
-        process_launcher: ProcessLauncher | None = None,
-    ) -> None:
+    def __init__(self, process_launcher: ProcessLauncher | None = None) -> None:
         self.pids: list[int] = []
         self.shutting_down: bool = False
         self._cleanup_lock = threading.Lock()
@@ -56,7 +50,7 @@ class ServerManager:
         self.slot_processes: dict[str, ProcessHandle] = {}
         self.pid_metadata: dict[int, float] = {}
         self._launcher = process_launcher
-        self._audit = AuditLogger(audit_log_path)
+        self._audit = AuditLogger()
         self._risk = RiskAckManager()
 
     # -- Delegates to AuditLogger --
@@ -75,20 +69,13 @@ class ServerManager:
     def begin_launch_attempt(self, launch_attempt_id: str | None = None) -> str:
         return self._risk.begin_launch_attempt(launch_attempt_id)
 
-    def issue_ack_token(self, launch_attempt_id: str | None = None) -> str:
-        return self._risk.issue_ack_token(launch_attempt_id)
-
-    def validate_ack_token(self, launch_attempt_id: str, ack_token: str | None) -> bool:
-        return self._risk.validate_ack_token(launch_attempt_id, ack_token)
-
     def acknowledge_risk(
         self,
         slot_id: str,
         risk_type: str,
         launch_attempt_id: str | None = None,
-        ack_token: str | None = None,
     ) -> None:
-        self._risk.acknowledge_risk(slot_id, risk_type, launch_attempt_id, ack_token)
+        self._risk.acknowledge_risk(slot_id, risk_type, launch_attempt_id)
 
     def is_risk_acknowledged(
         self,
@@ -155,39 +142,9 @@ class ServerManager:
         finally:
             self._cleanup_lock.release()
 
-    def on_interrupt(self, _signum: int, _frame: FrameType | None) -> int:
-        """Handle SIGINT cleanup and return the conventional exit code."""
-        self.cleanup_servers()
-        return 130
-
-    def on_terminate(self, _signum: int, _frame: FrameType | None) -> int:
-        """Handle SIGTERM cleanup and return the conventional exit code."""
-        self.cleanup_servers()
-        return 143
-
     def _verify_process_ownership(self, pid: int) -> bool:
         """Verify process ownership using creation time metadata and UID."""
         return verify_process_ownership(pid, self.pid_metadata)
-
-    def _stream_pipe(
-        self,
-        pipe: TextIO | None,
-        server_name: str,
-        is_stderr: bool = False,
-        log_handler: Callable[[str], None] | None = None,
-    ) -> None:
-        """Stream pipe output — delegates to launcher.stream_pipe."""
-        stream_pipe(pipe, server_name, is_stderr, log_handler)
-
-    def _wait_for_processes(self) -> None:
-        """Wait for all managed server processes to exit — delegates to launcher.wait_for_processes."""
-        wait_for_processes(self.servers, self._audit._lifecycle_audit)
-
-    def _format_output(self, server_name: str, line: str) -> str:
-        """Format output line with timestamp — delegates to launcher.format_output."""
-        from .launcher import format_output
-
-        return format_output(server_name, line)
 
     def start_server_background(
         self,
@@ -227,11 +184,6 @@ class ServerManager:
         ).start()
 
         return proc
-
-    def run_server_foreground(self, server_name: str, cmd: list[str]) -> int:
-        """Start a server in the foreground and wait for it to finish."""
-        proc = self.start_server_background(server_name, cmd)
-        return proc.wait()
 
     def start_servers(
         self,
@@ -381,23 +333,11 @@ class ServerManager:
         else:
             return LaunchResult(status="success", launched=launched)
 
-    def acquire_lock(self, slot_id: str, port: int, server_pid: int | None = None) -> Path:
-        """Acquire a lockfile for a slot. Delegates to slot_lockfile.acquire_slot_lock."""
-        from .slot_lockfile import acquire_slot_lock
-
-        return Path(acquire_slot_lock(slot_id, port, server_pid))
-
     def release_lock(self, slot_id: str) -> None:
         """Release lockfile for a slot. Delegates to slot_lockfile.release_slot_lock."""
         from .slot_lockfile import release_slot_lock
 
         release_slot_lock(slot_id)
-
-    def check_lock_stale(self, slot_id: str) -> bool:
-        """Check if a lockfile is stale. Delegates to slot_lockfile.check_lock_stale."""
-        from .slot_lockfile import check_lock_stale as _check_stale
-
-        return _check_stale(slot_id)
 
     def shutdown_slot(self, slot_id: str, timeout: float = 10.0) -> bool:
         """Gracefully shut down a slot's server process. Delegates to slot_lockfile.shutdown_slot."""

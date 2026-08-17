@@ -8,6 +8,14 @@ from textual.widget import Widget
 from textual.widgets import Static
 
 
+def usage_fill(percent: float | None, width: int) -> str:
+    """Fill a usage-bar string; ``None`` renders all ``?``."""
+    if percent is None:
+        return "?" * width
+    filled = int(round((max(0.0, min(100.0, percent)) / 100.0) * width))
+    return "|" * filled + " " * (width - filled)
+
+
 class GPUStatsPanel(Widget):
     """Compact GPU telemetry card."""
 
@@ -90,10 +98,7 @@ class GPUStatsPanel(Widget):
 
     @staticmethod
     def _usage_meter(percent: float | None) -> str:
-        if percent is None:
-            return "?" * 10
-        filled = int(round((max(0.0, min(100.0, percent)) / 100.0) * 10))
-        return "|" * filled + " " * (10 - filled)
+        return usage_fill(percent, 10)
 
     @staticmethod
     def _usage_level_class(percent: float | None) -> str:

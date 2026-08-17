@@ -1,10 +1,11 @@
 """ConfirmModal — a simple yes/no confirmation dialog."""
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label
+
+from .form_widgets import MODAL_CANCEL_BINDINGS
 
 
 class ConfirmModal(ModalScreen[bool]):
@@ -15,10 +16,7 @@ class ConfirmModal(ModalScreen[bool]):
         message: The question/prompt for the user.
     """
 
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel"),
-        Binding("ctrl+c", "cancel", "Cancel"),
-    ]
+    BINDINGS = MODAL_CANCEL_BINDINGS
 
     def __init__(self, title: str, message: str) -> None:
         super().__init__()

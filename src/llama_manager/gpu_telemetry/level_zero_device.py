@@ -186,17 +186,28 @@ def _select_level_zero_device(
 ) -> _LevelZeroDevice | None:
     if selector.pci_bdf:
         wanted_bdf = selector.pci_bdf.lower()
-        for device in devices:
-            if device.pci_bdf and device.pci_bdf.lower() == wanted_bdf:
-                return device
+        match = _find_level_zero_device(
+            devices, lambda d: bool(d.pci_bdf) and d.pci_bdf.lower() == wanted_bdf
+        )
+        if match is not None:
+            return match
     if selector.device_id is not None:
-        for device in devices:
-            if device.device_id == selector.device_id:
-                return device
+        match = _find_level_zero_device(devices, lambda d: d.device_id == selector.device_id)
+        if match is not None:
+            return match
     candidates = _intel_candidate_devices(devices, selector) or devices
     if 0 <= selector.ordinal < len(candidates):
         return candidates[selector.ordinal]
     return candidates[0] if candidates else None
+
+
+def _find_level_zero_device(
+    devices: list[_LevelZeroDevice], predicate: Callable[[_LevelZeroDevice], bool]
+) -> _LevelZeroDevice | None:
+    for device in devices:
+        if predicate(device):
+            return device
+    return None
 
 
 def _intel_candidate_devices(

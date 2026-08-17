@@ -66,7 +66,7 @@ _BACKEND_OPTIONS: list[tuple[str, str]] = [
     ("Both (SYCL + CUDA)", "both"),
 ]
 
-_BUILD_LOG_PCT = re.compile(r"^(\s*)(\[\s*\d+%\])(\s*)(.*)$")
+_BUILD_LOG_PCT = re.compile(r"^(\s*)(\[\s*\d+%\])((?>\s*))(.*)$")
 _PLACEHOLDER_PATH = Path("/dev/null")
 _UNKNOWN_ERROR = "Unknown error"
 
@@ -195,154 +195,6 @@ class BackendStatusCard(Widget):
             cast(Static, lines[0]).update(readiness.binary_line)
             cast(Static, lines[1]).update(readiness.source_line)
             cast(Static, lines[2]).update(readiness.remote_line)
-
-
-# ---------------------------------------------------------------------------
-# Extracted pure helpers — module-level for testability
-# ---------------------------------------------------------------------------
-
-
-def read_build_form_fields(
-    inputs: dict[str, Input | Checkbox],
-) -> dict[str, str | int | bool | None]:
-    """Read form input widgets into a flat dict of values.
-
-    Mirrors ``BuildModalScreen._read_build_form_fields`` but operates on
-    standalone widget dicts rather than instance state.
-    """
-
-    def str_val(key: str) -> str | None:
-        widget = inputs.get(key)
-        if isinstance(widget, Input):
-            value = widget.value.strip()
-            return value or None
-        return None
-
-    def int_val(key: str) -> int | None:
-        raw = str_val(key)
-        if raw is None:
-            return None
-        try:
-            return int(raw)
-        except ValueError:
-            return None
-
-    def bool_val(key: str) -> bool | None:
-        widget = inputs.get(key)
-        if isinstance(widget, Checkbox):
-            return widget.value
-        return None
-
-    return {
-        "git_branch": str_val("git_branch"),
-        "git_commit": str_val("git_commit"),
-        "jobs": int_val("jobs"),
-        "retry_attempts": int_val("retry_attempts"),
-        "retry_delay": int_val("retry_delay"),
-        "shallow_clone": bool_val("shallow_clone"),
-        "update_sources": bool_val("update_sources"),
-        "clean_cache": bool_val("clean_cache"),
-        "build_timeout_seconds": int_val("build_timeout_seconds"),
-        "build_args": str_val("build_args"),
-    }
-
-
-def collect_build_options(
-    inputs: dict[str, Input | Checkbox],
-    backend: str,
-    source_dir: Path = _PLACEHOLDER_PATH,
-    build_dir: Path = _PLACEHOLDER_PATH,
-    output_dir: Path = _PLACEHOLDER_PATH,
-) -> BuildConfig | None:
-    """Collect form values into a ``BuildConfig`` override.
-
-    Mirrors ``BuildModalScreen._collect_options`` but takes widget dict and
-    paths as explicit parameters.
-    """
-    if not inputs:
-        return None
-
-    fields = read_build_form_fields(inputs)
-    if all(value is None for value in fields.values()):
-        return None
-
-    git_branch = cast(str | None, fields["git_branch"])
-    git_commit = cast(str | None, fields["git_commit"])
-    jobs = cast(int | None, fields["jobs"])
-    retry_attempts = cast(int | None, fields["retry_attempts"])
-    retry_delay = cast(int | None, fields["retry_delay"])
-    shallow_clone = cast(bool | None, fields["shallow_clone"])
-    update_sources = cast(bool | None, fields["update_sources"])
-    clean_cache = cast(bool | None, fields["clean_cache"])
-    build_timeout = cast(int | None, fields["build_timeout_seconds"])
-    build_args_raw = cast(str | None, fields["build_args"])
-
-    build_args: list[str] | None = None
-    if build_args_raw is not None and build_args_raw.strip():
-        build_args = shlex.split(build_args_raw.strip())
-
-    return BuildConfig(
-        backend=BuildBackend.SYCL if backend == "sycl" else BuildBackend.CUDA,
-        source_dir=source_dir,
-        build_dir=build_dir,
-        output_dir=output_dir,
-        git_remote_url="",
-        git_branch=git_branch or "master",
-        git_commit=git_commit,
-        jobs=jobs,
-        retry_attempts=retry_attempts or 3,
-        retry_delay=float(retry_delay) if retry_delay is not None else 5.0,
-        shallow_clone=shallow_clone if shallow_clone is not None else True,
-        update_sources=update_sources if update_sources is not None else True,
-        clean_cache=clean_cache if clean_cache is not None else False,
-        build_timeout_seconds=build_timeout or 3600,
-        build_args=build_args,
-    )
-
-
-def navigate_wizard_step(
-    current_step: int,
-    selected_backend: str,
-) -> int:
-    """Determine the next wizard step given the current step and selected backend.
-
-    Mirrors the navigation logic in ``BuildModalScreen._handle_next``.
-    """
-    select_map: dict[str, int] = {
-        "sycl": BuildModalScreen.STEP_SYCL_OPTS,
-        "cuda": BuildModalScreen.STEP_CUDA_OPTS,
-        "both": BuildModalScreen.STEP_SYCL_OPTS,
-    }
-    if current_step == BuildModalScreen.STEP_SELECT:
-        return select_map.get(selected_backend, BuildModalScreen.STEP_SELECT)
-    if current_step == BuildModalScreen.STEP_SYCL_OPTS:
-        if selected_backend == "both":
-            return BuildModalScreen.STEP_CUDA_OPTS
-        return BuildModalScreen.STEP_BUILDING
-    if current_step == BuildModalScreen.STEP_CUDA_OPTS:
-        return BuildModalScreen.STEP_BUILDING
-    return current_step
-
-
-def build_result_content(
-    success: bool | None,
-    artifact_path: str | None = None,
-    error_message: str = "",
-) -> Text:
-    """Build result copy as Rich Text.
-
-    Mirrors ``BuildModalScreen._result_content`` with explicit parameters
-    instead of wizard state lookups.
-    """
-    content = Text()
-    if success is True:
-        content.append("Build completed successfully!\n", style=STYLE_BOLD_GREEN)
-        if artifact_path:
-            content.append(f"  Binary: {artifact_path}\n")
-        return content
-    content.append("Build failed:\n", style=STYLE_BOLD_RED)
-    content.append(error_message or _UNKNOWN_ERROR)
-    return content
 
 
 class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
@@ -539,11 +391,6 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         if self._btn_next:
             self.set_focus(self._btn_next)
 
-    def _clear_mounted(self) -> None:  # pragma: no cover
-        """Remove all children from the placeholder (for re-compose on back navigation)."""
-        placeholder = self.query_one("#build-wizard-placeholder", Container)
-        placeholder.remove_children()
-
     # -- Step 1: Select target + status ------------------------------------
 
     def _compose_step_select(self, parent: Container) -> None:  # pragma: no cover
@@ -626,9 +473,9 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         )
         retry_delay_input = Input(value=str(config.build.retry_delay), classes="build-option-input")
         shallow_cb = Checkbox(
-            f"Shallow clone (default: {getattr(config, 'build_shallow_clone', True)})",
+            "Shallow clone (default: True)",
             classes="build-option-checkbox",
-            value=getattr(config, "build_shallow_clone", True),
+            value=True,
         )
         update_cb = Checkbox("Update sources", classes="build-option-checkbox", value=True)
         clean_cache_cb = Checkbox("Clean cmake cache", classes="build-option-checkbox", value=False)
@@ -898,7 +745,7 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
         return panel
 
     def _build_result_summary(self, success: bool | None) -> Static:  # pragma: no cover
-        summary = Static(classes="build-result-summary")
+        summary = Static(classes="build-result-summary", markup=False)
         if success is True:
             artifact = self._wizard_state.get("build_result_artifact")
             summary.update(f"Binary: {artifact}" if artifact else "No artifact path was reported.")
@@ -934,12 +781,6 @@ class BuildModalScreen(ModalScreen[BuildWizardResult | None]):
                 self._result_text_area("Failure details", "No additional log output.", "details")
             )
         return sections
-
-    def _result_content(self, success: bool | None) -> Text:
-        """Build result copy as Rich Text (avoids markup parse errors in error messages)."""
-        artifact = self._wizard_state.get("build_result_artifact")
-        error = str(self._wizard_state.get("build_result_error", _UNKNOWN_ERROR))
-        return build_result_content(success, artifact_path=artifact, error_message=error)
 
     @staticmethod
     def _strip_failure_prefix(error: str) -> str:

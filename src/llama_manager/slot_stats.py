@@ -285,7 +285,7 @@ def load_slot_stats(runtime_dir: Path | None = None) -> dict[str, SlotStatsSnaps
 
     try:
         data = json.loads(text)
-    except json.JSONDecodeError, ValueError:
+    except ValueError:
         return {}
 
     if not isinstance(data, dict):
@@ -362,7 +362,7 @@ def load_profile_stats(runtime_dir: Path | None = None) -> dict[str, ProfileStat
 
     try:
         data = json.loads(text)
-    except json.JSONDecodeError, ValueError:
+    except ValueError:
         return {}
 
     if not isinstance(data, dict):
@@ -495,7 +495,7 @@ def collect_slot_stats(
 
     try:
         payload = json.loads(slots_payload)
-    except json.JSONDecodeError, ValueError:
+    except ValueError:
         return None
 
     if not isinstance(payload, list):
@@ -506,7 +506,6 @@ def collect_slot_stats(
 
 def _http_get_text(host: str, port: int, path: str, timeout_s: float) -> str | None:
     """Fetch one localhost llama-server endpoint and return decoded text."""
-    import urllib.error
     import urllib.request
 
     url = f"http://{host}:{port}{path}"  # noqa: S310
@@ -514,7 +513,7 @@ def _http_get_text(host: str, port: int, path: str, timeout_s: float) -> str | N
         req = urllib.request.Request(url, headers={"Accept": "application/json"})  # noqa: S310
         with urllib.request.urlopen(req, timeout=timeout_s) as response:  # noqa: S310
             return response.read().decode("utf-8", errors="replace")
-    except OSError, TimeoutError, urllib.error.URLError:
+    except OSError:
         return None
 
 

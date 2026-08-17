@@ -27,14 +27,14 @@ from llama_manager.slot_profile_store import (
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def xdg_config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Set XDG_CONFIG_HOME to a temp dir and return it."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     return tmp_path
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_profile() -> RunProfileSpec:
     """Return a minimal valid RunProfileSpec for testing."""
     return RunProfileSpec(
@@ -278,6 +278,7 @@ def test_roundtrip_serialization_with_all_fields(xdg_config_home: Path) -> None:
         spec_draft_cache_type_k="",
         spec_draft_cache_type_v="",
         spec_draft_device="",
+        reasoning_effort="low",
     )
     save_custom_run_profile(full_profile)
     loaded = load_custom_run_profiles()
@@ -295,10 +296,10 @@ def test_roundtrip_serialization_with_all_fields(xdg_config_home: Path) -> None:
     assert r.description == full_profile.description
     assert r.bind_address == full_profile.bind_address
     assert r.tensor_split == full_profile.tensor_split
-    assert r.reasoning_mode == full_profile.reasoning_mode
-    assert r.reasoning_format == full_profile.reasoning_format
+    assert r.spec_decode.reasoning_mode == full_profile.spec_decode.reasoning_mode
+    assert r.spec_decode.reasoning_format == full_profile.spec_decode.reasoning_format
     assert r.chat_template_kwargs == full_profile.chat_template_kwargs
-    assert r.reasoning_budget == full_profile.reasoning_budget
+    assert r.spec_decode.reasoning_budget == full_profile.spec_decode.reasoning_budget
     assert r.use_jinja == full_profile.use_jinja
     assert r.cache_type_k == full_profile.cache_type_k
     assert r.cache_type_v == full_profile.cache_type_v
@@ -313,10 +314,11 @@ def test_roundtrip_serialization_with_all_fields(xdg_config_home: Path) -> None:
     assert r.parallel == full_profile.parallel
     assert r.threads_batch == full_profile.threads_batch
     assert r.mmproj == full_profile.mmproj
-    assert r.spec_type == full_profile.spec_type
-    assert r.spec_ngram_size_n == full_profile.spec_ngram_size_n
-    assert r.draft_min == full_profile.draft_min
-    assert r.draft_max == full_profile.draft_max
+    assert r.spec_decode.spec_type == full_profile.spec_decode.spec_type
+    assert r.spec_decode.spec_ngram_size_n == full_profile.spec_decode.spec_ngram_size_n
+    assert r.spec_decode.draft_min == full_profile.spec_decode.draft_min
+    assert r.spec_decode.draft_max == full_profile.spec_decode.draft_max
+    assert r.reasoning_effort == full_profile.reasoning_effort
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +374,8 @@ def test_profile_from_dict_migrates_mmap_mlock() -> None:
     assert p.load_mode == "mlock"
     d = _profile_to_dict(p)
     assert d["load_mode"] == "mlock"
-    assert "mmap" not in d and "mlock" not in d
+    assert "mmap" not in d
+    assert "mlock" not in d
 
 
 def test_profile_from_dict_normalizes_invalid_tri_state() -> None:
@@ -395,6 +398,24 @@ def test_profile_from_dict_normalizes_invalid_tri_state() -> None:
     assert p.fit == "auto"
 
 
+def test_invalid_reasoning_effort_normalizes_to_medium() -> None:
+    """Invalid persisted reasoning_effort values normalize to medium."""
+    p = _profile_from_dict(
+        {
+            "profile_id": "t",
+            "model": "/m.gguf",
+            "alias": "t",
+            "device": "cuda:0",
+            "port": 8080,
+            "ctx_size": 4096,
+            "ubatch_size": 512,
+            "threads": 8,
+            "reasoning_effort": "high",
+        }
+    )
+    assert p.reasoning_effort == "medium"
+
+
 def test_profile_from_dict_applies_defaults() -> None:
     """_profile_from_dict should fill in defaults for missing keys."""
     minimal: dict[str, Any] = {
@@ -410,8 +431,8 @@ def test_profile_from_dict_applies_defaults() -> None:
     }
     p = _profile_from_dict(minimal)
     assert p.bind_address == "127.0.0.1"
-    assert p.reasoning_mode == "auto"
-    assert p.reasoning_format == "none"
+    assert p.spec_decode.reasoning_mode == "auto"
+    assert p.spec_decode.reasoning_format == "none"
     assert p.use_jinja is False
     assert p.cache_type_k == "q8_0"
     assert p.cache_type_v == "q8_0"

@@ -14,6 +14,8 @@ from ..utils import (
     _tail_lines,
 )
 
+CLONE_TIMEOUT_S = 120
+
 
 def run_clone(ctx: _BuildContext) -> BuildProgress:
     """Clone or update git repository source."""
@@ -46,8 +48,7 @@ def run_clone(ctx: _BuildContext) -> BuildProgress:
         ctx.config.shallow_clone,
         ctx.config.source_dir,
     )
-    source_existed_before_clone = source_exists(ctx.config.source_dir)
-    return _execute_clone(ctx, progress, source_existed_before_clone=source_existed_before_clone)
+    return _execute_clone(ctx, progress)
 
 
 def is_git_repo(source_dir: Path) -> bool:
@@ -116,9 +117,7 @@ def _handle_existing_source(ctx: _BuildContext, progress: BuildProgress) -> Buil
     return progress
 
 
-def _execute_clone(
-    ctx: _BuildContext, progress: BuildProgress, source_existed_before_clone: bool = False
-) -> BuildProgress:
+def _execute_clone(ctx: _BuildContext, progress: BuildProgress) -> BuildProgress:
     """Execute the git clone operation."""
     try:
         if ctx.dry_run:
@@ -139,10 +138,9 @@ def _execute_clone(
         cmd.extend([ctx.config.git_remote_url, str(ctx.config.source_dir)])
 
         logger.debug("[clone] running: %s", _format_command(cmd))
-        clone_timeout = getattr(ctx.config, "clone_timeout", 120)
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, check=False, timeout=clone_timeout
+                cmd, capture_output=True, text=True, check=False, timeout=CLONE_TIMEOUT_S
             )
         except subprocess.TimeoutExpired as e:
             ctx.append_command_output(
@@ -150,7 +148,7 @@ def _execute_clone(
                 command=cmd,
                 returncode=-1,
                 stdout="",
-                stderr=f"Git clone timed out after {clone_timeout}s: {e}",
+                stderr=f"Git clone timed out after {CLONE_TIMEOUT_S}s: {e}",
             )
             raise
 
@@ -177,7 +175,7 @@ def _execute_clone(
                 return progress
 
     except Exception as e:
-        return _handle_clone_error(ctx, progress, e, source_existed_before_clone)
+        return _handle_clone_error(ctx, progress, e)
 
     return progress
 
@@ -186,10 +184,9 @@ def _handle_clone_error(
     ctx: _BuildContext,
     progress: BuildProgress,
     error: Exception,
-    source_existed_before_clone: bool = False,
 ) -> BuildProgress:
     """Handle clone failure with offline-continue support."""
-    if source_existed_before_clone or source_exists(ctx.config.source_dir):
+    if source_exists(ctx.config.source_dir):
         logger.warning("[clone] error but source available; continuing offline: %s", str(error))
         progress.status = "skipped"
         progress.message = MSG_SOURCES_ALREADY_EXIST

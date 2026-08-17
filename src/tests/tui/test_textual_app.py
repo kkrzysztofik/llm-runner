@@ -23,6 +23,7 @@ from llama_cli.tui.textual_app import (
 )
 from llama_cli.tui.types import MemoryUsageSnapshot, SystemInfoSnapshot
 from llama_manager import LogBuffer
+from llama_manager.config.reasoning_effort import REASONING_EFFORT_JSON_CONFLICT
 from tests.support.helpers import make_server_config
 
 
@@ -312,11 +313,9 @@ class TestDashboardAppCheckAction:
     def _make_app(
         self,
         *,
-        build_request: bool = False,
         risk_prompt: object = None,
     ) -> DashboardApp:
         controller = _make_controller()
-        controller.model.build_request = build_request
         controller.model.risk_prompt = risk_prompt  # type: ignore[assignment]
         return DashboardApp(controller)
 
@@ -332,14 +331,6 @@ class TestDashboardAppCheckAction:
         app = self._make_app()
 
         assert app.check_action("build", ()) is True
-
-    def test_build_request_only_shows_cancel(self) -> None:
-        """During build_request only 'cancel_pending_prompt' returns True."""
-        app = self._make_app(build_request=True)
-
-        assert app.check_action("cancel_pending_prompt", ()) is True
-        assert app.check_action("build", ()) is False
-        assert app.check_action("add_slot", ()) is False
 
     def test_risk_prompt_hides_refresh_add_build_config(self) -> None:
         """During a risk prompt, refresh/add_slot/build/open_config are hidden."""
@@ -370,12 +361,6 @@ class TestDashboardAppCheckAction:
         app = self._make_app(risk_prompt=risk)
 
         assert app.check_action("quit_dashboard", ()) is False
-
-    def test_build_request_hides_about_action(self) -> None:
-        """During build_request the 'about' binding is hidden."""
-        app = self._make_app(build_request=True)
-
-        assert app.check_action("about", ()) is False
 
     def test_action_about_pushes_about_modal(self) -> None:
         from llama_cli.tui.components.about_modal import AboutModal
@@ -469,7 +454,6 @@ class TestDashboardAppGpuStatsRefresh:
             backend_label="CUDA",
             url="http://127.0.0.1:8081",
             config_summary="Device: CUDA0 | Ctx: 8192",
-            log_lines=("line1", "line2"),
             runtime_stats=SlotRuntimeStats(tps="12.5", pp="100", tokens_in="500", tokens_out="200"),
             gpu_stats={"device": "NVIDIA RTX 3090", "gpu_util": "82%", "mem_util": "71%"},
             stale_warning=None,
@@ -527,7 +511,6 @@ class TestDashboardAppGpuStatsRefresh:
             backend_label="CUDA",
             url="http://127.0.0.1:8081",
             config_summary="Device: CUDA0 | Ctx: 8192",
-            log_lines=(),
             runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
             gpu_stats=None,
             stale_warning=None,
@@ -593,7 +576,6 @@ class TestDashboardAppAddSlotFlow:
             layout_changed=True,
         )
 
-        controller.apply_add_slot_from_form.assert_not_called()
         app._reconcile_server_log_panels.assert_awaited_once()  # type: ignore[attr-defined]
         app.refresh_dashboard.assert_called_once()  # type: ignore[attr-defined]
 
@@ -625,8 +607,6 @@ class TestDashboardAppAddSlotFlow:
         controller.prepare_async_slot_launch.return_value = AsyncSlotPlan(
             success=True,
             messages=[],
-            alias="new-slot",
-            profile_id="new-slot",
             old_alias=None,
         )
         controller.stage_async_slot_launch.return_value = AsyncSlotStageResult(
@@ -658,7 +638,6 @@ class TestDashboardAppAddSlotFlow:
             {"profile": "new-slot", "port": "8080"},
         )
 
-        controller.apply_add_slot_from_form.assert_not_called()
         controller._push_status_message.assert_called_once_with("Validated")
         controller.prepare_async_slot_launch.assert_called_once()
         controller.stage_async_slot_launch.assert_called_once()
@@ -683,6 +662,66 @@ class TestDashboardAppAddSlotFlow:
             "Slot added",
         ]
         assert finish_args[4] is True
+
+    def test_run_add_slot_reports_start_servers_value_error(self) -> None:
+        """Launch ValueError text must appear in the slot-failure message."""
+        controller = _make_controller()
+        controller.compute_add_slot_from_form.return_value = (
+            True,
+            ["Validated"],
+            "new-slot",
+            make_server_config(alias="new-slot"),
+        )
+        controller.prepare_async_slot_launch.return_value = AsyncSlotPlan(
+            success=True,
+            messages=[],
+            old_alias=None,
+        )
+        controller.stage_async_slot_launch.return_value = AsyncSlotStageResult(
+            success=True,
+            messages=["Slot 'new-slot' launching..."],
+            alias="new-slot",
+            log_buffer=LogBuffer(redact_sensitive=True),
+        )
+        controller.server_manager.start_servers.side_effect = ValueError(
+            REASONING_EFFORT_JSON_CONFLICT
+        )
+        controller.complete_async_slot_launch.return_value = (False, [])
+        app = DashboardApp(controller)
+        captured: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        def _call_from_thread(fn: object, *args: object, **kwargs: object) -> object:
+            if getattr(fn, "__name__", "") == "_finish_add_slot":
+                captured.append((fn, args, kwargs))
+                return None
+            return fn(*args, **kwargs)  # type: ignore[misc]
+
+        app.call_from_thread = _call_from_thread  # type: ignore[method-assign]
+
+        DashboardApp._run_add_slot.__wrapped__(  # type: ignore[attr-defined]
+            app,
+            {"profile": "new-slot", "port": "8080"},
+        )
+
+        controller.complete_async_slot_launch.assert_called_once_with(
+            "new-slot",
+            "new-slot",
+            None,
+            None,
+        )
+        finish_calls = [
+            call for call in captured if getattr(call[0], "__name__", "") == "_finish_add_slot"
+        ]
+        assert len(finish_calls) == 1
+        finish_args = finish_calls[0][1]
+        assert finish_args[2] is False
+        failure_messages = [
+            msg for msg in cast(list[object], finish_args[3]) if isinstance(msg, str)
+        ]
+        assert any(
+            "server launch exception" in msg and REASONING_EFFORT_JSON_CONFLICT in msg
+            for msg in failure_messages
+        )
 
     def test_start_add_slot_rejects_when_slot_operation_running(self) -> None:
         controller = _make_controller()
@@ -887,7 +926,6 @@ class TestDashboardAppRemoveSlotFlow:
 
         DashboardApp._run_remove_slot.__wrapped__(app, "slot0")  # type: ignore[attr-defined]
 
-        controller.remove_live_slot.assert_not_called()
         controller.prepare_async_slot_remove.assert_called_once_with("slot0")
         controller.server_manager.shutdown_slot.assert_called_once_with("slot0")
         controller.commit_async_slot_remove.assert_called_once_with("slot0")
@@ -1058,14 +1096,14 @@ class TestDashboardAppActionHandlers:
         controller.request_quit.assert_called_once()
         app._dispatch_shutdown.assert_not_called()
 
-    def test_action_interrupt_dashboard_dispatches_shutdown(self) -> None:
-        """action_interrupt_dashboard should dispatch the slot-ops shutdown worker."""
+    def test_action_cancel_pending_prompt_dispatches_shutdown(self) -> None:
+        """action_cancel_pending_prompt should dispatch the slot-ops shutdown worker."""
         controller = _make_controller()
         controller.interrupt.return_value = True
         app = DashboardApp(controller)
         app._dispatch_shutdown = MagicMock()  # type: ignore[method-assign]
 
-        app.action_interrupt_dashboard()
+        app.action_cancel_pending_prompt()
 
         controller.interrupt.assert_called_once()
         app._dispatch_shutdown.assert_called_once_with(exit_app=True)
@@ -1484,14 +1522,16 @@ class TestDashboardAppBuildModalResult:
     """Tests for _handle_build_modal_result."""
 
     def test_handle_build_modal_result_none(self) -> None:
-        """_handle_build_modal_result with None should cancel."""
+        """_handle_build_modal_result with None should not start a build."""
         controller = _make_controller()
         app = DashboardApp(controller)
         app.refresh_dashboard = MagicMock()  # type: ignore[assignment]
+        app.start_build = MagicMock()  # type: ignore[method-assign]
 
         app._handle_build_modal_result(None)
 
-        controller.cancel_pending_prompt.assert_called_once()
+        app.start_build.assert_not_called()
+        app.refresh_dashboard.assert_called_once()
 
     def test_handle_build_modal_result_with_backends(self) -> None:
         """_handle_build_modal_result with backends should start a build."""
@@ -1516,9 +1556,7 @@ class TestDashboardAppBuildModalResult:
 
         app.start_build(["sycl"], options={"sycl": None}, wizard=None)
 
-        controller.begin_build.assert_called_once_with(
-            ["sycl"], options={"sycl": None}, wizard=None
-        )
+        controller.begin_build.assert_called_once_with(options={"sycl": None}, wizard=None)
         app._run_build_worker.assert_called_once_with(["sycl"], None)
 
     def test_start_build_refuses_second_concurrent_build(self) -> None:

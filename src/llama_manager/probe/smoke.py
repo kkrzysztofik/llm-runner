@@ -191,42 +191,6 @@ class SmokeCompositeReport:
         return len(self.results) - self.pass_count
 
 
-@dataclass
-class ConsecutiveFailureCounter:
-    """Tracks consecutive smoke failures per slot.
-
-    Used to implement exponential backoff or auto-restart logic.
-
-    Attributes:
-        slot_id: Normalized slot identifier.
-        count: Number of consecutive failures.
-        model_id_override: Model ID that was last probed.
-    """
-
-    slot_id: str
-    count: int = 0
-    model_id_override: str | None = None
-
-    def record_failure(self, model_id: str | None = None) -> None:
-        """Record a failure for this slot.
-
-        Args:
-            model_id: The model ID that was being probed.
-        """
-        self.count += 1
-        if model_id is not None:
-            self.model_id_override = model_id
-
-    def record_success(self) -> None:
-        """Record a success and reset the counter."""
-        self.reset()
-
-    def reset(self) -> None:
-        """Reset the failure counter."""
-        self.count = 0
-        self.model_id_override = None
-
-
 # ---------------------------------------------------------------------------
 # Report directory management (T072)
 # ---------------------------------------------------------------------------

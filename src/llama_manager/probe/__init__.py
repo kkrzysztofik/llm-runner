@@ -2,7 +2,6 @@
 
 from .provenance import ProvenanceRecord, resolve_provenance
 from .smoke import (
-    ConsecutiveFailureCounter,
     SmokeCompositeReport,
     SmokeProbeResult,
     compute_overall_exit_code,
@@ -19,7 +18,6 @@ __all__ = [
     # Result types
     "SmokeProbeResult",
     "SmokeCompositeReport",
-    "ConsecutiveFailureCounter",
     "ProvenanceRecord",
     # Computation
     "compute_overall_exit_code",

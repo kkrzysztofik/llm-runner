@@ -17,7 +17,7 @@ from ..config import (
 )
 from ..log_buffer import LogBuffer
 from .lockfile import LOCKFILE_CHECK_NAME
-from .types import ARTIFACT_CHECK_NAME, LaunchOrchestrationResult, LaunchResult
+from .types import LaunchOrchestrationResult, LaunchResult
 
 if TYPE_CHECKING:
     from ..risk_ack import RiskAckResult
@@ -49,23 +49,12 @@ def _lockfile_error(why_blocked: str, how_to_fix: str) -> ValidationException:
     )
 
 
-def _artifact_error(
-    why_blocked: str, how_to_fix: str, check: str = ARTIFACT_CHECK_NAME
-) -> ValidationException:
-    """Build an artifact-persistence ValidationException."""
-    return _make_validation_error(
-        ErrorCode.ARTIFACT_PERSISTENCE_FAILURE, check, why_blocked, how_to_fix
-    )
-
-
 def _evaluate_and_handle_risks(
     updated_configs: list[ServerConfig],
     server_manager: ServerManager,
     launch_attempt_id: str,
-    ack_token: str,
     acknowledged: bool,
     profile_messages: list[str],
-    risk_result: RiskAckResult | None = None,
 ) -> tuple[list[str], list[ServerConfig] | None, RiskAckResult | None]:
     """Evaluate risks and return (status_messages, configs_to_launch, risk_result).
 
@@ -74,14 +63,12 @@ def _evaluate_and_handle_risks(
     """
     from ..risk_ack import evaluate_risks
 
-    if risk_result is None:
-        risk_result = evaluate_risks(
-            updated_configs,
-            server_manager,
-            launch_attempt_id,
-            ack_token,
-            acknowledged,
-        )
+    risk_result = evaluate_risks(
+        updated_configs,
+        server_manager,
+        launch_attempt_id,
+        acknowledged,
+    )
 
     if risk_result.has_risks and not risk_result.risks_acknowledged and risk_result.risk_details:
         status_messages: list[str] = list(profile_messages)
@@ -93,31 +80,6 @@ def _evaluate_and_handle_risks(
         return status_messages, None, risk_result
 
     return profile_messages, updated_configs, risk_result
-
-
-def _build_launch_status_messages(
-    launch_result: LaunchResult,
-    profile_messages: list[str],
-) -> list[str]:
-    """Build status messages based on launch result (blocked/degraded).
-
-    Returns a new list starting with profile_messages plus any launch-specific messages.
-    """
-    status_messages: list[str] = list(profile_messages)
-
-    if launch_result.is_blocked():
-        status_messages.append("Launch blocked: no slots could be launched")
-        if launch_result.errors is not None:
-            for error_detail in launch_result.errors.errors:
-                status_messages.append(f"  {error_detail.error_code} - {error_detail.why_blocked}")
-        return status_messages
-
-    if launch_result.is_degraded():
-        status_messages.append("Launch degraded: some slots blocked")
-        for warning in launch_result.warnings or []:
-            status_messages.append(f"  warning: {warning}")
-
-    return status_messages
 
 
 def _build_launch_only_messages(launch_result: LaunchResult) -> list[str]:
@@ -250,13 +212,11 @@ def launch_orchestrate(
     ]
 
     launch_attempt_id = server_manager.begin_launch_attempt()
-    ack_token = server_manager.issue_ack_token(launch_attempt_id)
 
     status_messages, configs_to_launch, risk_result = _evaluate_and_handle_risks(
         updated_configs,
         server_manager,
         launch_attempt_id,
-        ack_token,
         acknowledged,
         profile_messages,
     )

@@ -8,10 +8,9 @@ from pathlib import Path
 from loguru import logger
 
 from ._context import _BuildContext
-from .lock import acquire_lock, get_lock_error_message, is_lock_stale, release_lock
+from .lock import acquire_lock, is_lock_stale, release_lock
 from .models import (
     BUILD_CANCELLED_MESSAGE,
-    BuildBackend,
     BuildConfig,
     BuildProgress,
     BuildResult,
@@ -198,9 +197,6 @@ class BuildPipeline:
 
     def run(self) -> BuildResult:
         """Execute the full 5-stage pipeline and return a BuildResult."""
-        if self.config.backend == BuildBackend.BOTH:
-            raise ValueError("BuildBackend.BOTH must use run_both_backends() instead")
-
         build_start_time = time.time()
         ctx = _BuildContext(
             config=self.config,
@@ -318,38 +314,6 @@ class BuildPipeline:
             self._ctx = None
             self._release_lock()
 
-    def run_both_backends(self) -> list[BuildResult]:
-        """Run SYCL then CUDA builds sequentially, each with its own lock."""
-        logger.info("[both] starting sequential builds for SYCL then CUDA")
-        results: list[BuildResult] = []
-        for backend, subdir in [
-            (BuildBackend.SYCL, "sycl"),
-            (BuildBackend.CUDA, "cuda"),
-        ]:
-            logger.info("[both] starting {} build", backend.value.upper())
-            sub_config = BuildConfig(
-                backend=backend,
-                source_dir=self.config.source_dir,
-                build_dir=self.config.build_dir / f"build_{subdir}",
-                output_dir=self.config.output_dir / f"output_{subdir}",
-                git_remote_url=self.config.git_remote_url,
-                git_branch=self.config.git_branch,
-                retry_attempts=self.config.retry_attempts,
-                retry_delay=self.config.retry_delay,
-                shallow_clone=self.config.shallow_clone,
-                jobs=self.config.jobs,
-                update_sources=self.config.update_sources,
-                git_commit=self.config.git_commit,
-            )
-            sub_pipeline = BuildPipeline(sub_config, self._progress_callback, self._cancel_event)
-            sub_pipeline.dry_run = self._dry_run
-            result = sub_pipeline.run()
-            logger.info(
-                "[both] {} build finished: success={}", backend.value.upper(), result.success
-            )
-            results.append(result)
-        return results
-
     # ── Lock management ──────────────────────────────────────────────────────
 
     def _acquire_lock(self, lock_path: Path) -> bool:
@@ -368,6 +332,3 @@ class BuildPipeline:
 
     def _is_lock_stale(self, lock_path: Path) -> bool:
         return is_lock_stale(lock_path)
-
-    def _get_lock_error_message(self, lock_path: Path) -> str:
-        return get_lock_error_message(lock_path)

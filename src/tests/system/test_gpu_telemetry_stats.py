@@ -11,7 +11,6 @@ from llama_manager.gpu_telemetry.stats import (
     collect_gpu_stats,
     collector_for_config,
     get_gpu_identifier,
-    make_gpu_collector,
     selector_for_config,
     selectors_for_config,
 )
@@ -91,93 +90,6 @@ class TestGPUStatsUpdate:
         with patch("llama_manager.gpu_telemetry.stats.logger") as mock_logger:
             stats.update()
             mock_logger.debug.assert_not_called()
-
-
-class TestGPUStatsProperties:
-    """Tests for gpu_util and memory_util properties."""
-
-    def test_gpu_util_returns_cached_value(self) -> None:
-        """gpu_util property should return cached stats."""
-        collector = MagicMock(return_value={"gpu_util": "75%", "mem_util": "50%"})
-        stats = GPUStats(device_index=0, collector=collector)
-
-        result = stats.gpu_util
-
-        assert result == "75%"
-
-    def test_memory_util_returns_cached_value(self) -> None:
-        """memory_util property should return cached stats."""
-        collector = MagicMock(return_value={"gpu_util": "50%", "mem_util": "80%"})
-        stats = GPUStats(device_index=0, collector=collector)
-
-        result = stats.memory_util
-
-        assert result == "80%"
-
-    def test_gpu_util_returns_na_when_missing(self) -> None:
-        """gpu_util should return 'N/A' when not in stats."""
-        collector = MagicMock(return_value={})
-        stats = GPUStats(device_index=0, collector=collector)
-
-        assert stats.gpu_util == "N/A"
-
-    def test_memory_util_returns_na_when_missing(self) -> None:
-        """memory_util should return 'N/A' when not in stats."""
-        collector = MagicMock(return_value={})
-        stats = GPUStats(device_index=0, collector=collector)
-
-        assert stats.memory_util == "N/A"
-
-
-class TestGPUStatsFormat:
-    """Tests for format_stats_text()."""
-
-    def test_format_with_gpu_util(self) -> None:
-        """Should include GPU line when gpu_util is present."""
-        collector = MagicMock(return_value={"gpu_util": "75%", "mem_util": "50%"})
-        stats = GPUStats(device_index=0, collector=collector)
-
-        text = stats.format_stats_text()
-
-        assert "GPU: 75%" in text
-        assert "Mem: 50%" in text
-
-    def test_format_without_gpu_util_falls_to_cpu(self) -> None:
-        """Should include CPU line when gpu_util is N/A."""
-        collector = MagicMock(return_value={"cpu": "42%", "mem": "55%"})
-        stats = GPUStats(device_index=0, collector=collector)
-
-        text = stats.format_stats_text()
-
-        assert "CPU: 42%" in text
-        assert "Mem: 55%" in text
-
-    def test_format_includes_temp_when_present(self) -> None:
-        """Should include temp line when temp is present."""
-        collector = MagicMock(return_value={"gpu_util": "75%", "mem_util": "50%", "temp": "65C"})
-        stats = GPUStats(device_index=0, collector=collector)
-
-        text = stats.format_stats_text()
-
-        assert "Temp: 65C" in text
-
-    def test_format_includes_power_when_present(self) -> None:
-        """Should include power line when power key exists."""
-        collector = MagicMock(return_value={"gpu_util": "75%", "mem_util": "50%", "power": "250W"})
-        stats = GPUStats(device_index=0, collector=collector)
-
-        text = stats.format_stats_text()
-
-        assert "Power: 250W" in text
-
-    def test_format_excludes_power_when_na(self) -> None:
-        """Should not include power line when power is 'N/A'."""
-        collector = MagicMock(return_value={"gpu_util": "75%", "mem_util": "50%", "power": "N/A"})
-        stats = GPUStats(device_index=0, collector=collector)
-
-        text = stats.format_stats_text()
-
-        assert "Power:" not in text
 
 
 class TestGetGpuIdentifier:
@@ -386,19 +298,6 @@ class TestCollectGpuStats:
             result = collect_gpu_stats(selector)
 
         assert result["device"] == "GPU 1"
-
-
-class TestMakeGpuCollector:
-    """Tests for make_gpu_collector()."""
-
-    def test_returns_callable_bound_to_selector(self) -> None:
-        """Should return a zero-argument callable."""
-        selector = GpuTelemetrySelector(backend="cuda", ordinal=0)
-        collector = make_gpu_collector(selector)
-
-        assert callable(collector)
-        result = collector()
-        assert isinstance(result, dict)
 
 
 class TestSelectorForConfig:

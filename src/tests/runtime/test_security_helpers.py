@@ -5,7 +5,7 @@ from llama_manager.common.security import (
     is_sensitive_key,
     redact_env_value,
     redact_log_line,
-    safe_log,
+    redact_sensitive,
 )
 
 # ---------------------------------------------------------------------------
@@ -162,48 +162,105 @@ class TestRedactLogLine:
 # ---------------------------------------------------------------------------
 
 
-class TestSafeLog:
-    """Tests for safe_log() — t-string redaction."""
+# ---------------------------------------------------------------------------
+# TestRedactSensitive
+# ---------------------------------------------------------------------------
 
-    def test_redacts_sensitive_interpolation(self) -> None:
-        """Should redact values bound to sensitive variable names."""
-        api_key = "sk-abc123"
-        result = safe_log(t"Connecting with api_key={api_key}")
-        assert result == "Connecting with api_key=[REDACTED]"
 
-    def test_preserves_safe_interpolation(self) -> None:
-        """Should preserve values bound to non-sensitive variable names."""
-        model_path = "/path/to/model.gguf"
-        result = safe_log(t"Loading model from model_path={model_path}")
-        assert result == "Loading model from model_path=/path/to/model.gguf"
+class TestRedactSensitive:
+    """T014: Tests for redact_sensitive() function."""
 
-    def test_redacts_password_interpolation(self) -> None:
-        """PASSWORD-named variables should be redacted."""
-        db_password = "super_secret"  # noqa: S105
-        result = safe_log(t"Auth with db_password={db_password}")
-        assert result == "Auth with db_password=[REDACTED]"
+    def test_redact_sensitive_api_key(self) -> None:
+        """redact_sensitive should redact API_KEY values."""
+        assert redact_sensitive("API_KEY=secret123") == "API_KEY: [REDACTED]"
+        assert redact_sensitive("api_key=lowercase") == "api_key: [REDACTED]"
+        assert redact_sensitive("Api_Key=MixedCase") == "Api_Key: [REDACTED]"
 
-    def test_mixed_sensitive_and_safe(self) -> None:
-        """Should redact sensitive and preserve safe in the same template."""
-        api_key = "sk-abc"
-        server = "localhost"
-        result = safe_log(t"key={api_key} on {server}")
-        assert result == "key=[REDACTED] on localhost"
+    def test_redact_sensitive_token(self) -> None:
+        """redact_sensitive should redact TOKEN values."""
+        assert redact_sensitive("TOKEN=abc123") == "TOKEN: [REDACTED]"
+        assert redact_sensitive("auth_token=xyz789") == "auth_token: [REDACTED]"
 
-    def test_no_interpolations(self) -> None:
-        """A template with no interpolations should pass through unchanged."""
-        result = safe_log(t"Hello, world!")
-        assert result == "Hello, world!"
+    def test_redact_sensitive_secret(self) -> None:
+        """redact_sensitive should redact SECRET values."""
+        assert redact_sensitive("SECRET=mysecret") == "SECRET: [REDACTED]"
+        assert redact_sensitive("api_secret: secret123") == "api_secret: [REDACTED]"
 
-    def test_multiple_sensitive_interpolations(self) -> None:
-        """All sensitive interpolations should be redacted."""
-        token = "tok-123"  # noqa: S105
-        secret = "sec-456"  # noqa: S105
-        result = safe_log(t"token={token} secret={secret}")
-        assert result == "token=[REDACTED] secret=[REDACTED]"
+    def test_redact_sensitive_password(self) -> None:
+        """redact_sensitive should redact PASSWORD values."""
+        assert redact_sensitive("PASSWORD=supersecret") == "PASSWORD: [REDACTED]"
+        assert redact_sensitive("db_password: mypass") == "db_password: [REDACTED]"
 
-    def test_sensitive_via_log_pattern(self) -> None:
-        """Variable names matching the log pattern should also be redacted."""
-        proxy_auth_header = "bearer_xyz"
-        result = safe_log(t"header={proxy_auth_header}")
-        assert result == "header=[REDACTED]"
+    def test_redact_sensitive_auth(self) -> None:
+        """redact_sensitive should redact AUTH values."""
+        assert redact_sensitive("AUTH_HEADER=bearer_xyz") == "AUTH_HEADER: [REDACTED]"
+        assert redact_sensitive("auth_token=token123") == "auth_token: [REDACTED]"
+
+    def test_redact_sensitive_case_insensitive(self) -> None:
+        """redact_sensitive should work case-insensitively."""
+        assert redact_sensitive("API_KEY=secret") == "API_KEY: [REDACTED]"
+        assert redact_sensitive("api_key=secret") == "api_key: [REDACTED]"
+        assert redact_sensitive("Api_Key=secret") == "Api_Key: [REDACTED]"
+
+    def test_redact_sensitive_standalone_key(self) -> None:
+        """redact_sensitive should redact standalone sensitive words."""
+        assert redact_sensitive("KEY") == "[REDACTED]"
+        assert redact_sensitive("TOKEN") == "[REDACTED]"
+        assert redact_sensitive("SECRET") == "[REDACTED]"
+        assert redact_sensitive("PASSWORD") == "[REDACTED]"
+        assert redact_sensitive("AUTH") == "[REDACTED]"
+
+    def test_redact_sensitive_no_redaction_needed(self) -> None:
+        """redact_sensitive should return unchanged text when no sensitive data."""
+        assert redact_sensitive("normal log message") == "normal log message"
+        assert redact_sensitive("Building model from /path/to/model.gguf") == (
+            "Building model from /path/to/model.gguf"
+        )
+        assert redact_sensitive("Server started on port 8080") == "Server started on port 8080"
+
+    def test_redact_sensitive_multiple_in_one_line(self) -> None:
+        """redact_sensitive should redact multiple sensitive values in one line."""
+        text = "API_KEY=one TOKEN=two PASSWORD=three"
+        result = redact_sensitive(text)
+        # All three should be redacted
+        assert result.count("[REDACTED]") == 3
+        assert "one" not in result
+        assert "two" not in result
+        assert "three" not in result
+
+    def test_redact_sensitive_key_value_with_colon(self) -> None:
+        """redact_sensitive should handle key:value format."""
+        assert redact_sensitive("api-key: secret123") == "api-key: [REDACTED]"
+        assert redact_sensitive("DB_PASSWORD: mypass") == "DB_PASSWORD: [REDACTED]"
+
+    def test_redact_sensitive_key_value_with_equals(self) -> None:
+        """redact_sensitive should handle key=value format."""
+        assert redact_sensitive("api-key=secret123") == "api-key: [REDACTED]"
+        assert redact_sensitive("MY_TOKEN=abc123") == "MY_TOKEN: [REDACTED]"
+
+    def test_redact_sensitive_key_value_with_space(self) -> None:
+        """redact_sensitive should handle key value format (space separated)."""
+        result = redact_sensitive("api-key secret123")
+        # Should redact the value part
+        assert "[REDACTED]" in result
+
+    def test_redact_sensitive_preserves_other_content(self) -> None:
+        """redact_sensitive should preserve non-sensitive content."""
+        text = "2024-01-01 12:00:00 API_KEY=secret Server started"
+        result = redact_sensitive(text)
+        assert "2024-01-01 12:00:00" in result
+        assert "Server started" in result
+        assert "[REDACTED]" in result
+
+    def test_redact_sensitive_empty_string(self) -> None:
+        """redact_sensitive should handle empty string."""
+        assert redact_sensitive("") == ""
+
+    def test_redact_sensitive_only_sensitive_word(self) -> None:
+        """redact_sensitive should redact lines that are only sensitive words."""
+        # Standalone sensitive words should be fully redacted
+        assert redact_sensitive("API_KEY") == "[REDACTED]"
+        assert redact_sensitive("TOKEN") == "[REDACTED]"
+        assert redact_sensitive("SECRET") == "[REDACTED]"
+        assert redact_sensitive("PASSWORD") == "[REDACTED]"
+        assert redact_sensitive("AUTH") == "[REDACTED]"

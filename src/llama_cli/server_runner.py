@@ -394,7 +394,7 @@ def cli_main() -> None:
     """Entry point for the `llm-runner` console script."""
     from datetime import datetime
 
-    from llama_manager.logging_setup import configure_logging_split
+    from llama_manager.logging_setup import configure_logging
 
     # Load persisted config for log level defaults
     cfg = build_config()
@@ -415,7 +415,7 @@ def cli_main() -> None:
     # Ensure logs directory exists
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    configure_logging_split(
+    configure_logging(
         stderr_level=stderr_sink_level,
         file_level=file_level,
         log_file=log_file,

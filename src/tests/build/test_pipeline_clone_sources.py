@@ -186,91 +186,6 @@ class TestNoAutobuildOnLaunch:
             assert result.success is True
 
 
-class TestSerializedBuildOrder:
-    """T029: Test serialized build order (SC-003)."""
-
-    def test_serialized_build_order(self, tmp_path: Path, monkeypatch) -> None:
-        """SC-003: SYCL build should complete before CUDA build starts.
-
-        When building both backends, SYCL should be built first, then CUDA.
-        This test verifies the serialized execution order using run_both_backends().
-        """
-        # Disable sleep to speed up tests with retry logic
-        monkeypatch.setattr(time, "sleep", lambda x: None)
-
-        # Create source directory (shared by both backends)
-        source_dir = tmp_path / "source"
-        source_dir.mkdir()
-
-        # Create a pipeline with BOTH backend support
-        config = BuildConfig(
-            backend=BuildBackend.SYCL,  # Base config, run_both_backends() will create both
-            source_dir=source_dir,
-            build_dir=tmp_path / "build",
-            output_dir=tmp_path / "output",
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_branch="main",
-        )
-
-        pipeline = BuildPipeline(config)
-
-        mock_artifact = BuildArtifact(
-            artifact_type="llama-server",
-            backend=BuildBackend.SYCL,
-            created_at=time.time(),
-            git_remote_url="https://github.com/ggerganov/llama.cpp",
-            git_commit_sha="abc123",
-            git_branch="main",
-            build_command=["cmake", "--build"],
-            build_duration_seconds=10.0,
-            exit_code=0,
-            binary_path=None,
-            binary_size_bytes=None,
-            build_log_path=None,
-            failure_report_path=None,
-        )
-
-        with (
-            patch(
-                "llama_manager.build_pipeline.pipeline.run_preflight",
-                return_value=BuildProgress(
-                    stage="preflight", status="success", message="OK", progress_percent=20
-                ),
-            ),
-            patch(
-                "llama_manager.build_pipeline.pipeline.run_clone",
-                return_value=BuildProgress(
-                    stage="clone", status="skipped", message="Exists", progress_percent=0
-                ),
-            ),
-            patch(
-                "llama_manager.build_pipeline.pipeline.run_configure",
-                return_value=BuildProgress(
-                    stage="configure",
-                    status="success",
-                    message="Configured",
-                    progress_percent=50,
-                ),
-            ),
-            patch(
-                "llama_manager.build_pipeline.pipeline.run_build",
-                return_value=BuildProgress(
-                    stage="build", status="success", message="Built", progress_percent=75
-                ),
-            ),
-            patch("llama_manager.build_pipeline.pipeline.run_finalize", return_value=mock_artifact),
-            patch.object(BuildPipeline, "_acquire_lock", return_value=True),
-            patch.object(BuildPipeline, "_release_lock"),
-        ):
-            # Call run_both_backends to exercise SC-003 serialization logic
-            results = pipeline.run_both_backends()
-
-        # Verify both builds succeeded
-        assert len(results) == 2
-        assert results[0].success is True
-        assert results[1].success is True
-
-
 class TestBuildLockBehavior:
     """T030: Test build lock behavior."""
 
@@ -1100,7 +1015,8 @@ class TestProvenanceFailureWarning:
 
             # Warning should be logged with specific message
             combined = " ".join(log_messages).lower()
-            assert "provenance" in combined and "write" in combined
+            assert "provenance" in combined
+            assert "write" in combined
         finally:
             logger.remove(handler_id)
 
@@ -1864,7 +1780,9 @@ class TestOfflineContinueCloneStage:
 
             # Should fail with network error
             assert progress.status == "failed"
-            assert "Network timeout" in progress.message or "Clone failed" in progress.message
+            assert any(
+                expected in progress.message for expected in ("Network timeout", "Clone failed")
+            )
 
     def test_clone_dry_run_mode(self, tmp_path: Path) -> None:
         """Clone stage should work in dry-run mode without actual git operations.

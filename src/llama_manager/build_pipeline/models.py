@@ -20,7 +20,6 @@ class BuildBackend(StrEnum):
 
     SYCL = "sycl"
     CUDA = "cuda"
-    BOTH = "both"
 
 
 @dataclass
@@ -28,20 +27,16 @@ class BuildConfig:
     """Build pipeline configuration for llama.cpp compilation.
 
     This dataclass holds all configuration needed to build llama.cpp
-    for a specific backend (SYCL, CUDA, or both). It defines source locations,
+    for a specific backend (SYCL or CUDA). It defines source locations,
     build directories, and retry behavior.
 
-    Class constants for CMake flags and build backend identifiers:
+    Class constants for CMake flags:
     - GGML_SYCL: CMake flag for SYCL backend
     - GGML_CUDA: CMake flag for CUDA backend
-    - CMAKE_C_COMPILER_SYCL: Intel C++ compiler for SYCL
-    - CMAKE_CXX_COMPILER_SYCL: Intel C++ compiler for SYCL
     """
 
     GGML_SYCL: ClassVar[str] = "GGML_SYCL"
     GGML_CUDA: ClassVar[str] = "GGML_CUDA"
-    CMAKE_C_COMPILER_SYCL: ClassVar[str] = "icx"
-    CMAKE_CXX_COMPILER_SYCL: ClassVar[str] = "icpx"
 
     backend: BuildBackend
     source_dir: Path
@@ -96,18 +91,6 @@ class BuildArtifact:
     binary_size_bytes: int | None
     build_log_path: Path | None
     failure_report_path: Path | None
-
-    @property
-    def is_success(self) -> bool:
-        """Check if the build was successful."""
-        return self.exit_code == 0
-
-    @property
-    def binary_size_mb(self) -> float | None:
-        """Get binary size in megabytes, if available."""
-        if self.binary_size_bytes is None:
-            return None
-        return self.binary_size_bytes / (1024 * 1024)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert BuildArtifact to a dictionary for JSON serialization.

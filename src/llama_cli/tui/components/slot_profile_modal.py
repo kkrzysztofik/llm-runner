@@ -15,6 +15,11 @@ from llama_manager.config import Config
 from llama_manager.config.launch_runtime import LaunchRuntimeFields
 from llama_manager.config.load_mode import LOAD_MODE_VALUES
 from llama_manager.config.profiles import SlotProfileSpec
+from llama_manager.config.reasoning_effort import (
+    REASONING_EFFORT_JSON_CONFLICT,
+    REASONING_EFFORT_VALUES,
+    chat_template_kwargs_has_reasoning_effort,
+)
 from llama_manager.config.server import SPLIT_MODE_VALUES
 from llama_manager.config.spec_decode import SpeculativeDecodingConfig, spec_type_members
 from llama_manager.config.tri_state import TRI_STATE_VALUES
@@ -24,6 +29,7 @@ from .form_widgets import (
     FIT_CHOICES,
     LOAD_MODE_CHOICES,
     MODAL_CANCEL_BINDINGS,
+    REASONING_EFFORT_CHOICES,
     REASONING_FORMAT_CHOICES,
     REASONING_MODE_CHOICES,
     REASONING_PRESERVE_CHOICES,
@@ -31,6 +37,7 @@ from .form_widgets import (
     ROW_SELECT_CLASSES,
     SELECT_CLASSES,
     SPLIT_MODE_CHOICES,
+    _optional_numeric_display,
     cache_type_row,
     checkbox_row,
     config_profile_prefill,
@@ -120,11 +127,6 @@ class SlotProfilePayload(LaunchRuntimeFields):
     spec_dflash_cross_ctx: int = 0
     save_and_add_slot: bool = False
     original_profile_id: str = ""  # filled for edits
-
-
-def _optional_numeric_display(value: int | float | None) -> str:
-    """Format optional numeric values as empty profile inputs when unset."""
-    return "" if value is None else str(value)
 
 
 def _parse_n_gpu_layers(raw: str) -> int | str:
@@ -377,6 +379,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "reasoning-format": spec_decode.reasoning_format,
             "reasoning-budget": spec_decode.reasoning_budget,
             "reasoning-preserve": runtime.reasoning_preserve,
+            "reasoning-effort": runtime.reasoning_effort,
             "reasoning-budget-message": runtime.reasoning_budget_message,
             "use-jinja": "true" if spec.use_jinja else "false",
             "cache-type-k": spec.cache_type_k,
@@ -444,22 +447,25 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         ngl_raw = self.query_one("#profile-n-gpu-layers", Input).value.strip()
         ngl_val = _parse_n_gpu_layers(ngl_raw)
 
-        device_select = self.query_one("#profile-device", Select)
-        device_val = str(device_select.value) if device_select.value else _DEFAULT_DEVICE
-        load_mode = str(self.query_one("#profile-load-mode", Select).value or "auto")
-        split_mode = str(self.query_one("#profile-split-mode", Select).value or "layer")
-        reasoning_preserve = str(
-            self.query_one("#profile-reasoning-preserve", Select).value or "auto"
-        )
-        fit = str(self.query_one("#profile-fit", Select).value or "auto")
+        device_val = self._select_value("#profile-device", _DEFAULT_DEVICE)
+        load_mode = self._select_value("#profile-load-mode", "auto")
+        split_mode = self._select_value("#profile-split-mode", "layer")
+        reasoning_preserve = self._select_value("#profile-reasoning-preserve", "auto")
+        reasoning_effort = self._select_value("#profile-reasoning-effort", "medium")
+        fit = self._select_value("#profile-fit", "auto")
         self._validate_enum("load mode", load_mode, LOAD_MODE_VALUES)
         self._validate_enum("split mode", split_mode, SPLIT_MODE_VALUES)
         self._validate_enum("reasoning preserve", reasoning_preserve, TRI_STATE_VALUES)
+        self._validate_enum("thinking level", reasoning_effort, REASONING_EFFORT_VALUES)
         self._validate_enum("fit", fit, TRI_STATE_VALUES)
 
         ctx_checkpoints = self._parse_optional_int("profile-ctx-checkpoints")
         if ctx_checkpoints is not None and ctx_checkpoints < 0:
             raise ValueError("Ctx checkpoints must be non-negative")
+
+        chat_template_kwargs = self.query_one("#profile-chat-template-kwargs", Input).value.strip()
+        if chat_template_kwargs_has_reasoning_effort(chat_template_kwargs):
+            raise ValueError(REASONING_EFFORT_JSON_CONFLICT)
 
         return SlotProfilePayload(
             profile_id=self.query_one("#profile-profile-id", Input).value.strip(),
@@ -471,25 +477,22 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             ubatch_size=self._parse_int("profile-ubatch-size", 512),
             n_gpu_layers=ngl_val,
             threads=self._parse_int("profile-threads", 8),
-            chat_template_kwargs=self.query_one(
-                "#profile-chat-template-kwargs", Input
-            ).value.strip(),
+            chat_template_kwargs=chat_template_kwargs,
             device=device_val,
             bind_address=self.query_one("#profile-bind-address", Input).value.strip()
             or "127.0.0.1",
             tensor_split=self.query_one("#profile-tensor-split", Input).value.strip(),
-            reasoning_mode=str(self.query_one("#profile-reasoning-mode", Select).value or "auto"),
-            reasoning_format=str(
-                self.query_one("#profile-reasoning-format", Select).value or "none"
-            ),
+            reasoning_mode=self._select_value("#profile-reasoning-mode", "auto"),
+            reasoning_format=self._select_value("#profile-reasoning-format", "none"),
             reasoning_budget=self.query_one("#profile-reasoning-budget", Input).value.strip(),
             reasoning_preserve=reasoning_preserve,
+            reasoning_effort=reasoning_effort,
             reasoning_budget_message=self.query_one(
                 "#profile-reasoning-budget-message", Input
             ).value.strip(),
             use_jinja=self.query_one("#profile-use-jinja", Checkbox).value,
-            cache_type_k=str(self.query_one("#profile-cache-type-k", Select).value or "q8_0"),
-            cache_type_v=str(self.query_one("#profile-cache-type-v", Select).value or "q8_0"),
+            cache_type_k=self._select_value("#profile-cache-type-k", "q8_0"),
+            cache_type_v=self._select_value("#profile-cache-type-v", "q8_0"),
             main_gpu=self._parse_int("profile-main-gpu", 0),
             batch_size=self._parse_int("profile-batch-size", 2048),
             poll_ms=self._parse_int("profile-poll-ms", 50),
@@ -497,18 +500,14 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             parallel=self._parse_int("profile-parallel", 4),
             threads_batch=self._parse_int("profile-threads-batch", 0),
             mmproj=self.query_one("#profile-mmproj", Input).value.strip(),
-            spec_type=str(self.query_one("#profile-spec-type", Select).value or ""),
+            spec_type=self._select_value("#profile-spec-type", ""),
             spec_ngram_size_n=self._parse_int("profile-spec-ngram-size-n", 0),
             draft_min=self._parse_int("profile-draft-min", 0),
             draft_max=self._parse_int("profile-draft-max", 0),
             spec_draft_n_max=self._parse_int("profile-spec-draft-n-max", 0),
             spec_draft_p_min=self._parse_float("profile-spec-draft-p-min", 0.0),
-            spec_draft_cache_type_k=str(
-                self.query_one("#profile-spec-draft-cache-type-k", Select).value or ""
-            ),
-            spec_draft_cache_type_v=str(
-                self.query_one("#profile-spec-draft-cache-type-v", Select).value or ""
-            ),
+            spec_draft_cache_type_k=self._select_value("#profile-spec-draft-cache-type-k", ""),
+            spec_draft_cache_type_v=self._select_value("#profile-spec-draft-cache-type-v", ""),
             spec_draft_device=self.query_one("#profile-spec-draft-device", Input).value.strip(),
             spec_draft_model=self.query_one("#profile-spec-draft-model", Input).value.strip(),
             spec_draft_hf=self.query_one("#profile-spec-draft-hf", Input).value.strip(),
@@ -531,6 +530,11 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             save_and_add_slot=save_and_add_slot,
             original_profile_id=(self._profile.profile_id if self._profile else ""),
         )
+
+    def _select_value(self, select_id: str, default: str) -> str:
+        """Read a Select widget, falling back to a default when blank."""
+        value = self.query_one(select_id, Select).value
+        return str(value or default)
 
     def _parse_int(self, field_id: str, default: int) -> int:
         """Parse an integer from an Input widget, falling back to *default*."""
@@ -723,6 +727,12 @@ def _build_reasoning_fields(prefill: dict[str, str]) -> Collapsible:
             prefill.get("reasoning-budget-message", ""),
         ),
         checkbox_row("Use Jinja", "use-jinja", use_jinja),
+        select_row(
+            "Thinking level",
+            "reasoning-effort",
+            REASONING_EFFORT_CHOICES,
+            prefill.get("reasoning-effort", "medium"),
+        ),
         field_row(
             "Chat Template Kwargs (JSON, optional)",
             "chat-template-kwargs",
@@ -969,6 +979,8 @@ def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -
         raise ValueError(f"Invalid split mode: {payload.split_mode!r}")
     if payload.reasoning_preserve not in TRI_STATE_VALUES:
         raise ValueError(f"Invalid reasoning preserve: {payload.reasoning_preserve!r}")
+    if payload.reasoning_effort not in REASONING_EFFORT_VALUES:
+        raise ValueError(f"Invalid thinking level: {payload.reasoning_effort!r}")
     if payload.fit not in TRI_STATE_VALUES:
         raise ValueError(f"Invalid fit: {payload.fit!r}")
     if payload.ctx_checkpoints is not None and payload.ctx_checkpoints < 0:
@@ -1027,6 +1039,7 @@ def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -
         no_host_buffer=payload.no_host_buffer,
         ui=payload.ui,
         reasoning_preserve=payload.reasoning_preserve,
+        reasoning_effort=payload.reasoning_effort,
         reasoning_budget_message=payload.reasoning_budget_message,
         fit=payload.fit,
         ctx_checkpoints=payload.ctx_checkpoints,

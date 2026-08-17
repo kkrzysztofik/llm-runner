@@ -317,7 +317,7 @@ The configuration system is the backbone of the application. All config flows th
 | `profiles.py` | `RunProfileSpec`, `RunGroupSpec`, `RunProfileRegistry` | Named launch profiles and groups |
 | `profile_cache.py` | `ProfileRecord`, `ProfileMetrics`, `load_profile_with_staleness()` | Benchmark caching + staleness |
 | `persistence.py` | `load_config_toml()`, `save_config_toml()` | TOML config file at `$XDG_CONFIG_HOME/llm-runner/config.toml` |
-| `enums.py` | `ErrorCode`, `SlotState`, `SmokePhase`, `ProfileFlavor`, `StalenessReason`, `DoctorCheckStatus` | All StrEnums |
+| `enums.py` | `ErrorCode`, `SlotState`, `SmokePhase`, `ProfileFlavor`, `StalenessReason` | All StrEnums |
 | `errors.py` | `ErrorDetail`, `MultiValidationError`, `ValidationResult` | Structured error reporting |
 | `__init__.py` | — | Re-exports entire config public API |
 
@@ -738,9 +738,8 @@ class RiskAckResult:
 | `SmokePhase` | `LISTEN`, `MODELS`, `CHAT`, `COMPLETE` |
 | `SmokeFailurePhase` | `LISTEN`, `MODELS`, `CHAT` |
 | `SmokeProbeStatus` | `PASS`, `FAIL`, `TIMEOUT`, `CRASHED`, `MODEL_NOT_FOUND`, `AUTH_FAILURE` |
-| `ProfileFlavor` | `BALANCED`, `FAST`, `QUALITY` |
+| `ProfileFlavor` | `BALANCED`, `FAST` |
 | `StalenessReason` | `DRIVER_CHANGED`, `BINARY_CHANGED`, `AGE_EXCEEDED` |
-| `DoctorCheckStatus` | `PASS`, `WARN`, `FAIL` |
 
 ---
 

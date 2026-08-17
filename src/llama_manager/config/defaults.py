@@ -57,10 +57,6 @@ class PathsConfig:
             )
 
     @property
-    def venv_path(self) -> Path:
-        return Path(self.xdg_cache_base) / "llm-runner" / "venv"
-
-    @property
     def builds_dir(self) -> Path:
         return Path(self.xdg_state_base) / "llm-runner" / "builds"
 
@@ -121,24 +117,17 @@ class ServerDefaultsConfig(LaunchRuntimeFields):
     n_gpu_layers: int = 99
     ctx_size_summary: int = 16144
     ctx_size_qwen35: int = 262144
-    ctx_size_both_summary: int = 16144
-    ctx_size_both_qwen35: int = 262144
     n_gpu_layers_qwen35: str = "all"
-    n_gpu_layers_qwen35_both: str = "all"
     ubatch_size_summary_balanced: int = 1024
     ubatch_size_summary_fast: int = 512
     ubatch_size_qwen35: int = 1024
-    ubatch_size_qwen35_both: int = 1024
     threads_summary_balanced: int = 8
     threads_summary_fast: int = 8
     threads_qwen35: int = 12
-    threads_qwen35_both: int = 12
     cache_type_summary_k: str = "q8_0"
     cache_type_summary_v: str = "q8_0"
     cache_type_qwen35_k: str = "q8_0"
     cache_type_qwen35_v: str = "q8_0"
-    cache_type_qwen35_both_k: str = "q8_0"
-    cache_type_qwen35_both_v: str = "q8_0"
 
     # -- Template defaults (new custom profiles, Config modal prefill) --
     port: int = 8080
@@ -196,25 +185,6 @@ class ServerDefaultsConfig(LaunchRuntimeFields):
             reasoning_format=self.reasoning_format,
             reasoning_budget=self.reasoning_budget,
         )
-
-    @spec_decode.setter
-    def spec_decode(self, value: SpeculativeDecodingConfig) -> None:
-        self.spec_type = value.spec_type
-        self.spec_ngram_size_n = value.spec_ngram_size_n
-        self.draft_min = value.draft_min
-        self.draft_max = value.draft_max
-        self.spec_draft_n_max = value.spec_draft_n_max
-        self.spec_draft_p_min = value.spec_draft_p_min
-        self.spec_draft_cache_type_k = value.spec_draft_cache_type_k
-        self.spec_draft_cache_type_v = value.spec_draft_cache_type_v
-        self.spec_draft_device = value.spec_draft_device
-        self.spec_draft_model = value.spec_draft_model
-        self.spec_draft_hf = value.spec_draft_hf
-        self.spec_draft_ngl = value.spec_draft_ngl
-        self.spec_dflash_cross_ctx = value.spec_dflash_cross_ctx
-        self.reasoning_mode = value.reasoning_mode
-        self.reasoning_format = value.reasoning_format
-        self.reasoning_budget = value.reasoning_budget
 
 
 # ---------------------------------------------------------------------------
@@ -289,9 +259,7 @@ class Config:
     )
     gguf_metadata_prefix_cap_bytes: int = 32 * 1024 * 1024  # 32 MiB
     gguf_metadata_parse_timeout_s: float = 60.0
-    tui_launch_timeout_s: int = 120
     tui_refresh_interval_ms: int = 1000
-    probe_latency_threshold_s: int = 10
     lock_stale_threshold_s: int = 300
     log_file_level: str = "DEBUG"
     log_stderr_level: str = "INFO"

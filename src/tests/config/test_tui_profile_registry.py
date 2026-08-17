@@ -15,14 +15,14 @@ from llama_manager.slot_profile_store import save_custom_slot_profile
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def xdg_config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Set XDG_CONFIG_HOME to a temp dir and return it."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     return tmp_path
 
 
-@pytest.fixture()
+@pytest.fixture
 def config(xdg_config_home: Path) -> Config:
     """Return a Config pointing at the temp XDG dir."""
     return Config()

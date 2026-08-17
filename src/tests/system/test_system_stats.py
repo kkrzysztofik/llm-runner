@@ -136,14 +136,11 @@ class TestCollectSystemInfo:
         assert result["load_values"] is None
 
     def test_task_caching(self) -> None:
-        """Task stats should be cached for 1.5 seconds."""
+        """Task stats should be cached for 1.0 second."""
         # Clear any stale cache from previous tests
-        from llama_manager.system_stats import _get_task_stats
+        import llama_manager.system_stats as system_stats
 
-        if hasattr(_get_task_stats, "_cache"):
-            del _get_task_stats._cache  # type: ignore[attr-defined]
-        if hasattr(_get_task_stats, "_cache_ts"):
-            del _get_task_stats._cache_ts  # type: ignore[attr-defined]
+        system_stats._task_stats_cache = None
         call_count = 0
 
         def _mock_iter(*args: object, **kwargs: object) -> list[object]:
@@ -183,15 +180,12 @@ class TestGetTaskStatsEdgeCases:
 
     def setup_method(self) -> None:
         """Clear cache before each test."""
-        from llama_manager.system_stats import _get_task_stats
+        import llama_manager.system_stats as system_stats
 
-        if hasattr(_get_task_stats, "_cache"):
-            del _get_task_stats._cache  # type: ignore[attr-defined]
-        if hasattr(_get_task_stats, "_cache_ts"):
-            del _get_task_stats._cache_ts  # type: ignore[attr-defined]
+        system_stats._task_stats_cache = None
 
     def test_cache_expired_after_ttl(self) -> None:
-        """Cache should expire after 1.5 seconds and re-fetch."""
+        """Cache should expire after 1.0 second and re-fetch."""
         from llama_manager.system_stats import _get_task_stats
 
         call_count = 0
@@ -205,7 +199,7 @@ class TestGetTaskStatsEdgeCases:
             patch("psutil.boot_time", return_value=1000000.0),
             patch("psutil.process_iter", side_effect=_mock_iter),
             patch("psutil.getloadavg", return_value=(1.0, 2.0, 3.0)),
-            patch("time.time", side_effect=[1000.0, 1000.0, 1002.0]),
+            patch("time.monotonic", side_effect=[1000.0, 1000.0, 1002.0]),
         ):
             # First call — should fetch
             _get_task_stats()

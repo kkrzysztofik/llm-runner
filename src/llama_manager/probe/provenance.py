@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from importlib.metadata import version as _importlib_version
-from pathlib import Path
 
 from ..config import Config
 
@@ -23,8 +22,8 @@ class ProvenanceRecord:
 def resolve_provenance() -> ProvenanceRecord:
     """Resolve git provenance for the running server binary.
 
-    Reads the SHA from ``.git/HEAD`` in the llama.cpp root directory
-    and the package version from ``importlib.metadata``.
+    Reads the SHA via ``git rev-parse HEAD`` in the llama.cpp root
+    directory and the package version from ``importlib.metadata``.
 
     Returns:
         A ProvenanceRecord with sha and version.
@@ -36,36 +35,10 @@ def resolve_provenance() -> ProvenanceRecord:
 
 
 def _resolve_sha() -> str:
-    """Resolve the git SHA from the llama.cpp repository.
-
-    Reads ``.git/HEAD`` and runs ``git rev-parse`` to get the full SHA.
-
-    Returns:
-        Full git SHA, or 'unknown' if resolution fails.
-
-    """
+    """Resolve the git SHA via ``git rev-parse HEAD``, or 'unknown'."""
     cfg = Config()
-    llama_cpp_root = cfg.paths.llama_cpp_root
-    git_head = Path(llama_cpp_root) / ".git" / "HEAD"
-    if not git_head.exists():
-        return "unknown"
-
-    try:
-        head_content = git_head.read_text().strip()
-        # .git/HEAD can contain a ref (ref: refs/heads/main) or a direct SHA
-        if head_content.startswith("ref: "):
-            ref_path = git_head.parent / head_content[5:]
-            if ref_path.exists():
-                sha = ref_path.read_text().strip()
-                return sha
-        else:
-            # Direct SHA reference
-            return head_content
-    except OSError:
-        pass
-
-    # Fallback: try git rev-parse
-    from subprocess import CalledProcessError, TimeoutExpired, run
+    llama_cpp_root = str(cfg.paths.llama_cpp_root)
+    from subprocess import TimeoutExpired, run
 
     try:
         result = run(
@@ -74,13 +47,9 @@ def _resolve_sha() -> str:
             text=True,
             timeout=5,
         )
-        if result.returncode == 0:
-            sha = result.stdout.strip()
-            return sha
-    except FileNotFoundError, CalledProcessError, TimeoutExpired:
-        pass
-
-    return "unknown"
+    except FileNotFoundError, TimeoutExpired:
+        return "unknown"
+    return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
 def _resolve_version() -> str:

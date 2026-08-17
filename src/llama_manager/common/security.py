@@ -7,7 +7,6 @@ at once.
 """
 
 import re
-from string.templatelib import Interpolation, Template
 from typing import Any, Final
 
 # ---------------------------------------------------------------------------
@@ -157,41 +156,52 @@ def redact_log_line(line: str) -> str:
     return _redact_log_key_value(line)
 
 
-def safe_log(template: Template) -> str:  # pyright: ignore[reportInvalidTypeForm]
-    """Render a t-string log message, redacting interpolated sensitive values.
+def redact_sensitive(text: str) -> str:
+    """Redact sensitive information from text.
 
-    Unlike ``redact_log_line`` (which applies regex to an already-formed string),
-    this function inspects each interpolated value *before* the string is
-    assembled.  The variable name exposed by ``Interpolation.expr`` is checked
-    against ``SENSITIVE_KEY_PATTERN``, giving structural guarantees that a
-    value bound to a sensitive-looking name cannot slip through as part of a
-    larger token.
+    Replaces values for KEY|TOKEN|SECRET|PASSWORD|AUTH with ``[REDACTED]``.
+    The key name is preserved for readability; only the value is replaced.
+    Uses case-insensitive regex matching.
 
     Args:
-        template: A t-string template literal, e.g. ``t"key={api_key}"``.
+        text: Input text to redact.
 
     Returns:
-        Assembled string with any interpolated value whose expression name
-        matches a sensitive pattern replaced by ``[REDACTED]``.
+        Text with sensitive values replaced by ``[REDACTED]``.
 
-    Example::
-
-        api_key = "sk-abc123"
-        safe_log(t"Connecting with api_key={api_key}")
-        # → 'Connecting with api_key=[REDACTED]'
+    Examples:
+        >>> redact_sensitive("API_KEY=abc123")
+        'API_KEY: [REDACTED]'
+        >>> redact_sensitive("password: secret123")
+        'password: [REDACTED]'
     """
-    parts: list[str] = []
-    for part in template:
-        if isinstance(part, Interpolation):
-            raw = str(part.value)
-            expr_name: str = part.expression  # type: ignore[reportAttributeAccessIssue]
-            redacted = is_sensitive_key(expr_name) or bool(
-                _log_sensitive_match(f"{expr_name}={raw}")
-            )
-            parts.append(REDACTED_VALUE if redacted else raw)
-        else:
-            parts.append(part)
-    return "".join(parts)
+
+    def replace_key_value(match: re.Match) -> str:
+        full_key = match.group(1)
+        return f"{full_key}: {REDACTED_VALUE}"
+
+    # First pass: replace key=value and key: value constructs.
+    # Match quoted values (single or double quotes) or unquoted values.
+    pattern = (
+        r"(?<!\w)(\w*(?:KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)"
+        r"([=:]\s*)"
+        r'(?:"[^"]*"|'
+        r"'[^']*'"
+        r"|\S+)"
+    )
+    result = re.sub(pattern, replace_key_value, text, flags=re.IGNORECASE)
+
+    # Second pass: replace standalone sensitive words that have no value after them.
+    result = re.sub(
+        r"(?<!\w)(\w*(KEY|TOKEN|SECRET|PASSWORD|AUTH)\w*)(?![=:]\s*\S+)(?![:\s]*"
+        + re.escape(REDACTED_VALUE)
+        + r")(?!\w)",
+        REDACTED_VALUE,
+        result,
+        flags=re.IGNORECASE,
+    )
+
+    return result
 
 
 def redact_text(text: str) -> str:

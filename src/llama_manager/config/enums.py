@@ -69,28 +69,3 @@ class SmokeProbeStatus(StrEnum):
     CRASHED = "crashed"
     MODEL_NOT_FOUND = "model_not_found"
     AUTH_FAILURE = "auth_failure"
-
-
-class VRamRecommendation(StrEnum):
-    """VRAM heuristic recommendation for model loading."""
-
-    PROCEED = "proceed"
-    WARN = "warn"
-    CONFIRM_REQUIRED = "confirm_required"
-
-
-class DoctorCheckStatus(StrEnum):
-    """Status of a doctor check result."""
-
-    PASS = "pass"  # noqa: S105
-    WARN = "warn"
-    FAIL = "fail"  # noqa: S105
-
-
-class GgufParseError(StrEnum):
-    """Error types for GGUF metadata extraction."""
-
-    CORRUPT_FILE = "CORRUPT_FILE"
-    PARSE_TIMEOUT = "PARSE_TIMEOUT"
-    UNSUPPORTED_VERSION = "UNSUPPORTED_VERSION"
-    READ_ERROR = "READ_ERROR"

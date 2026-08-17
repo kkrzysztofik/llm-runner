@@ -34,9 +34,9 @@ from .components.slot_profile_modal import SlotProfileModal, SlotProfilePayload
 from .components.system_health import (
     CPUUsageWidget,
     MemorySwapWidget,
+    SystemHealthWidget,
     SystemInfoWidget,
 )
-from .components.system_status import SystemStatusWidget
 from .types import BuildWizardResult, MemoryUsageSnapshot, ServerColumnState, SystemInfoSnapshot
 
 _CONTENT_CONTAINER_ID = "#content"
@@ -131,7 +131,7 @@ class DashboardApp(App[None]):
 
     def compose(self) -> ComposeResult:
         with Container(id="dashboard"):
-            yield SystemStatusWidget(self.view_model)
+            yield SystemHealthWidget(self.view_model, id="alerts", classes="system-status")
             with Container(id="content"):
                 for i in range(self.view_model.server_column_count()):
                     yield ServerLogPanel(i, self.view_model)
@@ -140,9 +140,6 @@ class DashboardApp(App[None]):
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Control which bindings appear in the footer for the current mode."""
         state = self.view_model.command_menu()
-
-        if state.build_request:
-            return action == "cancel_pending_prompt"
 
         if state.risk_prompt is not None:
             if action in _RISK_HIDDEN_ACTIONS:
@@ -350,10 +347,6 @@ class DashboardApp(App[None]):
 
     def action_quit_dashboard(self) -> None:
         if self.controller.request_quit():
-            self._dispatch_shutdown(exit_app=True)
-
-    def action_interrupt_dashboard(self) -> None:
-        if self.controller.interrupt():
             self._dispatch_shutdown(exit_app=True)
 
     def _dispatch_shutdown(self, *, exit_app: bool = True) -> None:
@@ -567,13 +560,6 @@ class DashboardApp(App[None]):
 
         self.refresh_dashboard()
 
-    def action_create_profile(self) -> None:
-        """Open the slot profile creation modal."""
-        self.push_screen(
-            SlotProfileModal(config=self.controller.config),
-            self._handle_profile_modal_result,
-        )
-
     def _handle_config_modal_result(self, result: ConfigPayload | None) -> None:
         if result is not None:
             if result.clean_cache:
@@ -695,7 +681,7 @@ class DashboardApp(App[None]):
                 [new_cfg],
                 {stage.alias: log_handler},
             )
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "_execute_slot_launch: start_servers failed for '%s', cleaning up staged state",
                 stage.alias,
@@ -707,7 +693,7 @@ class DashboardApp(App[None]):
                 plan.old_alias,
                 None,
             )
-            messages.append(f"Slot '{stage.alias}' failed to start: server launch exception")
+            messages.append(f"Slot '{stage.alias}' failed to start: server launch exception: {exc}")
             return False, layout_changed, messages
         proc = procs[0] if procs else None
         success, complete_messages = self.call_from_thread(
@@ -745,7 +731,6 @@ class DashboardApp(App[None]):
                 plan = self.call_from_thread(
                     self.controller.prepare_async_slot_launch,
                     new_cfg,
-                    profile_id,
                 )
                 messages.extend(plan.messages)
 
@@ -764,11 +749,6 @@ class DashboardApp(App[None]):
             messages,
             layout_changed,
         )
-
-    def _refresh_add_slot_startup(self, alias: str) -> None:
-        """Refresh the dashboard after a slot enters launching state."""
-        self.view_model.mark_slot_launching(alias)
-        self.refresh_dashboard()
 
     async def _finish_add_slot(
         self,
@@ -897,9 +877,7 @@ class DashboardApp(App[None]):
             self._end_slot_operation()
 
     def _handle_build_modal_result(self, result: BuildWizardResult | None) -> None:
-        if result is None:
-            self.controller.cancel_pending_prompt()
-        else:
+        if result is not None:
             self.last_build_backend = result.backends[0] if result.backends else "sycl"
             self.start_build(result.backends, options=result.options)
         self.refresh_dashboard()
@@ -919,7 +897,7 @@ class DashboardApp(App[None]):
         if self.controller.build_in_progress:
             self.notify("A build is already running.", title="Build", severity="warning")
             return
-        self.controller.begin_build(backends, options=options, wizard=wizard)
+        self.controller.begin_build(options=options, wizard=wizard)
         self._run_build_worker(backends, wizard)
 
     @work(thread=True, group="build")
@@ -941,35 +919,16 @@ class DashboardApp(App[None]):
         # Sort panels by _slot_index so removal matches config indices.
         current_panels.sort(key=lambda p: p._slot_index)
         # Remove excess panels (highest indices first).
-        if len(current_panels) > needed:
-            for panel in current_panels[needed:]:
-                logger.debug(
-                    "_reconcile_server_log_panels: removing excess slot_index=%d",
-                    panel._slot_index,
-                )
-                await panel.remove()
+        for panel in current_panels[needed:]:
+            logger.debug(
+                "_reconcile_server_log_panels: removing excess slot_index=%d",
+                panel._slot_index,
+            )
+            await panel.remove()
         # Replace panels whose config no longer exists or is a placeholder.
         for panel in current_panels[:needed]:
-            col_state = self.view_model.column(panel._slot_index)
-            if col_state is None or not panel.query(ServerColumnPanel):
-                # Config at this index was removed or panel is a placeholder.
-                logger.debug(
-                    "_reconcile_server_log_panels: replacing panel slot_index=%d",
-                    panel._slot_index,
-                )
-                await panel.remove()
-                current_panels_after = list(container.query(ServerLogPanel))
-                next_panel = None
-                for p in current_panels_after:
-                    if p._slot_index > panel._slot_index:
-                        next_panel = p
-                        break
-                if next_panel is not None:
-                    await container.mount(
-                        ServerLogPanel(panel._slot_index, self.view_model), before=next_panel
-                    )
-                else:
-                    await container.mount(ServerLogPanel(panel._slot_index, self.view_model))
+            if self._panel_is_stale(panel):
+                await self._replace_server_log_panel(container, panel)
                 logger.debug(
                     "_reconcile_server_log_panels: replaced panel duration_ms=%.1f",
                     (time.perf_counter() - start) * 1000,
@@ -987,6 +946,29 @@ class DashboardApp(App[None]):
             needed,
             (time.perf_counter() - start) * 1000,
         )
+
+    def _panel_is_stale(self, panel: ServerLogPanel) -> bool:
+        """True when the panel's config was removed or it is a placeholder."""
+        col_state = self.view_model.column(panel._slot_index)
+        return col_state is None or not panel.query(ServerColumnPanel)
+
+    async def _replace_server_log_panel(self, container: Container, panel: ServerLogPanel) -> None:
+        """Replace one stale panel with a fresh one, keeping column order."""
+        logger.debug(
+            "_reconcile_server_log_panels: replacing panel slot_index=%d",
+            panel._slot_index,
+        )
+        await panel.remove()
+        current_panels_after = list(container.query(ServerLogPanel))
+        next_panel = next(
+            (p for p in current_panels_after if p._slot_index > panel._slot_index), None
+        )
+        if next_panel is not None:
+            await container.mount(
+                ServerLogPanel(panel._slot_index, self.view_model), before=next_panel
+            )
+        else:
+            await container.mount(ServerLogPanel(panel._slot_index, self.view_model))
 
     def _build_profile_options(self) -> list[tuple[str, str]]:
         options, config_id = _profile_options_cached(
@@ -1014,8 +996,7 @@ class DashboardApp(App[None]):
         self.refresh_dashboard()
 
     def action_cancel_pending_prompt(self) -> None:
-        cancelled = self.controller.cancel_pending_prompt()
-        if not cancelled and self.controller.interrupt():
+        if self.controller.interrupt():
             self._dispatch_shutdown(exit_app=True)
             return
         self.refresh_dashboard()

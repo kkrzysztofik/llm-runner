@@ -14,7 +14,6 @@ from llama_manager.config import (
     SmokeProbeStatus,
 )
 from llama_manager.probe import (
-    ConsecutiveFailureCounter,
     ProvenanceRecord,
     SmokeCompositeReport,
     SmokeProbeResult,
@@ -513,62 +512,13 @@ class TestCrashDetection:
 class TestProvenanceResolution:
     """T029: resolve_provenance() — mock subprocess and importlib.metadata."""
 
-    def test_resolve_provenance_with_git_head(self) -> None:
-        """resolve_provenance should read SHA from .git/HEAD when file exists."""
-        sha_content = "ref: refs/heads/main"
-        ref_content = "abcdef1234567890abcdef1234567890abcdef12"
-
-        with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
-            patch(
-                "llama_manager.probe.provenance.Path.read_text",
-                side_effect=[sha_content, ref_content],
-            ),
-            patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
-        ):
-            record = resolve_provenance()
-
-        assert record.sha == "abcdef1234567890abcdef1234567890abcdef12"
-        assert record.version == "24.12.0"
-
-    def test_resolve_provenance_direct_sha(self) -> None:
-        """resolve_provenance should use direct SHA from .git/HEAD when not a ref."""
-        with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
-            patch(
-                "llama_manager.probe.provenance.Path.read_text",
-                return_value="abcdef1234567890abcdef1234567890abcdef12",
-            ),
-            patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
-        ):
-            record = resolve_provenance()
-
-        assert record.sha == "abcdef1234567890abcdef1234567890abcdef12"
-        assert record.version == "24.12.0"
-
-    def test_resolve_provenance_missing_git_head(self) -> None:
-        """resolve_provenance should return 'unknown' SHA when .git/HEAD doesn't exist."""
-        with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=False),
-            patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
-        ):
-            record = resolve_provenance()
-
-        assert record.sha == "unknown"
-        assert record.version == "24.12.0"
-
-    def test_resolve_provenance_git_fallback(self) -> None:
-        """resolve_provenance should fall back to git rev-parse when .git/HEAD read fails."""
+    def test_resolve_provenance_git_rev_parse(self) -> None:
+        """resolve_provenance should read the SHA via git rev-parse."""
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = "fedcba0987654321fedcba0987654321fedcba09\n"
 
         with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
-            patch(
-                "llama_manager.probe.provenance.Path.read_text",
-                side_effect=OSError("permission denied"),
-            ),
             patch("subprocess.run", return_value=mock_result),
             patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
         ):
@@ -577,28 +527,27 @@ class TestProvenanceResolution:
         assert record.sha == "fedcba0987654321fedcba0987654321fedcba09"
         assert record.version == "24.12.0"
 
-    def test_resolve_provenance_git_fallback_failure(self) -> None:
-        """resolve_provenance should return 'unknown' when git rev-parse also fails."""
+    def test_resolve_provenance_git_rev_parse_failure(self) -> None:
+        """resolve_provenance should return 'unknown' when git rev-parse fails."""
         mock_result = MagicMock()
         mock_result.returncode = 1
 
         with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
-            patch(
-                "llama_manager.probe.provenance.Path.read_text",
-                side_effect=OSError("permission denied"),
-            ),
             patch("subprocess.run", return_value=mock_result),
             patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
         ):
             record = resolve_provenance()
 
         assert record.sha == "unknown"
+        assert record.version == "24.12.0"
 
     def test_resolve_provenance_no_metadata_version(self) -> None:
         """resolve_provenance should return 'dev' version when importlib.metadata fails."""
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+
         with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=False),
+            patch("subprocess.run", return_value=mock_result),
             patch(
                 "llama_manager.probe.provenance._importlib_version",
                 side_effect=Exception("not installed"),
@@ -608,20 +557,6 @@ class TestProvenanceResolution:
 
         assert record.sha == "unknown"
         assert record.version == "dev"
-
-    def test_resolve_sha_short_sha_preserved(self) -> None:
-        """_resolve_sha should return short SHAs as-is (no truncation)."""
-        short_sha = "abcdef1"
-
-        with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
-            patch("llama_manager.probe.provenance.Path.read_text", return_value=short_sha),
-        ):
-            from llama_manager.probe.provenance import _resolve_sha
-
-            sha = _resolve_sha()
-
-        assert sha == "abcdef1"
 
 
 # ---------------------------------------------------------------------------
@@ -856,117 +791,6 @@ class TestApiKeyHeaderPrecedence:
             else:
                 assert headers["Authorization"] == expected_authorization
             assert "Content-Type" in headers
-
-
-# ---------------------------------------------------------------------------
-# T032 — ConsecutiveFailureCounter
-# ---------------------------------------------------------------------------
-
-
-class TestConsecutiveFailureCounter:
-    """T032: ConsecutiveFailureCounter — record_failure, record_success, reset."""
-
-    def test_initial_state(self) -> None:
-        """ConsecutiveFailureCounter should start with count=0 and no override."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        assert counter.count == 0
-        assert counter.model_id_override is None
-
-    def test_record_failure_increments_count(self) -> None:
-        """record_failure should increment count by 1."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        counter.record_failure()
-        assert counter.count == 1
-        counter.record_failure()
-        assert counter.count == 2
-        counter.record_failure()
-        assert counter.count == 3
-
-    def test_record_failure_sets_model_id_override(self) -> None:
-        """record_failure should set model_id_override when model_id is provided."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        counter.record_failure(model_id="Qwen3.5-2B")
-        assert counter.model_id_override == "Qwen3.5-2B"
-
-    def test_record_failure_without_model_id_preserves_override(self) -> None:
-        """record_failure without model_id should not change model_id_override."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        counter.record_failure(model_id="model-a")
-        assert counter.model_id_override == "model-a"
-        counter.record_failure()  # no model_id
-        assert counter.model_id_override == "model-a"  # unchanged
-
-    def test_record_failure_with_new_model_id_updates_override(self) -> None:
-        """record_failure with a new model_id should update model_id_override."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        counter.record_failure(model_id="model-a")
-        assert counter.model_id_override == "model-a"
-        counter.record_failure(model_id="model-b")
-        assert counter.model_id_override == "model-b"
-
-    def test_record_success_resets_counter(self) -> None:
-        """record_success should reset count to 0 and clear model_id_override."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        counter.record_failure(model_id="model-a")
-        assert counter.count == 1
-        assert counter.model_id_override == "model-a"
-
-        counter.record_success()
-        assert counter.count == 0
-        assert counter.model_id_override is None
-
-    def test_reset_clears_counter(self) -> None:
-        """reset should clear count and model_id_override."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-        counter.record_failure(model_id="model-a")
-        counter.reset()
-        assert counter.count == 0
-        assert counter.model_id_override is None
-
-    def test_multiple_failures_different_slots(self) -> None:
-        """Different slots should track independent failure counts."""
-        counter1 = ConsecutiveFailureCounter(slot_id="slot1")
-        counter2 = ConsecutiveFailureCounter(slot_id="slot2")
-
-        counter1.record_failure()
-        counter1.record_failure()
-        counter2.record_failure()
-
-        assert counter1.count == 2
-        assert counter2.count == 1
-
-    def test_success_resets_only_own_counter(self) -> None:
-        """record_success on one counter should not affect another."""
-        counter1 = ConsecutiveFailureCounter(slot_id="slot1")
-        counter2 = ConsecutiveFailureCounter(slot_id="slot2")
-
-        counter1.record_failure()
-        counter1.record_failure()
-        counter2.record_failure()
-        counter2.record_failure()
-        counter2.record_failure()
-
-        counter2.record_success()
-
-        assert counter1.count == 2  # unchanged
-        assert counter2.count == 0  # reset
-
-    def test_full_failure_success_cycle(self) -> None:
-        """Full cycle: failures → success → failures should work correctly."""
-        counter = ConsecutiveFailureCounter(slot_id="slot1")
-
-        counter.record_failure(model_id="model-a")
-        counter.record_failure(model_id="model-a")
-        assert counter.count == 2
-        assert counter.model_id_override == "model-a"
-
-        counter.record_success()
-        assert counter.count == 0
-        assert counter.model_id_override is None
-
-        counter.record_failure(model_id="model-b")
-        assert counter.count == 1
-        assert counter.model_id_override == "model-b"
 
 
 # ---------------------------------------------------------------------------

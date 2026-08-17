@@ -8,7 +8,7 @@ Usage::
 
     llm-runner profile <slot_id> <flavor> [--json]
 
-Flavors: balanced, fast, quality
+Flavors: balanced, fast
 """
 
 import argparse
@@ -26,7 +26,6 @@ from llama_cli.ui_output import emit_error, emit_plain
 from llama_manager.benchmark import (
     BenchmarkResult,
     BenchmarkRunner,
-    SubprocessResult,
     build_benchmark_cmd,
     run_benchmark,
 )
@@ -119,7 +118,7 @@ def cmd_profile(
 
     Args:
         slot_id: Identifier for the profiling target (used in messages).
-        flavor: Performance profile flavor (balanced|fast|quality).
+        flavor: Performance profile flavor (balanced|fast).
         json_output: If True, print JSON instead of a human-readable message.
         runner: Optional injectable benchmark runner. Uses the default
                 subprocess runner when ``None``.
@@ -181,13 +180,13 @@ def cmd_profile(
     # Run benchmark
     if runner is not None:
         # Wrap user-provided runner to forward cancel_event
-        def _wrapped_runner(cmd: list[str]) -> SubprocessResult:
+        def _wrapped_runner(cmd: list[str]) -> subprocess.CompletedProcess[str]:
             return runner(cmd)
 
         effective_runner: BenchmarkRunner = _wrapped_runner
     else:
 
-        def _default_runner(cmd: list[str]) -> SubprocessResult:
+        def _default_runner(cmd: list[str]) -> subprocess.CompletedProcess[str]:
             return _default_subprocess_runner(cmd, cancel_event=cancel_event)
 
         effective_runner = _default_runner
@@ -247,7 +246,7 @@ import time
 
 def _handle_cancel(
     proc: subprocess.Popen[str], cancel_event: threading.Event
-) -> SubprocessResult | None:
+) -> subprocess.CompletedProcess[str] | None:
     """Handle cancellation if cancel_event is set. Returns result or None to continue."""
     if cancel_event.is_set():
         import os
@@ -255,18 +254,21 @@ def _handle_cancel(
 
         os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
         proc.wait(timeout=5)
-        return SubprocessResult(exit_code=130, stdout="", stderr="benchmark cancelled")
+        return subprocess.CompletedProcess(
+            args=proc.args, returncode=130, stdout="", stderr="benchmark cancelled"
+        )
     return None
 
 
 def _handle_timeout(
-    _proc: subprocess.Popen[str], start: float, timeout_seconds: float
-) -> SubprocessResult | None:
+    proc: subprocess.Popen[str], start: float, timeout_seconds: float
+) -> subprocess.CompletedProcess[str] | None:
     """Handle timeout if elapsed >= timeout_seconds. Returns result or None to continue."""
     elapsed = time.monotonic() - start
     if elapsed >= timeout_seconds:
-        return SubprocessResult(
-            exit_code=124,
+        return subprocess.CompletedProcess(
+            args=proc.args,
+            returncode=124,
             stdout="",
             stderr=f"benchmark timed out after {timeout_seconds}s",
         )
@@ -277,7 +279,7 @@ def _poll_until_done(
     proc: subprocess.Popen[str],
     timeout_seconds: int,
     cancel_event: threading.Event | None,
-) -> SubprocessResult:
+) -> subprocess.CompletedProcess[str]:
     """Poll *proc* until it exits, is cancelled, or times out."""
     import time
 
@@ -294,7 +296,7 @@ def _poll_iteration(
     start: float,
     timeout_seconds: float,
     cancel_event: threading.Event | None,
-) -> SubprocessResult | None:
+) -> subprocess.CompletedProcess[str] | None:
     """Run a single poll iteration. Returns the result if the process is done."""
     ret = proc.poll()
     if ret is not None:
@@ -306,9 +308,12 @@ def _poll_iteration(
     return _handle_timeout(proc, start, timeout_seconds)
 
 
-def _collect_result(proc: subprocess.Popen[str], exit_code: int) -> SubprocessResult:
-    return SubprocessResult(
-        exit_code=exit_code,
+def _collect_result(
+    proc: subprocess.Popen[str], exit_code: int
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(
+        args=proc.args,
+        returncode=exit_code,
         stdout=proc.stdout.read() if proc.stdout else "",
         stderr=proc.stderr.read() if proc.stderr else "",
     )
@@ -327,7 +332,7 @@ def _default_subprocess_runner(
     cmd: list[str],
     timeout_seconds: int = 600,
     cancel_event: threading.Event | None = None,
-) -> SubprocessResult:
+) -> subprocess.CompletedProcess[str]:
     """Execute *cmd* via ``subprocess.Popen`` with cancellation support.
 
     Checks *cancel_event* during execution and terminates the child process
@@ -339,7 +344,7 @@ def _default_subprocess_runner(
         cancel_event: Optional event; when set the child is terminated.
 
     Returns:
-        A :class:`SubprocessResult` with exit code and captured output.
+        A :class:`subprocess.CompletedProcess` with exit code and captured output.
     """
     import subprocess
 
@@ -353,7 +358,9 @@ def _default_subprocess_runner(
         )
     except subprocess.TimeoutExpired:
         # Popen should not raise TimeoutExpired, but handle it anyway
-        return SubprocessResult(exit_code=-1, stdout="", stderr="Popen failed")
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=-1, stdout="", stderr="Popen failed"
+        )
 
     try:
         return _poll_until_done(proc, timeout_seconds, cancel_event)
@@ -363,8 +370,9 @@ def _default_subprocess_runner(
         timeout_stderr = f"benchmark timed out after {timeout_seconds}s"
         if timeout_stderr_detail:
             timeout_stderr = f"{timeout_stderr}: {timeout_stderr_detail}"
-        return SubprocessResult(
-            exit_code=124,
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=124,
             stdout=timeout_stdout_text,
             stderr=timeout_stderr,
         )
@@ -414,7 +422,6 @@ def _build_profile_parser() -> _ProfileArgumentParser:
 Examples:
   %(prog)s slot0 balanced      Profile slot0 with balanced flavor
   %(prog)s summary-fast fast   Profile summary-fast with fast flavor
-  %(prog)s qwen35-coding quality  Profile qwen35-coding with quality flavor
   %(prog)s slot0 balanced --json  Output results as JSON
         """,
     )
@@ -425,7 +432,7 @@ Examples:
     )
     parser.add_argument(
         "flavor",
-        choices=["balanced", "fast", "quality"],
+        choices=["balanced", "fast"],
         help="Performance profile flavor",
     )
     parser.add_argument(

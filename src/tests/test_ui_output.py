@@ -1,8 +1,10 @@
 """Tests for llama_cli.ui_output — stream routing, TTY detection, ANSI styling."""
 
+import io
 from unittest.mock import patch
 
 import pytest
+from rich.console import Console
 
 from llama_cli.ui_output import (
     emit_error,
@@ -73,18 +75,15 @@ class TestEmitPlainErr:
 
 
 # ---------------------------------------------------------------------------
-# TTY detection — non-TTY
+# Non-TTY — plain output
 # ---------------------------------------------------------------------------
 
 
 class TestNonTTY:
-    """Verify output is plain (no ANSI escape codes) when stdout is not a TTY."""
+    """Verify output is plain (no ANSI escape codes) when the stream is not a TTY."""
 
-    @patch("llama_cli.ui_output.sys.stdout.isatty", return_value=False)
-    def test_no_ansi_codes_when_not_tty(
-        self, _mock: object, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """When isatty() is False, output must not contain \\033 escape sequences."""
+    def test_no_ansi_codes_when_not_tty(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """When the stream is not a TTY, output must not contain \\033 escape sequences."""
         emit_info("hello")
         emit_success("done")
         emit_warn("caution")
@@ -142,17 +141,24 @@ class TestMessagePreservation:
 
 
 # ---------------------------------------------------------------------------
-# TTY detection — TTY
+# TTY — colored output
 # ---------------------------------------------------------------------------
 
 
 class TestTTY:
-    """Verify ANSI escape codes are present when stdout is a TTY."""
+    """Verify ANSI escape codes are present when the console is a terminal."""
 
-    @patch("llama_cli.ui_output.sys.stdout.isatty", return_value=True)
-    def test_ansi_codes_when_tty(self, _mock: object, capsys: pytest.CaptureFixture[str]) -> None:
-        """When isatty() is True, color output must contain \\033 escape codes."""
-        emit_info("hello")
-        emit_success("done")
-        captured = capsys.readouterr()
-        assert "\033" in captured.out
+    def test_ansi_codes_when_tty(self) -> None:
+        """When the console is a terminal, color output must contain \\033 escape codes."""
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        with (
+            patch("llama_cli.ui_output._STDOUT", Console(file=out_buf, force_terminal=True)),
+            patch("llama_cli.ui_output._STDERR", Console(file=err_buf, force_terminal=True)),
+        ):
+            emit_info("hello")
+            emit_success("done")
+            emit_warn("caution")
+            emit_error("fail")
+        combined = out_buf.getvalue() + err_buf.getvalue()
+        assert "\033" in combined

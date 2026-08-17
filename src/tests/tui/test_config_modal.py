@@ -61,6 +61,7 @@ _DEFAULT_TO_SERVER_DEFAULTS: dict[str, str] = {
     "default_load_mode": "load_mode",
     "default_ui": "ui",
     "default_reasoning_preserve": "reasoning_preserve",
+    "default_reasoning_effort": "reasoning_effort",
     "default_reasoning_budget_message": "reasoning_budget_message",
     "default_fit": "fit",
     "default_ctx_checkpoints": "ctx_checkpoints",
@@ -130,9 +131,7 @@ _TOP_LEVEL_FIELDS = frozenset(
         "server_binary_version",
         "gguf_metadata_prefix_cap_bytes",
         "gguf_metadata_parse_timeout_s",
-        "tui_launch_timeout_s",
         "tui_refresh_interval_ms",
-        "probe_latency_threshold_s",
         "lock_stale_threshold_s",
         "log_file_level",
         "log_stderr_level",
@@ -185,9 +184,7 @@ def _make_config(**overrides: object) -> Config:
         "smoke_api_key": "",
         "gguf_metadata_prefix_cap_bytes": 4096,
         "gguf_metadata_parse_timeout_s": 5,
-        "tui_launch_timeout_s": 30,
         "tui_refresh_interval_ms": 250,
-        "probe_latency_threshold_s": 1.0,
         "lock_stale_threshold_s": 300,
     }
     defaults.update(overrides)
@@ -372,6 +369,23 @@ class TestConfigModalCollectValues:
         assert payload.default_load_mode == "mmap"
         assert payload.default_reasoning_preserve == "on"
         assert payload.default_fit == "off"
+
+    @pytest.mark.anyio
+    async def test_load_mode_and_reasoning_effort_defaults(self) -> None:
+        """default_reasoning_effort should use a Select widget with the configured value."""
+        config = _make_config(
+            default_reasoning_effort="low",
+        )
+        modal = ConfigModal(config)
+        app = ConfigModalHostApp()
+        async with app.run_test() as pilot:
+            await app.push_screen(modal)
+            await pilot.pause()
+            reasoning_effort = modal.query_one("#cfg-default_reasoning_effort", Select)
+            payload = modal._collect_values()
+
+        assert reasoning_effort.value == "low"
+        assert payload.default_reasoning_effort == "low"
 
     @pytest.mark.anyio
     async def test_extended_server_defaults_collected(self) -> None:

@@ -13,7 +13,7 @@ from llama_manager.config.profiles import SlotProfileSpec
 from tests.support.helpers import make_server_config
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_controller() -> DashboardController:
     """Create a minimal DashboardController for profile CRUD testing."""
     configs = [make_server_config(alias="summary-balanced")]
@@ -349,6 +349,32 @@ def test_update_run_profile_invalid_chat_template_json(
     assert result is False
 
 
+def test_update_run_profile_reasoning_effort_json_conflict(
+    mock_controller: DashboardController,
+) -> None:
+    """update_run_profile should return False when kwargs JSON contains reasoning_effort."""
+    from llama_manager.config.reasoning_effort import REASONING_EFFORT_JSON_CONFLICT
+
+    payload = SlotProfilePayload(
+        profile_id="my-profile",
+        label="My Profile",
+        model="/models/test.gguf",
+        device="CUDA:0",
+        port=8080,
+        ctx_size=4096,
+        ubatch_size=512,
+        n_gpu_layers="all",
+        threads=8,
+        chat_template_kwargs='{"reasoning_effort":"xhigh"}',
+    )
+
+    result = mock_controller.update_slot_profile("original-id", payload)
+    assert result is False
+    assert any(
+        REASONING_EFFORT_JSON_CONFLICT in msg for _, msg in mock_controller.model.status_messages
+    )
+
+
 def test_update_run_profile_invalid_ngl_string(mock_controller: DashboardController) -> None:
     """update_run_profile should return False for non-integer n_gpu_layers."""
     payload = SlotProfilePayload(
@@ -466,7 +492,7 @@ def test_load_model_index_delegates(mock_controller: DashboardController) -> Non
         mock_load.return_value = []
         result = mock_controller.load_model_index()
 
-    mock_load.assert_called_once_with(mock_controller.config)
+    mock_load.assert_called_once_with()
     assert result == []
 
 
@@ -555,16 +581,3 @@ def test_refresh_model_index_async_rejects_concurrent_refresh(
         release.set()
 
     assert done.wait(timeout=2)
-
-
-def test_model_index_path_delegates(mock_controller: DashboardController) -> None:
-    """model_index_path should delegate and return a string."""
-    with patch(
-        "llama_cli.tui.controller.model_index_path",
-    ) as mock_path:
-        mock_path.return_value = "/tmp/idx.json"
-        result = mock_controller.model_index_path()
-
-    mock_path.assert_called_once_with(mock_controller.config)
-    assert isinstance(result, str)
-    assert result == "/tmp/idx.json"

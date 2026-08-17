@@ -16,6 +16,9 @@ if TYPE_CHECKING:
     from llama_manager.slot_stats import ProfileStatsAggregate
 
 
+_PROFILE_STATS_HEADER = "profile-stats-number profile-stats-header"
+
+
 class ProfileStatsScreen(ModalScreen[None]):
     """Read-only profile aggregate stats screen."""
 
@@ -105,9 +108,9 @@ class ProfileStatsScreen(ModalScreen[None]):
             Label("Profile Stats", classes="profile-stats-title"),
             Horizontal(
                 Label("Profile", classes="profile-stats-profile profile-stats-header"),
-                Label("Input", classes="profile-stats-number profile-stats-header"),
-                Label("Output", classes="profile-stats-number profile-stats-header"),
-                Label("Sessions", classes="profile-stats-number profile-stats-header"),
+                Label("Input", classes=_PROFILE_STATS_HEADER),
+                Label("Output", classes=_PROFILE_STATS_HEADER),
+                Label("Sessions", classes=_PROFILE_STATS_HEADER),
                 Label("Updated", classes="profile-stats-updated profile-stats-header"),
                 classes="profile-stats-row",
             ),

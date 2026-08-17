@@ -79,25 +79,39 @@ We do not care about backwards compatibility—we're in early development with n
 llm-runner/
 ├── src/
 │   ├── llama_cli/              # CLI layer (entry points, argument parsing, TUI)
-│   │   ├── cli_parser.py       # argparse modes: both, summary-balanced, summary-fast, qwen35, dry-run
-│   │   ├── server_runner.py    # main() + cli_main() entry point
-│   │   ├── tui_app.py          # Textual TUI (signal handling, layout)
-│   │   └── dry_run.py          # Print resolved commands without launching
+│   │   ├── cli_parser.py       # argparse dispatch for all modes/subcommands
+│   │   ├── server_runner.py    # main() + cli_main() — the `llm-runner` entry point
+│   │   ├── ui_output.py        # User-facing output helpers (rich Console)
+│   │   ├── commands/           # Subcommands: build, doctor, dry-run, profile, setup, smoke
+│   │   └── tui/                # Textual TUI (app, controller, viewmodel, modals, components/)
 │   ├── llama_manager/          # Core library (no I/O except sys.stderr)
-│   │   ├── config.py           # Config + ServerConfig dataclasses
-│   │   ├── config_builder.py   # Factory functions: create_*_cfg()
-│   │   ├── server.py           # build_server_cmd() + validators
-│   │   ├── process_manager.py  # ServerManager — subprocess lifecycle
-│   │   ├── gpu_stats.py        # GPUStats (nvidia-smi / sycl-ls parsing)
-│   │   ├── log_buffer.py       # Thread-safe real-time log streaming
-│   │   └── colors.py           # Terminal colour constants
-│   ├── tests/
-│   │   ├── test_config.py      # Config, ServerConfig, config builders
-│   │   └── test_server.py      # Validators, build_server_cmd
-│   ├── run_models_tui.py       # TUI entry point
-│   └── run_opencode_models.py  # CLI entry point
+│   │   ├── benchmark/          # llama-bench runner + output parsing
+│   │   ├── build_pipeline/     # llama.cpp clone/configure/build orchestration
+│   │   ├── common/             # Shared helpers (file ops, security, text, validators)
+│   │   ├── config/             # Config, profile registry, persistence, profile cache
+│   │   ├── gpu_telemetry/      # GPU stats (nvidia-smi / Level Zero SYCL)
+│   │   ├── metadata/           # GGUF metadata extraction
+│   │   ├── orchestration/      # Slot lifecycle (manager, launcher, lockfiles)
+│   │   ├── probe/              # Smoke probes + git provenance
+│   │   ├── reports/            # Failure reports + log rotation
+│   │   ├── toolchain/          # Build toolchain detection
+│   │   ├── validation/         # Config validators + command builders
+│   │   ├── dry_run.py          # Dry-run domain service
+│   │   ├── log_buffer.py       # Thread-safe log buffer with autoscroll
+│   │   ├── logging_setup.py    # Loguru backend with stdlib bridge
+│   │   ├── model_index.py      # Disk cache for scanned GGUF model metadata
+│   │   ├── profile_orchestrator.py  # GPU profiling orchestration
+│   │   ├── risk_ack.py         # Risk acknowledgement logic (UI-agnostic)
+│   │   ├── setup_venv.py       # venv setup for the build environment
+│   │   ├── slot_manager.py     # Slot CRUD operations
+│   │   ├── slot_profile_store.py  # Persistent store for custom slot profiles
+│   │   ├── slot_state.py       # Slot state transitions + runtime liveness
+│   │   ├── slot_stats.py       # Slot runtime stats (metrics parsing/persistence)
+│   │   ├── smoke.py            # Smoke target resolution + probe execution
+│   │   └── system_stats.py     # System statistics collection via psutil
+│   └── tests/                  # Unit tests (cli/, config/, smoke/, system/, tui/, ...)
 ├── pyproject.toml          # Build config, deps, ruff/pyright/pytest settings
-├── .python-version         # 3.12
+├── .python-version         # 3.14
 ├── .pre-commit-config.yaml # ruff + pyright hooks
 └── .github/workflows/ci.yml
 ```
@@ -145,17 +159,19 @@ source .venv/bin/activate
 ### Config Dataclasses
 
 `Config` holds hardware-specific defaults (paths, ports, GPU settings).
-`ServerConfig` holds per-instance launch parameters. The factory functions in
-`config_builder.py` translate a `Config` into a `ServerConfig` for a given mode.
+`ServerConfig` holds per-instance launch parameters. The profile registry in
+`config/profiles.py` maps slot IDs/aliases to profiles; `resolve_profile_config`
+translates a profile into a `ServerConfig`.
 
 ```python
-# Correct pattern — only override what you need
-sc = create_summary_balanced_cfg(port=8080, threads=4)
+# Correct pattern — resolve via the profile registry
+registry = create_default_profile_registry(config)
+sc = resolve_profile_config(registry, "summary-balanced")
 cmd = build_server_cmd(sc)
 ```
 
 ### Error Handling
-Validation functions (`validate_port`, `validate_threads`, `validate_ports`) call `sys.exit(1)` on failure after printing to `sys.stderr`. This is intentional — they are user-input guards at the CLI boundary. Do not add try/except around them in test code; use `pytest.raises(SystemExit)` instead.
+Validation functions in `src/llama_manager/validation/validators.py` (`validate_port`, `validate_ports`, `require_model`, `require_executable`, `validate_server_config`) return `ErrorDetail | None` — `None` means valid; a non-`None` `ErrorDetail` carries `error_code`, `failed_check`, `why_blocked`, and `how_to_fix` (see `src/llama_manager/config/errors.py`). The CLI layer surfaces failures to the user. Tests assert on the returned `ErrorDetail`/`None`, not on `SystemExit`.
 
 ---
 
@@ -163,7 +179,7 @@ Validation functions (`validate_port`, `validate_threads`, `validate_ports`) cal
 
 ### Python Style
 
-- **Python ≥ 3.12**, type hints on all new functions.
+- **Python ≥ 3.14**, type hints on all new functions.
 - Line length: 100 chars (ruff enforced).
 - Imports: stdlib → third-party → first-party, sorted by ruff/isort.
 - Use `|` union syntax (`str | None`) not `Optional[str]` for new code.
@@ -188,9 +204,9 @@ Validation functions (`validate_port`, `validate_threads`, `validate_ports`) cal
 
 - All tests live in `tests/`.
 - No subprocess spawning in tests — mock or stub hardware-dependent paths.
-- Use `capsys` fixture to capture and assert on `sys.stderr` output from validators.
-- Use `pytest.raises(SystemExit)` for testing validator exit paths; assert `exc.value.code == 1`.
-- Tests must pass in CI (ubuntu-latest, Python 3.12) without GPU hardware.
+- Validators return `ErrorDetail | None` (see the "Error Handling" section) — tests assert on the returned value (`error_code`, `failed_check`, `why_blocked`, `how_to_fix`) or `None`, not on `SystemExit`/`sys.stderr`.
+- Use `capsys` only when testing CLI-layer output, not validator return values.
+- Tests must pass in CI (ubuntu-latest, Python 3.14) without GPU hardware.
 - Name test functions descriptively: `test_<what>_<condition>`.
 
 ---
@@ -278,101 +294,6 @@ Review `pip-audit` output and update dependencies via `uv add --upgrade-package 
 
 ---
 
-## Issue Tracking (br / beads-rust)
-
-Issues for this project are tracked with **[br](https://github.com/Dicklesworthstone/beads_rust)** — a local-first, non-invasive issue tracker storing data in SQLite with JSONL export for git. Issues live in `.beads/` at the root of the repo.
-
-**`br` is non-invasive — it NEVER executes git commands automatically.** You are always responsible for staging and committing `.beads/`.
-
-**Never touch `.beads/` directly** — always use the `br` CLI.
-
-### br CLI Commands
-
-| Task | Command |
-| ------ | --------- |
-| See actionable (unblocked) work | `RUST_LOG=error br ready` |
-| List all open issues | `RUST_LOG=error br list --status open` |
-| Create an issue | `br create "Title" --type task --priority 2` |
-| Quick-capture (returns ID only) | `br q "Title"` |
-| Show issue details | `br show br-abc123` |
-| Mark in progress | `br update br-abc123 --status in_progress` |
-| Close with reason | `br close br-abc123 --reason "Fixed in commit abc"` |
-| Close multiple at once | `br close br-abc123 br-def456 --reason "Done"` |
-| Add dependency (A blocked by B) | `br dep add br-A br-B` |
-| Export to JSONL for git | `br sync --flush-only` |
-
-### Workflow Pattern
-
-1. **Pick work** — `RUST_LOG=error br ready` shows unblocked, open issues sorted
-by priority
-2. **Claim** — `br update <id> --status in_progress`
-3. **Implement** the task
-4. **Close** — `br close <id> --reason "..."` (be specific — reference the
-commit or file changed)
-5. **Sync + commit** — see session end checklist below
-
-`br ready` only surfaces issues that have no open blockers. Use `br dep add
-<child> <parent>` to declare that one issue must wait for another.
-
-### Issue Types and Priority
-
-**Types:** `task`, `bug`, `feature`, `epic`, `question`, `docs`
-
-**Priority** (use numbers, not words):
-
-| Number | Meaning                 |
-| ------ | ----------------------- |
-| 0      | Critical / blocking everything |
-| 1      | High — current sprint   |
-| 2      | Normal (default)        |
-| 3      | Low                     |
-| 4      | Backlog                 |
-
-### Agent Usage — Always Use `--json`
-
-**CRITICAL:** Always pass `--json` when parsing `br` output programmatically.
-Plain output format depends on terminal state and may include ANSI codes that
-break parsing.
-
-```bash
-# CORRECT — stable, parseable output
-RUST_LOG=error br ready --json
-RUST_LOG=error br list --status open --json
-RUST_LOG=error br show br-abc123 --json
-
-# WRONG — output varies with terminal state
-br ready | head -1
-```bash
-
-`RUST_LOG=error` suppresses internal Rust dependency logs while keeping clean
-stdout. **Always include it** in automated or agent-driven commands.
-
-### Session End Checklist
-
-Before ending any work session, run in order:
-
-```bash
-git status                  # Check what changed
-git add <changed-files>     # Stage code changes first
-br sync --flush-only        # Export issues to JSONL
-git add .beads/             # Stage beads changes
-git commit -m "..."         # Commit code + beads together
-git push
-```bash
-
-### Best Practices
-
-- Run `RUST_LOG=error br ready` at the start of each session to find available
-work
-- Use `br q "Title"` for fast capture when you discover tasks during
-implementation — fill in details later
-- Set `--type` and `--priority` explicitly on `br create`; defaults are `task` /
-`2`
-- Always sync and commit `.beads/` at session end — stale JSONL means lost issue
-state in git history
-
----
-
 ## ast-grep vs ripgrep
 
 **Use `ast-grep` when structure matters.** It parses code and matches AST nodes,
@@ -397,8 +318,8 @@ ignoring comments/strings, and can **safely rewrite** code.
 
 ## Common Pitfalls
 
-- `ServerConfig.server_bin` defaults to `""` — `build_server_cmd` falls back to `Config().llama_server_bin_intel`. Provide an explicit path in tests to avoid needing the binary on disk.
-- `n_gpu_layers` is typed as `Union[int, str]` to support `"all"` for CUDA. Keep it that way.
+- `ServerConfig.server_bin` defaults to `""` — `build_server_cmd` only falls back to `Config().paths.llama_server_bin_intel` when `server_bin` is `None`, so provide an explicit path in tests to avoid needing the binary on disk.
+- `n_gpu_layers` is typed as `int | str` to support `"all"` for CUDA. Keep it that way.
 - Do not import from `llama_cli` inside `llama_manager` — the dependency is one-way.
 - The TUI uses Textual for rendering and key handling; keep blocking subprocess/log work off the app thread and route UI output through widgets or controller state.
 
@@ -410,13 +331,13 @@ ignoring comments/strings, and can **safely rewrite** code.
 - GPU driver setup, SYCL environment variables (`ONEAPI_DEVICE_SELECTOR`), and CUDA library paths are handled by shell wrapper scripts (`run_opencode_models.sh`), not Python.
 
 ## Active Technologies
-- Python 3.12+ + textual, rich renderables, psutil, pytest, ruff, pyright (001-prd-mvp-spec)
+- Python 3.14+ + textual, rich renderables, psutil, pytest, ruff, pyright (001-prd-mvp-spec)
 - Local runtime files under resolved runtime dir (`LLM_RUNNER_RUNTIME_DIR` else `$XDG_RUNTIME_DIR/llm-runner`) for lockfiles + JSON artifacts (001-prd-mvp-spec)
-- Python 3.12+ + stdlib (`subprocess`, `pathlib`, `venv`, `json`, `dataclasses`, `threading`), textual, rich renderables, psutil (002-build-setup)
+- Python 3.14+ + stdlib (`subprocess`, `pathlib`, `venv`, `json`, `dataclasses`, `threading`), textual, rich renderables, psutil (002-build-setup)
 - Local filesystem only (source tree + XDG cache/state/data directories) (002-build-setup)
 
 ## Recent Changes
-- 001-prd-mvp-spec: Added Python 3.12+ + textual, rich renderables, psutil, pytest, ruff, pyright
+- 001-prd-mvp-spec: Added Python 3.14+ + textual, rich renderables, psutil, pytest, ruff, pyright
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,

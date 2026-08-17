@@ -3,29 +3,22 @@
 import dataclasses
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from llama_manager.config import (
     Config,
     ProfileFlavor,
-    ProfileRecord,
     ServerConfig,
     create_default_profile_registry,
 )
 from llama_manager.profile_orchestrator import (
-    BENCHMARK_PROMPT_TOKENS,
-    BENCHMARK_RUN_TIMEOUT_SECONDS,
     BenchmarkConfig,
-    SubprocessResult,
-    create_profile_record,
-    detect_backend,
     get_driver_version,
     resolve_benchmark_binary,
     resolve_benchmark_config,
     resolve_profile_slot,
-    run_profile,
 )
 from tests.support.helpers import make_server_config
 
@@ -123,35 +116,6 @@ class TestResolveProfileSlot:
 
 
 # ---------------------------------------------------------------------------
-# Test detect_backend
-# ---------------------------------------------------------------------------
-
-
-class TestDetectBackend:
-    """Tests for detect_backend."""
-
-    def test_cuda_backend_empty_device(self) -> None:
-        """detect_backend should return 'cuda' for empty device."""
-        cfg = _make_server_config(device="")
-        assert detect_backend(cfg) == "cuda"
-
-    def test_sycl_backend_nonempty_device(self) -> None:
-        """detect_backend should return 'sycl' for non-empty device."""
-        cfg = _make_server_config(device="SYCL0")
-        assert detect_backend(cfg) == "sycl"
-
-    def test_sycl_backend_cuda_device(self) -> None:
-        """detect_backend should return 'sycl' for cuda:0 device."""
-        cfg = _make_server_config(device="cuda:0")
-        assert detect_backend(cfg) == "sycl"
-
-    def test_cuda_backend_whitespace_only_device(self) -> None:
-        """detect_backend should return 'cuda' for whitespace-only device."""
-        cfg = _make_server_config(device="   ")
-        assert detect_backend(cfg) == "cuda"
-
-
-# ---------------------------------------------------------------------------
 # Test resolve_benchmark_config
 # ---------------------------------------------------------------------------
 
@@ -217,24 +181,6 @@ class TestResolveBenchmarkConfig:
         assert result.model == "/fast/model.gguf"
         assert result.threads == 4
         assert result.ubatch_size == 512
-
-    def test_sycl_quality_flavor_uses_balanced(self) -> None:
-        """resolve_benchmark_config should use balanced defaults for SYCL quality flavor."""
-        cfg = _make_server_config(device="SYCL0")
-        config = _make_config(
-            **{
-                "deployment.model_summary_balanced": "/balanced/model.gguf",
-                "server_defaults.threads_summary_balanced": 8,
-                "server_defaults.ubatch_size_summary_balanced": 1024,
-                "server_defaults.cache_type_summary_k": "q8_0",
-                "server_defaults.cache_type_summary_v": "q8_0",
-            }
-        )
-        result = resolve_benchmark_config(cfg, ProfileFlavor.QUALITY, config)
-
-        assert result.model == "/balanced/model.gguf"
-        assert result.threads == 8
-        assert result.ubatch_size == 1024
 
     def test_result_is_benchmark_config(self) -> None:
         """resolve_benchmark_config should return a BenchmarkConfig instance."""
@@ -339,283 +285,6 @@ class TestGetDriverVersion:
 
 
 # ---------------------------------------------------------------------------
-# Test create_profile_record
-# ---------------------------------------------------------------------------
-
-
-class TestCreateProfileRecord:
-    """Tests for create_profile_record."""
-
-    def test_creates_valid_record(self) -> None:
-        """create_profile_record should create a valid ProfileRecord."""
-        benchmark_result = MagicMock()
-        benchmark_result.tokens_per_second = 100.0
-        benchmark_result.avg_latency_ms = 10.0
-        benchmark_result.peak_vram_mb = 8192.0
-
-        config = _make_config(server_binary_version="llama-server 1.0.0")
-
-        record = create_profile_record(
-            gpu_identifier="nvidia-rtx-3090-00",
-            backend="cuda",
-            flavor=ProfileFlavor.BALANCED,
-            driver_version="535.104.05",
-            benchmark_result=benchmark_result,
-            config=config,
-        )
-
-        assert isinstance(record, ProfileRecord)
-        assert record.gpu_identifier == "nvidia-rtx-3090-00"
-        assert record.backend == "cuda"
-        assert record.flavor == ProfileFlavor.BALANCED
-        assert record.driver_version == "535.104.05"
-        assert record.server_binary_version == "llama-server 1.0.0"
-        assert record.metrics.tokens_per_second == 100.0
-        assert record.metrics.avg_latency_ms == 10.0
-        assert record.metrics.peak_vram_mb == 8192.0
-        assert record.parameters == {}
-        assert "Z" in record.profiled_at
-
-    def test_driver_version_hash_is_computed(self) -> None:
-        """create_profile_record should compute driver_version_hash."""
-        benchmark_result = MagicMock()
-        benchmark_result.tokens_per_second = 100.0
-        benchmark_result.avg_latency_ms = 10.0
-        benchmark_result.peak_vram_mb = None
-
-        config = _make_config(server_binary_version="")
-
-        record = create_profile_record(
-            gpu_identifier="test-gpu",
-            backend="sycl",
-            flavor=ProfileFlavor.FAST,
-            driver_version="750.1.0",
-            benchmark_result=benchmark_result,
-            config=config,
-        )
-
-        assert len(record.driver_version_hash) == 16
-        assert all(c in "0123456789abcdef" for c in record.driver_version_hash)
-
-    def test_peak_vram_none_preserved(self) -> None:
-        """create_profile_record should preserve None peak_vram_mb."""
-        benchmark_result = MagicMock()
-        benchmark_result.tokens_per_second = 100.0
-        benchmark_result.avg_latency_ms = 10.0
-        benchmark_result.peak_vram_mb = None
-
-        config = _make_config()
-
-        record = create_profile_record(
-            gpu_identifier="test-gpu",
-            backend="cuda",
-            flavor=ProfileFlavor.BALANCED,
-            driver_version="535.104.05",
-            benchmark_result=benchmark_result,
-            config=config,
-        )
-
-        assert record.metrics.peak_vram_mb is None
-
-
-# ---------------------------------------------------------------------------
-# Test run_profile
-# ---------------------------------------------------------------------------
-
-
-class TestRunProfile:
-    """Tests for run_profile."""
-
-    def _make_mock_config(self, tmp_path: Path) -> Config:
-        """Create a Config with test paths."""
-        cfg = _make_config()
-        server_bin = tmp_path / "llama-server"
-        server_bin.write_text("#!/bin/sh\n")
-        server_bin.chmod(0o755)
-
-        bench_bin = tmp_path / "llama-bench"
-        bench_bin.write_text("#!/bin/sh\n")
-        bench_bin.chmod(0o755)
-
-        cfg.paths.xdg_data_base = str(tmp_path)
-        cfg.paths.llama_server_bin_intel = str(server_bin)
-        cfg.server_binary_version = "llama-server 1.0.0"
-        cfg.deployment.model_summary_balanced = str(tmp_path / "model.gguf")
-        cfg.server_defaults.threads_summary_balanced = 8
-        cfg.server_defaults.threads_summary_fast = 4
-        cfg.server_defaults.ubatch_size_summary_balanced = 1024
-        cfg.server_defaults.ubatch_size_summary_fast = 512
-        cfg.server_defaults.cache_type_summary_k = "q8_0"
-        cfg.server_defaults.cache_type_summary_v = "q8_0"
-
-        return cfg
-
-    def test_successful_profile_returns_record(self, tmp_path: Path) -> None:
-        """run_profile should return a ProfileRecord on success."""
-        config = self._make_mock_config(tmp_path)
-
-        valid_benchmark_output = (
-            "llama-bench result:\n"
-            "| t/s  | latency (ms) | vram (MB) |\n"
-            "|------|--------------|-----------|\n"
-            "| 150.0| 8.0          | 6144.0    |\n"
-        )
-
-        def fake_runner(cmd: list[str]) -> SubprocessResult:
-            return SubprocessResult(exit_code=0, stdout=valid_benchmark_output, stderr="")
-
-        record = run_profile(
-            slot_id="summary-balanced",
-            config=config,
-            flavor="balanced",
-            runner=fake_runner,
-            driver_provider=lambda backend: "535.104.05",
-        )
-
-        assert record is not None
-        assert isinstance(record, ProfileRecord)
-        assert record.backend == "sycl"
-        assert record.flavor == ProfileFlavor.BALANCED
-
-    def test_benchmark_failure_returns_none(self, tmp_path: Path) -> None:
-        """run_profile should return None when benchmark fails."""
-        config = self._make_mock_config(tmp_path)
-
-        def fake_runner(cmd: list[str]) -> SubprocessResult:
-            return SubprocessResult(exit_code=1, stdout="", stderr="error")
-
-        record = run_profile(
-            slot_id="summary-balanced",
-            config=config,
-            flavor="balanced",
-            runner=fake_runner,
-            driver_provider=lambda backend: "535.104.05",
-        )
-
-        assert record is None
-
-    def test_missing_benchmark_binary_returns_none(self, tmp_path: Path) -> None:
-        """run_profile should return None when benchmark binary is unavailable."""
-        config = self._make_mock_config(tmp_path)
-        config.paths.llama_server_bin_intel = ""
-
-        with patch("llama_manager.profile_orchestrator.shutil.which", return_value=None):
-            record = run_profile(
-                slot_id="unknown-slot",
-                config=config,
-                flavor="balanced",
-                driver_provider=lambda backend: "535.104.05",
-            )
-
-        assert record is None
-
-    def test_non_executable_benchmark_returns_none(self, tmp_path: Path) -> None:
-        """run_profile should return None when benchmark binary is not executable."""
-        config = self._make_mock_config(tmp_path)
-
-        # Create a non-executable file
-        bench_bin = tmp_path / "llama-bench"
-        bench_bin.write_text("#!/bin/sh")
-        bench_bin.chmod(0o644)
-
-        server_bin = tmp_path / "llama-server"
-        server_bin.write_text("#!/bin/sh")
-        server_bin.chmod(0o755)
-
-        config.paths.llama_server_bin_intel = str(server_bin)
-
-    def test_driver_provider_used_when_given(self, tmp_path: Path) -> None:
-        """run_profile should use the driver_provider when given."""
-        config = self._make_mock_config(tmp_path)
-
-        benchmark_result = MagicMock()
-        benchmark_result.tokens_per_second = 100.0
-        benchmark_result.avg_latency_ms = 10.0
-        benchmark_result.peak_vram_mb = None
-
-        def fake_runner(cmd: list[str]) -> SubprocessResult:
-            return SubprocessResult(exit_code=0, stdout="t/s: 100.0\nlatency: 10.0 ms", stderr="")
-
-        custom_driver = "custom-driver-1.0"
-        record = run_profile(
-            slot_id="summary-balanced",
-            config=config,
-            flavor="balanced",
-            runner=fake_runner,
-            driver_provider=lambda backend: custom_driver,
-        )
-
-        assert record is not None
-        assert record.driver_version == custom_driver
-
-    def test_profile_written_to_disk(self, tmp_path: Path) -> None:
-        """run_profile should write the profile record to disk."""
-        config = self._make_mock_config(tmp_path)
-
-        benchmark_result = MagicMock()
-        benchmark_result.tokens_per_second = 100.0
-        benchmark_result.avg_latency_ms = 10.0
-        benchmark_result.peak_vram_mb = None
-
-        def fake_runner(cmd: list[str]) -> SubprocessResult:
-            return SubprocessResult(exit_code=0, stdout="t/s: 100.0\nlatency: 10.0 ms", stderr="")
-
-        run_profile(
-            slot_id="summary-balanced",
-            config=config,
-            flavor="balanced",
-            runner=fake_runner,
-            driver_provider=lambda backend: "535.104.05",
-        )
-
-        # Check that a profile file was created
-        profiles_dir = config.paths.profiles_dir
-        profile_files = list(profiles_dir.glob("*.json"))
-        assert len(profile_files) == 1
-
-    def test_custom_registry_used(self, tmp_path: Path) -> None:
-        """run_profile should use the provided registry."""
-        config = self._make_mock_config(tmp_path)
-        registry = create_default_profile_registry(config)
-
-        benchmark_result = MagicMock()
-        benchmark_result.tokens_per_second = 100.0
-        benchmark_result.avg_latency_ms = 10.0
-        benchmark_result.peak_vram_mb = None
-
-        def fake_runner(cmd: list[str]) -> SubprocessResult:
-            return SubprocessResult(exit_code=0, stdout="t/s: 100.0\nlatency: 10.0 ms", stderr="")
-
-        record = run_profile(
-            slot_id="summary-balanced",
-            config=config,
-            flavor="balanced",
-            runner=fake_runner,
-            driver_provider=lambda backend: "535.104.05",
-            registry=registry,
-        )
-
-        assert record is not None
-
-
-# ---------------------------------------------------------------------------
-# Test module-level constants
-# ---------------------------------------------------------------------------
-
-
-class TestModuleConstants:
-    """Tests for module-level constants."""
-
-    def test_benchmark_prompt_tokens(self) -> None:
-        """BENCHMARK_PROMPT_TOKENS should be 512."""
-        assert BENCHMARK_PROMPT_TOKENS == 512
-
-    def test_benchmark_run_timeout(self) -> None:
-        """BENCHMARK_RUN_TIMEOUT_SECONDS should be 600."""
-        assert BENCHMARK_RUN_TIMEOUT_SECONDS == 600
-
-
-# ---------------------------------------------------------------------------
 # Test BenchmarkConfig
 # ---------------------------------------------------------------------------
 
@@ -633,13 +302,8 @@ class TestBenchmarkConfig:
             cache_type_v="q8_0",
         )
         # FrozenInstanceError is raised at runtime for frozen dataclasses
-        # We use a try/except to avoid pyright static analysis complaints
-        try:
+        with pytest.raises(dataclasses.FrozenInstanceError):
             cfg.model = "/other.gguf"  # type: ignore[reportGeneralTypeIssues]
-        except dataclasses.FrozenInstanceError, TypeError, AttributeError:
-            pass
-        else:
-            pytest.fail("Expected FrozenInstanceError or similar")
 
     def test_default_n_gpu_layers(self) -> None:
         """BenchmarkConfig should default n_gpu_layers to 99."""

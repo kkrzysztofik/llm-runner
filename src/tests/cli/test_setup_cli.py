@@ -57,22 +57,19 @@ class TestSetupCheck:
             captured = capsys.readouterr()
 
         # Should be valid JSON
-        try:
-            parsed = json.loads(captured.out)
-            assert isinstance(parsed, dict)
-            # Contract fields only (no is_complete, hints, etc.)
-            assert "gcc" in parsed
-            assert "make" in parsed
-            assert "git" in parsed
-            assert "cmake" in parsed
-            assert "sycl_compiler" in parsed
-            assert "cuda_toolkit" in parsed
-            assert "nvtop" in parsed
-            # Should NOT have extra fields
-            assert "is_complete" not in parsed
-            assert "hints" not in parsed
-        except json.JSONDecodeError:
-            pytest.fail("Output is not valid JSON")
+        parsed = json.loads(captured.out)
+        assert isinstance(parsed, dict)
+        # Contract fields only (no is_complete, hints, etc.)
+        assert "gcc" in parsed
+        assert "make" in parsed
+        assert "git" in parsed
+        assert "cmake" in parsed
+        assert "sycl_compiler" in parsed
+        assert "cuda_toolkit" in parsed
+        assert "nvtop" in parsed
+        # Should NOT have extra fields
+        assert "is_complete" not in parsed
+        assert "hints" not in parsed
 
     def test_setup_check_sycl_backend(self, capsys) -> None:
         """setup --check sycl should check SYCL backend only."""
@@ -188,14 +185,11 @@ class TestSetupVenv:
 
         assert exit_code == 0
         captured = capsys.readouterr()
-        try:
-            parsed = json.loads(captured.out)
-            assert "venv_path" in parsed
-            assert "created" in parsed
-            assert "reused" in parsed
-            assert "activation_command" in parsed
-        except json.JSONDecodeError:
-            pytest.fail("Output is not valid JSON")
+        parsed = json.loads(captured.out)
+        assert "venv_path" in parsed
+        assert "created" in parsed
+        assert "reused" in parsed
+        assert "activation_command" in parsed
 
     def test_setup_venv_with_integrity_check(self, tmp_path: Path, capsys) -> None:
         """setup venv --check-integrity should validate venv after creation."""
@@ -340,16 +334,13 @@ class TestSetupJsonOutput:
 
         assert exit_code == 0
         captured = capsys.readouterr()
-        try:
-            parsed = json.loads(captured.out)
-            assert "venv_path" in parsed
-            assert "created" in parsed
-            assert "reused" in parsed
-            assert "activation_command" in parsed
-            assert isinstance(parsed["created"], bool)
-            assert isinstance(parsed["reused"], bool)
-        except json.JSONDecodeError:
-            pytest.fail("Output is not valid JSON")
+        parsed = json.loads(captured.out)
+        assert "venv_path" in parsed
+        assert "created" in parsed
+        assert "reused" in parsed
+        assert "activation_command" in parsed
+        assert isinstance(parsed["created"], bool)
+        assert isinstance(parsed["reused"], bool)
 
 
 class TestSetupErrorHandling:

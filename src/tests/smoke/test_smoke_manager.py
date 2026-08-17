@@ -35,14 +35,6 @@ class TestResolveSmokeTargetsBoth:
         assert targets[1].host == "127.0.0.1"
         assert targets[1].port == 8081
 
-    def test_both_targets_have_backend(self) -> None:
-        """Both targets should have backend set to 'llama_cpp'."""
-        cfg = Config()
-        targets = resolve_smoke_targets(cfg, "both")
-
-        for target in targets:
-            assert target.backend == "llama_cpp"
-
     def test_both_targets_have_model_path(self) -> None:
         """Both targets should have model path set."""
         cfg = Config()
@@ -170,7 +162,6 @@ class TestRunSmokeProbes:
                 model="/models/test.gguf",
                 host="127.0.0.1",
                 port=8080,
-                backend="llama_cpp",
             ),
         ]
         smoke_cfg = self._make_smoke_cfg()
@@ -189,12 +180,8 @@ class TestRunSmokeProbes:
     def test_multiple_targets(self) -> None:
         """run_smoke_probes should call probe_slot once per target."""
         targets = [
-            SmokeTarget(
-                slot_id="t1", model="/m1.gguf", host="127.0.0.1", port=8080, backend="llama_cpp"
-            ),
-            SmokeTarget(
-                slot_id="t2", model="/m2.gguf", host="127.0.0.1", port=8081, backend="llama_cpp"
-            ),
+            SmokeTarget(slot_id="t1", model="/m1.gguf", host="127.0.0.1", port=8080),
+            SmokeTarget(slot_id="t2", model="/m2.gguf", host="127.0.0.1", port=8081),
         ]
         smoke_cfg = self._make_smoke_cfg()
 
@@ -224,7 +211,6 @@ class TestRunSmokeProbes:
             model="/models/test.gguf",
             host="10.0.0.1",
             port=9090,
-            backend="llama_cpp",
         )
         smoke_cfg = self._make_smoke_cfg(model_id_override="my-model")
 
@@ -252,7 +238,6 @@ class TestRunSmokeProbes:
             model="/models/test.gguf",
             host="127.0.0.1",
             port=8080,
-            backend="llama_cpp",
         )
         smoke_cfg = self._make_smoke_cfg(model_id_override="override-model")
 
@@ -296,12 +281,8 @@ class TestRunSmokeProbesInterSlotDelay:
     def test_sleep_called_between_targets(self) -> None:
         """sleep should be called between targets when delay > 0."""
         targets = [
-            SmokeTarget(
-                slot_id="t1", model="/m1.gguf", host="127.0.0.1", port=8080, backend="llama_cpp"
-            ),
-            SmokeTarget(
-                slot_id="t2", model="/m2.gguf", host="127.0.0.1", port=8081, backend="llama_cpp"
-            ),
+            SmokeTarget(slot_id="t1", model="/m1.gguf", host="127.0.0.1", port=8080),
+            SmokeTarget(slot_id="t2", model="/m2.gguf", host="127.0.0.1", port=8081),
         ]
         smoke_cfg = self._make_smoke_cfg(inter_slot_delay_s=3)
         sleep_calls: list[float] = []
@@ -323,9 +304,7 @@ class TestRunSmokeProbesInterSlotDelay:
     def test_no_sleep_for_single_target(self) -> None:
         """sleep should not be called for a single target."""
         targets = [
-            SmokeTarget(
-                slot_id="t1", model="/m1.gguf", host="127.0.0.1", port=8080, backend="llama_cpp"
-            ),
+            SmokeTarget(slot_id="t1", model="/m1.gguf", host="127.0.0.1", port=8080),
         ]
         smoke_cfg = self._make_smoke_cfg(inter_slot_delay_s=3)
         sleep_calls: list[float] = []
@@ -346,12 +325,8 @@ class TestRunSmokeProbesInterSlotDelay:
     def test_no_sleep_when_delay_is_zero(self) -> None:
         """sleep should not be called when inter_slot_delay_s is 0."""
         targets = [
-            SmokeTarget(
-                slot_id="t1", model="/m1.gguf", host="127.0.0.1", port=8080, backend="llama_cpp"
-            ),
-            SmokeTarget(
-                slot_id="t2", model="/m2.gguf", host="127.0.0.1", port=8081, backend="llama_cpp"
-            ),
+            SmokeTarget(slot_id="t1", model="/m1.gguf", host="127.0.0.1", port=8080),
+            SmokeTarget(slot_id="t2", model="/m2.gguf", host="127.0.0.1", port=8081),
         ]
         smoke_cfg = self._make_smoke_cfg(inter_slot_delay_s=0)
         sleep_calls: list[float] = []
@@ -372,15 +347,9 @@ class TestRunSmokeProbesInterSlotDelay:
     def test_three_targets_two_delays(self) -> None:
         """Three targets should have two inter-slot delays."""
         targets = [
-            SmokeTarget(
-                slot_id="t1", model="/m1.gguf", host="127.0.0.1", port=8080, backend="llama_cpp"
-            ),
-            SmokeTarget(
-                slot_id="t2", model="/m2.gguf", host="127.0.0.1", port=8081, backend="llama_cpp"
-            ),
-            SmokeTarget(
-                slot_id="t3", model="/m3.gguf", host="127.0.0.1", port=8082, backend="llama_cpp"
-            ),
+            SmokeTarget(slot_id="t1", model="/m1.gguf", host="127.0.0.1", port=8080),
+            SmokeTarget(slot_id="t2", model="/m2.gguf", host="127.0.0.1", port=8081),
+            SmokeTarget(slot_id="t3", model="/m3.gguf", host="127.0.0.1", port=8082),
         ]
         smoke_cfg = self._make_smoke_cfg(inter_slot_delay_s=2)
         sleep_calls: list[float] = []
@@ -402,12 +371,8 @@ class TestRunSmokeProbesInterSlotDelay:
     def test_probe_order_respects_target_order(self) -> None:
         """Probes should be called in target order."""
         targets = [
-            SmokeTarget(
-                slot_id="first", model="/m1.gguf", host="127.0.0.1", port=8080, backend="llama_cpp"
-            ),
-            SmokeTarget(
-                slot_id="second", model="/m2.gguf", host="127.0.0.1", port=8081, backend="llama_cpp"
-            ),
+            SmokeTarget(slot_id="first", model="/m1.gguf", host="127.0.0.1", port=8080),
+            SmokeTarget(slot_id="second", model="/m2.gguf", host="127.0.0.1", port=8081),
         ]
         smoke_cfg = self._make_smoke_cfg()
         call_order: list[str] = []
@@ -442,14 +407,12 @@ class TestSmokeTarget:
             model="/models/test.gguf",
             host="127.0.0.1",
             port=8080,
-            backend="llama_cpp",
         )
 
         assert target.slot_id == "test"
         assert target.model == "/models/test.gguf"
         assert target.host == "127.0.0.1"
         assert target.port == 8080
-        assert target.backend == "llama_cpp"
 
     def test_is_dataclass(self) -> None:
         """SmokeTarget should be a dataclass."""

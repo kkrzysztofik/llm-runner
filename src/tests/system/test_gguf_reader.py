@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 from gguf.constants import Keys
 
 from llama_manager.metadata._reader import (
-    _detect_tokenizer_type_from_reader,
     _extract_architecture_from_reader,
     _extract_field_from_reader,
     _extract_int_field_from_reader,
@@ -159,54 +158,6 @@ class TestExtractIntFieldFromReader:
         fields = _make_fields_dict({"block.count": "32"})
         result = _extract_int_field_from_reader(fields, "block.count")
         assert result == 32
-
-
-# ---------------------------------------------------------------------------
-# TestDetectTokenizerTypeFromReader
-# ---------------------------------------------------------------------------
-
-
-class TestDetectTokenizerTypeFromReader:
-    """Tests for _detect_tokenizer_type_from_reader()."""
-
-    def test_ggml_tokenizer(self) -> None:
-        """Should detect ggml tokenizer type."""
-        fields = {"tokenizer.ggml.tokens": []}
-        result = _detect_tokenizer_type_from_reader(fields)  # type: ignore[arg-type]
-        assert result == "ggml"
-
-    def test_model_tokenizer(self) -> None:
-        """Should detect model tokenizer type."""
-        fields = {"tokenizer.model": "some_path"}
-        result = _detect_tokenizer_type_from_reader(fields)  # type: ignore[arg-type]
-        assert result == "model"
-
-    def test_huggingface_tokenizer(self) -> None:
-        """Should detect huggingface tokenizer type."""
-        fields = {"tokenizer.json": "{}"}
-        result = _detect_tokenizer_type_from_reader(fields)  # type: ignore[arg-type]
-        assert result == "huggingface"
-
-    def test_first_match_wins(self) -> None:
-        """First matching tokenizer type should win."""
-        fields = {
-            "tokenizer.ggml.tokens": [],
-            "tokenizer.model": "path",
-            "tokenizer.json": "{}",
-        }
-        result = _detect_tokenizer_type_from_reader(fields)  # type: ignore[arg-type]
-        assert result == "ggml"
-
-    def test_none_when_no_match(self) -> None:
-        """Should return None when no tokenizer pattern matches."""
-        fields = {"some.random.key": "value"}
-        result = _detect_tokenizer_type_from_reader(fields)  # type: ignore[arg-type]
-        assert result is None
-
-    def test_empty_fields(self) -> None:
-        """Empty fields dict should return None."""
-        result = _detect_tokenizer_type_from_reader({})
-        assert result is None
 
 
 # ---------------------------------------------------------------------------

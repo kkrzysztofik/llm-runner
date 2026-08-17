@@ -82,10 +82,18 @@ class TestFR007ArtifactRequiredFields:
 
     def test_artifact_with_server_config_data(self, tmp_path: Path) -> None:
         """FR-007: write_artifact should work with ServerConfig-derived data."""
-        from llama_manager.config import create_summary_balanced_cfg
+        from llama_manager.config import ServerConfig
 
         # Create a ServerConfig
-        sc = create_summary_balanced_cfg(port=8080)
+        sc = ServerConfig(
+            model="/models/summary-balanced.gguf",
+            alias="summary-balanced",
+            device="SYCL0",
+            port=8080,
+            ctx_size=32768,
+            ubatch_size=512,
+            threads=8,
+        )
         payload = build_dry_run_slot_payload(
             sc,
             slot_id="summary-balanced",
@@ -1016,8 +1024,6 @@ from llama_manager.risk_ack import (
     resolve_risk_action,
 )
 
-_ACK_TOKEN = "ack:attempt-1"  # noqa: S105
-
 # Detect risky operations is optional for M1 - skip tests if not implemented
 try:
     server_module = pytest.importorskip(
@@ -1092,7 +1098,7 @@ def test_evaluate_risks_no_risks() -> None:
     sm = MagicMock()
     sm.is_risk_acknowledged.return_value = False
 
-    result = evaluate_risks([cfg], sm, "attempt-1", _ACK_TOKEN, acknowledged=False)
+    result = evaluate_risks([cfg], sm, "attempt-1", acknowledged=False)
 
     assert result.has_risks is False
     assert result.risks_acknowledged is False
@@ -1111,7 +1117,7 @@ def test_evaluate_risks_detects_privileged_port() -> None:
     sm = MagicMock()
     sm.is_risk_acknowledged.return_value = False
 
-    result = evaluate_risks([cfg], sm, "attempt-1", _ACK_TOKEN, acknowledged=False)
+    result = evaluate_risks([cfg], sm, "attempt-1", acknowledged=False)
 
     assert result.has_risks is True
     assert result.risks_acknowledged is False
@@ -1133,7 +1139,7 @@ def test_evaluate_risks_skips_already_acknowledged() -> None:
     sm = MagicMock()
     sm.is_risk_acknowledged.return_value = True
 
-    result = evaluate_risks([cfg], sm, "attempt-1", _ACK_TOKEN, acknowledged=False)
+    result = evaluate_risks([cfg], sm, "attempt-1", acknowledged=False)
 
     assert result.has_risks is True
     assert result.risk_details == []
@@ -1152,7 +1158,7 @@ def test_evaluate_risks_pre_acknowledged_flag() -> None:
     sm.is_risk_acknowledged.return_value = False
 
     configs: list[ServerConfig] = [cfg]  # type: ignore[list-item]
-    result = evaluate_risks(configs, sm, "attempt-1", _ACK_TOKEN, acknowledged=True)
+    result = evaluate_risks(configs, sm, "attempt-1", acknowledged=True)
 
     assert result.has_risks is True
     assert result.risks_acknowledged is True
@@ -1171,7 +1177,7 @@ def test_evaluate_risks_does_not_double_append_label() -> None:
     sm = MagicMock()
     sm.is_risk_acknowledged.return_value = False
 
-    evaluate_risks([cfg], sm, "attempt-1", _ACK_TOKEN, acknowledged=True)
+    evaluate_risks([cfg], sm, "attempt-1", acknowledged=True)
 
     assert cfg.risky_acknowledged.count(RISK_ACK_LABEL) == 1
 
@@ -1193,7 +1199,7 @@ def test_evaluate_risks_multiple_configs() -> None:
     sm = MagicMock()
     sm.is_risk_acknowledged.return_value = False
 
-    result = evaluate_risks([cfg1, cfg2], sm, "attempt-1", _ACK_TOKEN, acknowledged=False)
+    result = evaluate_risks([cfg1, cfg2], sm, "attempt-1", acknowledged=False)
 
     assert result.has_risks is True
     assert len(result.risk_details) == 2

@@ -6,20 +6,13 @@ import os
 import re
 import time
 
+from .common import _safe_read_text
 from .level_zero_types import _FdinfoCounters, _LevelZeroDevice
 
 _PROC_ROOT = "/proc"
 _FDINFO_ENGINE_RE = re.compile(r"^drm-engine-[^:]+:\s*(\d+)")
 _FDINFO_CYCLES_RE = re.compile(r"^drm-cycles-([^:]+):\s*(\d+)")
 _FDINFO_TOTAL_CYCLES_RE = re.compile(r"^drm-total-cycles-([^:]+):\s*(\d+)")
-
-
-def _safe_read_text(path: str) -> str | None:
-    try:
-        with open(path) as file_obj:
-            return file_obj.read().strip()
-    except OSError:
-        return None
 
 
 def _fdinfo_matches_device(path: str, lines: list[str], device: _LevelZeroDevice) -> bool:

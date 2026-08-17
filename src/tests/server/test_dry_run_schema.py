@@ -19,7 +19,9 @@ Contract:
 
 from typing import Any
 
-from llama_manager.config import ErrorCode, ServerConfig
+import pytest
+
+from llama_manager.config import ErrorCode, ErrorDetail, ServerConfig
 from llama_manager.validation import (
     DryRunValidationSummary,
     VllmEligibility,
@@ -423,42 +425,36 @@ class TestFR003EnvironmentRedaction:
         env_keys = list(payload.environment_redacted.keys())
         assert len(env_keys) > 0
 
-    def test_environment_redacted_redacts_sensitive_values(self) -> None:
+    def test_environment_redacted_redacts_sensitive_values(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """FR-003: environment_redacted should redact sensitive values."""
-        import os
-
         # Set a sensitive env var
-        os.environ["API_KEY"] = "secret_value"
-        try:
-            payload = build_dry_run_slot_payload(
-                self._cfg(slot_id="slot1"),
-                slot_id="slot1",
-                validation_results=DryRunValidationSummary(passed=True, checks=[]),
-                warnings=[],
-            )
-            # API_KEY should be redacted
-            assert "API_KEY" in payload.environment_redacted
-            assert payload.environment_redacted["API_KEY"] == "[REDACTED]"
-        finally:
-            os.environ.pop("API_KEY", None)
+        monkeypatch.setenv("API_KEY", "secret_value")
+        payload = build_dry_run_slot_payload(
+            self._cfg(slot_id="slot1"),
+            slot_id="slot1",
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
+            warnings=[],
+        )
+        # API_KEY should be redacted
+        assert "API_KEY" in payload.environment_redacted
+        assert payload.environment_redacted["API_KEY"] == "[REDACTED]"
 
-    def test_environment_redacted_preserves_non_sensitive(self) -> None:
+    def test_environment_redacted_preserves_non_sensitive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """FR-003: environment_redacted should preserve non-sensitive values."""
-        import os
-
-        os.environ["MODEL_PATH"] = "/path/to/model.gguf"
-        try:
-            payload = build_dry_run_slot_payload(
-                self._cfg(slot_id="slot1"),
-                slot_id="slot1",
-                validation_results=DryRunValidationSummary(passed=True, checks=[]),
-                warnings=[],
-            )
-            # MODEL_PATH should NOT be redacted (not in KEY|TOKEN|SECRET|PASSWORD|AUTH)
-            if "MODEL_PATH" in payload.environment_redacted:
-                assert payload.environment_redacted["MODEL_PATH"] == "/path/to/model.gguf"
-        finally:
-            os.environ.pop("MODEL_PATH", None)
+        monkeypatch.setenv("MODEL_PATH", "/path/to/model.gguf")
+        payload = build_dry_run_slot_payload(
+            self._cfg(slot_id="slot1"),
+            slot_id="slot1",
+            validation_results=DryRunValidationSummary(passed=True, checks=[]),
+            warnings=[],
+        )
+        # MODEL_PATH should NOT be redacted (not in KEY|TOKEN|SECRET|PASSWORD|AUTH)
+        if "MODEL_PATH" in payload.environment_redacted:
+            assert payload.environment_redacted["MODEL_PATH"] == "/path/to/model.gguf"
 
 
 class TestFR003HardwareNotes:
@@ -564,65 +560,9 @@ class TestFR003SlotConfigurationSequenceConsistency:
         """Create ServerConfig for testing."""
         return _dry_run_cfg(**kwargs)
 
-    def test_error_slot_order_matches_dry_run_slot_order(self) -> None:
-        """FR-003: Error slot sequence order must match dry-run payload slot order."""
-        from llama_manager.config import ErrorDetail, MultiValidationError
-
-        # Create errors with specific slot order
-        errors = [
-            ErrorDetail(
-                error_code=ErrorCode.PORT_INVALID,
-                failed_check="slot_slot2_port",
-                why_blocked="port conflict in slot2",
-                how_to_fix="fix port in slot2",
-            ),
-            ErrorDetail(
-                error_code=ErrorCode.FILE_NOT_FOUND,
-                failed_check="slot_slot1_model",
-                why_blocked="model missing in slot1",
-                how_to_fix="fix model in slot1",
-            ),
-            ErrorDetail(
-                error_code=ErrorCode.PORT_INVALID,
-                failed_check="slot_slot1_port",
-                why_blocked="port conflict in slot1",
-                how_to_fix="fix port in slot1",
-            ),
-        ]
-        mve = MultiValidationError(errors=errors)
-        mve.sort_errors()
-
-        # After sorting, expected order is: slot1_model, slot1_port, slot2_port
-        expected_sorted_order = ["slot_slot1_model", "slot_slot1_port", "slot_slot2_port"]
-        actual_sorted_order = [error.failed_check for error in mve.errors]
-        assert actual_sorted_order == expected_sorted_order, (
-            f"Sort order mismatch: expected {expected_sorted_order}, got {actual_sorted_order}"
-        )
-
-        # Create DryRunValidationSummary with same slot order
-        validation_results = DryRunValidationSummary(
-            passed=False,
-            checks=[
-                {
-                    "slot_id": error.failed_check.split("_")[1],
-                    "failed_check": error.failed_check,
-                    "error_code": error.error_code.value,  # type: ignore[union-attr]
-                }
-                for error in mve.errors
-            ],
-        )
-
-        # Verify slot sequence consistency
-        error_slot_sequence = [error.failed_check.split("_")[1] for error in mve.errors]
-        check_slot_sequence = [check["slot_id"] for check in validation_results.checks]
-
-        assert error_slot_sequence == check_slot_sequence, (
-            f"Slot sequence mismatch: errors={error_slot_sequence}, checks={check_slot_sequence}"
-        )
-
     def test_dry_run_payload_slot_scope_matches_error_slot_sequence(self) -> None:
         """FR-003: Dry-run slot_scope list order must match error slot sequence."""
-        from llama_manager.config import ErrorDetail, MultiValidationError
+        from llama_manager.config import MultiValidationError
 
         errors = [
             ErrorDetail(
@@ -645,7 +585,6 @@ class TestFR003SlotConfigurationSequenceConsistency:
             ),
         ]
         mve = MultiValidationError(errors=errors)
-        mve.sort_errors()
 
         # Build dry-run payloads in sorted error order
         payloads = [
@@ -670,68 +609,6 @@ class TestFR003SlotConfigurationSequenceConsistency:
         )
 
 
-class TestFR003FailedCheckAscendingTieBreak:
-    """FR-003: Verify failed_check ascending tie-break within each slot."""
-
-    def _cfg(self, slot_id: str, **kwargs: Any) -> ServerConfig:
-        """Create ServerConfig for testing."""
-        return _dry_run_cfg(**kwargs)
-
-    def test_failed_check_ascending_tiebreak_within_slot(self) -> None:
-        """FR-003: failed_check should be sorted ascending within each slot."""
-        from llama_manager.config import ErrorDetail, MultiValidationError
-
-        errors = [
-            ErrorDetail(
-                error_code=ErrorCode.PORT_INVALID,
-                failed_check="slot_slot1_z_port_validation",  # Should come last in slot1
-                why_blocked="z error",
-                how_to_fix="fix z",
-            ),
-            ErrorDetail(
-                error_code=ErrorCode.FILE_NOT_FOUND,
-                failed_check="slot_slot1_a_model_check",  # Should come first in slot1
-                why_blocked="a error",
-                how_to_fix="fix a",
-            ),
-            ErrorDetail(
-                error_code=ErrorCode.CONFIG_ERROR,
-                failed_check="slot_slot1_m_ctx_size",  # Should come middle in slot1
-                why_blocked="m error",
-                how_to_fix="fix m",
-            ),
-            ErrorDetail(
-                error_code=ErrorCode.PORT_INVALID,
-                failed_check="slot_slot2_port",  # slot2 errors
-                why_blocked="slot2 error",
-                how_to_fix="fix slot2",
-            ),
-        ]
-        mve = MultiValidationError(errors=errors)
-        mve.sort_errors()
-
-        # Expected order: slot1_a_model_check, slot1_m_ctx_size, slot1_z_port_validation, slot2_port
-        expected_order = [
-            "slot_slot1_a_model_check",
-            "slot_slot1_m_ctx_size",
-            "slot_slot1_z_port_validation",
-            "slot_slot2_port",
-        ]
-        actual_order = [error.failed_check for error in mve.errors]
-
-        assert actual_order == expected_order, (
-            f"Tie-break order mismatch: expected {expected_order}, got {actual_order}"
-        )
-
-        # Verify slot sequence: slot1 errors before slot2
-        slot1_indices = [i for i, e in enumerate(mve.errors) if "slot1" in e.failed_check]
-        slot2_indices = [i for i, e in enumerate(mve.errors) if "slot2" in e.failed_check]
-
-        assert all(idx < slot2_indices[0] for idx in slot1_indices), (
-            "Slot1 errors should come before slot2 errors"
-        )
-
-
 class TestFR003NewArtifactShapeAssertions:
     """FR-003: Explicit tests for new dry-run artifact shape: slot_scope list
     and resolved_command mapping.
@@ -743,7 +620,7 @@ class TestFR003NewArtifactShapeAssertions:
 
     def test_slot_scope_is_list_of_strings(self) -> None:
         """FR-003: slot_scope must be a list of strings (slot IDs)."""
-        from llama_manager.config import ErrorDetail, MultiValidationError
+        from llama_manager.config import MultiValidationError
 
         errors = [
             ErrorDetail(
@@ -760,7 +637,6 @@ class TestFR003NewArtifactShapeAssertions:
             ),
         ]
         mve = MultiValidationError(errors=errors)
-        mve.sort_errors()
 
         # Build payloads in sorted order
         payloads = [
@@ -788,7 +664,7 @@ class TestFR003NewArtifactShapeAssertions:
 
     def test_resolved_command_is_mapping_of_slot_id_to_command_args(self) -> None:
         """FR-003: resolved_command must be a dict mapping slot_id -> command_args list."""
-        from llama_manager.config import ErrorDetail, MultiValidationError
+        from llama_manager.config import MultiValidationError
 
         errors = [
             ErrorDetail(
@@ -799,7 +675,6 @@ class TestFR003NewArtifactShapeAssertions:
             ),
         ]
         mve = MultiValidationError(errors=errors)
-        mve.sort_errors()
 
         payloads = [
             build_dry_run_slot_payload(
@@ -832,7 +707,7 @@ class TestFR003NewArtifactShapeAssertions:
 
     def test_slot_scope_and_resolved_command_keys_alignment(self) -> None:
         """FR-003: resolved_command keys must exactly match slot_scope entries."""
-        from llama_manager.config import ErrorDetail, MultiValidationError
+        from llama_manager.config import MultiValidationError
 
         errors = [
             ErrorDetail(
@@ -849,7 +724,6 @@ class TestFR003NewArtifactShapeAssertions:
             ),
         ]
         mve = MultiValidationError(errors=errors)
-        mve.sort_errors()
 
         payloads = [
             build_dry_run_slot_payload(
@@ -934,12 +808,9 @@ import re
 import stat
 from pathlib import Path
 
-import pytest
-
-from llama_manager.config import ErrorDetail, MultiValidationError
+from llama_manager.config import MultiValidationError
 from llama_manager.orchestration import ValidationException, write_artifact
 from llama_manager.validation import (
-    validate_backend_eligibility,
     validate_server_config,
 )
 
@@ -1481,55 +1352,6 @@ class TestFR011VllmBlockingActionableFields:
         )
         assert "vllm is not launch-eligible" in eligibility.reason
         assert "PRD M1" in eligibility.reason
-
-    def test_validate_backend_eligibility_vllm_returns_error(self) -> None:
-        """FR-011: validate_backend_eligibility should return ErrorDetail for vllm."""
-
-        error = validate_backend_eligibility("vllm")
-        assert error is not None
-        assert isinstance(error, ErrorDetail)
-
-    def test_validate_backend_eligibility_vllm_error_code(self) -> None:
-        """FR-011: validate_backend_eligibility for vllm should use BACKEND_NOT_ELIGIBLE."""
-
-        error = validate_backend_eligibility("vllm")
-        assert error is not None
-        assert error.error_code == ErrorCode.BACKEND_NOT_ELIGIBLE
-
-    def test_validate_backend_eligibility_vllm_failed_check(self) -> None:
-        """FR-011: validate_backend_eligibility for vllm should have failed_check=vllm_launch_eligibility."""
-
-        error = validate_backend_eligibility("vllm")
-        assert error is not None
-        assert error.failed_check == "vllm_launch_eligibility"
-
-    def test_validate_backend_eligibility_vllm_why_blocked(self) -> None:
-        """FR-011: validate_backend_eligibility for vllm should have actionable why_blocked."""
-
-        error = validate_backend_eligibility("vllm")
-        assert error is not None
-        assert "vllm is not launch-eligible" in error.why_blocked
-        assert "PRD M1" in error.why_blocked
-
-    def test_validate_backend_eligibility_vllm_how_to_fix(self) -> None:
-        """FR-011: validate_backend_eligibility for vllm should have actionable how_to_fix."""
-
-        error = validate_backend_eligibility("vllm")
-        assert error is not None
-        assert "llama_cpp" in error.how_to_fix.lower()
-
-    def test_validate_backend_eligibility_llama_cpp_passes(self) -> None:
-        """FR-011: validate_backend_eligibility should return None for llama_cpp."""
-
-        error = validate_backend_eligibility("llama_cpp")
-        assert error is None
-
-    def test_validate_backend_eligibility_case_insensitive(self) -> None:
-        """FR-011: validate_backend_eligibility should be case insensitive."""
-
-        assert validate_backend_eligibility("VLLM") is not None
-        assert validate_backend_eligibility("Vllm") is not None
-        assert validate_backend_eligibility("llama_cpp") is None
 
     def test_validate_server_config_vllm_returns_error(self) -> None:
         """FR-011: validate_server_config should return ErrorDetail for vllm backend."""

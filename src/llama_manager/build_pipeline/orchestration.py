@@ -5,6 +5,7 @@ application-level Config into a BuildConfig and manages the pipeline
 lifecycle without CLI or TUI concerns.
 """
 
+import dataclasses
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -13,54 +14,23 @@ from ..config import Config
 from .models import SOURCE_FLAVOR_DEFAULTS, BuildBackend, BuildConfig, BuildProgress, BuildResult
 from .pipeline import BuildPipeline
 
+_DERIVED_FIELDS: frozenset[str] = frozenset(("backend", "source_dir", "build_dir", "output_dir"))
+
 
 def _merge_config_overrides(base: BuildConfig, overrides: BuildConfig) -> BuildConfig:
-    """Merge non-None fields from *overrides* onto *base*.
+    """Merge non-None, non-empty-string fields from *overrides* onto *base*.
 
-    Derived fields (backend, source_dir, build_dir, output_dir) are
-    **never** overwritten — they are always taken from *base*.  Only
-    the following overridable fields are merged:
-
-    - git_remote_url
-    - git_branch
-    - retry_attempts
-    - retry_delay
-    - shallow_clone
-    - jobs
-    - update_sources
-    - git_commit
-    - build_timeout_seconds
-    - clean_cache
-    - build_args
+    Derived fields (``_DERIVED_FIELDS``) are never overwritten — they are
+    always taken from *base* so flavor-resolved URLs survive empty-string
+    overrides.
     """
-    overridable: list[str] = [
-        "git_remote_url",
-        "git_branch",
-        "retry_attempts",
-        "retry_delay",
-        "shallow_clone",
-        "jobs",
-        "update_sources",
-        "git_commit",
-        "build_timeout_seconds",
-        "clean_cache",
-        "build_args",
-    ]
-    # Start from base fields, then overlay non-empty overrides
-    base_dict: dict = {
-        "backend": base.backend,
-        "source_dir": base.source_dir,
-        "build_dir": base.build_dir,
-        "output_dir": base.output_dir,
-    }
-    for field_name in overridable:
-        base_dict[field_name] = getattr(base, field_name)
-    for field_name in overridable:
-        val = getattr(overrides, field_name, None)
-        # Skip None and empty strings so resolved flavor values are preserved
-        if val is not None and val != "":
-            base_dict[field_name] = val
-    return BuildConfig(**base_dict)
+    merged = dataclasses.asdict(base)
+    for field_name, value in dataclasses.asdict(overrides).items():
+        if field_name in _DERIVED_FIELDS:
+            continue
+        if value is not None and value != "":
+            merged[field_name] = value
+    return BuildConfig(**merged)
 
 
 def run_build_for_backend(
@@ -116,7 +86,7 @@ def run_build_for_backend(
         output_dir=output_dir,
         git_remote_url=git_remote_url,
         git_branch=git_branch,
-        shallow_clone=getattr(config, "build_shallow_clone", True),
+        shallow_clone=True,
         retry_attempts=config.build.retry_attempts,
         retry_delay=config.build.retry_delay,
     )

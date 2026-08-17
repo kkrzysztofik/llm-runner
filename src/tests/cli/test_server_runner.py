@@ -911,15 +911,6 @@ def test_parse_tui_args_supports_acknowledge_risky_flag(monkeypatch: pytest.Monk
     assert parsed.acknowledge_risky is True
 
 
-def test_ack_token_validation_is_attempt_scoped() -> None:
-    manager = ServerManager()
-    attempt_id = manager.begin_launch_attempt("attempt-1")
-    valid_token = manager.issue_ack_token(attempt_id)
-
-    assert manager.validate_ack_token(attempt_id, valid_token) is True
-    assert manager.validate_ack_token(attempt_id, "ack:other") is False
-
-
 def test_cleanup_clears_attempt_ack_cache() -> None:
     manager = ServerManager()
     attempt_id = manager.begin_launch_attempt("attempt-1")
@@ -1021,6 +1012,29 @@ def test_dry_run_exits_when_backend_validation_fails() -> None:
     assert exc.value.code == 1
 
 
+def test_print_resolved_slot_includes_thinking_level(capsys: pytest.CaptureFixture[str]) -> None:
+    """Dry-run slot print always includes Thinking level from ServerConfig."""
+    from llama_cli.commands.dry_run import _print_resolved_slot
+    from llama_manager.validation import build_dry_run_slot_payload
+    from tests.support.helpers import make_server_config
+
+    server_cfg = make_server_config(
+        alias="summary-balanced",
+        model="/models/qwen3.5-2b.gguf",
+        port=8080,
+    )
+    payload = build_dry_run_slot_payload(
+        server_cfg,
+        slot_id="summary-balanced",
+        validation_results=None,
+        warnings=[],
+    )
+    _print_resolved_slot("summary-balanced", server_cfg, payload)
+
+    captured = capsys.readouterr()
+    assert "Thinking level: medium" in captured.out
+
+
 def test_tui_run_exits_when_launch_is_blocked() -> None:
     safe_cfg = ServerConfig(
         model="/home/kmk/models/test-model.gguf",
@@ -1059,7 +1073,7 @@ def test_tui_run_exits_when_launch_is_blocked() -> None:
         app.run(acknowledged=False)
 
     assert exc.value.code == 1
-    messages = [message for _ts, message in app._status_messages]
+    messages = [message for _ts, message in app.model.status_messages]
     assert "launch blocked - no slots could be launched" in messages
 
 
@@ -1087,7 +1101,7 @@ def test_tui_run_buffers_degraded_warnings() -> None:
     ):
         app.run(acknowledged=True)
 
-    messages = [message for _ts, message in app._status_messages]
+    messages = [message for _ts, message in app.model.status_messages]
     assert "launch degraded - some slots blocked" in messages
     assert "slot blocked" in messages
 

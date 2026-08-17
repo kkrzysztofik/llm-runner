@@ -12,13 +12,12 @@ from unittest.mock import MagicMock, patch
 import psutil
 import pytest
 
-from llama_manager.config import ErrorCode, ErrorDetail, SlotState
+from llama_manager.config import ErrorCode, ErrorDetail
 from llama_manager.log_buffer import LogBuffer
 from llama_manager.orchestration import (
     REDACTED_VALUE,
     LockMetadata,
     ServerManager,
-    SlotRuntime,
     ValidationException,
     check_lockfile_integrity,
     create_lock,
@@ -78,7 +77,7 @@ class TestResolveRuntimeDir:
             mp.delenv("XDG_RUNTIME_DIR", raising=False)
             with pytest.raises(ValidationException) as exc_info:
                 resolve_runtime_dir()
-            assert exc_info.value.multi_error.error_count == 1
+            assert len(exc_info.value.multi_error.errors) == 1
 
     def test_xdg_creates_subdirectory(self, tmp_path: Path) -> None:
         """XDG_RUNTIME_DIR fallback should create llm-runner subdirectory."""
@@ -140,81 +139,6 @@ class TestResolveRuntimeDir:
 class TestPipeStreaming:
     """Tests for pipe streaming with optional log buffer support (T013)."""
 
-    def test_stream_pipe_to_handler(self) -> None:
-        """_stream_pipe should write stdout to log handler and main logger."""
-        from unittest.mock import patch
-
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-        buffer = LogBuffer()
-
-        # Create a mock pipe with test lines (subprocess pipes return strings with text=True)
-        mock_pipe = MagicMock()
-        mock_pipe.readline.side_effect = ["line1\n", "line2\n", "line3\n", ""]
-
-        with patch("llama_manager.orchestration.launcher.logger") as mock_logger:
-            manager._stream_pipe(mock_pipe, "test_server", False, buffer.add_line)
-
-        # Verify buffer received lines
-        assert buffer.line_count == 3
-        lines = list(buffer.lines)
-        assert "[test_server] line1" in lines[0]
-        assert "[test_server] line2" in lines[1]
-        assert "[test_server] line3" in lines[2]
-        assert mock_logger.info.call_count == 3
-        assert "[test_server] line1" in mock_logger.info.call_args_list[0].args[1]
-
-    def test_stream_pipe_to_handler_stderr(self) -> None:
-        """_stream_pipe should write stderr to log handler and main logger."""
-        from unittest.mock import patch
-
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-        buffer = LogBuffer()
-
-        mock_pipe = MagicMock()
-        mock_pipe.readline.side_effect = ["error1\n", "error2\n", ""]
-
-        with patch("llama_manager.orchestration.launcher.logger") as mock_logger:
-            manager._stream_pipe(mock_pipe, "test_server", True, buffer.add_line)
-
-        assert buffer.line_count == 2
-        assert mock_logger.warning.call_count == 2
-        assert "[test_server] error1" in mock_logger.warning.call_args_list[0].args[1]
-
-    def test_stream_pipe_null_pipe(self) -> None:
-        """_stream_pipe should handle None pipe gracefully."""
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-        buffer = LogBuffer()
-
-        # Should not raise on None pipe
-        manager._stream_pipe(None, "test_server", False, buffer.add_line)
-        assert buffer.line_count == 0
-
-    def test_stream_pipe_without_handler_writes_to_logger(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """_stream_pipe without a handler should log stdout via logger.info."""
-        from unittest.mock import MagicMock, patch
-
-        from llama_manager.orchestration import ServerManager
-
-        manager = ServerManager()
-
-        mock_pipe = MagicMock()
-        mock_pipe.readline.side_effect = ["stdout_line\n", ""]
-
-        with patch("llama_manager.orchestration.launcher.logger") as mock_logger:
-            manager._stream_pipe(mock_pipe, "test_server", False, None)
-            mock_logger.info.assert_called_once()
-            call_args = mock_logger.info.call_args[0][1]
-            assert "[test_server] stdout_line" in call_args
-        mock_pipe.close.assert_called_once()
-
     def test_start_server_background_with_handler(self) -> None:
         """start_server_background should accept and use log handler."""
         from llama_manager.orchestration import ServerManager
@@ -230,7 +154,7 @@ class TestPipeStreaming:
         mock_proc.stderr = MagicMock()
         mock_proc.stderr.readline.side_effect = ["error line\n", ""]
 
-        with patch("llama_manager.orchestration.launcher.subprocess.Popen", return_value=mock_proc):
+        with patch("llama_manager.orchestration.launcher._ServerProc", return_value=mock_proc):
             cmd = ["echo", "test"]
             proc = manager.start_server_background("test_server", cmd, buffer.add_line)
 
@@ -301,7 +225,7 @@ class TestPipeStreaming:
             return mock
 
         with patch(
-            "llama_manager.orchestration.launcher.subprocess.Popen", side_effect=create_mock_proc
+            "llama_manager.orchestration.launcher._ServerProc", side_effect=create_mock_proc
         ):
             processes = manager.start_servers([config1, config2], handlers)
 
@@ -346,7 +270,7 @@ class TestPipeStreaming:
         mock_proc.stderr = MagicMock()
         mock_proc.stderr.readline.side_effect = ["err line\n", ""]
 
-        with patch("llama_manager.orchestration.launcher.subprocess.Popen", return_value=mock_proc):
+        with patch("llama_manager.orchestration.launcher._ServerProc", return_value=mock_proc):
             # Call without handlers - should not raise
             processes = manager.start_servers([config], None)
             assert len(processes) == 1
@@ -381,7 +305,7 @@ class TestPipeStreaming:
         mock_proc.stdout = mock_stdout
         mock_proc.stderr = mock_stderr
 
-        with patch("llama_manager.orchestration.launcher.subprocess.Popen", return_value=mock_proc):
+        with patch("llama_manager.orchestration.launcher._ServerProc", return_value=mock_proc):
             manager.start_servers([config], {"test_server": buffer.add_line})
 
             # Wait for thread to process with polling (deterministic sync)
@@ -964,229 +888,12 @@ class TestAuditLogRedaction:
         assert redacted["api_key"] == REDACTED_VALUE
 
 
-class TestSlotRuntime:
-    """T016b: Tests for SlotRuntime dataclass.
-
-    NOTE: SlotRuntime is expected to be implemented in process_manager.py
-    as part of T017. These tests verify the expected API contract.
-    """
-
-    def test_default_construction(self) -> None:
-        """SlotRuntime should construct with default values."""
-        from llama_manager.config import SlotState
-        from llama_manager.log_buffer import LogBuffer
-
-        try:
-            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
-
-            runtime = SlotRuntime(
-                slot_id="test-slot",
-                state=SlotState.IDLE,
-                pid=None,
-                start_time=time.time(),
-                logs=LogBuffer(),
-                gpu_stats=None,
-            )
-
-            assert runtime.slot_id == "test-slot"
-            assert runtime.state == SlotState.IDLE
-            assert runtime.pid is None
-            assert isinstance(runtime.start_time, float)
-            assert isinstance(runtime.logs, LogBuffer)
-            assert runtime.gpu_stats is None
-        except ImportError:
-            pytest.skip("SlotRuntime not yet implemented (T017)")
-
-    def test_construction_with_all_fields(self) -> None:
-        """SlotRuntime should accept all expected fields."""
-        from llama_manager.config import SlotState
-        from llama_manager.gpu_telemetry import GPUStats
-        from llama_manager.log_buffer import LogBuffer
-
-        try:
-            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
-
-            logs = LogBuffer()
-            gpu = GPUStats(device_index=0)
-
-            runtime = SlotRuntime(
-                slot_id="gpu0-slot1",
-                state=SlotState.RUNNING,
-                pid=12345,
-                start_time=1234567890.0,
-                logs=logs,
-                gpu_stats=gpu,
-            )
-
-            assert runtime.slot_id == "gpu0-slot1"
-            assert runtime.state == SlotState.RUNNING
-            assert runtime.pid == 12345
-            assert runtime.start_time == 1234567890.0
-            assert runtime.logs is logs
-            assert runtime.gpu_stats is gpu
-        except ImportError:
-            pytest.skip("SlotRuntime not yet implemented (T017)")
-
-    def test_serialization_to_dict(self) -> None:
-        """SlotRuntime should serialize to dict with expected keys."""
-        from llama_manager.config import SlotState
-        from llama_manager.log_buffer import LogBuffer
-
-        try:
-            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
-
-            runtime = SlotRuntime(
-                slot_id="test",
-                state=SlotState.RUNNING,
-                pid=9999,
-                start_time=1234567890.0,
-                logs=LogBuffer(),
-                gpu_stats=None,
-            )
-
-            d = runtime.to_dict()
-            assert "slot_id" in d
-            assert "state" in d
-            assert "pid" in d
-            assert "start_time" in d
-            assert d["slot_id"] == "test"
-            assert d["state"] == "running"
-            assert d["pid"] == 9999
-        except ImportError:
-            pytest.skip("SlotRuntime not yet implemented (T017)")
-
-    def test_state_transition_method(self) -> None:
-        """SlotRuntime should have a method to transition state."""
-        from llama_manager.config import SlotState
-        from llama_manager.log_buffer import LogBuffer
-
-        try:
-            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
-
-            runtime = SlotRuntime(
-                slot_id="test",
-                state=SlotState.IDLE,
-                pid=None,
-                start_time=time.time(),
-                logs=LogBuffer(),
-                gpu_stats=None,
-            )
-
-            # Transition IDLE -> LAUNCHING
-            runtime.transition_to(SlotState.LAUNCHING)
-            assert runtime.state == SlotState.LAUNCHING
-
-            # Transition LAUNCHING -> RUNNING
-            runtime.transition_to(SlotState.RUNNING)
-            assert runtime.state == SlotState.RUNNING
-        except ImportError:
-            pytest.skip("SlotRuntime not yet implemented (T017)")
-
-    def test_to_dict_includes_gpu_stats(self) -> None:
-        """SlotRuntime.to_dict() should include gpu_stats info when present."""
-        from llama_manager.config import SlotState
-        from llama_manager.gpu_telemetry import GPUStats
-        from llama_manager.log_buffer import LogBuffer
-
-        try:
-            from llama_manager.orchestration import SlotRuntime  # type: ignore[attr-defined]
-
-            gpu = GPUStats(device_index=1)
-            runtime = SlotRuntime(
-                slot_id="test",
-                state=SlotState.RUNNING,
-                pid=12345,
-                start_time=time.time(),
-                logs=LogBuffer(),
-                gpu_stats=gpu,
-            )
-
-            d = runtime.to_dict()
-            assert "gpu_stats" in d
-        except ImportError:
-            pytest.skip("SlotRuntime not yet implemented (T017)")
-
-
 class TestFullLifecycleAndShutdown:
     """T024b/T024c: Integration tests for full lifecycle and shutdown behavior.
 
     T024b — Full lifecycle (idle→launching→running→degraded→running→offline→idle)
     T024c — Shutdown with orphan detection (SIGTERM→SIGKILL escalation)
     """
-
-    def test_full_lifecycle(self, tmp_path: Path) -> None:
-        """Verify full lifecycle (idle→launching→running→degraded→running→offline→idle).
-
-        Tests:
-        - All state transitions via SlotRuntime.transition_to()
-        - start_time updates correctly for LAUNCHING/RUNNING transitions
-        - start_time preserved for non-launching transitions
-        - Serialization to dict with correct values
-        """
-        runtime = SlotRuntime(
-            slot_id="test-slot",
-            state=SlotState.IDLE,
-            pid=None,
-            start_time=time.time(),
-            logs=LogBuffer(),
-            gpu_stats=None,
-        )
-
-        assert runtime.state == SlotState.IDLE
-        assert runtime.pid is None
-
-        # Transition IDLE → LAUNCHING
-        launching_time = time.time()
-        runtime.transition_to(SlotState.LAUNCHING)
-        assert runtime.state == SlotState.LAUNCHING
-        assert runtime.start_time >= launching_time
-
-        # Transition LAUNCHING → RUNNING
-        running_time = time.time()
-        runtime.transition_to(SlotState.RUNNING)
-        assert runtime.state == SlotState.RUNNING
-        assert runtime.start_time >= running_time
-
-        # Transition RUNNING → DEGRADED (start_time should NOT update)
-        degraded_start = runtime.start_time
-        runtime.transition_to(SlotState.DEGRADED)
-        assert runtime.state == SlotState.DEGRADED
-        assert runtime.start_time == degraded_start
-
-        # Transition DEGRADED → RUNNING (start_time SHOULD update)
-        running_time2 = time.time()
-        runtime.transition_to(SlotState.RUNNING)
-        assert runtime.state == SlotState.RUNNING
-        assert runtime.start_time >= running_time2
-
-        # Transition RUNNING → OFFLINE (start_time should NOT update)
-        offline_start = runtime.start_time
-        runtime.transition_to(SlotState.OFFLINE)
-        assert runtime.state == SlotState.OFFLINE
-        assert runtime.start_time == offline_start
-
-        # Transition OFFLINE → IDLE (start_time should NOT update)
-        idle_start = runtime.start_time
-        runtime.transition_to(SlotState.IDLE)
-        assert runtime.state == SlotState.IDLE
-        assert runtime.start_time == idle_start
-
-        # Verify dataclass fields are accessible and correct
-        runtime_with_pid = SlotRuntime(
-            slot_id="gpu0-slot1",
-            state=SlotState.RUNNING,
-            pid=12345,
-            start_time=1234567890.0,
-            logs=LogBuffer(),
-            gpu_stats=None,
-        )
-        # Use vars() instead of asdict() — LogBuffer has an unpicklable lock
-        d = vars(runtime_with_pid)
-        assert d["slot_id"] == "gpu0-slot1"
-        assert d["pid"] == 12345
-        assert d["start_time"] == 1234567890.0
-        assert isinstance(d["state"], SlotState)
-        assert d["state"] == SlotState.RUNNING
 
     def test_shutdown_without_orphans(self, tmp_path: Path) -> None:
         """Verify shutdown initiates within 1s and completes without orphan processes.
@@ -1237,7 +944,7 @@ class TestFullLifecycleAndShutdown:
             ),
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
             # Satisfy ownership check: mock Process.uids()
@@ -1264,7 +971,7 @@ class TestFullLifecycleAndShutdown:
             patch("llama_manager.orchestration.lockfile.psutil.pid_exists", return_value=True),
             patch("llama_manager.orchestration.lockfile.psutil.Process") as mock_psutil,
             patch("os.kill", side_effect=track_cleanup_kill),
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_proc_obj = mock_psutil.return_value
             mock_proc_obj.create_time.return_value = manager2.pid_metadata[54321]
@@ -1306,7 +1013,7 @@ class TestFullLifecycleAndShutdown:
             patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
             # Simulate AccessDenied during ownership check
@@ -1339,7 +1046,7 @@ class TestFullLifecycleAndShutdown:
             patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
             # Simulate NoSuchProcess during ownership check
@@ -1389,7 +1096,7 @@ class TestFullLifecycleAndShutdown:
             ),
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
             # Satisfy ownership check: mock Process.uids()
@@ -1425,7 +1132,7 @@ class TestFullLifecycleAndShutdown:
             ),
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
             # Satisfy ownership check: mock Process.uids()
@@ -1461,7 +1168,7 @@ class TestFullLifecycleAndShutdown:
             ),
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
             mock_uids = MagicMock()
@@ -1492,7 +1199,7 @@ class TestFullLifecycleAndShutdown:
             patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
             # Simulate NoSuchProcess
@@ -1522,7 +1229,7 @@ class TestFullLifecycleAndShutdown:
             patch("llama_manager.orchestration.slot_lockfile.psutil.Process") as mock_psutil,
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=99999, port=8080, started_at=time.time())
             # Simulate AccessDenied
@@ -1571,7 +1278,7 @@ class TestFullLifecycleAndShutdown:
             ),
             patch("llama_manager.orchestration.slot_lockfile.os.kill", side_effect=track_kill),
             patch("llama_manager.orchestration.slot_lockfile.read_lock") as mock_read_lock,
-            patch("time.sleep", lambda x: None),
+            patch("time.sleep", return_value=None),
         ):
             mock_read_lock.return_value = LockMetadata(pid=12345, port=8080, started_at=time.time())
             # Satisfy ownership check: mock Process.uids()
@@ -1703,90 +1410,6 @@ class TestVerifyShutdownOwnership:
             result = verify_shutdown_ownership(99999, 8080)
 
         assert result is False
-
-
-class TestAuditLogRotationPermissions:
-    """T016b: Audit log rotation should enforce 0600 permissions on rotated files."""
-
-    def test_rotate_sets_owner_only_permissions(self, tmp_path: Path) -> None:
-        """_rotate_audit_log should chmod rotated files to 0600."""
-        from llama_manager.orchestration.audit import _rotate_audit_log
-
-        # Create initial log file
-        log_path = tmp_path / "audit.log"
-        log_path.write_text("initial log content\n")
-        # Set a permissive mode deliberately
-        log_path.chmod(0o644)
-
-        _rotate_audit_log(log_path)
-
-        # Rotated file should exist with 0600 permissions
-        rotated = log_path.with_suffix(".1")
-        assert rotated.exists()
-        mode = stat.S_IMODE(rotated.stat().st_mode)
-        assert mode == 0o600
-
-    def test_rotate_multiple_files_all_chmod(self, tmp_path: Path) -> None:
-        """_rotate_audit_log should chmod all existing rotated files."""
-        from llama_manager.orchestration.audit import _rotate_audit_log
-
-        log_path = tmp_path / "audit.log"
-
-        # Create existing rotated files with permissive mode
-        for i in range(1, 4):
-            rotated = log_path.with_suffix(f".{i}")
-            rotated.write_text(f"rotated {i}\n")
-            rotated.chmod(0o644)
-
-        # Create current log
-        log_path.write_text("current\n")
-
-        _rotate_audit_log(log_path)
-
-        # All rotated files should have 0600
-        for i in range(1, 5):
-            rotated = log_path.with_suffix(f".{i}")
-            if rotated.exists():
-                mode = stat.S_IMODE(rotated.stat().st_mode)
-                assert mode == 0o600, f"Rotated file .{i} has mode {oct(mode)}"
-
-    def test_append_audit_log_creates_file_with_owner_only_perms(self, tmp_path: Path) -> None:
-        """_append_audit_log should create new audit log files with 0600 permissions."""
-        from llama_manager.orchestration.audit import _append_audit_log
-
-        log_path = tmp_path / "audit.log"
-
-        # Append to a non-existent file
-        _append_audit_log(log_path, "test audit message")
-
-        assert log_path.exists()
-        mode = stat.S_IMODE(log_path.stat().st_mode)
-        assert mode == 0o600, f"Audit log file should have 0o600 permissions, got {oct(mode)}"
-        # Verify content was written
-        content = log_path.read_text()
-        assert "test audit message" in content
-
-    def test_append_audit_log_appends_with_owner_only_perms(self, tmp_path: Path) -> None:
-        """_append_audit_log should preserve 0600 permissions when appending."""
-        from llama_manager.orchestration.audit import _append_audit_log
-
-        log_path = tmp_path / "audit.log"
-
-        # First write
-        _append_audit_log(log_path, "first message")
-        first_mode = stat.S_IMODE(log_path.stat().st_mode)
-        assert first_mode == 0o600
-
-        # Second write (append)
-        _append_audit_log(log_path, "second message")
-        second_mode = stat.S_IMODE(log_path.stat().st_mode)
-        assert second_mode == 0o600, (
-            f"Audit log file should retain 0o600 permissions after append, got {oct(second_mode)}"
-        )
-        # Verify both messages are present
-        content = log_path.read_text()
-        assert "first message" in content
-        assert "second message" in content
 
 
 class TestRedactSensitiveValues:

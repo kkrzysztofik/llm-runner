@@ -6,20 +6,18 @@ and Rich renderables so it can be inspected independently from the UI layer.
 
 import threading
 import time
-from collections.abc import Callable
+from collections import deque
 from datetime import datetime
 from typing import Any, Literal
 
 from llama_manager import (
     Config,
     GPUStats,
-    GpuTelemetrySelector,
     LaunchResult,
     LogBuffer,
     ModelSlot,
     ServerConfig,
     ServerManager,
-    collect_gpu_stats,
     collector_for_config,
     gpu_index_for_config,
     selector_for_config,
@@ -66,7 +64,7 @@ class DashboardModel:
         self.launch_result: LaunchResult | None = None
         self.risk_prompt: RiskPromptState | None = None
 
-        self.status_messages: list[tuple[float, str]] = []
+        self.status_messages: deque[tuple[float, str]] = deque(maxlen=5)
         self.status_lock = threading.Lock()
         self.stale_warnings: dict[str, str] = {}
         self.system_health_lock = threading.Lock()
@@ -85,10 +83,7 @@ class DashboardModel:
             uptime="0:00",
         )
 
-        self.build_request = False
-        self.build_selected_backends: list[str] | None = None
         self.build_in_progress = False
-        self.build_result: Literal["success", "failed"] | None = None
         self.build_error: str | None = None
         self.build_artifact: str | None = None
         self.build_progress: BuildProgress | None = None
@@ -99,45 +94,6 @@ class DashboardModel:
         self.server_manager = ServerManager()
         self.slot_states: dict[str, str] = {}
         self.server_processes: dict[str, Any] = {}
-
-    # Read-only views over ``build_progress``. Writers assign the whole immutable
-    # snapshot (see DashboardController._handle_build_progress) so readers on the UI
-    # thread never observe a mix of fields from two different progress updates.
-
-    @property
-    def build_stage(self) -> str | None:
-        """Current build stage name derived from ``build_progress``."""
-        progress = self.build_progress
-        return progress.stage if progress is not None else None
-
-    @property
-    def build_progress_percent(self) -> float:
-        """Build completion percent derived from ``build_progress``."""
-        progress = self.build_progress
-        return progress.progress_percent if progress is not None else 0.0
-
-    @property
-    def build_is_retrying(self) -> bool:
-        """Whether the build is retrying, derived from ``build_progress``."""
-        progress = self.build_progress
-        return bool(progress is not None and progress.is_retrying)
-
-    @property
-    def build_retries_remaining(self) -> int:
-        """Retries remaining derived from ``build_progress``."""
-        progress = self.build_progress
-        if progress is None or progress.retries_remaining is None:
-            return 0
-        return progress.retries_remaining
-
-    def make_collector(self, device_index: int) -> Callable[[], dict[str, Any]]:
-        """Create a legacy CUDA collector bound to a device ordinal."""
-        selector = GpuTelemetrySelector(backend="cuda", ordinal=device_index)
-        return lambda: collect_gpu_stats(selector)
-
-    def stop(self) -> None:
-        """Stop the dashboard."""
-        self.running = False
 
     def set_risk_prompt(
         self, kind: Literal["vram", "hardware"], acknowledged: bool = False
@@ -153,36 +109,19 @@ class DashboardModel:
         """Push a status message to the bounded TUI message buffer."""
         with self.status_lock:
             self.status_messages.append((time.monotonic(), message))
-            if len(self.status_messages) > 5:
-                self.status_messages.pop(0)
 
     def get_status_messages_since(self, since_ts: float) -> list[tuple[float, str]]:
         """Return status messages newer than ``since_ts`` and not expired."""
         cutoff = time.monotonic() - self.STATUS_MESSAGE_LIFETIME_S
         with self.status_lock:
-            return [(ts, msg) for ts, msg in self.status_messages if ts > since_ts and ts >= cutoff]
-
-    def cpu_percentages(self) -> list[float]:
-        """Return cached per-core CPU usage percentages."""
-        with self.system_health_lock:
-            return list(self.cached_cpu_percentages)
-
-    def memory_usage_rows(self) -> list[MemoryUsageSnapshot]:
-        """Return cached memory and swap usage snapshots for the dashboard."""
-        with self.system_health_lock:
-            return list(self.cached_memory_usage_rows)
-
-    def system_info_snapshot(self) -> SystemInfoSnapshot:
-        """Return cached process, load, and uptime state for the dashboard."""
-        with self.system_health_lock:
-            return self.cached_system_info_snapshot
+            return [(ts, m) for ts, m in self.status_messages if ts > since_ts and ts >= cutoff]
 
     def dashboard_snapshot(self) -> DashboardSnapshot:
         """Return immutable cached telemetry for render-only dashboard code."""
         with self.system_health_lock:
             return DashboardSnapshot(
-                cpu_percentages=list(self.cached_cpu_percentages),
-                memory_usage_rows=list(self.cached_memory_usage_rows),
+                cpu_percentages=self.cached_cpu_percentages,
+                memory_usage_rows=self.cached_memory_usage_rows,
                 system_info=self.cached_system_info_snapshot,
                 gpu_stats_by_alias={
                     alias: dict(stats) for alias, stats in self.cached_gpu_stats_by_alias.items()
@@ -229,8 +168,8 @@ class DashboardModel:
     ) -> None:
         """Store system-health state collected off the UI thread."""
         with self.system_health_lock:
-            self.cached_cpu_percentages = list(cpu)
-            self.cached_memory_usage_rows = list(memory_rows)
+            self.cached_cpu_percentages = cpu
+            self.cached_memory_usage_rows = memory_rows
             self.cached_system_info_snapshot = system_info
 
     def snapshot_for_probe(self) -> tuple[tuple[str, GPUStats, ServerConfig], ...]:
@@ -284,48 +223,10 @@ class DashboardModel:
                 if alias not in aliases:
                     del self.cached_slot_stats_by_alias[alias]
 
-    def set_cached_slot_stats(self, alias: str, stats: SlotStatsSnapshot) -> None:
-        """Set one slot's cached stats without fetching live data."""
-        with self.system_health_lock:
-            self.cached_slot_stats_by_alias[alias] = stats
-
     def slot_stats_snapshot(self) -> dict[str, SlotStatsSnapshot]:
         """Return a snapshot of cached slot stats for render-only code."""
         with self.system_health_lock:
             return dict(self.cached_slot_stats_by_alias)
-
-    def collect_memory_usage_rows_now(self) -> list[MemoryUsageSnapshot]:
-        """Return live memory and swap usage snapshots for non-refresh callers."""
-        from llama_manager import collect_memory_usage
-
-        data = collect_memory_usage()
-        mem = data["mem"]
-        swp = data["swp"]
-        return [
-            MemoryUsageSnapshot(
-                label=str(mem["label"]),
-                percent=float(mem["percent"] if isinstance(mem["percent"], float) else 0.0),
-                value_text=str(mem["value_text"]),
-            ),
-            MemoryUsageSnapshot(
-                label=str(swp["label"]),
-                percent=float(swp["percent"] if isinstance(swp["percent"], float) else 0.0),
-                value_text=str(swp["value_text"]),
-            ),
-        ]
-
-    def collect_system_info_snapshot_now(self) -> SystemInfoSnapshot:
-        """Return live process, load, and uptime state for non-refresh callers."""
-        from llama_manager import collect_system_info
-
-        data = collect_system_info()
-        return SystemInfoSnapshot(
-            tasks=data["tasks"],  # type: ignore[arg-type]
-            threads=data["threads"],  # type: ignore[arg-type]
-            running=data["running"],  # type: ignore[arg-type]
-            load_values=data["load_values"],  # type: ignore[arg-type]
-            uptime=data["uptime"],  # type: ignore[arg-type]
-        )
 
     def current_datetime_snapshot(self) -> DateTimeSnapshot:
         """Return the current local date for display (Wed 2026-05-20)."""

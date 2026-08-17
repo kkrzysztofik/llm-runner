@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 from llama_manager.build_pipeline.lock import (
     acquire_lock,
-    get_lock_error_message,
     is_lock_stale,
     release_lock,
 )
@@ -162,32 +161,3 @@ class TestReleaseLock:
     def test_nonexistent_path(self, tmp_path: Path):
         lock_path = tmp_path / "nonexistent.lock"
         release_lock(lock_path)
-
-
-# ── get_lock_error_message ─────────────────────────────────────────────────
-
-
-class TestGetLockErrorMessage:
-    def test_active_lock(self, tmp_path: Path):
-        lock_path = tmp_path / "build.lock"
-        lock_path.write_text(json.dumps({"pid": 1234, "backend": "sycl"}))
-        result = get_lock_error_message(lock_path)
-        assert "1234" in result
-        assert "sycl" in result
-
-    def test_invalid_json(self, tmp_path: Path):
-        lock_path = tmp_path / "invalid.lock"
-        lock_path.write_text("not json")
-        result = get_lock_error_message(lock_path)
-        assert "could not be read" in result
-
-    def test_missing_file(self, tmp_path: Path):
-        lock_path = tmp_path / "nonexistent.lock"
-        result = get_lock_error_message(lock_path)
-        assert "could not be read" in result
-
-    def test_missing_pid(self, tmp_path: Path):
-        lock_path = tmp_path / "no_pid.lock"
-        lock_path.write_text(json.dumps({"backend": "sycl"}))
-        result = get_lock_error_message(lock_path)
-        assert "unknown" in result

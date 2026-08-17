@@ -220,3 +220,6 @@ coderabbit_review*.json
 
 # Review/analysis output files (temporary)
 /out.json
+
+# SDD subagent workspace (per-campaign briefs/reports/diffs, transient)
+.superpowers/sdd/

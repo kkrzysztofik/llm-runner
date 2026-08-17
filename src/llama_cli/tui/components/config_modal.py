@@ -11,6 +11,11 @@ from textual.widgets import Button, Checkbox, Input, Label, Select
 from llama_manager.build_pipeline.models import SOURCE_FLAVOR_DEFAULTS
 from llama_manager.config import Config
 from llama_manager.config.load_mode import LOAD_MODE_VALUES
+from llama_manager.config.reasoning_effort import (
+    REASONING_EFFORT_JSON_CONFLICT,
+    REASONING_EFFORT_VALUES,
+    chat_template_kwargs_has_reasoning_effort,
+)
 from llama_manager.config.server import SPLIT_MODE_VALUES
 from llama_manager.config.tri_state import TRI_STATE_VALUES
 
@@ -64,6 +69,7 @@ class ConfigPayload:
     default_reasoning_format: str = ""
     default_reasoning_budget: str = ""
     default_reasoning_preserve: str = "auto"
+    default_reasoning_effort: str = "medium"
     default_reasoning_budget_message: str = ""
     default_use_jinja: bool = False
     default_profile_chat_template_kwargs: str = ""
@@ -131,6 +137,7 @@ class ConfigPayload:
             "server_defaults.reasoning_format": self.default_reasoning_format,
             "server_defaults.reasoning_budget": self.default_reasoning_budget,
             "server_defaults.reasoning_preserve": self.default_reasoning_preserve,
+            "server_defaults.reasoning_effort": self.default_reasoning_effort,
             "server_defaults.reasoning_budget_message": self.default_reasoning_budget_message,
             "server_defaults.use_jinja": self.default_use_jinja,
             "server_defaults.chat_template_kwargs": self.default_profile_chat_template_kwargs,
@@ -183,49 +190,53 @@ def _optional_config_float(raw: str) -> float | None:
     return float(stripped)
 
 
+def _validate_optional_number_field(
+    label: str, raw: str, *, is_int: bool, non_negative: bool = False
+) -> str | None:
+    """Return an error message for an optional numeric field, or None if valid."""
+    stripped = raw.strip()
+    if not stripped:
+        return None
+    try:
+        value = int(stripped) if is_int else float(stripped)
+    except ValueError:
+        return f"Invalid {label}: {raw!r}"
+    if is_int and non_negative and value < 0:
+        return f"Invalid {label}: {value} (must be >= 0)"
+    return None
+
+
 def _validate_config_payload(payload: ConfigPayload) -> list[str]:
     """Validate enum and optional numeric fields before save."""
     errors: list[str] = []
-    if payload.default_load_mode not in LOAD_MODE_VALUES:
-        errors.append(f"Invalid load mode: {payload.default_load_mode!r}")
-    if payload.default_split_mode not in SPLIT_MODE_VALUES:
-        errors.append(f"Invalid split mode: {payload.default_split_mode!r}")
-    if payload.default_reasoning_preserve not in TRI_STATE_VALUES:
-        errors.append(f"Invalid reasoning preserve: {payload.default_reasoning_preserve!r}")
-    if payload.default_fit not in TRI_STATE_VALUES:
-        errors.append(f"Invalid fit: {payload.default_fit!r}")
-
-    optional_int_fields = (
-        ("ctx checkpoints", payload.default_ctx_checkpoints),
-        ("top k", payload.default_top_k),
+    enum_fields = (
+        ("load mode", payload.default_load_mode, LOAD_MODE_VALUES),
+        ("split mode", payload.default_split_mode, SPLIT_MODE_VALUES),
+        ("reasoning preserve", payload.default_reasoning_preserve, TRI_STATE_VALUES),
+        ("thinking level", payload.default_reasoning_effort, REASONING_EFFORT_VALUES),
+        ("fit", payload.default_fit, TRI_STATE_VALUES),
     )
-    for label, raw in optional_int_fields:
-        stripped = raw.strip()
-        if not stripped:
-            continue
-        try:
-            value = int(stripped)
-        except ValueError:
-            errors.append(f"Invalid {label}: {raw!r}")
-            continue
-        if label == "ctx checkpoints" and value < 0:
-            errors.append(f"Invalid ctx checkpoints: {value} (must be >= 0)")
+    for label, value, allowed in enum_fields:
+        if value not in allowed:
+            errors.append(f"Invalid {label}: {value!r}")
+    if chat_template_kwargs_has_reasoning_effort(payload.default_profile_chat_template_kwargs):
+        errors.append(REASONING_EFFORT_JSON_CONFLICT)
 
-    optional_float_fields = (
-        ("temperature", payload.default_temperature),
-        ("top p", payload.default_top_p),
-        ("min p", payload.default_min_p),
-        ("presence penalty", payload.default_presence_penalty),
-        ("repeat penalty", payload.default_repeat_penalty),
+    numeric_fields = (
+        ("ctx checkpoints", payload.default_ctx_checkpoints, True, True),
+        ("top k", payload.default_top_k, True, False),
+        ("temperature", payload.default_temperature, False, False),
+        ("top p", payload.default_top_p, False, False),
+        ("min p", payload.default_min_p, False, False),
+        ("presence penalty", payload.default_presence_penalty, False, False),
+        ("repeat penalty", payload.default_repeat_penalty, False, False),
     )
-    for label, raw in optional_float_fields:
-        stripped = raw.strip()
-        if not stripped:
-            continue
-        try:
-            float(stripped)
-        except ValueError:
-            errors.append(f"Invalid {label}: {raw!r}")
+    for label, raw, is_int, non_negative in numeric_fields:
+        error = _validate_optional_number_field(
+            label, raw, is_int=is_int, non_negative=non_negative
+        )
+        if error is not None:
+            errors.append(error)
 
     return errors
 
@@ -439,6 +450,11 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             row_classes=CONFIG_ROW_SELECT_CLASSES,
         )
 
+    def _select_value(self, select_id: str, default: str) -> str:
+        """Read a Select widget, falling back to a default when blank."""
+        value = self.query_one(select_id, Select).value
+        return str(value or default)
+
     def _collect_values(self) -> ConfigPayload:
         """Read all Input widgets and return a typed payload."""
         return ConfigPayload(
@@ -451,9 +467,7 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                 "#cfg-llama_server_bin_nvidia", Input
             ).value.strip(),
             host=self.query_one("#cfg-host", Input).value.strip(),
-            build_source_flavor=str(
-                self.query_one("#cfg-build_source_flavor", Select).value or "upstream"
-            ),
+            build_source_flavor=self._select_value("#cfg-build_source_flavor", "upstream"),
             build_git_remote=self.query_one("#cfg-build_git_remote", Input).value.strip(),
             build_git_branch=self.query_one("#cfg-build_git_branch", Input).value.strip(),
             smoke_listen_timeout_s=self.query_one(
@@ -468,8 +482,8 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             smoke_total_chat_timeout_s=self.query_one(
                 "#cfg-smoke_total_chat_timeout_s", Input
             ).value.strip(),
-            log_file_level=str(self.query_one("#cfg-log_file_level", Select).value or "DEBUG"),
-            log_stderr_level=str(self.query_one("#cfg-log_stderr_level", Select).value or "INFO"),
+            log_file_level=self._select_value("#cfg-log_file_level", "DEBUG"),
+            log_stderr_level=self._select_value("#cfg-log_stderr_level", "INFO"),
             default_profile_port=self.query_one("#cfg-default_profile_port", Input).value.strip(),
             default_profile_ctx_size=self.query_one(
                 "#cfg-default_profile_ctx_size", Input
@@ -487,26 +501,23 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             default_batch_size=self.query_one("#cfg-default_batch_size", Input).value.strip(),
             default_poll_ms=self.query_one("#cfg-default_poll_ms", Input).value.strip(),
             default_n_predict=self.query_one("#cfg-default_n_predict", Input).value.strip(),
-            default_parallel=str(self.query_one("#cfg-default_parallel", Select).value or "4"),
+            default_parallel=self._select_value("#cfg-default_parallel", "4"),
             default_threads_batch=self.query_one("#cfg-default_threads_batch", Input).value.strip(),
-            default_profile_cache_type_k=str(
-                self.query_one("#cfg-default_profile_cache_type_k", Select).value or "q8_0"
+            default_profile_cache_type_k=self._select_value(
+                "#cfg-default_profile_cache_type_k", "q8_0"
             ),
-            default_profile_cache_type_v=str(
-                self.query_one("#cfg-default_profile_cache_type_v", Select).value or "q8_0"
+            default_profile_cache_type_v=self._select_value(
+                "#cfg-default_profile_cache_type_v", "q8_0"
             ),
-            default_reasoning_mode=str(
-                self.query_one("#cfg-default_reasoning_mode", Select).value or "auto"
-            ),
-            default_reasoning_format=str(
-                self.query_one("#cfg-default_reasoning_format", Select).value or "none"
-            ),
+            default_reasoning_mode=self._select_value("#cfg-default_reasoning_mode", "auto"),
+            default_reasoning_format=self._select_value("#cfg-default_reasoning_format", "none"),
             default_reasoning_budget=self.query_one(
                 "#cfg-default_reasoning_budget", Input
             ).value.strip(),
-            default_reasoning_preserve=str(
-                self.query_one("#cfg-default_reasoning_preserve", Select).value or "auto"
+            default_reasoning_preserve=self._select_value(
+                "#cfg-default_reasoning_preserve", "auto"
             ),
+            default_reasoning_effort=self._select_value("#cfg-default_reasoning_effort", "medium"),
             default_reasoning_budget_message=self.query_one(
                 "#cfg-default_reasoning_budget_message", Input
             ).value.strip(),
@@ -515,7 +526,7 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
                 "#cfg-default_profile_chat_template_kwargs", Input
             ).value.strip(),
             default_mmproj=self.query_one("#cfg-default_mmproj", Input).value.strip(),
-            default_spec_type=str(self.query_one("#cfg-default_spec_type", Select).value or ""),
+            default_spec_type=self._select_value("#cfg-default_spec_type", ""),
             default_spec_ngram_size_n=self.query_one(
                 "#cfg-default_spec_ngram_size_n", Input
             ).value.strip(),
@@ -527,11 +538,11 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             default_spec_draft_p_min=self.query_one(
                 "#cfg-default_spec_draft_p_min", Input
             ).value.strip(),
-            default_spec_draft_cache_type_k=str(
-                self.query_one("#cfg-default_spec_draft_cache_type_k", Select).value or ""
+            default_spec_draft_cache_type_k=self._select_value(
+                "#cfg-default_spec_draft_cache_type_k", ""
             ),
-            default_spec_draft_cache_type_v=str(
-                self.query_one("#cfg-default_spec_draft_cache_type_v", Select).value or ""
+            default_spec_draft_cache_type_v=self._select_value(
+                "#cfg-default_spec_draft_cache_type_v", ""
             ),
             default_spec_draft_device=self.query_one(
                 "#cfg-default_spec_draft_device", Input
@@ -548,13 +559,11 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             ).value.strip(),
             default_kv_unified=self.query_one("#cfg-default_kv_unified", Checkbox).value,
             default_mmproj_offload=self.query_one("#cfg-default_mmproj_offload", Checkbox).value,
-            default_load_mode=str(self.query_one("#cfg-default_load_mode", Select).value or "auto"),
-            default_split_mode=str(
-                self.query_one("#cfg-default_split_mode", Select).value or "layer"
-            ),
+            default_load_mode=self._select_value("#cfg-default_load_mode", "auto"),
+            default_split_mode=self._select_value("#cfg-default_split_mode", "layer"),
             default_no_host_buffer=self.query_one("#cfg-default_no_host_buffer", Checkbox).value,
             default_ui=self.query_one("#cfg-default_ui", Checkbox).value,
-            default_fit=str(self.query_one("#cfg-default_fit", Select).value or "auto"),
+            default_fit=self._select_value("#cfg-default_fit", "auto"),
             default_ctx_checkpoints=self.query_one(
                 "#cfg-default_ctx_checkpoints", Input
             ).value.strip(),

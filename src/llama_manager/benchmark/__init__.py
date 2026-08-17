@@ -6,13 +6,11 @@ from .parser import (
 )
 from .runner import (
     BenchmarkRunner,
-    SubprocessResult,
     build_benchmark_cmd,
     run_benchmark,
 )
 
 __all__ = [
-    "SubprocessResult",
     "BenchmarkResult",
     "BenchmarkRunner",
     "build_benchmark_cmd",

@@ -23,7 +23,7 @@ from llama_manager.model_index import (
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def tmp_xdg_config(tmp_path: Path):
     """Set XDG_CACHE_HOME to tmp_path and return tmp_path for cleanup."""
     original = os.environ.get("XDG_CACHE_HOME")
@@ -35,7 +35,7 @@ def tmp_xdg_config(tmp_path: Path):
         os.environ["XDG_CACHE_HOME"] = original
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_model_dir(tmp_path: Path) -> Path:
     """Create a directory with fake .gguf files."""
     models_dir = tmp_path / "models"
@@ -50,7 +50,7 @@ def mock_model_dir(tmp_path: Path) -> Path:
     return models_dir
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_config(tmp_path: Path, mock_model_dir: Path) -> MagicMock:
     """Return a Config mock with paths.models_dir pointing to mock_model_dir."""
     cfg = MagicMock(spec=Config)
@@ -79,7 +79,7 @@ def test_returns_path_under_xdg_cache(tmp_xdg_config: Path) -> None:
     cfg.paths = MagicMock()
     cfg.paths.models_dir = str(tmp_xdg_config / "models")
 
-    idx_path = model_index_path(cfg)
+    idx_path = model_index_path()
     assert str(idx_path).endswith("llm-runner/model-index.json")
 
 
@@ -93,7 +93,7 @@ def test_creates_parent_dir(tmp_xdg_config: Path) -> None:
     cfg.paths = MagicMock()
     cfg.paths.models_dir = str(tmp_xdg_config / "models")
 
-    idx_path = model_index_path(cfg)
+    idx_path = model_index_path()
     assert idx_path.parent.exists()
 
 
@@ -162,27 +162,25 @@ def test_from_dict_missing_fields() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_load_returns_empty_list_on_missing(tmp_xdg_config: Path, sample_config: MagicMock) -> None:
+def test_load_returns_empty_list_on_missing(tmp_xdg_config: Path) -> None:
     """load_model_index should return [] when cache file doesn't exist."""
-    result = load_model_index(sample_config)
+    result = load_model_index()
     assert result == []
 
 
-def test_load_returns_empty_list_on_corrupt_json(
-    tmp_xdg_config: Path, sample_config: MagicMock
-) -> None:
+def test_load_returns_empty_list_on_corrupt_json(tmp_xdg_config: Path) -> None:
     """load_model_index should return [] on corrupt JSON."""
-    idx_path = model_index_path(sample_config)
+    idx_path = model_index_path()
     idx_path.parent.mkdir(parents=True, exist_ok=True)
     idx_path.write_text("not json {{{")
 
-    result = load_model_index(sample_config)
+    result = load_model_index()
     assert result == []
 
 
-def test_load_returns_cached_entries(tmp_xdg_config: Path, sample_config: MagicMock) -> None:
+def test_load_returns_cached_entries(tmp_xdg_config: Path) -> None:
     """load_model_index should return entries from valid cache with schema version."""
-    idx_path = model_index_path(sample_config)
+    idx_path = model_index_path()
     idx_path.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "schema_version": 2,
@@ -205,34 +203,30 @@ def test_load_returns_cached_entries(tmp_xdg_config: Path, sample_config: MagicM
     }
     idx_path.write_text(json.dumps(data))
 
-    result = load_model_index(sample_config)
+    result = load_model_index()
     assert len(result) == 1
     assert result[0].path == "/models/a.gguf"
     assert result[0].normalized_stem == "a"
 
 
-def test_load_returns_empty_on_missing_schema_version(
-    tmp_xdg_config: Path, sample_config: MagicMock
-) -> None:
+def test_load_returns_empty_on_missing_schema_version(tmp_xdg_config: Path) -> None:
     """load_model_index should return [] when schema_version is missing (old format)."""
-    idx_path = model_index_path(sample_config)
+    idx_path = model_index_path()
     idx_path.parent.mkdir(parents=True, exist_ok=True)
     idx_path.write_text(json.dumps([{"path": "/models/a.gguf"}]))
 
-    result = load_model_index(sample_config)
+    result = load_model_index()
     assert result == []
 
 
-def test_load_returns_empty_on_stale_schema_version(
-    tmp_xdg_config: Path, sample_config: MagicMock
-) -> None:
+def test_load_returns_empty_on_stale_schema_version(tmp_xdg_config: Path) -> None:
     """load_model_index should return [] when schema_version is stale."""
-    idx_path = model_index_path(sample_config)
+    idx_path = model_index_path()
     idx_path.parent.mkdir(parents=True, exist_ok=True)
     data = {"schema_version": 1, "entries": [{"path": "/models/a.gguf"}]}
     idx_path.write_text(json.dumps(data))
 
-    result = load_model_index(sample_config)
+    result = load_model_index()
     assert result == []
 
 
@@ -251,18 +245,14 @@ def test_refresh_scans_directory(
         from llama_manager.metadata import GGUFMetadataRecord
 
         mock_extract.return_value = GGUFMetadataRecord(
-            raw_path="/models/model_a.gguf",
             normalized_stem="model_a",
             general_name=None,
             architecture="llama",
-            tokenizer_type=None,
             file_type=None,
             quantization_type=None,
             embedding_length=None,
             block_count=None,
             context_length=None,
-            attention_head_count=None,
-            attention_head_count_kv=None,
         )
 
         entries, total, errors = refresh_model_index(sample_config)
@@ -281,7 +271,6 @@ def test_refresh_reports_progress(
     """refresh_model_index should call progress callback after each scanned model."""
     progress: list[tuple[int, int, int, int]] = []
     record = GGUFMetadataRecord(
-        raw_path="/models/model.gguf",
         normalized_stem="model",
         architecture="llama",
     )
@@ -307,7 +296,6 @@ def test_refresh_progressive_writes_partial_cache(
 ) -> None:
     """progressive=True should write cache snapshots during scanning."""
     record = GGUFMetadataRecord(
-        raw_path="/models/model.gguf",
         normalized_stem="model",
         architecture="llama",
     )
@@ -322,7 +310,7 @@ def test_refresh_progressive_writes_partial_cache(
     assert errors == 0
     assert len(entries) == 2
     assert mock_write.call_count == 3
-    progressive_sizes = [len(call.args[1]) for call in mock_write.call_args_list[:2]]
+    progressive_sizes = [len(call.args[0]) for call in mock_write.call_args_list[:2]]
     assert progressive_sizes == [1, 2]
 
 
@@ -342,18 +330,14 @@ def test_refresh_with_errors(
         from llama_manager.metadata import GGUFMetadataRecord
 
         return GGUFMetadataRecord(
-            raw_path=str(mock_model_dir / "model_b.gguf"),
             normalized_stem="model_b",
             general_name=None,
             architecture="llama",
-            tokenizer_type=None,
             file_type=None,
             quantization_type=None,
             embedding_length=None,
             block_count=None,
             context_length=None,
-            attention_head_count=None,
-            attention_head_count_kv=None,
         )
 
     with patch(
@@ -378,7 +362,6 @@ def test_refresh_uses_raw_metadata(
 ) -> None:
     """Model indexing should use raw GGUF metadata."""
     raw_record = GGUFMetadataRecord(
-        raw_path=str(mock_model_dir / "model_a.gguf"),
         normalized_stem="model_a",
         architecture="qwen3",
         file_type=18,
@@ -532,7 +515,7 @@ def test_refresh_writes_atomically(
         )
         refresh_model_index(sample_config)
 
-    idx_path = model_index_path(sample_config)
+    idx_path = model_index_path()
     assert idx_path.exists()
     data = json.loads(idx_path.read_text())
     assert "schema_version" in data
@@ -556,8 +539,6 @@ def test_refresh_scans_case_insensitive_suffix(
             embedding_length=None,
             block_count=None,
             context_length=None,
-            attention_head_count=None,
-            attention_head_count_kv=None,
         )
         # Create a file with mixed-case suffix
         mixed_file = mock_model_dir / "model.Gguf"

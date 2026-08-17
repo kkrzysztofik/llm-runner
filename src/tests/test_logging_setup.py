@@ -17,7 +17,6 @@ Constraints
 
 import json
 import logging
-from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -25,10 +24,8 @@ import pytest
 from loguru import logger
 
 from llama_manager.logging_setup import (
-    _format_json,
     _InterceptHandler,
     configure_logging,
-    configure_logging_split,
     update_file_level,
     update_stderr_level,
 )
@@ -96,7 +93,7 @@ class TestInterceptHandlerForwardsStdlib:
 
     def test_info_message_forwards(self) -> None:
         _clean_slate()
-        configure_logging(level="DEBUG")
+        configure_logging(stderr_level="DEBUG")
         captured: list[str] = []
         logger.add(_capture_sink(captured), level="DEBUG", format="{message}")
         logging.getLogger("llama_manager").info("hello from stdlib")
@@ -107,7 +104,7 @@ class TestInterceptHandlerForwardsStdlib:
 
     def test_debug_message_forwards(self) -> None:
         _clean_slate()
-        configure_logging(level="DEBUG")
+        configure_logging(stderr_level="DEBUG")
         captured: list[str] = []
         logger.add(_capture_sink(captured), level="DEBUG", format="{message}")
         logging.getLogger("llama_manager").debug("debug msg")
@@ -129,7 +126,7 @@ class TestInterceptHandlerMapsLevels:
     )
     def test_all_stdlib_levels_mapped(self, level_name: str) -> None:
         _clean_slate()
-        configure_logging(level="DEBUG")
+        configure_logging(stderr_level="DEBUG")
         captured: list[str] = []
         logger.add(_capture_sink(captured), level="DEBUG", format="{level}:{message}")
         getattr(logging.getLogger("llama_manager"), level_name.lower())("level test")
@@ -149,7 +146,7 @@ class TestConfigureLoggingWithFile:
     def test_file_created_and_logged(self, tmp_path: Path) -> None:
         _clean_slate()
         log_file = str(tmp_path / "test.log")
-        configure_logging(level="DEBUG", log_file=log_file)
+        configure_logging(stderr_level="DEBUG", log_file=log_file)
         # Log something through stdlib
         logging.getLogger("llama_manager").info("file sink test")
         assert tmp_path.joinpath("test.log").exists()
@@ -159,7 +156,7 @@ class TestConfigureLoggingWithFile:
     def test_file_sink_with_json(self, tmp_path: Path) -> None:
         _clean_slate()
         log_file = str(tmp_path / "test_json.log")
-        configure_logging(level="DEBUG", log_file=log_file, json_logs=True)
+        configure_logging(stderr_level="DEBUG", log_file=log_file, json_logs=True)
         logging.getLogger("llama_manager").warning("json file test")
         import time
 
@@ -186,7 +183,7 @@ class TestConfigureLoggingJsonMode:
         """json_logs=True should produce parseable JSON in the file sink."""
         _clean_slate()
         log_file = str(tmp_path / "json_mode.log")
-        configure_logging(level="DEBUG", log_file=log_file, json_logs=True)
+        configure_logging(stderr_level="DEBUG", log_file=log_file, json_logs=True)
         logging.getLogger("llama_manager").info("json mode test")
         import time
 
@@ -205,7 +202,7 @@ class TestConfigureLoggingJsonMode:
     def test_json_contains_correct_level(self, tmp_path: Path) -> None:
         _clean_slate()
         log_file = str(tmp_path / "json_level.log")
-        configure_logging(level="DEBUG", log_file=log_file, json_logs=True)
+        configure_logging(stderr_level="DEBUG", log_file=log_file, json_logs=True)
         logging.getLogger("llama_manager").error("json level test")
         import time
 
@@ -229,7 +226,7 @@ class TestRedactionFilterApplies:
 
     def test_api_key_redacted(self) -> None:
         _clean_slate()
-        configure_logging(level="DEBUG")
+        configure_logging(stderr_level="DEBUG")
         captured: list[str] = []
         logger.add(_capture_sink(captured), level="DEBUG", format="{message}")
         logging.getLogger("llama_manager").info("API_KEY=sk-12345secret")
@@ -239,7 +236,7 @@ class TestRedactionFilterApplies:
 
     def test_password_redacted(self) -> None:
         _clean_slate()
-        configure_logging(level="DEBUG")
+        configure_logging(stderr_level="DEBUG")
         captured: list[str] = []
         logger.add(_capture_sink(captured), level="DEBUG", format="{message}")
         logging.getLogger("llama_manager").info("DB_PASSWORD=s3cret")
@@ -249,7 +246,7 @@ class TestRedactionFilterApplies:
 
     def test_token_redacted(self) -> None:
         _clean_slate()
-        configure_logging(level="DEBUG")
+        configure_logging(stderr_level="DEBUG")
         captured: list[str] = []
         logger.add(_capture_sink(captured), level="DEBUG", format="{message}")
         logging.getLogger("llama_manager").info("AUTH_TOKEN=tok-abc123")
@@ -260,7 +257,7 @@ class TestRedactionFilterApplies:
     def test_non_sensitive_value_preserved(self) -> None:
         """Non-sensitive log lines should pass through unchanged."""
         _clean_slate()
-        configure_logging(level="DEBUG")
+        configure_logging(stderr_level="DEBUG")
         captured: list[str] = []
         logger.add(_capture_sink(captured), level="DEBUG", format="{message}")
         logging.getLogger("llama_manager").info("normal log line")
@@ -313,12 +310,12 @@ class TestConfigureLoggingInvalidLevel:
     def test_unknown_level_exits(self) -> None:
         _clean_slate()
         with pytest.raises(ValueError, match="unknown log level"):
-            configure_logging(level="TRACE")
+            configure_logging(stderr_level="TRACE")
 
     def test_unknown_level_raises_value_error(self) -> None:
         _clean_slate()
         with pytest.raises(ValueError, match="unknown log level"):
-            configure_logging(level="VERBOSE")
+            configure_logging(stderr_level="VERBOSE")
 
 
 # ---------------------------------------------------------------------------
@@ -375,60 +372,6 @@ class TestInterceptHandlerResilience:
 
 
 # ---------------------------------------------------------------------------
-# 10. _format_json helper
-# ---------------------------------------------------------------------------
-
-
-class TestFormatJson:
-    """_format_json should serialize a Loguru record dict to valid JSON."""
-
-    def _make_mock_record(
-        self,
-        message: str = "test",
-        level: str = "INFO",
-        name: str = "llama_manager",
-        line: int = 42,
-    ) -> dict[str, Any]:
-        """Build a minimal Loguru-style record dict for _format_json."""
-        from datetime import datetime
-
-        return {
-            "time": datetime(2026, 1, 1, 12, 0, 0, 0, tzinfo=UTC),
-            "level": type("Level", (), {"name": level})(),
-            "name": name,
-            "line": line,
-            "message": message,
-            "extra": {},
-        }
-
-    def test_format_json_produces_valid_json(self) -> None:
-        record = self._make_mock_record(
-            message="direct loguru json test",
-            level="INFO",
-            name="llama_manager",
-            line=100,
-        )
-        line = _format_json(record)  # type: ignore[arg-type]
-        parsed = json.loads(line.strip())
-        assert parsed["message"] == "direct loguru json test"
-        assert parsed["level"] == "INFO"
-        assert "timestamp" in parsed
-        assert parsed["name"] == "llama_manager"
-        assert parsed["line"] == 100
-
-    def test_format_json_includes_line_number(self) -> None:
-        record = self._make_mock_record(
-            message="line number test",
-            level="DEBUG",
-            name="test_module",
-            line=99,
-        )
-        parsed = json.loads(_format_json(record).strip())  # type: ignore[arg-type]
-        assert isinstance(parsed["line"], int)
-        assert parsed["line"] == 99
-
-
-# ---------------------------------------------------------------------------
 # 11. update_stderr_level / update_file_level
 # ---------------------------------------------------------------------------
 
@@ -447,9 +390,9 @@ class TestUpdateLevels:
             update_file_level("VERBOSE")
 
     def test_update_stderr_level_valid_no_error(self) -> None:
-        """update_stderr_level should succeed with a known level after configure_logging_split."""
+        """update_stderr_level should succeed with a known level after configure_logging."""
         _clean_slate()
-        configure_logging_split(stderr_level="INFO")
+        configure_logging(stderr_level="INFO")
 
         # Should not raise and should update the internal sink level
         update_stderr_level("WARNING")
@@ -470,7 +413,7 @@ class TestUpdateLevels:
         """update_file_level should update the file sink level without raising."""
         _clean_slate()
         log_file = str(tmp_path / "level_update.log")
-        configure_logging_split(stderr_level="INFO", file_level="DEBUG", log_file=log_file)
+        configure_logging(stderr_level="INFO", file_level="DEBUG", log_file=log_file)
 
         # Should not raise — covers the file-sink update body
         update_file_level("WARNING")
@@ -478,18 +421,18 @@ class TestUpdateLevels:
     def test_update_file_level_no_file_sink_no_crash(self) -> None:
         """update_file_level is a no-op (no crash) when no file sink is configured."""
         _clean_slate()
-        configure_logging_split(stderr_level="INFO")  # no log_file → no file sink
+        configure_logging(stderr_level="INFO")  # no log_file → no file sink
 
         # Should not raise even though there is no file sink
         update_file_level("DEBUG")
 
-    def test_configure_logging_split_can_disable_stderr(
+    def test_configure_logging_can_disable_stderr(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """stderr_level=None should route diagnostic logs to file only."""
         _clean_slate()
         log_file = str(tmp_path / "file_only.log")
-        configure_logging_split(stderr_level=None, file_level="DEBUG", log_file=log_file)
+        configure_logging(stderr_level=None, file_level="DEBUG", log_file=log_file)
 
         logging.getLogger("llama_manager").info("file only diagnostic")
 

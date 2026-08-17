@@ -104,7 +104,8 @@ class TestFormatDuration:
 
     def test_hours(self) -> None:
         result = _format_duration(3661.0)
-        assert "m" in result and "s" in result
+        assert "m" in result
+        assert "s" in result
 
     def test_zero(self) -> None:
         result = _format_duration(0.0)
