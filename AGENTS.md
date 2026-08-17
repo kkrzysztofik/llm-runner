@@ -204,8 +204,8 @@ Validation functions in `src/llama_manager/validation/validators.py` (`validate_
 
 - All tests live in `tests/`.
 - No subprocess spawning in tests — mock or stub hardware-dependent paths.
-- Use `capsys` fixture to capture and assert on `sys.stderr` output from validators.
-- Use `pytest.raises(SystemExit)` for testing validator exit paths; assert `exc.value.code == 1`.
+- Validators return `ErrorDetail | None` (see the "Error Handling" section) — tests assert on the returned value (`error_code`, `failed_check`, `why_blocked`, `how_to_fix`) or `None`, not on `SystemExit`/`sys.stderr`.
+- Use `capsys` only when testing CLI-layer output, not validator return values.
 - Tests must pass in CI (ubuntu-latest, Python 3.14) without GPU hardware.
 - Name test functions descriptively: `test_<what>_<condition>`.
 
