@@ -99,7 +99,13 @@ def run_dry_run(
         return resolved
     configs = resolved
 
-    return _build_dry_run_result(mode, configs, profile_ids, acknowledged)
+    return _build_dry_run_result(
+        mode,
+        configs,
+        profile_ids,
+        acknowledged,
+        power_limit_watts=config.server_defaults.nvidia_power_limit_watts,
+    )
 
 
 def _error_result(mode: str, message: str) -> DryRunResult:
@@ -147,6 +153,7 @@ def _build_dry_run_result(
     configs: list,
     profile_ids: tuple[str, ...],
     acknowledged: bool,
+    power_limit_watts: int = 0,
 ) -> DryRunResult:
     """Assemble the full ``DryRunResult`` from resolved configs + risk evaluation."""
     slot_payloads: list[DryRunSlotPayload] = []
@@ -171,6 +178,7 @@ def _build_dry_run_result(
                 slot_id=slot_id,
                 validation_results=DryRunValidationSummary(passed=True, checks=[]),
                 warnings=[],
+                power_limit_watts=power_limit_watts,
             )
         )
 

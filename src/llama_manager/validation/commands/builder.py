@@ -47,7 +47,7 @@ class DryRunSlotPayload:
     port: int
     environment_redacted: dict[str, str]
     openai_flag_bundle: dict[str, str | int | bool | None]
-    hardware_notes: dict[str, str | None]
+    hardware_notes: dict[str, str | int | None]
     vllm_eligibility: VllmEligibility
     warnings: list[str]
     validation_results: DryRunValidationSummary
@@ -247,6 +247,7 @@ def build_dry_run_slot_payload(
     slot_id: str,
     validation_results: DryRunValidationSummary | None = None,
     warnings: list[str] | None = None,
+    power_limit_watts: int = 0,
 ) -> DryRunSlotPayload:
     """FR-003: Build canonical dry-run slot payload from ServerConfig + slot_id."""
     cmd = build_server_cmd(cfg)
@@ -254,7 +255,7 @@ def build_dry_run_slot_payload(
 
     environment_redacted = _build_environment_redacted()
     openai_flag_bundle = _build_openai_flag_bundle(cfg)
-    hardware_notes = _build_hardware_notes(cfg)
+    hardware_notes = _build_hardware_notes(cfg, power_limit_watts)
 
     vllm_eligibility = VllmEligibility(
         eligible=False,
@@ -327,7 +328,9 @@ def _build_openai_flag_bundle(cfg: ServerConfig) -> dict[str, str | int | bool |
     return dict(sorted(bundle.items()))
 
 
-def _build_hardware_notes(cfg: ServerConfig) -> dict[str, str | None]:
+def _build_hardware_notes(
+    cfg: ServerConfig, power_limit_watts: int = 0
+) -> dict[str, str | int | None]:
     """Build hardware notes dict describing backend and hardware."""
     backend = cfg.backend or "llama_cpp"
     device = cfg.device or "auto"
@@ -337,6 +340,7 @@ def _build_hardware_notes(cfg: ServerConfig) -> dict[str, str | None]:
         "backend": backend,
         "device_id": device_id,
         "device_name": device_name,
+        "power_limit_watts": power_limit_watts if power_limit_watts > 0 else None,
         "driver_version": None,
         "runtime_version": None,
     }

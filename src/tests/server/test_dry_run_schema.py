@@ -509,6 +509,21 @@ class TestFR003HardwareNotes:
         device_name = payload.hardware_notes["device_name"]
         assert isinstance(device_name, str | type(None))
 
+    def test_hardware_notes_power_limit_watts(self) -> None:
+        """FR-003: hardware_notes should carry the configured power cap."""
+        from tests.support.helpers import make_server_config
+
+        cfg = make_server_config(alias="qwen35", model="/m.gguf", port=8081, device="CUDA0")
+        payload = build_dry_run_slot_payload(cfg, slot_id="qwen35", power_limit_watts=290)
+        assert payload.hardware_notes["power_limit_watts"] == 290
+
+    def test_hardware_notes_power_limit_disabled_when_zero(self) -> None:
+        from tests.support.helpers import make_server_config
+
+        cfg = make_server_config(alias="qwen35", model="/m.gguf", port=8081, device="CUDA0")
+        payload = build_dry_run_slot_payload(cfg, slot_id="qwen35", power_limit_watts=0)
+        assert payload.hardware_notes["power_limit_watts"] is None
+
 
 class TestFR003VllmEligibility:
     """FR-003: Vllm eligibility in dry-run payload."""
