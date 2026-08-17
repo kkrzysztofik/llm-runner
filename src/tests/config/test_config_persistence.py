@@ -247,6 +247,20 @@ def test_models_dir_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     assert result.paths.models_dir == "/env/models"
 
 
+def test_xdg_cache_home_env_overrides_persisted_base(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    cfg_to_save = Config(paths=PathsConfig(xdg_cache_base="/from/file"))
+    save_config_to_file(cfg_to_save, config_file_path())
+
+    monkeypatch.setenv("XDG_CACHE_HOME", "/from/env")
+
+    result = build_config()
+    assert result.paths.xdg_cache_base == "/from/env"
+
+
 def test_env_overrides_dict_is_consistent() -> None:
     """Every env override key must be a persisted field."""
     for field_name in _ENV_OVERRIDES:

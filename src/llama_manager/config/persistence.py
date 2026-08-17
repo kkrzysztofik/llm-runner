@@ -84,6 +84,9 @@ for _section, _cls in _SECTION_CLASSES.items():
 _ENV_OVERRIDES: dict[str, str] = {
     "llama_cpp_root": "LLAMA_CPP_ROOT",
     "models_dir": "MODELS_DIR",
+    "xdg_cache_base": "XDG_CACHE_HOME",
+    "xdg_state_base": "XDG_STATE_HOME",
+    "xdg_data_base": "XDG_DATA_HOME",
 }
 
 

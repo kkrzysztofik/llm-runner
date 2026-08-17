@@ -40,6 +40,8 @@ def write_profile_toml(path: Path, data: dict[str, Any]) -> None:
                 lines.append(f"{key} = {json.dumps(value)}")
             elif isinstance(value, dict):
                 lines.append(f"{key} = {json.dumps(json.dumps(value))}")
+            else:
+                raise TypeError(f"unsupported profile value type: {type(value).__name__}")
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as file_obj:
         file_obj.write("\n".join(lines) + "\n")

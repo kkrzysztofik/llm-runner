@@ -171,7 +171,7 @@ cmd = build_server_cmd(sc)
 ```
 
 ### Error Handling
-Validation functions (`validate_port`, `validate_threads`, `validate_ports`) call `sys.exit(1)` on failure after printing to `sys.stderr`. This is intentional — they are user-input guards at the CLI boundary. Do not add try/except around them in test code; use `pytest.raises(SystemExit)` instead.
+Validation functions in `src/llama_manager/validation/validators.py` (`validate_port`, `validate_ports`, `require_model`, `require_executable`, `validate_server_config`) return `ErrorDetail | None` — `None` means valid; a non-`None` `ErrorDetail` carries `error_code`, `failed_check`, `why_blocked`, and `how_to_fix` (see `src/llama_manager/config/errors.py`). The CLI layer surfaces failures to the user. Tests assert on the returned `ErrorDetail`/`None`, not on `SystemExit`.
 
 ---
 
