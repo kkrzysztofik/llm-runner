@@ -1,73 +1,20 @@
 """Server command building and dry-run payload construction."""
 
-import hashlib
-import json
 import os
-from collections.abc import Sequence
-from dataclasses import dataclass, field
-from typing import Any, Final, Literal
+from dataclasses import dataclass
+from typing import Any, Final
 
 from ...common.security import redact_env_value
 from ...config import (
     Config,
-    ErrorDetail,
     ServerConfig,
-    VRamRecommendation,
     spec_type_members,
 )
-
-# ---------------------------------------------------------------------------
-# Doctor diagnostics (T069)
-# ---------------------------------------------------------------------------
 
 _SPEC_TYPE_FLAG: Final = "--spec-type"
 _SPEC_TYPE_DFLASH: Final = "draft-dflash"
 _SPEC_TYPE_DRAFT_MTP: Final = "draft-mtp"
 _SPEC_TYPE_NGRAM_MOD: Final = "ngram-mod"
-
-
-@dataclass
-class DoctorCheckResult:
-    """Result of a single doctor diagnostic check."""
-
-    name: str
-    status: Literal["pass", "warn", "fail"]
-    message: str = ""
-
-
-@dataclass
-class DoctorReport:
-    """Aggregated doctor diagnostic report."""
-
-    checks: list[DoctorCheckResult]
-    config: dict[str, Any] = field(default_factory=dict)
-    hardware: dict[str, Any] = field(default_factory=dict)
-
-    def to_json(self) -> str:
-        """Return JSON string representation."""
-        return json.dumps(
-            {
-                "checks": [
-                    {
-                        "name": c.name,
-                        "status": c.status,
-                        "message": c.message,
-                    }
-                    for c in self.checks
-                ],
-                "config": self.config,
-                "hardware": self.hardware,
-            },
-            indent=2,
-        )
-
-    def to_text(self) -> str:
-        """Return human-readable text representation."""
-        lines: list[str] = ["=== DOCTOR DIAGNOSTIC REPORT ==="]
-        for check in self.checks:
-            icon = {"pass": "\u2713", "warn": "\u26a0", "fail": "\u2717"}.get(check.status, "?")
-            lines.append(f"  [{icon}] {check.name}: {check.message}")
-        return "\n".join(lines)
 
 
 # FR-003: Canonical dry-run payload types
@@ -280,23 +227,6 @@ def _append_dflash_flags(cmd: list[str], spec: Any) -> None:
         cmd.extend(["--spec-dflash-cross-ctx", str(spec.spec_dflash_cross_ctx)])
 
 
-def sort_validation_errors(
-    results: Sequence[ErrorDetail],
-) -> list[ErrorDetail]:
-    """Sort validation errors deterministically for T003 stable ordering."""
-    slot_order: dict[str, int] = {}
-    for i, r in enumerate(results):
-        if r.slot_id not in slot_order:
-            slot_order[r.slot_id] = i
-
-    def sort_key(r: ErrorDetail) -> tuple[int, str]:
-        slot_idx = slot_order[r.slot_id]
-        failed_check = r.failed_check or ""
-        return (slot_idx, failed_check)
-
-    return sorted(results, key=sort_key)
-
-
 def build_dry_run_slot_payload(
     cfg: ServerConfig,
     slot_id: str,
@@ -441,124 +371,3 @@ def _sycl_dotted_device_details(normalized: str) -> tuple[str | None, str]:
     if len(parts) > 1:
         return (":".join(parts[1:]), normalized)
     return (None, normalized)
-
-
-def _get_lspci_output() -> str | None:
-    """Run lspci and return stdout, or None on failure."""
-    import subprocess
-
-    try:
-        result = subprocess.run(
-            ["lspci"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except OSError, subprocess.TimeoutExpired:
-        pass
-    return None
-
-
-def _get_cpu_model() -> str | None:
-    """Extract CPU model name from /proc/cpuinfo."""
-    import subprocess
-
-    try:
-        result = subprocess.run(
-            ["cat", "/proc/cpuinfo"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            for line in result.stdout.splitlines():
-                if line.startswith("model name"):
-                    return "cpu:" + line.split(":", 1)[1].strip()
-    except OSError, subprocess.TimeoutExpired:
-        pass
-    return None
-
-
-def _get_os_name() -> str | None:
-    """Extract OS name from /etc/os-release."""
-    import subprocess
-
-    try:
-        result = subprocess.run(
-            ["cat", "/etc/os-release"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            for line in result.stdout.splitlines():
-                if line.startswith("NAME="):
-                    return "os:" + line.split("=", 1)[1].strip().strip('"')
-    except OSError, subprocess.TimeoutExpired:
-        pass
-    return None
-
-
-def compute_machine_fingerprint() -> str | None:
-    """Compute a deterministic machine fingerprint from hardware identifiers."""
-    parts: list[str] = []
-
-    gpu_output = _get_lspci_output()
-    if gpu_output is not None:
-        parts.append("gpu:" + gpu_output)
-
-    cpu_model = _get_cpu_model()
-    if cpu_model is not None:
-        parts.append(cpu_model)
-
-    os_name = _get_os_name()
-    if os_name is not None:
-        parts.append(os_name)
-
-    if not parts:
-        return None
-
-    raw = "|".join(parts)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def check_hardware_allowlist(
-    fingerprint: str,
-    allowlist: list[str] | None = None,
-) -> str:
-    """Check a machine fingerprint against a hardware allowlist."""
-    if allowlist is None:
-        raw = os.environ.get("LLM_RUNNER_HARDWARE_ALLOWLIST", "")
-        allowlist = [f.strip() for f in raw.split(",") if f.strip()] if raw else []
-
-    if not allowlist:
-        return "invalidated"
-
-    if fingerprint in allowlist:
-        return "match"
-
-    return "mismatch"
-
-
-def assess_vram_risk(
-    vram_free_gb: float,
-    model_size_gb: float,
-) -> VRamRecommendation:
-    """Assess VRAM risk for loading a model."""
-    from ...config import VRamRecommendation
-
-    if model_size_gb <= 0:
-        return VRamRecommendation.PROCEED
-
-    _WARN_THRESHOLD: Final[float] = 1.2 / 0.85
-    _PROCEED_THRESHOLD: Final[float] = 1.5
-
-    ratio = vram_free_gb / model_size_gb
-
-    if ratio >= _PROCEED_THRESHOLD:
-        return VRamRecommendation.PROCEED
-    if ratio >= _WARN_THRESHOLD:
-        return VRamRecommendation.WARN
-    return VRamRecommendation.CONFIRM_REQUIRED

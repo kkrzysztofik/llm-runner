@@ -30,7 +30,6 @@ from .enums import (
     SmokeFailurePhase,
     SmokePhase,
     SmokeProbeStatus,
-    VRamRecommendation,
 )
 from .errors import ErrorDetail, MultiValidationError, ValidationException
 from .load_mode import LOAD_MODE_VALUES, resolve_load_mode
@@ -87,7 +86,6 @@ __all__ = [
     "SmokeFailurePhase",
     "SmokePhase",
     "SmokeProbeStatus",
-    "VRamRecommendation",
     # errors
     "ErrorDetail",
     "MultiValidationError",

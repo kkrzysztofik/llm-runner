@@ -722,7 +722,7 @@ class TestFullBlock:
         # Create MultiValidationError
         multi_error = MultiValidationError(errors=errors)
 
-        assert multi_error.error_count == 2
+        assert len(multi_error.errors) == 2
 
     def test_full_block_with_launch_count_zero(self, tmp_path) -> None:
         """Full block should have launch_count=0."""
@@ -766,7 +766,7 @@ class TestFullBlock:
         assert result.status == "blocked"
         assert result.launch_count == 0
         assert result.errors is not None
-        assert result.errors.error_count == 2
+        assert len(result.errors.errors) == 2
 
     def test_full_block_error_details(self, tmp_path) -> None:
         """Full block errors should contain proper error details.
@@ -846,7 +846,7 @@ class TestFullBlock:
         assert len(errors) == 2
 
         multi_error = MultiValidationError(errors=errors)
-        assert multi_error.error_count == 2
+        assert len(multi_error.errors) == 2
 
 
 class TestDegradedVsFullBlockComparison:
@@ -1000,8 +1000,8 @@ class TestDegradedVsFullBlockComparison:
 
             multi_error = MultiValidationError(errors=errors)
 
-            assert multi_error.error_count == len(errors)
-            assert multi_error.error_count == 3
+            assert len(multi_error.errors) == len(errors)
+            assert len(multi_error.errors) == 3
 
 
 class TestLaunchDecisionLogic:

@@ -77,7 +77,7 @@ class TestResolveRuntimeDir:
             mp.delenv("XDG_RUNTIME_DIR", raising=False)
             with pytest.raises(ValidationException) as exc_info:
                 resolve_runtime_dir()
-            assert exc_info.value.multi_error.error_count == 1
+            assert len(exc_info.value.multi_error.errors) == 1
 
     def test_xdg_creates_subdirectory(self, tmp_path: Path) -> None:
         """XDG_RUNTIME_DIR fallback should create llm-runner subdirectory."""

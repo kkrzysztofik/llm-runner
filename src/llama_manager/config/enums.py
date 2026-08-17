@@ -71,14 +71,6 @@ class SmokeProbeStatus(StrEnum):
     AUTH_FAILURE = "auth_failure"
 
 
-class VRamRecommendation(StrEnum):
-    """VRAM heuristic recommendation for model loading."""
-
-    PROCEED = "proceed"
-    WARN = "warn"
-    CONFIRM_REQUIRED = "confirm_required"
-
-
 class DoctorCheckStatus(StrEnum):
     """Status of a doctor check result."""
 
