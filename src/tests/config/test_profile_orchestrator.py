@@ -182,24 +182,6 @@ class TestResolveBenchmarkConfig:
         assert result.threads == 4
         assert result.ubatch_size == 512
 
-    def test_sycl_quality_flavor_uses_balanced(self) -> None:
-        """resolve_benchmark_config should use balanced defaults for SYCL quality flavor."""
-        cfg = _make_server_config(device="SYCL0")
-        config = _make_config(
-            **{
-                "deployment.model_summary_balanced": "/balanced/model.gguf",
-                "server_defaults.threads_summary_balanced": 8,
-                "server_defaults.ubatch_size_summary_balanced": 1024,
-                "server_defaults.cache_type_summary_k": "q8_0",
-                "server_defaults.cache_type_summary_v": "q8_0",
-            }
-        )
-        result = resolve_benchmark_config(cfg, ProfileFlavor.QUALITY, config)
-
-        assert result.model == "/balanced/model.gguf"
-        assert result.threads == 8
-        assert result.ubatch_size == 1024
-
     def test_result_is_benchmark_config(self) -> None:
         """resolve_benchmark_config should return a BenchmarkConfig instance."""
         cfg = _make_server_config(device="SYCL0")

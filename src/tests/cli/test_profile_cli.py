@@ -16,7 +16,7 @@ from llama_cli.commands.profile import (
     main,
 )
 from llama_manager.benchmark import BenchmarkResult
-from llama_manager.config import ServerConfig
+from llama_manager.config import ProfileFlavor, ServerConfig
 from llama_manager.validation.validators import require_executable
 
 # ---------------------------------------------------------------------------
@@ -267,7 +267,15 @@ class TestMain:
         captured = capsys.readouterr()
         assert "invalid choice" in captured.err
         assert "balanced" in captured.err
-        assert "quality" in captured.err
+
+    def test_quality_flavor_rejected(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """main should reject the removed quality flavor with exit code 1."""
+        with pytest.raises(SystemExit) as exc_info:
+            main(["slot1", "quality"])
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "invalid choice: 'quality'" in captured.err
 
     def test_json_flag_parsed(self) -> None:
         """main should pass --json flag to cmd_profile."""
@@ -286,12 +294,12 @@ class TestMain:
         """main should detect --json flag at the end of args."""
         with patch("llama_cli.commands.profile.cmd_profile") as mock_cmd:
             mock_cmd.return_value = 0
-            exit_code = main(["slot1", "quality", "--json"])
+            exit_code = main(["slot1", "fast", "--json"])
 
             assert exit_code == 0
             mock_cmd.assert_called_once_with(
                 "slot1",
-                "quality",
+                "fast",
                 json_output=True,
             )
 
@@ -553,7 +561,7 @@ class TestCmdProfile:
                     return_value=["bench", "-m", "model"],
                 ),
                 patch("llama_cli.commands.profile.run_benchmark", return_value=benchmark_result),
-                patch("llama_cli.commands.profile.ProfileFlavor"),
+                patch("llama_cli.commands.profile.ProfileFlavor", side_effect=ProfileFlavor),
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
@@ -611,7 +619,7 @@ class TestCmdProfile:
             ),
             patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
             patch("llama_cli.commands.profile.run_benchmark", return_value=None),
-            patch("llama_cli.commands.profile.ProfileFlavor"),
+            patch("llama_cli.commands.profile.ProfileFlavor", side_effect=ProfileFlavor),
             patch("llama_cli.commands.profile.ProfileRecord"),
             patch("llama_manager.profile_orchestrator.create_default_profile_registry"),
         ):
@@ -646,7 +654,7 @@ class TestCmdProfile:
                 "llama_cli.commands.profile.run_benchmark",
                 return_value=None,
             ),
-            patch("llama_cli.commands.profile.ProfileFlavor"),
+            patch("llama_cli.commands.profile.ProfileFlavor", side_effect=ProfileFlavor),
             patch("llama_cli.commands.profile.ProfileRecord"),
             patch("llama_manager.profile_orchestrator.create_default_profile_registry"),
         ):
@@ -694,7 +702,7 @@ class TestCmdProfile:
                 ),
                 patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
                 patch("llama_cli.commands.profile.run_benchmark", return_value=benchmark_result),
-                patch("llama_cli.commands.profile.ProfileFlavor"),
+                patch("llama_cli.commands.profile.ProfileFlavor", side_effect=ProfileFlavor),
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
@@ -783,7 +791,7 @@ class TestCmdProfile:
                 ),
                 patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
                 patch("llama_cli.commands.profile.run_benchmark", return_value=benchmark_result),
-                patch("llama_cli.commands.profile.ProfileFlavor"),
+                patch("llama_cli.commands.profile.ProfileFlavor", side_effect=ProfileFlavor),
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
@@ -848,7 +856,7 @@ class TestCmdProfile:
                 ),
                 patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
                 patch("llama_cli.commands.profile.run_benchmark", return_value=benchmark_result),
-                patch("llama_cli.commands.profile.ProfileFlavor"),
+                patch("llama_cli.commands.profile.ProfileFlavor", side_effect=ProfileFlavor),
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(
@@ -861,7 +869,7 @@ class TestCmdProfile:
 
                 exit_code = cmd_profile(
                     slot_id="cuda-slot",
-                    flavor="quality",
+                    flavor="balanced",
                     json_output=False,
                 )
 
@@ -874,8 +882,8 @@ class TestCmdProfile:
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """cmd_profile should accept all valid flavors: balanced, fast, quality."""
-        for flavor in ["balanced", "fast", "quality"]:
+        """cmd_profile should accept all valid flavors: balanced, fast."""
+        for flavor in ["balanced", "fast"]:
             with _build_mock_config(tmp_path) as (_, _, _, registry):
                 benchmark_result = _make_benchmark_result()
                 mock_record = MagicMock()
@@ -898,7 +906,7 @@ class TestCmdProfile:
                     patch(
                         "llama_cli.commands.profile.run_benchmark", return_value=benchmark_result
                     ),
-                    patch("llama_cli.commands.profile.ProfileFlavor"),
+                    patch("llama_cli.commands.profile.ProfileFlavor", side_effect=ProfileFlavor),
                     patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                     patch("llama_cli.commands.profile.write_profile") as mock_write,
                     patch(
@@ -942,7 +950,7 @@ class TestCmdProfile:
                 ),
                 patch("llama_cli.commands.profile.build_benchmark_cmd", return_value=["bench"]),
                 patch("llama_cli.commands.profile.run_benchmark", return_value=benchmark_result),
-                patch("llama_cli.commands.profile.ProfileFlavor"),
+                patch("llama_cli.commands.profile.ProfileFlavor", side_effect=ProfileFlavor),
                 patch("llama_cli.commands.profile.ProfileRecord") as mock_record_cls,
                 patch("llama_cli.commands.profile.write_profile") as mock_write,
                 patch(

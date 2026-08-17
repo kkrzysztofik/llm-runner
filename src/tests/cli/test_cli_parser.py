@@ -504,13 +504,13 @@ class TestHandleProfileCase:
         assert result.sub_argv == ["slot1", "fast"]
 
     def test_handle_profile_quality(self) -> None:
-        """_handle_profile_case detects profile subcommand."""
-        from llama_cli.cli_parser import _handle_profile_case
+        """quality is no longer a valid flavor — the profile parser rejects it."""
+        from llama_cli.commands.profile import main as profile_main
 
-        result = _handle_profile_case(["profile", "slot1", "quality"])
-        assert result is not None
-        assert result.mode == "profile"
-        assert result.sub_argv == ["slot1", "quality"]
+        with pytest.raises(SystemExit) as exc_info:
+            profile_main(["slot1", "quality"])
+
+        assert exc_info.value.code == 1
 
     def test_handle_profile_with_json(self) -> None:
         """_handle_profile_case forwards --json in sub_argv."""

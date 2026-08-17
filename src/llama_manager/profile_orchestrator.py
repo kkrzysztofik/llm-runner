@@ -152,14 +152,6 @@ def resolve_benchmark_config(
             cache_type_k=config.server_defaults.cache_type_summary_k,
             cache_type_v=config.server_defaults.cache_type_summary_v,
         )
-    # quality — use balanced as base
-    return BenchmarkConfig(
-        model=config.deployment.model_summary_balanced,
-        threads=config.server_defaults.threads_summary_balanced,
-        ubatch_size=config.server_defaults.ubatch_size_summary_balanced,
-        cache_type_k=config.server_defaults.cache_type_summary_k,
-        cache_type_v=config.server_defaults.cache_type_summary_v,
-    )
 
 
 # ---------------------------------------------------------------------------

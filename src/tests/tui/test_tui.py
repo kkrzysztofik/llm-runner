@@ -136,9 +136,11 @@ class TestSystemHealthAlignment:
         assert sections[0].has_class("datetime-digits")
 
     def test_llm_runner_logo_reads_llm_block_letters(self) -> None:
-        from llama_cli.tui.components.digital_clock import LLM_RUNNER_LOGO, _clean_markup
+        import re
 
-        clean_logo = _clean_markup(LLM_RUNNER_LOGO)
+        from llama_cli.tui.components.digital_clock import LLM_RUNNER_LOGO
+
+        clean_logo = re.sub(r"\[[^\]]*\]", "", LLM_RUNNER_LOGO)
         assert "██╗       ██╗" in clean_logo
         assert "███╗   ███╗" in clean_logo
         assert "╚█████╝" in clean_logo

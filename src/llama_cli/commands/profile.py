@@ -8,7 +8,7 @@ Usage::
 
     llm-runner profile <slot_id> <flavor> [--json]
 
-Flavors: balanced, fast, quality
+Flavors: balanced, fast
 """
 
 import argparse
@@ -118,7 +118,7 @@ def cmd_profile(
 
     Args:
         slot_id: Identifier for the profiling target (used in messages).
-        flavor: Performance profile flavor (balanced|fast|quality).
+        flavor: Performance profile flavor (balanced|fast).
         json_output: If True, print JSON instead of a human-readable message.
         runner: Optional injectable benchmark runner. Uses the default
                 subprocess runner when ``None``.
@@ -422,7 +422,6 @@ def _build_profile_parser() -> _ProfileArgumentParser:
 Examples:
   %(prog)s slot0 balanced      Profile slot0 with balanced flavor
   %(prog)s summary-fast fast   Profile summary-fast with fast flavor
-  %(prog)s qwen35-coding quality  Profile qwen35-coding with quality flavor
   %(prog)s slot0 balanced --json  Output results as JSON
         """,
     )
@@ -433,7 +432,7 @@ Examples:
     )
     parser.add_argument(
         "flavor",
-        choices=["balanced", "fast", "quality"],
+        choices=["balanced", "fast"],
         help="Performance profile flavor",
     )
     parser.add_argument(

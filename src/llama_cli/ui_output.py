@@ -1,72 +1,41 @@
 """User-facing output helpers for llama_cli — separate from diagnostic logging."""
 
-import sys
-from typing import TextIO
+from rich.console import Console
+from rich.text import Text
 
-# ---------------------------------------------------------------------------
-# Color constants (ANSI)
-# ---------------------------------------------------------------------------
-
-_COLORS: dict[str, str] = {
-    "cyan": "\033[96m",
-    "green": "\033[92m",
-    "yellow": "\033[93m",
-    "red": "\033[91m",
-    "dim": "\033[2m",
-    "bold": "\033[1m",
-    "reset": "\033[0m",
-}
+_STDOUT = Console(highlight=False)
+_STDERR = Console(stderr=True, highlight=False)
 
 
-def _tty() -> bool:
-    """Return True if stdout is a TTY and colors should be used."""
-    return sys.stdout.isatty()
+def _emit(console: Console, prefix: str, color: str, msg: str | Text) -> None:
+    console.print(Text(f"{prefix} ", color), msg, sep="", markup=False, soft_wrap=True)
 
 
-def _out(err: bool = False) -> TextIO:
-    """Return the output stream (stdout by default, stderr if err=True)."""
-    return sys.stderr if err else sys.stdout
-
-
-def _style(text: str, color: str | None) -> str:
-    """Wrap text in ANSI color if TTY, otherwise return as-is."""
-    if color and _tty():
-        return f"{_COLORS.get(color, '')}{text}{_COLORS['reset']}"
-    return text
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def emit_info(msg: str) -> None:
+def emit_info(msg: str | Text) -> None:
     """Print an informational message to stdout."""
-    print(_style("info:", "cyan"), msg)
+    _emit(_STDOUT, "info:", "cyan", msg)
 
 
-def emit_success(msg: str) -> None:
+def emit_success(msg: str | Text) -> None:
     """Print a success/status message to stdout."""
-    print(_style("ok:", "green"), msg)
+    _emit(_STDOUT, "ok:", "green", msg)
 
 
-def emit_warn(msg: str) -> None:
+def emit_warn(msg: str | Text) -> None:
     """Print a warning message to stderr."""
-    print(_style("warn:", "yellow"), msg, file=sys.stderr)
+    _emit(_STDERR, "warn:", "yellow", msg)
 
 
-def emit_error(msg: str) -> None:
+def emit_error(msg: str | Text) -> None:
     """Print an error message to stderr."""
-    print(_style("error:", "red"), msg, file=sys.stderr)
+    _emit(_STDERR, "error:", "red", msg)
 
 
-def emit_plain(msg: str, *, err: bool = False) -> None:
+def emit_plain(msg: str | Text, *, err: bool = False) -> None:
     """Print raw text without prefix or coloring."""
-    print(msg, file=_out(err))
+    (_STDERR if err else _STDOUT).print(msg, markup=False, soft_wrap=True)
 
 
 def emit_heading(msg: str, *, level: int = 1) -> None:
-    """Print a section heading (level 1 = #, 2 = ##, etc.) with dim styling."""
-    prefix = "#" * level
-    dimmed = _style(f"{prefix} ", "dim") if _tty() else f"{prefix} "
-    print(f"{dimmed}{msg}")
+    """Print a section heading (level 1 = #, 2 = ##, etc.) dimmed."""
+    _STDOUT.print(Text(f"{'#' * level} ", style="dim"), msg, sep="", markup=False, soft_wrap=True)

@@ -46,7 +46,6 @@ class ProfileFlavor(StrEnum):
 
     BALANCED = "balanced"
     FAST = "fast"
-    QUALITY = "quality"
 
 
 class StalenessReason(StrEnum):

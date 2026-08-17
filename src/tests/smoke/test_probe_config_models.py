@@ -512,62 +512,13 @@ class TestCrashDetection:
 class TestProvenanceResolution:
     """T029: resolve_provenance() — mock subprocess and importlib.metadata."""
 
-    def test_resolve_provenance_with_git_head(self) -> None:
-        """resolve_provenance should read SHA from .git/HEAD when file exists."""
-        sha_content = "ref: refs/heads/main"
-        ref_content = "abcdef1234567890abcdef1234567890abcdef12"
-
-        with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
-            patch(
-                "llama_manager.probe.provenance.Path.read_text",
-                side_effect=[sha_content, ref_content],
-            ),
-            patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
-        ):
-            record = resolve_provenance()
-
-        assert record.sha == "abcdef1234567890abcdef1234567890abcdef12"
-        assert record.version == "24.12.0"
-
-    def test_resolve_provenance_direct_sha(self) -> None:
-        """resolve_provenance should use direct SHA from .git/HEAD when not a ref."""
-        with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
-            patch(
-                "llama_manager.probe.provenance.Path.read_text",
-                return_value="abcdef1234567890abcdef1234567890abcdef12",
-            ),
-            patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
-        ):
-            record = resolve_provenance()
-
-        assert record.sha == "abcdef1234567890abcdef1234567890abcdef12"
-        assert record.version == "24.12.0"
-
-    def test_resolve_provenance_missing_git_head(self) -> None:
-        """resolve_provenance should return 'unknown' SHA when .git/HEAD doesn't exist."""
-        with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=False),
-            patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
-        ):
-            record = resolve_provenance()
-
-        assert record.sha == "unknown"
-        assert record.version == "24.12.0"
-
-    def test_resolve_provenance_git_fallback(self) -> None:
-        """resolve_provenance should fall back to git rev-parse when .git/HEAD read fails."""
+    def test_resolve_provenance_git_rev_parse(self) -> None:
+        """resolve_provenance should read the SHA via git rev-parse."""
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = "fedcba0987654321fedcba0987654321fedcba09\n"
 
         with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
-            patch(
-                "llama_manager.probe.provenance.Path.read_text",
-                side_effect=OSError("permission denied"),
-            ),
             patch("subprocess.run", return_value=mock_result),
             patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
         ):
@@ -576,28 +527,27 @@ class TestProvenanceResolution:
         assert record.sha == "fedcba0987654321fedcba0987654321fedcba09"
         assert record.version == "24.12.0"
 
-    def test_resolve_provenance_git_fallback_failure(self) -> None:
-        """resolve_provenance should return 'unknown' when git rev-parse also fails."""
+    def test_resolve_provenance_git_rev_parse_failure(self) -> None:
+        """resolve_provenance should return 'unknown' when git rev-parse fails."""
         mock_result = MagicMock()
         mock_result.returncode = 1
 
         with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
-            patch(
-                "llama_manager.probe.provenance.Path.read_text",
-                side_effect=OSError("permission denied"),
-            ),
             patch("subprocess.run", return_value=mock_result),
             patch("llama_manager.probe.provenance._importlib_version", return_value="24.12.0"),
         ):
             record = resolve_provenance()
 
         assert record.sha == "unknown"
+        assert record.version == "24.12.0"
 
     def test_resolve_provenance_no_metadata_version(self) -> None:
         """resolve_provenance should return 'dev' version when importlib.metadata fails."""
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+
         with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=False),
+            patch("subprocess.run", return_value=mock_result),
             patch(
                 "llama_manager.probe.provenance._importlib_version",
                 side_effect=Exception("not installed"),
@@ -607,20 +557,6 @@ class TestProvenanceResolution:
 
         assert record.sha == "unknown"
         assert record.version == "dev"
-
-    def test_resolve_sha_short_sha_preserved(self) -> None:
-        """_resolve_sha should return short SHAs as-is (no truncation)."""
-        short_sha = "abcdef1"
-
-        with (
-            patch("llama_manager.probe.provenance.Path.exists", return_value=True),
-            patch("llama_manager.probe.provenance.Path.read_text", return_value=short_sha),
-        ):
-            from llama_manager.probe.provenance import _resolve_sha
-
-            sha = _resolve_sha()
-
-        assert sha == "abcdef1"
 
 
 # ---------------------------------------------------------------------------

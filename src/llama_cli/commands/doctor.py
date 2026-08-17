@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from rich.text import Text
+
 from llama_cli.commands._output import emit_json, emit_plain
 from llama_cli.commands._toolchain import (
     collect_toolchain_repair_actions,
@@ -22,7 +24,6 @@ from llama_cli.commands._toolchain import (
     toolchain_is_ready_for_backend,
 )
 from llama_cli.ui_output import (
-    _style,
     emit_error,
     emit_heading,
     emit_info,
@@ -481,23 +482,27 @@ def _print_check_results(result: DoctorCheckResult) -> int:
     Returns:
         Exit code (0 if healthy, 1 otherwise)
     """
-    yes = _style("✓ YES", "green")
-    no = _style("✗ NO", "red")
-    warn_no = _style("⚠ NO", "yellow")
+    yes = Text("✓ YES", style="green")
+    no = Text("✗ NO", style="red")
+    warn_no = Text("⚠ NO", style="yellow")
 
     emit_heading("Doctor Check Results:")
-    emit_success(f"  Toolchain complete: {yes if result.toolchain_complete else no}")
-    emit_success(f"  Venv exists: {yes if result.venv_exists else no}")
-    emit_success(f"  Venv intact: {yes if result.venv_intact else no}")
-    emit_success(f"  Build lock free: {yes if result.build_lock_free else no}")
-    emit_success(f"  Staging dirs clean: {yes if result.staging_dirs_clean else no}")
-    emit_success(f"  Reports dir exists: {yes if result.reports_dir_exists else warn_no}")
-    stale_count = (
-        _style(str(result.profiles_stale), "red")
-        if result.profiles_stale > 0
-        else _style(str(result.profiles_stale), "green")
+    emit_success(Text.assemble("  Toolchain complete: ", yes if result.toolchain_complete else no))
+    emit_success(Text.assemble("  Venv exists: ", yes if result.venv_exists else no))
+    emit_success(Text.assemble("  Venv intact: ", yes if result.venv_intact else no))
+    emit_success(Text.assemble("  Build lock free: ", yes if result.build_lock_free else no))
+    emit_success(Text.assemble("  Staging dirs clean: ", yes if result.staging_dirs_clean else no))
+    emit_success(
+        Text.assemble("  Reports dir exists: ", yes if result.reports_dir_exists else warn_no)
     )
-    emit_success(f"  Profiles: {result.profiles_total} total, {stale_count} stale")
+    stale_count = (
+        Text(str(result.profiles_stale), style="red")
+        if result.profiles_stale > 0
+        else Text(str(result.profiles_stale), style="green")
+    )
+    emit_success(
+        Text.assemble("  Profiles: ", str(result.profiles_total), " total, ", stale_count, " stale")
+    )
 
     if result.warnings:
         emit_success("")
@@ -828,9 +833,9 @@ def _print_repair_results(result: DoctorRepairResult) -> None:
 
     for i, action in enumerate(result.actions, 1):
         confirm_marker = (
-            _style(" [CONFIRMATION REQUIRED]", "yellow") if action.requires_confirmation else ""
+            Text(" [CONFIRMATION REQUIRED]", style="yellow") if action.requires_confirmation else ""
         )
-        emit_plain(f"  {_style(str(i), 'cyan')}. {action.description}{confirm_marker}")
+        emit_plain(Text.assemble("  ", (str(i), "cyan"), f". {action.description}", confirm_marker))
         if action.dry_run_command:
             emit_info(f"Command: {action.dry_run_command}")
 

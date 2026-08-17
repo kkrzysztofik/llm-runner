@@ -13,6 +13,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from rich.text import Text
+
 from llama_cli.commands._output import emit_json, emit_json_error
 from llama_cli.commands._toolchain import (
     filter_optional_tools,
@@ -21,7 +23,6 @@ from llama_cli.commands._toolchain import (
     toolchain_check_exit_code,
 )
 from llama_cli.ui_output import (
-    _style,
     emit_error,
     emit_heading,
     emit_info,
@@ -64,9 +65,9 @@ def _print_status(status: Any) -> None:
     Args:
         status: ToolchainStatus object
     """
-    yes = _style("✓ YES", "green")
-    no = _style("✗ NO", "red")
-    missing = _style("MISSING", "red")
+    yes = Text("✓ YES", style="green")
+    no = Text("✗ NO", style="red")
+    missing = Text("MISSING", style="red")
 
     emit_heading("Toolchain Status:")
     tools = [
@@ -79,12 +80,12 @@ def _print_status(status: Any) -> None:
         ("nvtop", status.nvtop),
     ]
     for name, value in tools:
-        display = _style(value, "green") if value else missing
-        emit_info(f"  {_style(name, 'cyan')}: {display}")
+        display = Text(value, style="green") if value else missing
+        emit_info(Text.assemble("  ", (name, "cyan"), ": ", display))
     emit_success("")
-    emit_success(f"SYCL ready: {yes if status.is_sycl_ready else no}")
-    emit_success(f"CUDA ready: {yes if status.is_cuda_ready else no}")
-    emit_success(f"Complete: {yes if status.is_complete else no}")
+    emit_success(Text.assemble("SYCL ready: ", yes if status.is_sycl_ready else no))
+    emit_success(Text.assemble("CUDA ready: ", yes if status.is_cuda_ready else no))
+    emit_success(Text.assemble("Complete: ", yes if status.is_complete else no))
 
 
 def _handle_missing_tools(

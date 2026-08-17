@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from itertools import zip_longest
 
 from textual.app import ComposeResult
 from textual.widget import Widget
@@ -30,37 +31,19 @@ _ROBOT_BLOCK = [
 ]
 
 _LOGO_GAP = "  "
-_LOGO_ROWS = max(len(_LLM_BLOCK), len(_ROBOT_BLOCK))
-
-
-def _clean_markup(s: str) -> str:
-    return re.sub(r"\[[^\]]*\]", "", s)
-
-
-_LLM_WIDTH = max(len(_clean_markup(line)) for line in _LLM_BLOCK)
-_ROBOT_WIDTH = max(len(_clean_markup(line)) for line in _ROBOT_BLOCK)
 
 
 def _pad_markup_line(s: str, width: int) -> str:
-    clean = _clean_markup(s)
-    needed = width - len(clean)
-    if needed > 0:
-        return s + " " * needed
-    return s
+    needed = width - len(re.sub(r"\[[^\]]*\]", "", s))
+    return s + " " * max(0, needed)
 
 
-def _build_logo_rows() -> list[str]:
-    llm_rows = _LLM_BLOCK + [" " * _LLM_WIDTH] * (_LOGO_ROWS - len(_LLM_BLOCK))
-    robot_rows = _ROBOT_BLOCK + [" " * _ROBOT_WIDTH] * (_LOGO_ROWS - len(_ROBOT_BLOCK))
-    return [
-        _pad_markup_line(llm_rows[i], _LLM_WIDTH)
-        + _LOGO_GAP
-        + _pad_markup_line(robot_rows[i], _ROBOT_WIDTH)
-        for i in range(_LOGO_ROWS)
-    ]
+_ROBOT_WIDTH = max(len(re.sub(r"\[[^\]]*\]", "", r)) for r in _ROBOT_BLOCK)
 
-
-LLM_RUNNER_LOGO = "\n".join(_build_logo_rows())
+LLM_RUNNER_LOGO = "\n".join(
+    llm + _LOGO_GAP + _pad_markup_line(robot, _ROBOT_WIDTH)
+    for llm, robot in zip_longest(_LLM_BLOCK, _ROBOT_BLOCK, fillvalue="")
+)
 
 
 class DigitalClockWidget(Widget):
