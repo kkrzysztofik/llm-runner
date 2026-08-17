@@ -16,6 +16,7 @@ from llama_cli.tui.types import (
 )
 
 from .digital_clock import LLM_RUNNER_LOGO, DigitalClockWidget
+from .gpu_stats import usage_fill
 
 if TYPE_CHECKING:
     from llama_cli.tui.viewmodel import DashboardViewModel
@@ -38,11 +39,6 @@ def _memory_bar_width(content_width: int) -> int:
     value_width = 14
     column_gap = 3
     return max(4, content_width - label_width - column_gap - value_width)
-
-
-def _usage_bar(percent: float, width: int) -> str:
-    filled = int(round((max(0.0, min(100.0, percent)) / 100.0) * width))
-    return "|" * filled + " " * (width - filled)
 
 
 def _usage_color(percent: float) -> str:
@@ -122,7 +118,7 @@ class CPUUsageWidget(Widget):
         return Container(
             Static(f"{core.index:>2}", classes="cpu-core-index"),
             Static(
-                _usage_bar(core.percent, width=CPU_CORE_BAR_WIDTH),
+                usage_fill(core.percent, CPU_CORE_BAR_WIDTH),
                 classes=f"cpu-core-bar system-health-meter-{_usage_color(core.percent)}",
             ),
             Static(f"{core.percent:5.1f}%", classes=f"cpu-core-percent {value_class}"),
@@ -147,9 +143,9 @@ class MemorySwapWidget(Widget):
             yield Horizontal(
                 Static(row.label, classes="memory-swap-label"),
                 Static(
-                    _usage_bar(
+                    usage_fill(
                         row.percent,
-                        width=_memory_bar_width(_content_width(self.size.width)),
+                        _memory_bar_width(_content_width(self.size.width)),
                     ),
                     classes=f"memory-swap-bar system-health-meter-{_usage_color(row.percent)}",
                 ),

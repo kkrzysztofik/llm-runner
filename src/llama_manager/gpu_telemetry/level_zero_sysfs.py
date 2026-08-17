@@ -5,21 +5,13 @@ from __future__ import annotations
 import os
 import time
 
-from .common import INTEL_VENDOR_ID
+from .common import INTEL_VENDOR_ID, _safe_read_text
 from .level_zero_types import _LevelZeroDevice
 
 _SYS_BUS_PCI_DEVICES = "/sys/bus/pci/devices"
 _SYS_CLASS_DRM = "/sys/class/drm"
 _INTEL_HWMON_NAMES = {"xe", "i915", "intel_gpu", "intel-gpu"}
 _PREFERRED_TEMP_LABELS = ("pkg", "card", "gpu", "junction")
-
-
-def _safe_read_text(path: str) -> str | None:
-    try:
-        with open(path) as file_obj:
-            return file_obj.read().strip()
-    except OSError:
-        return None
 
 
 def _safe_read_int(path: str) -> int | None:
@@ -150,62 +142,29 @@ def _read_single_temp_entry(hwmon_path: str, entry: str) -> tuple[str, float] | 
 
 
 def _iter_drm_paths(device: _LevelZeroDevice) -> list[str]:
+    roots = [(os.path.join(root, "drm"), False) for root in _iter_device_roots(device)]
+    roots.append((_SYS_CLASS_DRM, True))
     paths: list[str] = []
-    paths.extend(_drm_paths_from_device_roots(device))
-    paths.extend(_drm_paths_from_class_drm(device))
-    return _unique_paths(paths)
-
-
-def _drm_paths_from_device_roots(device: _LevelZeroDevice) -> list[str]:
-    paths: list[str] = []
-    for root in _iter_device_roots(device):
-        drm_root = os.path.join(root, "drm")
+    for drm_root, match_device in roots:
         try:
             entries = sorted(os.listdir(drm_root))
         except OSError:
             continue
         for entry in entries:
-            path = _drm_dir_path(drm_root, entry)
-            if path is not None:
+            if not _is_drm_card_entry(entry):
+                continue
+            path = os.path.join(drm_root, entry)
+            if match_device:
+                device_path = os.path.join(path, "device")
+                if os.path.exists(device_path) and _device_root_matches(device_path, device):
+                    paths.append(path)
+            elif os.path.isdir(path):
                 paths.append(path)
-    return paths
+    return _unique_existing_dirs(paths)
 
 
-def _drm_paths_from_class_drm(device: _LevelZeroDevice) -> list[str]:
-    try:
-        entries = sorted(os.listdir(_SYS_CLASS_DRM))
-    except OSError:
-        return []
-    paths: list[str] = []
-    for entry in entries:
-        if not entry.startswith("card") or "-" in entry:
-            continue
-        path = os.path.join(_SYS_CLASS_DRM, entry)
-        device_path = os.path.join(path, "device")
-        if os.path.exists(device_path) and _device_root_matches(device_path, device):
-            paths.append(path)
-    return paths
-
-
-def _drm_dir_path(drm_root: str, entry: str) -> str | None:
-    if not entry.startswith("card") or "-" in entry:
-        return None
-    path = os.path.join(drm_root, entry)
-    if os.path.isdir(path):
-        return path
-    return None
-
-
-def _unique_paths(paths: list[str]) -> list[str]:
-    unique: list[str] = []
-    seen: set[str] = set()
-    for path in paths:
-        real = os.path.realpath(path)
-        if real in seen:
-            continue
-        seen.add(real)
-        unique.append(path)
-    return unique
+def _is_drm_card_entry(entry: str) -> bool:
+    return entry.startswith("card") and "-" not in entry
 
 
 def _read_drm_engine_busy(drm_paths: list[str]) -> list[int]:

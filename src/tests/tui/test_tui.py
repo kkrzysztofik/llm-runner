@@ -475,17 +475,6 @@ class TestGPUTelemetryPanel:
         assert stats.stats["device"] == "Intel Arc B580"
         assert stats.stats["gpu_util"] == "45%"
 
-    def test_gpu_stats_format_text(self) -> None:
-        """GPUStats.format_stats_text should produce readable output."""
-        from llama_cli.tui import DashboardController
-
-        app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-        stats = app.model.gpu_stats[0]
-
-        # Use psutil-only collector (no GPU)
-        text = stats.format_stats_text()
-        assert "Device:" in text
-
     def test_gpu_stats_with_mock_collector(self) -> None:
         """GPUStats should use injected collector for testing."""
         from llama_cli.tui import DashboardController

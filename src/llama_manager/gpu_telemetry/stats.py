@@ -12,7 +12,7 @@ from .common import (
     parse_gpu_telemetry_selectors,
     psutil_only_collector,
 )
-from .level_zero import collect_level_zero_stats
+from .level_zero_telemetry import collect_level_zero_stats
 from .vendor import (
     collect_nvidia_smi_stats,
     collect_nvtop_stats_for_selector,
@@ -87,40 +87,6 @@ class GPUStats:
         with self._stats_lock:
             return dict(self.stats)
 
-    def format_stats_text(self) -> str:
-        """Get plain-text representation of current GPU stats."""
-        stats = self.get_stats_snapshot()
-        lines = [f"Device: {stats.get('device', 'N/A')}"]
-
-        if stats.get("gpu_util", "N/A") != "N/A":
-            lines.append(
-                f"GPU: {stats.get('gpu_util', 'N/A')} | Mem: {stats.get('mem_util', 'N/A')}"
-            )
-        else:
-            lines.append(f"CPU: {stats.get('cpu', 'N/A')} | Mem: {stats.get('mem', 'N/A')}")
-
-        if stats.get("temp", "N/A") != "N/A":
-            lines.append(f"Temp: {stats.get('temp', 'N/A')}")
-
-        if "power" in stats and stats["power"] != "N/A":
-            lines.append(f"Power: {stats['power']}")
-
-        return "\n".join(lines)
-
-    @property
-    def gpu_util(self) -> str:
-        """Current GPU utilization percentage or ``"N/A"``."""
-        self.update()
-        with self._stats_lock:
-            return self.stats.get("gpu_util", "N/A")
-
-    @property
-    def memory_util(self) -> str:
-        """Current GPU memory utilization percentage or ``"N/A"``."""
-        self.update()
-        with self._stats_lock:
-            return self.stats.get("mem_util", "N/A")
-
 
 def get_gpu_identifier(
     backend: str,
@@ -187,11 +153,6 @@ def collect_gpu_stats(selector: GpuTelemetrySelector) -> dict[str, Any]:
     if merged:
         return merged
     return psutil_only_collector(selector.ordinal)
-
-
-def make_gpu_collector(selector: GpuTelemetrySelector) -> Callable[[], dict[str, Any]]:
-    """Return a zero-argument collector bound to a stable GPU selector."""
-    return lambda: collect_gpu_stats(selector)
 
 
 def make_multi_gpu_collector(

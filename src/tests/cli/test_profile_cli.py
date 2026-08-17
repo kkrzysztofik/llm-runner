@@ -820,7 +820,7 @@ class TestCmdProfile:
         with patch("subprocess.Popen", return_value=mock_proc):
             result = _default_subprocess_runner(["echo", "hello"])
 
-            assert result.exit_code == 0
+            assert result.returncode == 0
             assert result.stdout == "tokens/s: 100.0"
             assert result.stderr == ""
 
@@ -1199,6 +1199,7 @@ class TestHandleCancel:
 
         proc = MagicMock(spec=subprocess.Popen)
         proc.pid = 12345
+        proc.args = ["llama-bench"]
         event = threading.Event()
         event.set()
 
@@ -1209,7 +1210,7 @@ class TestHandleCancel:
             result = _handle_cancel(proc, event)
 
         assert result is not None
-        assert result.exit_code == 130
+        assert result.returncode == 130
         assert "cancelled" in result.stderr
 
 
@@ -1241,11 +1242,12 @@ class TestHandleTimeout:
         from llama_cli.commands.profile import _handle_timeout
 
         proc = MagicMock(spec=subprocess.Popen)
+        proc.args = ["llama-bench"]
         # start far in the past
         start = 0.0
         result = _handle_timeout(proc, start, 1.0)
         assert result is not None
-        assert result.exit_code == 124
+        assert result.returncode == 124
         assert "timed out" in result.stderr
 
 
@@ -1270,11 +1272,12 @@ class TestPollUntilDone:
 
         proc = MagicMock(spec=subprocess.Popen)
         proc.poll.return_value = 0
+        proc.args = ["llama-bench"]
         proc.stdout = stdout_mock
         proc.stderr = stderr_mock
 
         result = _poll_until_done(proc, 600, None)
-        assert result.exit_code == 0
+        assert result.returncode == 0
         assert result.stdout == "output"
 
     def test_cancel_event_terminates(self) -> None:
@@ -1286,6 +1289,7 @@ class TestPollUntilDone:
 
         proc = MagicMock(spec=subprocess.Popen)
         proc.poll.return_value = None  # never exits on its own
+        proc.args = ["llama-bench"]
         proc.pid = 12345
 
         cancel = threading.Event()
@@ -1297,7 +1301,7 @@ class TestPollUntilDone:
         ):
             result = _poll_until_done(proc, 600, cancel)
 
-        assert result.exit_code == 130
+        assert result.returncode == 130
 
     def test_timeout_returns_124(self) -> None:
         import subprocess
@@ -1307,8 +1311,9 @@ class TestPollUntilDone:
 
         proc = MagicMock(spec=subprocess.Popen)
         proc.poll.return_value = None  # never exits
+        proc.args = ["llama-bench"]
         proc.wait.return_value = None
 
         # Use a very short timeout so it expires immediately
         result = _poll_until_done(proc, 0, None)
-        assert result.exit_code == 124
+        assert result.returncode == 124

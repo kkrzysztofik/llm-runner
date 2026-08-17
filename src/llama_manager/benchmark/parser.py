@@ -117,39 +117,6 @@ def _parse_data_row(
     return tokens_per_second, avg_latency_ms, peak_vram_mb
 
 
-def _split_contiguous_blocks(lines: list[str]) -> list[list[str]]:
-    """Split pipe-prefixed lines into contiguous table blocks.
-
-    A new block starts when a pipe-prefixed line follows a non-pipe-prefixed
-    line (i.e. the lines are not adjacent in the original output).
-
-    Args:
-        lines: Pipe-prefixed lines already filtered from output.
-
-    Returns:
-        List of contiguous blocks, each a list of lines.
-    """
-    blocks: list[list[str]] = []
-    current_block: list[str] = []
-
-    for line in lines:
-        if not line.strip():
-            continue
-        if current_block:
-            # Check adjacency: a new block starts if the previous line
-            # was NOT pipe-prefixed (gap in original output).
-            prev_line = current_block[-1]
-            if not prev_line.strip().startswith("|"):
-                blocks.append(current_block)
-                current_block = []
-        current_block.append(line)
-
-    if current_block:
-        blocks.append(current_block)
-
-    return blocks
-
-
 def _parse_table_block(
     block: list[str],
 ) -> tuple[float | None, float | None, float | None]:
@@ -218,15 +185,7 @@ def _parse_markdown_table_metrics(
     if len(all_lines) < 3:
         return None, None, None
 
-    # Split into contiguous table blocks to avoid mixing separate tables.
-    blocks = _split_contiguous_blocks(all_lines)
-
-    for block in blocks:
-        result = _parse_table_block(block)
-        if result[0] is not None or result[1] is not None:
-            return result
-
-    return None, None, None
+    return _parse_table_block(all_lines)
 
 
 # ── Regex-based extractors ─────────────────────────────────────────────

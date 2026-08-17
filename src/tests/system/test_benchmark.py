@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -11,7 +12,6 @@ import pytest
 
 from llama_manager.benchmark import (
     BenchmarkResult,
-    SubprocessResult,
     build_benchmark_cmd,
     parse_benchmark_output,
     run_benchmark,
@@ -290,8 +290,9 @@ class TestRunBenchmark:
         """run_benchmark should pass cmd to runner."""
         runner = MagicMock()
         cmd = ["llama-bench", "-m", "model.gguf"]
-        runner.return_value = SubprocessResult(
-            exit_code=0,
+        runner.return_value = subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
             stdout="tokens per second: 100.0\n",
             stderr="",
         )
@@ -303,8 +304,9 @@ class TestRunBenchmark:
     def test_returns_none_on_nonzero_exit(self) -> None:
         """run_benchmark should return None when runner returns nonzero exit code."""
         runner = MagicMock()
-        runner.return_value = SubprocessResult(
-            exit_code=1,
+        runner.return_value = subprocess.CompletedProcess(
+            args=["llama-bench"],
+            returncode=1,
             stdout="",
             stderr="error occurred\n",
         )
@@ -315,8 +317,9 @@ class TestRunBenchmark:
     def test_returns_none_on_empty_stdout(self) -> None:
         """run_benchmark should return None when runner returns empty stdout."""
         runner = MagicMock()
-        runner.return_value = SubprocessResult(
-            exit_code=0,
+        runner.return_value = subprocess.CompletedProcess(
+            args=["llama-bench"],
+            returncode=0,
             stdout="",
             stderr="",
         )
@@ -327,8 +330,9 @@ class TestRunBenchmark:
     def test_returns_none_on_whitespace_stdout(self) -> None:
         """run_benchmark should return None when runner returns whitespace-only stdout."""
         runner = MagicMock()
-        runner.return_value = SubprocessResult(
-            exit_code=0,
+        runner.return_value = subprocess.CompletedProcess(
+            args=["llama-bench"],
+            returncode=0,
             stdout="   \n\n  ",
             stderr="",
         )
@@ -339,8 +343,9 @@ class TestRunBenchmark:
     def test_returns_parsed_result_on_success(self) -> None:
         """run_benchmark should return parsed BenchmarkResult on success."""
         runner = MagicMock()
-        runner.return_value = SubprocessResult(
-            exit_code=0,
+        runner.return_value = subprocess.CompletedProcess(
+            args=["llama-bench"],
+            returncode=0,
             stdout="tokens per second: 42.0\navg latency: 1.0 ms\n",
             stderr="",
         )
@@ -353,8 +358,9 @@ class TestRunBenchmark:
     def test_stderr_ignored_for_result(self) -> None:
         """run_benchmark should ignore stderr and only use stdout for parsing."""
         runner = MagicMock()
-        runner.return_value = SubprocessResult(
-            exit_code=0,
+        runner.return_value = subprocess.CompletedProcess(
+            args=["llama-bench"],
+            returncode=0,
             stdout="tokens per second: 150.0\navg latency: 5.0 ms\n",
             stderr="warning: deprecated flag\n",
         )
@@ -366,8 +372,9 @@ class TestRunBenchmark:
     def test_runner_called_exactly_once(self) -> None:
         """run_benchmark should call runner exactly once."""
         runner = MagicMock()
-        runner.return_value = SubprocessResult(
-            exit_code=0,
+        runner.return_value = subprocess.CompletedProcess(
+            args=["llama-bench", "-m", "model.gguf"],
+            returncode=0,
             stdout="tokens per second: 100.0\n",
             stderr="",
         )
@@ -375,36 +382,6 @@ class TestRunBenchmark:
         run_benchmark(["llama-bench", "-m", "model.gguf"], runner)
         runner.assert_called_once()
         assert runner.call_count == 1
-
-
-class TestSubprocessResult:
-    """Tests for SubprocessResult dataclass."""
-
-    def test_immutable(self) -> None:
-        """SubprocessResult should be immutable (frozen dataclass)."""
-        result = SubprocessResult(exit_code=0, stdout="out", stderr="err")
-        with pytest.raises(AttributeError):
-            result.exit_code = 1  # type: ignore[assignment]
-        with pytest.raises(AttributeError):
-            result.stdout = "new"  # type: ignore[assignment]
-        with pytest.raises(AttributeError):
-            result.stderr = "new"  # type: ignore[assignment]
-
-    def test_equality(self) -> None:
-        """SubprocessResult equality should compare all fields."""
-        r1 = SubprocessResult(exit_code=0, stdout="out", stderr="err")
-        r2 = SubprocessResult(exit_code=0, stdout="out", stderr="err")
-        r3 = SubprocessResult(exit_code=1, stdout="out", stderr="err")
-        assert r1 == r2
-        assert r1 != r3
-
-    def test_repr(self) -> None:
-        """SubprocessResult repr should include all fields."""
-        result = SubprocessResult(exit_code=42, stdout="hello", stderr="world")
-        repr_str = repr(result)
-        assert "exit_code=42" in repr_str
-        assert "stdout='hello'" in repr_str
-        assert "stderr='world'" in repr_str
 
 
 class TestBenchmarkResult:

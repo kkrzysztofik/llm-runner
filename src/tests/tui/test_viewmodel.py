@@ -562,7 +562,6 @@ def test_column_uses_cached_gpu_snapshot_without_live_probe() -> None:
     log_buf.get_text.return_value = "server log output"
     gpu_mock = MagicMock()
     gpu_mock.get_stats_snapshot.side_effect = AssertionError("live GPU probe")
-    gpu_mock.format_stats_text.side_effect = AssertionError("live GPU format")
 
     vm = _make_viewmodel(
         configs=[cfg],
@@ -576,7 +575,6 @@ def test_column_uses_cached_gpu_snapshot_without_live_probe() -> None:
     assert result is not None
     assert result.gpu_stats == {"gpu_util": "45%"}
     gpu_mock.get_stats_snapshot.assert_not_called()
-    gpu_mock.format_stats_text.assert_not_called()
 
 
 def test_column_missing_gpu() -> None:

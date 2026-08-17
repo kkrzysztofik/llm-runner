@@ -1,30 +1,14 @@
 """Benchmark runner — subprocess result types and execution protocol."""
 
 import os
+import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass
 
 from .parser import BenchmarkResult, parse_benchmark_output
 
-
-@dataclass(frozen=True, slots=True)
-class SubprocessResult:
-    """Result of a benchmark subprocess execution.
-
-    Attributes:
-        exit_code: Non-negative exit code returned by the subprocess.
-        stdout: Captured standard output from the benchmark process.
-        stderr: Captured standard error from the benchmark process.
-    """
-
-    exit_code: int
-    stdout: str
-    stderr: str
-
-
 # Callable type alias for benchmark subprocess runners.
-# Concrete implementations execute a command list and return a SubprocessResult.
-BenchmarkRunner = Callable[[list[str]], SubprocessResult]
+# Concrete implementations execute a command list and return a CompletedProcess.
+BenchmarkRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]
 
 
 def build_benchmark_cmd(
@@ -96,7 +80,7 @@ def run_benchmark(cmd: list[str], runner: BenchmarkRunner) -> BenchmarkResult | 
     Args:
         cmd: Subprocess-safe command list to execute.
         runner: Callable that executes *cmd* and returns a
-            :class:`SubprocessResult`.
+            :class:`subprocess.CompletedProcess`.
 
     Returns:
         A :class:`BenchmarkResult` with parsed metrics, or ``None`` when the
@@ -106,7 +90,7 @@ def run_benchmark(cmd: list[str], runner: BenchmarkRunner) -> BenchmarkResult | 
     """
     result = runner(cmd)
 
-    if result.exit_code != 0:
+    if result.returncode != 0:
         return None
 
     if not result.stdout or not result.stdout.strip():

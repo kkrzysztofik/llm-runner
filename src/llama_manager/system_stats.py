@@ -10,6 +10,9 @@ from typing import cast
 
 import psutil
 
+_task_stats_cache: tuple[float, tuple[int, int, int]] | None = None
+_TASK_STATS_TTL_S = 1.0
+
 
 def collect_cpu_percentages(percpu: bool = True) -> list[float]:
     """Return current per-core CPU usage percentages.
@@ -75,18 +78,22 @@ def collect_system_info() -> dict[str, object]:
 def _get_task_stats() -> tuple[int, int, int]:
     """Return (task_count, thread_count, running_count) with caching.
 
-    Uses a 1.5-second TTL cache to avoid expensive psutil iteration.
+    Uses a 1.0-second TTL cache to avoid expensive psutil iteration.
 
     Returns:
         Tuple of (total_tasks, total_threads, running_tasks).
     """
-    now = time.time()
-    if hasattr(_get_task_stats, "_cache"):
-        cache_ts: float = _get_task_stats._cache_ts  # type: ignore[attr-defined]
-        cache: tuple[int, int, int] | None = _get_task_stats._cache  # type: ignore[attr-defined]
-        if cache is not None and now - cache_ts < 1.5:
-            return cache
+    global _task_stats_cache
+    now = time.monotonic()
+    if _task_stats_cache is not None and now - _task_stats_cache[0] < _TASK_STATS_TTL_S:
+        return _task_stats_cache[1]
+    stats = _read_task_stats()
+    _task_stats_cache = (now, stats)
+    return stats
 
+
+def _read_task_stats() -> tuple[int, int, int]:
+    """Read task stats from psutil, falling back to the previous cache on error."""
     task_count = 0
     thread_count = 0
     running_count = 0
@@ -101,14 +108,9 @@ def _get_task_stats() -> tuple[int, int, int]:
             if info.get("status") == psutil.STATUS_RUNNING:
                 running_count += 1
     except Exception:
-        if hasattr(_get_task_stats, "_cache") and _get_task_stats._cache is not None:  # type: ignore[attr-defined]
-            return _get_task_stats._cache  # type: ignore[attr-defined]
-        _get_task_stats._cache = (0, 0, 0)  # type: ignore[attr-defined]
-        _get_task_stats._cache_ts = now  # type: ignore[attr-defined]
+        if _task_stats_cache is not None:
+            return _task_stats_cache[1]
         return (0, 0, 0)
-
-    _get_task_stats._cache = (task_count, thread_count, running_count)  # type: ignore[attr-defined]
-    _get_task_stats._cache_ts = now  # type: ignore[attr-defined]
     return (task_count, thread_count, running_count)
 
 

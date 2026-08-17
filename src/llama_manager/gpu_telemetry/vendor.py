@@ -1,7 +1,6 @@
 """Subprocess-based GPU telemetry collectors."""
 
 import json
-import logging
 import subprocess
 from typing import Any
 
@@ -12,13 +11,8 @@ from .common import (
     format_power,
     format_temp,
     parse_float,
-    psutil_only_collector,
     with_host_stats,
 )
-
-logger = logging.getLogger(__name__)
-
-_nvtop_fallback_logged: set[int] = set()
 
 
 def collect_nvidia_smi_stats(selector: GpuTelemetrySelector) -> dict[str, Any] | None:
@@ -169,46 +163,3 @@ def collect_nvtop_stats_for_selector(selector: GpuTelemetrySelector) -> dict[str
             "source": "nvtop",
         }
     )
-
-
-def collect_nvtop_stats(device_index: int = 0) -> dict[str, Any]:
-    """Collect legacy nvtop stats by raw device index."""
-    try:
-        result = subprocess.run(
-            ["nvtop", "-s"],
-            capture_output=True,
-            text=True,
-            timeout=1,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"nvtop exited with code {result.returncode}: {result.stderr}")
-        all_gpus = json.loads(result.stdout)
-        if not isinstance(all_gpus, list):
-            raise ValueError(f"nvtop JSON output is not a list, got {type(all_gpus).__name__}")
-        if 0 <= device_index < len(all_gpus):
-            gpu = all_gpus[device_index]
-            if not isinstance(gpu, dict):
-                raise ValueError(
-                    f"gpu entry at index {device_index} is not a dict, got {type(gpu).__name__}"
-                )
-            return {
-                "device": format_metric(gpu.get("device_name", "Unknown")),
-                "gpu_util": format_metric(gpu.get("gpu_util", "N/A")),
-                "mem_util": format_metric(gpu.get("mem_util", "N/A")),
-                "temp": format_metric(gpu.get("temp", "N/A")),
-                "power": format_metric(gpu.get("power_draw", "N/A")),
-                **with_host_stats({}),
-            }
-    except subprocess.TimeoutExpired:
-        pass
-    except json.JSONDecodeError:
-        pass
-    except RuntimeError:
-        pass
-    except ValueError, OSError:
-        pass
-
-    if device_index not in _nvtop_fallback_logged:
-        _nvtop_fallback_logged.add(device_index)
-        logger.debug("nvtop unavailable - falling back to psutil for GPU %s", device_index)
-    return psutil_only_collector(device_index)
