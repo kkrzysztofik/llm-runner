@@ -10,6 +10,7 @@ from ...config import (
     ServerConfig,
     spec_type_members,
 )
+from ...config.reasoning_effort import merge_chat_template_kwargs
 
 _SPEC_TYPE_FLAG: Final = "--spec-type"
 _SPEC_TYPE_DFLASH: Final = "draft-dflash"
@@ -129,8 +130,12 @@ def _append_optional_server_flags(cmd: list[str], cfg: ServerConfig) -> None:
         cmd.extend(["--reasoning-format", spec.reasoning_format])
     if cfg.tensor_split:
         cmd.extend(["--tensor-split", cfg.tensor_split])
-    if cfg.chat_template_kwargs:
-        cmd.extend(["--chat-template-kwargs", cfg.chat_template_kwargs])
+    cmd.extend(
+        [
+            "--chat-template-kwargs",
+            merge_chat_template_kwargs(cfg.chat_template_kwargs, cfg.reasoning_effort),
+        ]
+    )
     if spec.reasoning_budget:
         cmd.extend(["--reasoning-budget", spec.reasoning_budget])
     if cfg.use_jinja:

@@ -1,10 +1,12 @@
 """Tests for llama_manager.server — validation and command building."""
 
+import json
 from pathlib import Path
 
 import pytest
 
 from llama_manager.config import ErrorCode, ErrorDetail, ServerConfig
+from llama_manager.config.reasoning_effort import REASONING_EFFORT_JSON_CONFLICT
 from llama_manager.validation import (
     build_server_cmd,
     validate_port,
@@ -151,10 +153,32 @@ class TestBuildServerCmd:
         cmd = build_server_cmd(self._minimal_cfg(tensor_split=""))
         assert "--tensor-split" not in cmd
 
+    def _kwargs_from_cmd(self, cmd: list[str]) -> dict[str, object]:
+        idx = cmd.index("--chat-template-kwargs")
+        parsed: object = json.loads(cmd[idx + 1])
+        assert isinstance(parsed, dict)
+        return parsed
+
     def test_chat_template_kwargs_included(self) -> None:
         cmd = build_server_cmd(self._minimal_cfg(chat_template_kwargs='{"enable_thinking":false}'))
         assert "--chat-template-kwargs" in cmd
-        assert '{"enable_thinking":false}' in cmd
+        assert self._kwargs_from_cmd(cmd) == {
+            "enable_thinking": False,
+            "reasoning_effort": "medium",
+        }
+
+    def test_reasoning_effort_emitted_when_kwargs_empty(self) -> None:
+        cmd = build_server_cmd(self._minimal_cfg(chat_template_kwargs=""))
+        assert self._kwargs_from_cmd(cmd)["reasoning_effort"] == "medium"
+
+    def test_reasoning_effort_xhigh_and_low(self) -> None:
+        for level in ("xhigh", "low"):
+            cmd = build_server_cmd(self._minimal_cfg(reasoning_effort=level))
+            assert self._kwargs_from_cmd(cmd)["reasoning_effort"] == level
+
+    def test_reasoning_effort_conflict_in_json_raises(self) -> None:
+        with pytest.raises(ValueError, match=REASONING_EFFORT_JSON_CONFLICT):
+            build_server_cmd(self._minimal_cfg(chat_template_kwargs='{"reasoning_effort":"low"}'))
 
     def test_reasoning_budget_excluded_when_empty(self) -> None:
         cmd = build_server_cmd(self._minimal_cfg(reasoning_budget=""))
