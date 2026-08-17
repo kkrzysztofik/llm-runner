@@ -18,7 +18,11 @@ import pytest
 from textual.app import App
 from textual.widgets import Button, Input, Select
 
-from llama_cli.tui.components.config_modal import ConfigModal, ConfigPayload
+from llama_cli.tui.components.config_modal import (
+    ConfigModal,
+    ConfigPayload,
+    _validate_config_payload,
+)
 from llama_manager.config.defaults import (
     BuildPipelineConfig,
     Config,
@@ -71,6 +75,7 @@ _DEFAULT_TO_SERVER_DEFAULTS: dict[str, str] = {
     "default_min_p": "min_p",
     "default_presence_penalty": "presence_penalty",
     "default_repeat_penalty": "repeat_penalty",
+    "default_nvidia_power_limit_watts": "nvidia_power_limit_watts",
 }
 
 # Fields that belong in each sub-dataclass (after stripping prefix).
@@ -399,6 +404,7 @@ class TestConfigModalCollectValues:
             default_min_p=0.05,
             default_presence_penalty=1.1,
             default_repeat_penalty=1.05,
+            default_nvidia_power_limit_watts=290,
         )
         modal = ConfigModal(config)
         app = ConfigModalHostApp()
@@ -415,6 +421,31 @@ class TestConfigModalCollectValues:
         assert payload.default_min_p == "0.05"
         assert payload.default_presence_penalty == "1.1"
         assert payload.default_repeat_penalty == "1.05"
+        assert payload.default_nvidia_power_limit_watts == "290"
+
+    @pytest.mark.anyio
+    async def test_nvidia_power_limit_watts_roundtrip(self) -> None:
+        """Config modal collects and maps the NVIDIA power limit."""
+        config = _make_config(default_nvidia_power_limit_watts=0)
+        modal = ConfigModal(config)
+        app = ConfigModalHostApp()
+        async with app.run_test() as pilot:
+            await app.push_screen(modal)
+            await pilot.pause()
+            payload = modal._collect_values()
+
+        assert payload.default_nvidia_power_limit_watts == "0"
+        updates = payload.to_config_updates()
+        assert updates["server_defaults.nvidia_power_limit_watts"] == "0"
+
+    def test_invalid_nvidia_power_limit_watts_rejected(self) -> None:
+        payload = ConfigPayload(default_nvidia_power_limit_watts="-5")
+        errors = _validate_config_payload(payload)
+        assert any("nvidia power limit" in err for err in errors)
+
+        empty = ConfigPayload(default_nvidia_power_limit_watts="")
+        errors = _validate_config_payload(empty)
+        assert any("nvidia power limit" in err for err in errors)
 
     @pytest.mark.anyio
     async def test_empty_optional_numeric_fields_collected_as_empty(self) -> None:
