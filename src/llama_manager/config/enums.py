@@ -69,11 +69,3 @@ class SmokeProbeStatus(StrEnum):
     CRASHED = "crashed"
     MODEL_NOT_FOUND = "model_not_found"
     AUTH_FAILURE = "auth_failure"
-
-
-class DoctorCheckStatus(StrEnum):
-    """Status of a doctor check result."""
-
-    PASS = "pass"  # noqa: S105
-    WARN = "warn"
-    FAIL = "fail"  # noqa: S105

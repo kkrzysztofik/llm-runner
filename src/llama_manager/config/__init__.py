@@ -20,7 +20,6 @@ from .defaults import (
     SmokeProbeConfiguration,
 )
 from .enums import (
-    DoctorCheckStatus,
     ErrorCode,
     SlotState,
     SmokeFailurePhase,
@@ -75,7 +74,6 @@ from .tri_state import TRI_STATE_VALUES, resolve_fit, resolve_reasoning_preserve
 
 __all__ = [
     # enums
-    "DoctorCheckStatus",
     "ErrorCode",
     "SlotState",
     "SmokeFailurePhase",
