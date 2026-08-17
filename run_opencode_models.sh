@@ -54,6 +54,7 @@ GEMMA4_31B_PORT="8085"
 # Model-specific defaults
 SUMMARY_BALANCED_CHAT_TEMPLATE_KWARGS='{"enable_thinking":true}'
 GEMMA4_CHAT_TEMPLATE_KWARGS='{"enable_thinking":true}'
+DEFAULT_REASONING_EFFORT="medium"
 
 # Server defaults
 DEFAULT_N_GPU_LAYERS=99                  # Max GPU layers for fastest inference
@@ -310,6 +311,23 @@ append_qwen35_mtp_spec_flags() {
 # HELPER FUNCTIONS
 # ============================================================
 
+merge_chat_template_kwargs() {
+  local kwargs="${1:-}"
+  local effort="${2:-$DEFAULT_REASONING_EFFORT}"
+  python3 -c '
+import json, sys
+raw = sys.argv[1]
+effort = sys.argv[2]
+parsed = json.loads(raw) if raw.strip() else {}
+if not isinstance(parsed, dict):
+    raise SystemExit("chat_template_kwargs must be a JSON object")
+if "reasoning_effort" in parsed:
+    raise SystemExit("reasoning_effort must not appear in chat_template_kwargs JSON; set DEFAULT_REASONING_EFFORT")
+parsed["reasoning_effort"] = effort
+print(json.dumps(parsed, separators=(",", ":")))
+' "$kwargs" "$effort"
+}
+
 build_server_cmd() {
   local -n cmd_ref="$1"
   local model="$2"
@@ -352,7 +370,9 @@ build_server_cmd() {
   [[ -n "$reasoning_format" ]] && cmd_ref+=(--reasoning-format "$reasoning_format")
 
   [[ -n "$tensor_split" ]] && cmd_ref+=(--tensor-split "$tensor_split")
-  [[ -n "$chat_template_kwargs" ]] && cmd_ref+=(--chat-template-kwargs "$chat_template_kwargs")
+  local merged_kwargs
+  merged_kwargs="$(merge_chat_template_kwargs "$chat_template_kwargs" "$DEFAULT_REASONING_EFFORT")"
+  cmd_ref+=(--chat-template-kwargs "$merged_kwargs")
   [[ -n "$reasoning_budget" ]] && cmd_ref+=(--reasoning-budget "$reasoning_budget")
   [[ -n "$mmproj_path" ]] && cmd_ref+=(--mmproj "$mmproj_path")
   [[ "$use_jinja" == "true" ]] && cmd_ref+=(--jinja)
