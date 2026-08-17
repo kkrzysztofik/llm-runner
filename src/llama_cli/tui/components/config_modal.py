@@ -11,6 +11,11 @@ from textual.widgets import Button, Checkbox, Input, Label, Select
 from llama_manager.build_pipeline.models import SOURCE_FLAVOR_DEFAULTS
 from llama_manager.config import Config
 from llama_manager.config.load_mode import LOAD_MODE_VALUES
+from llama_manager.config.reasoning_effort import (
+    REASONING_EFFORT_JSON_CONFLICT,
+    REASONING_EFFORT_VALUES,
+    chat_template_kwargs_has_reasoning_effort,
+)
 from llama_manager.config.server import SPLIT_MODE_VALUES
 from llama_manager.config.tri_state import TRI_STATE_VALUES
 
@@ -64,6 +69,7 @@ class ConfigPayload:
     default_reasoning_format: str = ""
     default_reasoning_budget: str = ""
     default_reasoning_preserve: str = "auto"
+    default_reasoning_effort: str = "medium"
     default_reasoning_budget_message: str = ""
     default_use_jinja: bool = False
     default_profile_chat_template_kwargs: str = ""
@@ -131,6 +137,7 @@ class ConfigPayload:
             "server_defaults.reasoning_format": self.default_reasoning_format,
             "server_defaults.reasoning_budget": self.default_reasoning_budget,
             "server_defaults.reasoning_preserve": self.default_reasoning_preserve,
+            "server_defaults.reasoning_effort": self.default_reasoning_effort,
             "server_defaults.reasoning_budget_message": self.default_reasoning_budget_message,
             "server_defaults.use_jinja": self.default_use_jinja,
             "server_defaults.chat_template_kwargs": self.default_profile_chat_template_kwargs,
@@ -192,8 +199,12 @@ def _validate_config_payload(payload: ConfigPayload) -> list[str]:
         errors.append(f"Invalid split mode: {payload.default_split_mode!r}")
     if payload.default_reasoning_preserve not in TRI_STATE_VALUES:
         errors.append(f"Invalid reasoning preserve: {payload.default_reasoning_preserve!r}")
+    if payload.default_reasoning_effort not in REASONING_EFFORT_VALUES:
+        errors.append(f"Invalid thinking level: {payload.default_reasoning_effort!r}")
     if payload.default_fit not in TRI_STATE_VALUES:
         errors.append(f"Invalid fit: {payload.default_fit!r}")
+    if chat_template_kwargs_has_reasoning_effort(payload.default_profile_chat_template_kwargs):
+        errors.append(REASONING_EFFORT_JSON_CONFLICT)
 
     optional_int_fields = (
         ("ctx checkpoints", payload.default_ctx_checkpoints),
@@ -506,6 +517,9 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             ).value.strip(),
             default_reasoning_preserve=str(
                 self.query_one("#cfg-default_reasoning_preserve", Select).value or "auto"
+            ),
+            default_reasoning_effort=str(
+                self.query_one("#cfg-default_reasoning_effort", Select).value or "medium"
             ),
             default_reasoning_budget_message=self.query_one(
                 "#cfg-default_reasoning_budget_message", Input

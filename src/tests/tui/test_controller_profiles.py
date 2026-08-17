@@ -349,6 +349,32 @@ def test_update_run_profile_invalid_chat_template_json(
     assert result is False
 
 
+def test_update_run_profile_reasoning_effort_json_conflict(
+    mock_controller: DashboardController,
+) -> None:
+    """update_run_profile should return False when kwargs JSON contains reasoning_effort."""
+    from llama_manager.config.reasoning_effort import REASONING_EFFORT_JSON_CONFLICT
+
+    payload = SlotProfilePayload(
+        profile_id="my-profile",
+        label="My Profile",
+        model="/models/test.gguf",
+        device="CUDA:0",
+        port=8080,
+        ctx_size=4096,
+        ubatch_size=512,
+        n_gpu_layers="all",
+        threads=8,
+        chat_template_kwargs='{"reasoning_effort":"xhigh"}',
+    )
+
+    result = mock_controller.update_slot_profile("original-id", payload)
+    assert result is False
+    assert any(
+        REASONING_EFFORT_JSON_CONFLICT in msg for _, msg in mock_controller.model.status_messages
+    )
+
+
 def test_update_run_profile_invalid_ngl_string(mock_controller: DashboardController) -> None:
     """update_run_profile should return False for non-integer n_gpu_layers."""
     payload = SlotProfilePayload(

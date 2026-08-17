@@ -8,6 +8,10 @@ from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.widgets import Checkbox, Collapsible, Input, Label, Select
 
+from llama_manager.config.reasoning_effort import (
+    REASONING_EFFORT_DEFAULT,
+    REASONING_EFFORT_VALUES,
+)
 from llama_manager.config.server import SPLIT_MODE_VALUES
 
 if TYPE_CHECKING:
@@ -53,6 +57,10 @@ REASONING_PRESERVE_CHOICES: tuple[tuple[str, str], ...] = (
     ("auto", "auto"),
     ("on", "on"),
     ("off", "off"),
+)
+
+REASONING_EFFORT_CHOICES: tuple[tuple[str, str], ...] = tuple(
+    (value, value) for value in ("xhigh", "medium", "low") if value in REASONING_EFFORT_VALUES
 )
 
 FIT_CHOICES: tuple[tuple[str, str], ...] = (
@@ -228,6 +236,7 @@ def config_profile_prefill(config: Config) -> dict[str, str]:
         "no-host-buffer": "true" if defaults.no_host_buffer else "false",
         "ui": "true" if defaults.ui else "false",
         "reasoning-preserve": defaults.reasoning_preserve,
+        "reasoning-effort": defaults.reasoning_effort,
         "reasoning-budget-message": defaults.reasoning_budget_message,
         "fit": defaults.fit,
         "ctx-checkpoints": _optional_numeric_display(defaults.ctx_checkpoints),
@@ -554,6 +563,16 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             id_prefix=prefix,
             label_classes=cfg_label,
             row_classes=cfg_row,
+        ),
+        select_row(
+            "Thinking level",
+            "default_reasoning_effort",
+            REASONING_EFFORT_CHOICES,
+            defaults.reasoning_effort or REASONING_EFFORT_DEFAULT,
+            id_prefix=prefix,
+            label_classes=cfg_label,
+            input_classes=cfg_select,
+            row_classes=cfg_row_select,
         ),
         field_row(
             "Chat template kwargs",

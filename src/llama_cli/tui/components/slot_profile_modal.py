@@ -15,6 +15,11 @@ from llama_manager.config import Config
 from llama_manager.config.launch_runtime import LaunchRuntimeFields
 from llama_manager.config.load_mode import LOAD_MODE_VALUES
 from llama_manager.config.profiles import SlotProfileSpec
+from llama_manager.config.reasoning_effort import (
+    REASONING_EFFORT_JSON_CONFLICT,
+    REASONING_EFFORT_VALUES,
+    chat_template_kwargs_has_reasoning_effort,
+)
 from llama_manager.config.server import SPLIT_MODE_VALUES
 from llama_manager.config.spec_decode import SpeculativeDecodingConfig, spec_type_members
 from llama_manager.config.tri_state import TRI_STATE_VALUES
@@ -24,6 +29,7 @@ from .form_widgets import (
     FIT_CHOICES,
     LOAD_MODE_CHOICES,
     MODAL_CANCEL_BINDINGS,
+    REASONING_EFFORT_CHOICES,
     REASONING_FORMAT_CHOICES,
     REASONING_MODE_CHOICES,
     REASONING_PRESERVE_CHOICES,
@@ -373,6 +379,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             "reasoning-format": spec_decode.reasoning_format,
             "reasoning-budget": spec_decode.reasoning_budget,
             "reasoning-preserve": runtime.reasoning_preserve,
+            "reasoning-effort": runtime.reasoning_effort,
             "reasoning-budget-message": runtime.reasoning_budget_message,
             "use-jinja": "true" if spec.use_jinja else "false",
             "cache-type-k": spec.cache_type_k,
@@ -447,15 +454,23 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
         reasoning_preserve = str(
             self.query_one("#profile-reasoning-preserve", Select).value or "auto"
         )
+        reasoning_effort = str(
+            self.query_one("#profile-reasoning-effort", Select).value or "medium"
+        )
         fit = str(self.query_one("#profile-fit", Select).value or "auto")
         self._validate_enum("load mode", load_mode, LOAD_MODE_VALUES)
         self._validate_enum("split mode", split_mode, SPLIT_MODE_VALUES)
         self._validate_enum("reasoning preserve", reasoning_preserve, TRI_STATE_VALUES)
+        self._validate_enum("thinking level", reasoning_effort, REASONING_EFFORT_VALUES)
         self._validate_enum("fit", fit, TRI_STATE_VALUES)
 
         ctx_checkpoints = self._parse_optional_int("profile-ctx-checkpoints")
         if ctx_checkpoints is not None and ctx_checkpoints < 0:
             raise ValueError("Ctx checkpoints must be non-negative")
+
+        chat_template_kwargs = self.query_one("#profile-chat-template-kwargs", Input).value.strip()
+        if chat_template_kwargs_has_reasoning_effort(chat_template_kwargs):
+            raise ValueError(REASONING_EFFORT_JSON_CONFLICT)
 
         return SlotProfilePayload(
             profile_id=self.query_one("#profile-profile-id", Input).value.strip(),
@@ -467,9 +482,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             ubatch_size=self._parse_int("profile-ubatch-size", 512),
             n_gpu_layers=ngl_val,
             threads=self._parse_int("profile-threads", 8),
-            chat_template_kwargs=self.query_one(
-                "#profile-chat-template-kwargs", Input
-            ).value.strip(),
+            chat_template_kwargs=chat_template_kwargs,
             device=device_val,
             bind_address=self.query_one("#profile-bind-address", Input).value.strip()
             or "127.0.0.1",
@@ -480,6 +493,7 @@ class SlotProfileModal(ModalScreen[SlotProfilePayload | None]):
             ),
             reasoning_budget=self.query_one("#profile-reasoning-budget", Input).value.strip(),
             reasoning_preserve=reasoning_preserve,
+            reasoning_effort=reasoning_effort,
             reasoning_budget_message=self.query_one(
                 "#profile-reasoning-budget-message", Input
             ).value.strip(),
@@ -719,6 +733,12 @@ def _build_reasoning_fields(prefill: dict[str, str]) -> Collapsible:
             prefill.get("reasoning-budget-message", ""),
         ),
         checkbox_row("Use Jinja", "use-jinja", use_jinja),
+        select_row(
+            "Thinking level",
+            "reasoning-effort",
+            REASONING_EFFORT_CHOICES,
+            prefill.get("reasoning-effort", "medium"),
+        ),
         field_row(
             "Chat Template Kwargs (JSON, optional)",
             "chat-template-kwargs",
@@ -965,6 +985,8 @@ def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -
         raise ValueError(f"Invalid split mode: {payload.split_mode!r}")
     if payload.reasoning_preserve not in TRI_STATE_VALUES:
         raise ValueError(f"Invalid reasoning preserve: {payload.reasoning_preserve!r}")
+    if payload.reasoning_effort not in REASONING_EFFORT_VALUES:
+        raise ValueError(f"Invalid thinking level: {payload.reasoning_effort!r}")
     if payload.fit not in TRI_STATE_VALUES:
         raise ValueError(f"Invalid fit: {payload.fit!r}")
     if payload.ctx_checkpoints is not None and payload.ctx_checkpoints < 0:
@@ -1023,6 +1045,7 @@ def payload_to_slot_profile_spec(profile_id: str, payload: SlotProfilePayload) -
         no_host_buffer=payload.no_host_buffer,
         ui=payload.ui,
         reasoning_preserve=payload.reasoning_preserve,
+        reasoning_effort=payload.reasoning_effort,
         reasoning_budget_message=payload.reasoning_budget_message,
         fit=payload.fit,
         ctx_checkpoints=payload.ctx_checkpoints,

@@ -89,6 +89,7 @@ def _print_resolved_slot(
         emit_info(f"  Reasoning: {spec.reasoning_mode}")
     if spec.reasoning_format != "none":
         emit_info(f"  Reasoning Format: {spec.reasoning_format}")
+    emit_info(f"  Thinking level: {server_cfg.reasoning_effort}")
     if server_cfg.use_jinja:
         emit_info(f"  Jinja: {server_cfg.use_jinja}")
     if server_cfg.chat_template_kwargs:

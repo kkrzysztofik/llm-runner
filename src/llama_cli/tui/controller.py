@@ -41,6 +41,10 @@ from llama_manager.build_pipeline import (
     run_build_for_backend,
 )
 from llama_manager.config.profiles import resolve_profile_id
+from llama_manager.config.reasoning_effort import (
+    REASONING_EFFORT_JSON_CONFLICT,
+    chat_template_kwargs_has_reasoning_effort,
+)
 from llama_manager.logging_setup import (
     suppress_build_pipeline_stderr_for_tui,
     update_file_level,
@@ -855,6 +859,8 @@ class DashboardController:
             return False, profile_id
 
         if not self._validate_chat_template_kwargs(payload.chat_template_kwargs):
+            if chat_template_kwargs_has_reasoning_effort(payload.chat_template_kwargs):
+                self._push_status_message(REASONING_EFFORT_JSON_CONFLICT)
             return False, profile_id
 
         return True, profile_id
@@ -872,14 +878,14 @@ class DashboardController:
 
     @staticmethod
     def _validate_chat_template_kwargs(ctk: str) -> bool:
-        """Return True when *ctk* is empty, a non-string, or valid JSON."""
+        """Return True when *ctk* is empty, a non-string, or valid JSON without reasoning_effort."""
         if not ctk or not isinstance(ctk, str):
             return True
         try:
             json.loads(ctk)
         except TypeError, ValueError:
             return False
-        return True
+        return not chat_template_kwargs_has_reasoning_effort(ctk)
 
     def _profile_id_exists(self, profile_id: str) -> bool:
         from llama_manager.config.builder import create_tui_profile_registry

@@ -909,6 +909,11 @@ class TestControllerProfileValidation:
         """_validate_chat_template_kwargs should accept valid JSON."""
         assert _make_controller()._validate_chat_template_kwargs('{"key": "value"}') is True
 
+    def test_validate_chat_template_kwargs_rejects_reasoning_effort_key(self) -> None:
+        ctrl = _make_controller()
+        assert ctrl._validate_chat_template_kwargs('{"reasoning_effort":"low"}') is False
+        assert ctrl._validate_chat_template_kwargs('{"preserve_thinking":true}') is True
+
     def test_validate_chat_template_kwargs_invalid_json(self) -> None:
         """_validate_chat_template_kwargs should reject invalid JSON."""
         assert _make_controller()._validate_chat_template_kwargs("not json") is False
@@ -953,6 +958,31 @@ class TestControllerProfileValidation:
             n_gpu_layers="all",
             threads=8,
             chat_template_kwargs="invalid json {",
+            device="CUDA:0",
+            save_and_add_slot=False,
+            original_profile_id="",
+        )
+        controller = _make_controller()
+
+        result = controller.save_slot_profile_from_form(payload)
+
+        assert result is False
+
+    def test_save_profile_reasoning_effort_json_conflict_returns_false(self) -> None:
+        """save_slot_profile_from_form should reject JSON that contains reasoning_effort."""
+        from llama_cli.tui.components.slot_profile_modal import SlotProfilePayload
+
+        payload = SlotProfilePayload(
+            profile_id="my-profile",
+            label="My Profile",
+            server_bin="",
+            model="/data/models/model.gguf",
+            port=1024,
+            ctx_size=4096,
+            ubatch_size=512,
+            n_gpu_layers="all",
+            threads=8,
+            chat_template_kwargs='{"reasoning_effort":"xhigh"}',
             device="CUDA:0",
             save_and_add_slot=False,
             original_profile_id="",

@@ -1012,6 +1012,29 @@ def test_dry_run_exits_when_backend_validation_fails() -> None:
     assert exc.value.code == 1
 
 
+def test_print_resolved_slot_includes_thinking_level(capsys: pytest.CaptureFixture[str]) -> None:
+    """Dry-run slot print always includes Thinking level from ServerConfig."""
+    from llama_cli.commands.dry_run import _print_resolved_slot
+    from llama_manager.validation import build_dry_run_slot_payload
+    from tests.support.helpers import make_server_config
+
+    server_cfg = make_server_config(
+        alias="summary-balanced",
+        model="/models/qwen3.5-2b.gguf",
+        port=8080,
+    )
+    payload = build_dry_run_slot_payload(
+        server_cfg,
+        slot_id="summary-balanced",
+        validation_results=None,
+        warnings=[],
+    )
+    _print_resolved_slot("summary-balanced", server_cfg, payload)
+
+    captured = capsys.readouterr()
+    assert "Thinking level: medium" in captured.out
+
+
 def test_tui_run_exits_when_launch_is_blocked() -> None:
     safe_cfg = ServerConfig(
         model="/home/kmk/models/test-model.gguf",

@@ -46,6 +46,7 @@ def test_payload_defaults() -> None:
     assert payload.load_mode == "auto"
     assert payload.split_mode == "layer"
     assert payload.reasoning_preserve == "auto"
+    assert payload.reasoning_effort == "medium"
     assert payload.reasoning_budget_message == ""
     assert payload.fit == "auto"
     assert payload.ctx_checkpoints is None
@@ -64,6 +65,7 @@ def test_payload_new_fields_map_to_flat_profile_fields() -> None:
         load_mode="mmap+mlock",
         split_mode="row",
         reasoning_preserve="on",
+        reasoning_effort="low",
         reasoning_budget_message="think carefully",
         fit="off",
         ctx_checkpoints=4,
@@ -80,6 +82,7 @@ def test_payload_new_fields_map_to_flat_profile_fields() -> None:
     assert spec.load_mode == "mmap+mlock"
     assert spec.split_mode == "row"
     assert spec.reasoning_preserve == "on"
+    assert spec.reasoning_effort == "low"
     assert spec.reasoning_budget_message == "think carefully"
     assert spec.fit == "off"
     assert spec.ctx_checkpoints == 4
@@ -113,6 +116,7 @@ def test_payload_empty_optional_values_remain_unset() -> None:
         ("load_mode", "bogus"),
         ("split_mode", "bogus"),
         ("reasoning_preserve", "bogus"),
+        ("reasoning_effort", "high"),
         ("fit", "bogus"),
     ),
 )
@@ -245,6 +249,20 @@ def test_modal_collects_values_defaults() -> None:
         payload = instance._collect_values(save_and_add_slot=False)
 
     assert payload.n_gpu_layers == 0
+
+
+@pytest.mark.anyio
+async def test_modal_collects_reasoning_effort_default() -> None:
+    """After compose, Thinking level Select defaults to medium."""
+    modal = RunProfileModal()
+    app = App[None]()
+
+    async with app.run_test() as pilot:
+        await app.push_screen(modal)
+        await pilot.pause()
+        select = modal.query_one("#profile-reasoning-effort", Select)
+
+    assert select.value == "medium"
 
 
 # ---------------------------------------------------------------------------
