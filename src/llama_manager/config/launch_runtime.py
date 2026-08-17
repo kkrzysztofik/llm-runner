@@ -19,6 +19,7 @@ class LaunchRuntimeFields:
     ui: bool = field(default=False, kw_only=True)
     reasoning_preserve: str = field(default="auto", kw_only=True)
     reasoning_budget_message: str = field(default="", kw_only=True)
+    reasoning_effort: str = field(default="medium", kw_only=True)
     fit: str = field(default="auto", kw_only=True)
     ctx_checkpoints: int | None = field(default=None, kw_only=True)
     temperature: float | None = field(default=None, kw_only=True)

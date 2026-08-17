@@ -61,6 +61,14 @@ from .profiles import (
     resolve_backend_from_profile,
     resolve_profile_id,
 )
+from .reasoning_effort import (
+    REASONING_EFFORT_DEFAULT,
+    REASONING_EFFORT_JSON_CONFLICT,
+    REASONING_EFFORT_VALUES,
+    chat_template_kwargs_has_reasoning_effort,
+    merge_chat_template_kwargs,
+    resolve_reasoning_effort,
+)
 from .server import (
     ModelSlot,
     ServerConfig,
@@ -90,6 +98,12 @@ __all__ = [
     "spec_type_members",
     "LOAD_MODE_VALUES",
     "resolve_load_mode",
+    "REASONING_EFFORT_DEFAULT",
+    "REASONING_EFFORT_JSON_CONFLICT",
+    "REASONING_EFFORT_VALUES",
+    "chat_template_kwargs_has_reasoning_effort",
+    "merge_chat_template_kwargs",
+    "resolve_reasoning_effort",
     "TRI_STATE_VALUES",
     "resolve_tri_state",
     "resolve_reasoning_preserve",

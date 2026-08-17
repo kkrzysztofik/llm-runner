@@ -7,6 +7,7 @@ from ..common.validators import validate_port_range
 from .errors import ErrorCode, ErrorDetail
 from .launch_runtime import LaunchRuntimeFields, apply_launch_runtime, split_launch_runtime_kwargs
 from .load_mode import LOAD_MODE_VALUES
+from .reasoning_effort import REASONING_EFFORT_VALUES
 from .spec_decode import (
     SpeculativeDecodingConfig,
     resolve_speculative_decoding_config,
@@ -175,6 +176,8 @@ class ServerConfig(LaunchRuntimeFields):
             self.load_mode = "auto"
         if self.reasoning_preserve not in TRI_STATE_VALUES:
             self.reasoning_preserve = "auto"
+        if self.reasoning_effort not in REASONING_EFFORT_VALUES:
+            self.reasoning_effort = "medium"
         if self.fit not in TRI_STATE_VALUES:
             self.fit = "auto"
         if self.split_mode not in SPLIT_MODE_VALUES:
