@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
+from llama_cli.tui.components.system_health import _content_width
 from llama_cli.tui.model import DashboardModel
 from llama_cli.tui.types import (
     CommandMenuState,
@@ -18,7 +19,6 @@ from llama_cli.tui.types import (
 )
 from llama_cli.tui.viewmodel import BACKEND_LABELS, DashboardViewModel
 from llama_manager import ServerConfig, SlotState
-from llama_manager.build_pipeline import BuildConfig
 from llama_manager.slot_stats import SlotStatsSnapshot
 
 # ──────────────────────────────────────────────
@@ -66,14 +66,9 @@ def _make_viewmodel(
 
     # Default attribute stubs
     model.risk_prompt = None
-    model.build_request = False
-    model.build_selected_backends = None
     model.build_in_progress = False
-    model.build_result = None
     model.build_error = None
     model.build_selected_backends_options = {}
-    model.build_stage = None
-    model.build_progress_percent = 0.0
     model.slot_states = {}
     model.server_processes = {}
     model.log_buffers = {cfg.alias: MagicMock() for cfg in configs}
@@ -128,13 +123,12 @@ def test_viewmodel_init() -> None:
 
 
 def test_command_menu_default() -> None:
-    """command_menu should return CommandMenuState with None risk_prompt and False build_request."""
+    """command_menu should return CommandMenuState with None risk_prompt."""
     vm = _make_viewmodel()
     result = vm.command_menu()
 
     assert isinstance(result, CommandMenuState)
     assert result.risk_prompt is None
-    assert result.build_request is False
 
 
 def test_command_menu_with_risk_prompt() -> None:
@@ -144,51 +138,6 @@ def test_command_menu_with_risk_prompt() -> None:
     result = vm.command_menu()
 
     assert result.risk_prompt is risk
-    assert result.build_request is False
-
-
-def test_command_menu_with_build_request() -> None:
-    """command_menu should reflect build_request=True from model."""
-    vm = _make_viewmodel(build_request=True)
-    result = vm.command_menu()
-
-    assert result.build_request is True
-
-
-# ──────────────────────────────────────────────
-# gpu_telemetry_lines
-# ──────────────────────────────────────────────
-
-
-def test_gpu_telemetry_lines_empty() -> None:
-    """gpu_telemetry_lines should return empty list when no GPUs."""
-    vm = _make_viewmodel(gpu_stats=[])
-    result = vm.gpu_telemetry_lines()
-    assert result == []
-
-
-def test_gpu_telemetry_lines_single_gpu() -> None:
-    """gpu_telemetry_lines should format cached GPU snapshots."""
-    vm = _make_viewmodel(gpu_stats_by_alias={"gpu0": {"device": "GPU0", "gpu_util": "50%"}})
-    result = vm.gpu_telemetry_lines()
-
-    assert result == ["Device: GPU0\nGPU: 50% | Mem: N/A"]
-
-
-def test_gpu_telemetry_lines_multiple_gpus() -> None:
-    """gpu_telemetry_lines should collect lines from cached GPU snapshots."""
-    vm = _make_viewmodel(
-        gpu_stats_by_alias={
-            "gpu0": {"device": "GPU0", "gpu_util": "45%"},
-            "gpu1": {"device": "GPU1", "gpu_util": "72%"},
-        }
-    )
-    result = vm.gpu_telemetry_lines()
-
-    assert result == [
-        "Device: GPU0\nGPU: 45% | Mem: N/A",
-        "Device: GPU1\nGPU: 72% | Mem: N/A",
-    ]
 
 
 # ──────────────────────────────────────────────
@@ -213,80 +162,6 @@ def test_server_column_count_multiple() -> None:
     configs = [_make_server_config(alias=f"server-{i}") for i in range(3)]
     vm = _make_viewmodel(configs=configs)
     assert vm.server_column_count() == 3
-
-
-# ──────────────────────────────────────────────
-# can_select_build_target
-# ──────────────────────────────────────────────
-
-
-def test_can_select_no_request() -> None:
-    """can_select_build_target should be False when build_request is False."""
-    vm = _make_viewmodel(build_request=False)
-    assert vm.can_select_build_target() is False
-
-
-def test_can_select_no_selection() -> None:
-    """can_select_build_target should be True when request is set but no selection."""
-    vm = _make_viewmodel(build_request=True, build_selected_backends=None)
-    assert vm.can_select_build_target() is True
-
-
-def test_can_select_with_selection() -> None:
-    """can_select_build_target should be False when backends are already selected."""
-    vm = _make_viewmodel(
-        build_request=True,
-        build_selected_backends=["sycl"],
-    )
-    assert vm.can_select_build_target() is False
-
-
-# ──────────────────────────────────────────────
-# Build properties (pass-through)
-# ──────────────────────────────────────────────
-
-
-def test_build_selected_backends_property() -> None:
-    """build_selected_backends should pass through model value."""
-    vm = _make_viewmodel(build_selected_backends=["cuda"])
-    assert vm.build_selected_backends == ["cuda"]
-
-
-def test_build_in_progress_property() -> None:
-    """build_in_progress should reflect model state."""
-    vm = _make_viewmodel(build_in_progress=True)
-    assert vm.build_in_progress is True
-
-
-def test_build_result_property() -> None:
-    """build_result should pass through model value."""
-    vm = _make_viewmodel(build_result="success")
-    assert vm.build_result == "success"
-
-
-def test_build_error_property() -> None:
-    """build_error should pass through model value."""
-    vm = _make_viewmodel(build_error="compile failed")
-    assert vm.build_error == "compile failed"
-
-
-def test_build_stage_property() -> None:
-    """build_stage should pass through model value."""
-    vm = _make_viewmodel(build_stage="cmake")
-    assert vm.build_stage == "cmake"
-
-
-def test_build_progress_percent_property() -> None:
-    """build_progress_percent should pass through model value."""
-    vm = _make_viewmodel(build_progress_percent=75.5)
-    assert vm.build_progress_percent == 75.5
-
-
-def test_build_selected_backends_options_property() -> None:
-    """build_selected_backends_options should pass through model value."""
-    options: dict[str, BuildConfig | None] = {"sycl": None}
-    vm = _make_viewmodel(build_selected_backends_options=options)
-    assert vm.build_selected_backends_options is options
 
 
 # ──────────────────────────────────────────────
@@ -356,25 +231,10 @@ def test_cpu_usage_rows_skips_sparse_grid_tail() -> None:
 
 def test_content_width_clamps_invalid_and_large_values() -> None:
     """_content_width should use stable minimum/default/maximum bounds."""
-    assert DashboardViewModel._content_width(None) == 116
-    assert DashboardViewModel._content_width(0) == 116
-    assert DashboardViewModel._content_width(10) == 40
-    assert DashboardViewModel._content_width(999) == 240
-
-
-def test_format_gpu_stats_text_includes_temp_and_power() -> None:
-    """_format_gpu_stats_text should include optional temperature and power rows."""
-    result = DashboardViewModel._format_gpu_stats_text(
-        {
-            "device": "GPU0",
-            "gpu_util": "50%",
-            "mem_util": "25%",
-            "temp": "60C",
-            "power": "120W",
-        }
-    )
-
-    assert result == "Device: GPU0\nGPU: 50% | Mem: 25%\nTemp: 60C\nPower: 120W"
+    assert _content_width(None) == 116
+    assert _content_width(0) == 116
+    assert _content_width(10) == 40
+    assert _content_width(999) == 240
 
 
 # ──────────────────────────────────────────────
@@ -435,9 +295,10 @@ def test_dashboard_model_system_health_reads_cached_snapshots() -> None:
         patch("llama_manager.collect_memory_usage") as collect_memory,
         patch("llama_manager.collect_system_info") as collect_system,
     ):
-        assert model.cpu_percentages() == [42.5]
-        assert model.memory_usage_rows() == memory
-        assert model.system_info_snapshot() is system
+        snapshot = model.dashboard_snapshot()
+        assert snapshot.cpu_percentages == [42.5]
+        assert snapshot.memory_usage_rows == memory
+        assert snapshot.system_info is system
 
     collect_cpu.assert_not_called()
     collect_memory.assert_not_called()
@@ -472,7 +333,7 @@ def test_dashboard_model_gpu_and_slot_cache_helpers() -> None:
 
     model.set_cached_gpu_stats("code", gpu_stats)
     gpu_stats["gpu_util"] = "99%"
-    model.set_cached_slot_stats("code", slot_stats)
+    model.apply_slot_stats_snapshot({"code": slot_stats})
     slot_snapshot = model.slot_stats_snapshot()
     slot_snapshot.clear()
     model.remove_cached_gpu_stats("missing")
@@ -481,8 +342,7 @@ def test_dashboard_model_gpu_and_slot_cache_helpers() -> None:
     assert model.slot_stats_snapshot() == {"code": slot_stats}
 
     model.remove_cached_gpu_stats("code")
-    with model.system_health_lock:
-        model.cached_slot_stats_by_alias.clear()
+    model.apply_slot_stats_snapshot({}, live_aliases=set())
     assert model.dashboard_snapshot().gpu_stats_by_alias.get("code") is None
     assert model.slot_stats_snapshot() == {}
 
@@ -512,14 +372,11 @@ def test_dashboard_model_live_collectors_normalize_non_float_percentages() -> No
         ),
     ):
         cpu, memory_rows, system = model.collect_system_health_snapshot()
-        memory_now = model.collect_memory_usage_rows_now()
-        system_now = model.collect_system_info_snapshot_now()
 
     assert cpu == [10.0]
     assert [row.percent for row in memory_rows] == [0.0, 3.5]
-    assert [row.percent for row in memory_now] == [0.0, 3.5]
     assert system.tasks == 1
-    assert system_now.uptime == "1:00"
+    assert system.uptime == "1:00"
 
 
 def test_current_datetime_snapshot() -> None:
@@ -648,7 +505,6 @@ def test_column_valid() -> None:
     assert result.config_summary == "Device: SYCL0 | Ctx: 8192 | Threads: 4"
     assert result.profile_name == "my-server"
     assert result.status_label == "Running"
-    assert result.log_lines == ()
     assert result.runtime_stats == SlotRuntimeStats(
         tps="--",
         pp="--",
@@ -825,33 +681,33 @@ def test_resolve_slot_status_running_with_dead_process() -> None:
 
 
 # ──────────────────────────────────────────────
-# _content_width (static method)
+# _content_width (system_health module helper)
 # ──────────────────────────────────────────────
 
 
 def test_content_width_none() -> None:
     """_content_width with None should return default 116."""
-    assert DashboardViewModel._content_width(None) == 116
+    assert _content_width(None) == 116
 
 
 def test_content_width_zero() -> None:
     """_content_width with 0 should return default 116."""
-    assert DashboardViewModel._content_width(0) == 116
+    assert _content_width(0) == 116
 
 
 def test_content_width_normal() -> None:
     """_content_width with normal value should return the value."""
-    assert DashboardViewModel._content_width(80) == 80
+    assert _content_width(80) == 80
 
 
 def test_content_width_upper_cap() -> None:
     """_content_width should cap at 240."""
-    assert DashboardViewModel._content_width(300) == 240
+    assert _content_width(300) == 240
 
 
 def test_content_width_lower_cap() -> None:
     """_content_width should cap at 40."""
-    assert DashboardViewModel._content_width(10) == 40
+    assert _content_width(10) == 40
 
 
 # ──────────────────────────────────────────────

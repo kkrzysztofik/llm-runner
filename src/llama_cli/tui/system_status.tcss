@@ -179,28 +179,3 @@
 .system-info-muted-value {
     color: ansi_bright_black;
 }
-
-.gpu-telemetry {
-    height: 1;
-}
-
-.gpu-telemetry-row {
-    height: 1;
-    layout: horizontal;
-}
-
-.gpu-telemetry-label {
-    width: auto;
-    margin-right: 1;
-    color: ansi_bright_yellow;
-    text-style: bold;
-}
-
-.gpu-telemetry-value {
-    width: 1fr;
-    color: ansi_bright_yellow;
-}
-
-.gpu-telemetry.hidden {
-    display: none;
-}

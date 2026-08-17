@@ -19,7 +19,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from llama_cli.tui import DashboardController
-from llama_manager import ModelSlot, SlotState
 from tests.support.helpers import make_server_config
 
 if TYPE_CHECKING:
@@ -93,7 +92,7 @@ class TestControllerStatusMessages:
 
         controller._push_status_message("test message")
 
-        messages = controller._status_messages
+        messages = controller.model.status_messages
         assert len(messages) == 1
         assert messages[0][1] == "test message"
 
@@ -102,7 +101,7 @@ class TestControllerStatusMessages:
         controller = _make_controller()
 
         controller._push_status_message("old message")
-        old_ts = controller._status_messages[0][0]
+        old_ts = controller.model.status_messages[0][0]
 
         # Small delay to ensure new message has later timestamp
         import time
@@ -121,7 +120,7 @@ class TestControllerStatusMessages:
         for i in range(10):
             controller._push_status_message(f"message {i}")
 
-        messages = controller._status_messages
+        messages = controller.model.status_messages
         assert len(messages) <= 5
 
     def test_push_status_message_triggers_refresh(self) -> None:
@@ -130,7 +129,7 @@ class TestControllerStatusMessages:
 
         # Should not raise
         controller._push_status_message("refresh test")
-        assert len(controller._status_messages) == 1
+        assert len(controller.model.status_messages) == 1
 
 
 class TestControllerSlotStats:
@@ -179,7 +178,7 @@ class TestControllerSlotStats:
         stats = SlotStatsSnapshot("slot0", 8080, 10.0, tokens_in=10, tokens_out=4)
         process = MagicMock()
         process.pid = 1234
-        controller.server_processes["slot0"] = process
+        controller.model.server_processes["slot0"] = process
         saved_slots = MagicMock()
         saved_profiles = MagicMock()
         monkeypatch.setattr(
@@ -322,7 +321,7 @@ class TestControllerSlotStats:
     def test_profile_stats_session_id_uses_alias_without_positive_pid(self) -> None:
         """_profile_stats_session_id should fall back to alias when pid is absent."""
         controller = _make_controller()
-        controller.server_processes["slot0"] = MagicMock(pid=0)
+        controller.model.server_processes["slot0"] = MagicMock(pid=0)
 
         assert controller._profile_stats_session_id("slot0") == "slot0"
         assert controller._profile_stats_session_id("missing") == "missing"
@@ -462,142 +461,8 @@ class TestControllerRiskHandling:
         assert controller.running is False
 
 
-class TestControllerSlotTransition:
-    """Tests for DashboardController.handle_slot_transition."""
-
-    def test_transition_pushes_status_message(self) -> None:
-        """handle_slot_transition should push a status message for valid transitions."""
-        controller = _make_controller()
-
-        controller.handle_slot_transition("slot0", SlotState.RUNNING)
-
-        messages = controller._status_messages
-        assert len(messages) >= 1
-
-    def test_same_state_no_message(self) -> None:
-        """handle_slot_transition should not push a message for same-state."""
-        controller = _make_controller()
-        controller.slot_states["slot0"] = SlotState.RUNNING.value
-
-        controller.handle_slot_transition("slot0", SlotState.RUNNING)
-
-        # No new message should be added for same-state
-        messages = controller._status_messages
-        # The count should be the same (no new message for same-state)
-        assert len(messages) == 0
-
-    def test_transition_updates_state(self) -> None:
-        """handle_slot_transition should update slot_states."""
-        controller = _make_controller()
-
-        controller.handle_slot_transition("slot0", SlotState.RUNNING)
-
-        assert controller.slot_states["slot0"] == SlotState.RUNNING.value
-
-    def test_transition_launched_pushes_message(self) -> None:
-        """Transition to RUNNING should push a 'launched' message."""
-        controller = _make_controller()
-
-        controller.handle_slot_transition("slot0", SlotState.RUNNING)
-
-        messages = controller._status_messages
-        assert any("launched" in msg.lower() for _, msg in messages)
-
-    def test_transition_no_result_returns_early(self) -> None:
-        """handle_slot_transition should return early for invalid transitions."""
-        controller = _make_controller()
-
-        # offline → running is not a valid transition (no message pushed)
-        controller.slot_states["slot0"] = SlotState.OFFLINE.value
-        controller.handle_slot_transition("slot0", SlotState.RUNNING)
-
-        # Should not raise
-
-
-class TestControllerRemoveLiveSlot:
-    """Tests for DashboardController.remove_live_slot."""
-
-    def test_remove_live_slot_success_updates_state_and_status(self) -> None:
-        controller = _make_controller()
-        controller.model.server_manager = MagicMock()
-        controller.model.server_manager.shutdown_slot.return_value = True
-        controller.model.server_processes = {"slot0": MagicMock()}
-        controller.model.slot_states = {"slot0": SlotState.RUNNING.value}
-        controller.model.unsaved_slots = {"slot0"}
-        controller.model.slots = [ModelSlot(slot_id="slot0", model_path="/m/slot0.gguf", port=8080)]
-        controller.model.stale_warnings = {"slot0": "stale"}
-
-        success = controller.remove_live_slot("slot0")
-
-        assert success is True
-        assert controller.configs == []
-        assert controller.gpu_indices == []
-        assert controller.gpu_stats == []
-        assert controller.log_buffers == {}
-        assert controller.server_processes == {}
-        assert controller.slot_states == {}
-        assert controller.unsaved_slots == set()
-        assert controller.slots == []
-        assert controller.model.stale_warnings == {}
-        assert any(msg == "Removed slot 'slot0'" for _, msg in controller._status_messages)
-
-    def test_remove_live_slot_shutdown_failure_blocks_removal(self) -> None:
-        controller = _make_controller()
-        controller.model.server_manager = MagicMock()
-        controller.model.server_manager.shutdown_slot.return_value = False
-
-        original_log_buffers = dict(controller.log_buffers)
-        original_server_processes = dict(controller.server_processes)
-        original_slot_states = dict(controller.slot_states)
-        original_unsaved_slots = set(controller.unsaved_slots)
-        original_slots = list(controller.slots)
-
-        success = controller.remove_live_slot("slot0")
-
-        assert success is False
-        assert len(controller.configs) == 1
-        assert len(controller.gpu_indices) == 1
-        assert len(controller.gpu_stats) == 1
-        assert controller.log_buffers == original_log_buffers
-        assert controller.server_processes == original_server_processes
-        assert controller.slot_states == original_slot_states
-        assert controller.unsaved_slots == original_unsaved_slots
-        assert controller.slots == original_slots
-        assert any(
-            msg == "Unable to remove 'slot0': shutdown verification failed"
-            for _, msg in controller._status_messages
-        )
-
-
 class TestControllerBuildLifecycle:
     """Tests for DashboardController build lifecycle methods."""
-
-    def test_build_request_sets_flag(self) -> None:
-        """request_build should set _build_request to True."""
-        controller = _make_controller()
-
-        controller.request_build()
-
-        assert controller._build_request is True
-
-    def test_cancel_pending_prompt_clears_flag(self) -> None:
-        """cancel_pending_prompt should clear _build_request and return True."""
-        controller = _make_controller()
-        controller._build_request = True
-
-        result = controller.cancel_pending_prompt()
-
-        assert result is True
-        assert controller._build_request is False
-
-    def test_cancel_pending_prompt_no_request(self) -> None:
-        """cancel_pending_prompt should return False when no build request."""
-        controller = _make_controller()
-        controller._build_request = False
-
-        result = controller.cancel_pending_prompt()
-
-        assert result is False
 
     def test_stop_sets_running_false(self) -> None:
         """stop should set running to False."""
@@ -653,7 +518,7 @@ class TestControllerSaveConfig:
 
         controller.save_config(self._make_payload())
 
-        texts = [msg for _, msg in controller._status_messages]
+        texts = [msg for _, msg in controller.model.status_messages]
         assert any("Bad value" in t for t in texts)
         # Should NOT push a "Config saved" message
         assert not any("Config saved" in t for t in texts)
@@ -668,7 +533,7 @@ class TestControllerSaveConfig:
 
         controller.save_config(self._make_payload())
 
-        texts = [msg for _, msg in controller._status_messages]
+        texts = [msg for _, msg in controller.model.status_messages]
         assert any("Config saved" in t for t in texts)
 
     def test_no_changes_no_message(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -681,7 +546,7 @@ class TestControllerSaveConfig:
 
         controller.save_config(self._make_payload())
 
-        assert len(controller._status_messages) == 0
+        assert len(controller.model.status_messages) == 0
 
     def test_restart_flag_requests_shutdown_worker(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """save_config with restart=True should return True without stopping on the UI thread."""
@@ -695,7 +560,7 @@ class TestControllerSaveConfig:
         assert controller.save_config(self._make_payload(restart=True)) is True
 
         assert controller.running is True
-        texts = [msg for _, msg in controller._status_messages]
+        texts = [msg for _, msg in controller.model.status_messages]
         assert any("Restarting servers" in t for t in texts)
 
     def test_log_file_level_calls_update_file_level(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -746,7 +611,7 @@ class TestControllerProfileMethods:
         result = controller.save_slot_profile_from_form(self._make_profile_payload(profile_id=""))
 
         assert result is False
-        texts = [msg for _, msg in controller._status_messages]
+        texts = [msg for _, msg in controller.model.status_messages]
         assert any("Profile ID is required" in t for t in texts)
 
     def test_save_profile_empty_model_returns_false(self) -> None:
@@ -756,7 +621,7 @@ class TestControllerProfileMethods:
         result = controller.save_slot_profile_from_form(self._make_profile_payload(model=""))
 
         assert result is False
-        texts = [msg for _, msg in controller._status_messages]
+        texts = [msg for _, msg in controller.model.status_messages]
         assert any("Model path is required" in t for t in texts)
 
     def test_save_profile_invalid_port_returns_false(self) -> None:
@@ -766,7 +631,7 @@ class TestControllerProfileMethods:
         result = controller.save_slot_profile_from_form(self._make_profile_payload(port=80))
 
         assert result is False
-        texts = [msg for _, msg in controller._status_messages]
+        texts = [msg for _, msg in controller.model.status_messages]
         assert any("Port must be between 1024 and 65535" in t for t in texts)
 
     def test_save_profile_zero_ctx_size_returns_false(self) -> None:
@@ -776,7 +641,7 @@ class TestControllerProfileMethods:
         result = controller.save_slot_profile_from_form(self._make_profile_payload(ctx_size=0))
 
         assert result is False
-        texts = [msg for _, msg in controller._status_messages]
+        texts = [msg for _, msg in controller.model.status_messages]
         assert any("must be positive" in t for t in texts)
 
     def test_delete_profile_in_use_returns_false(self) -> None:
@@ -786,7 +651,7 @@ class TestControllerProfileMethods:
         result = controller.delete_slot_profile("slot0")
 
         assert result is False
-        texts = [msg for _, msg in controller._status_messages]
+        texts = [msg for _, msg in controller.model.status_messages]
         assert any("in use" in t for t in texts)
 
     def test_delete_profile_not_found_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -800,7 +665,7 @@ class TestControllerProfileMethods:
         result = controller.delete_slot_profile("nonexistent-profile")
 
         assert result is False
-        texts = [msg for _, msg in controller._status_messages]
+        texts = [msg for _, msg in controller.model.status_messages]
         assert any("not found" in t for t in texts)
 
     def test_delete_profile_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -814,7 +679,7 @@ class TestControllerProfileMethods:
         result = controller.delete_slot_profile("some-other-profile")
 
         assert result is True
-        texts = [msg for _, msg in controller._status_messages]
+        texts = [msg for _, msg in controller.model.status_messages]
         assert any("deleted" in t for t in texts)
 
 
@@ -890,7 +755,7 @@ class TestControllerSlotStatsPersistence:
         monkeypatch.setattr("llama_cli.tui.controller.collect_slot_stats", lambda *a, **k: None)
         monkeypatch.setattr("llama_cli.tui.controller.save_slot_stats", lambda stats: None)
         controller = _make_controller()
-        controller.model.set_cached_slot_stats("slot0", existing)
+        controller.model.apply_slot_stats_snapshot({"slot0": existing})
 
         controller.refresh_slot_stats()
 
@@ -902,36 +767,8 @@ class TestControllerSlotStatsPersistence:
 # ---------------------------------------------------------------------------
 
 
-class TestControllerSignalHandlerBuild:
-    """Tests for _signal_handler_build."""
-
-    def test_signal_handler_build_releases_lock(self) -> None:
-        """_signal_handler_build should release build lock and set cancel event."""
-        controller = _make_controller()
-        mock_pipeline = MagicMock()
-        controller._build_pipeline = mock_pipeline
-        controller.build_in_progress = True
-        controller.model.build_cancel_event = threading.Event()
-
-        controller._signal_handler_build(signal.SIGINT, None)
-
-        mock_pipeline.release_lock.assert_called_once()
-        assert controller.build_in_progress is False
-        assert controller.model.build_cancel_event.is_set()
-
-    def test_signal_handler_build_no_pipeline_no_crash(self) -> None:
-        """_signal_handler_build should not crash when no pipeline exists."""
-        controller = _make_controller()
-        controller.build_in_progress = True
-        controller._build_pipeline = None
-
-        controller._signal_handler_build(signal.SIGINT, None)
-
-        assert controller.build_in_progress is True  # pipeline is None, so not changed
-
-
 class TestControllerRiskGuards:
-    """Tests for request_quit, interrupt, refresh_display, request_build risk guards."""
+    """Tests for request_quit, interrupt, refresh_display risk guards."""
 
     def test_request_quit_with_hardware_risk_calls_hardware_handler(self) -> None:
         """request_quit with hardware risk should route to handle_hardware_warning."""
@@ -971,7 +808,7 @@ class TestControllerRiskGuards:
 
         controller.refresh_display()
 
-        messages = controller._status_messages
+        messages = controller.model.status_messages
         assert not any("Display refreshed" in msg for _, msg in messages)
 
     def test_refresh_display_without_risk_pushes_message(self) -> None:
@@ -980,25 +817,8 @@ class TestControllerRiskGuards:
 
         controller.refresh_display()
 
-        messages = controller._status_messages
+        messages = controller.model.status_messages
         assert any("Display refreshed" in msg for _, msg in messages)
-
-    def test_request_build_with_risk_prompt_returns_early(self) -> None:
-        """request_build should return early when risk prompt exists."""
-        controller = _make_controller()
-        controller.model.set_risk_prompt("hardware", acknowledged=False)
-
-        controller.request_build()
-
-        assert controller._build_request is False
-
-    def test_request_build_without_risk_sets_flag(self) -> None:
-        """request_build should set flag when no risk prompt."""
-        controller = _make_controller()
-
-        controller.request_build()
-
-        assert controller._build_request is True
 
 
 class TestControllerCleanModelCache:
@@ -1166,7 +986,6 @@ class TestControllerBuildBackground:
 
         assert controller.model.build_in_progress is True
         assert controller.build_in_progress is True
-        assert controller.model.build_selected_backends == ["sycl"]
         assert controller.model.build_cancel_event is not None
         assert controller.model.build_selected_backends_options == {"sycl": None}
         assert ran == []
@@ -1184,7 +1003,7 @@ class TestControllerBuildBackground:
         assert controller.model.build_selected_backends_options == {}
 
     def test_execute_build_loop_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """_execute_build_loop should set result to 'success' on completion."""
+        """_execute_build_loop should push a success message on completion."""
         monkeypatch.setattr(
             "llama_cli.tui.controller.DashboardController._build_single_backend",
             lambda *a, **kw: True,
@@ -1193,7 +1012,9 @@ class TestControllerBuildBackground:
 
         controller._execute_build_loop(["sycl"], None)
 
-        assert controller.model.build_result == "success"
+        assert any(
+            msg == "Build completed successfully!" for _, msg in controller.model.status_messages
+        )
 
     def test_execute_build_loop_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_execute_build_loop should catch exceptions and set error."""
@@ -1205,7 +1026,6 @@ class TestControllerBuildBackground:
 
         controller._execute_build_loop(["sycl"], None)
 
-        assert controller.model.build_result == "failed"
         assert (
             controller.model.build_error is not None
             and "build failed" in controller.model.build_error
@@ -1246,56 +1066,6 @@ class TestControllerBuildBackground:
         controller = _make_controller()
 
         result = controller._build_single_backend("sycl")
-
-        assert result is False
-
-
-class TestControllerBuildLlamaCpp:
-    """Tests for build_llama_cpp."""
-
-    def test_build_llama_cpp_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """build_llama_cpp should return True on successful build."""
-        from llama_manager.build_pipeline import BuildResult
-
-        mock_result = BuildResult(
-            success=True,
-            error_message="",
-            artifact=MagicMock(binary_path="/tmp/llama-server"),
-        )
-
-        def fake_run(**kw):
-            kw["pipeline_callback"](MagicMock())
-            return mock_result
-
-        monkeypatch.setattr(
-            "llama_cli.tui.controller.run_build_for_backend",
-            fake_run,
-        )
-        controller = _make_controller()
-
-        result = controller.build_llama_cpp("sycl", dry_run=False)
-
-        assert result is True
-
-    def test_build_llama_cpp_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """build_llama_cpp should return False on failed build."""
-        from llama_manager.build_pipeline import BuildResult
-
-        mock_result = BuildResult(
-            success=False, error_message="compile failed", artifact=MagicMock()
-        )
-
-        def fake_run(**kw):
-            kw["pipeline_callback"](MagicMock())
-            return mock_result
-
-        monkeypatch.setattr(
-            "llama_cli.tui.controller.run_build_for_backend",
-            fake_run,
-        )
-        controller = _make_controller()
-
-        result = controller.build_llama_cpp("sycl")
 
         assert result is False
 

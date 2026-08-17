@@ -225,13 +225,9 @@ def _format_model_line(
     if not path:
         return "Model: (not set)"
     filename = Path(path).name
-    quantization = None
-    for entry in model_index or []:
-        if entry.path == path or Path(entry.path).name == filename:
-            quantization = entry.quantization_type
-            break
-    if quantization:
-        return f"Model: {filename}  [{quantization}]"
+    entry = _find_model_index_entry(spec, model_index)
+    if entry is not None and entry.quantization_type:
+        return f"Model: {filename}  [{entry.quantization_type}]"
     quant_match = re.search(r"(IQ\d_[A-Z]+|Q\d_[A-Z_]+|F16|F32)", filename)
     if quant_match:
         return f"Model: {filename}  [{quant_match.group(1)}]"

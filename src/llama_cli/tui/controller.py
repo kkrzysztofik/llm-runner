@@ -71,8 +71,6 @@ class AsyncSlotPlan:
 
     success: bool
     messages: list[str]
-    alias: str
-    profile_id: str
     old_alias: str | None
 
 
@@ -135,7 +133,6 @@ class DashboardController:
         # Build pipeline state (build_in_progress lives on the model — single source of truth)
         self._build_pipeline: BuildPipeline | None = None
         self.build_progress: BuildProgress | None = None
-        self._original_sigint_handler: Callable[[int, FrameType | None], Any] | int | None = None
         self._build_wizard: Any = None  # BuildModalScreen | None
         self._model_index_cache: list[ModelIndexEntry] | None = None
         self._model_index_lock = threading.Lock()
@@ -165,14 +162,6 @@ class DashboardController:
     @configs.setter
     def configs(self, value: list[ServerConfig]) -> None:
         self.model.configs = value
-
-    @property
-    def gpu_indices(self) -> list[int]:
-        return self.model.gpu_indices
-
-    @property
-    def slots(self) -> list[ModelSlot]:
-        return self.model.slots
 
     def _load_persisted_slot_stats(self) -> None:
         """Load persisted slot stats from disk into the model cache."""
@@ -254,19 +243,11 @@ class DashboardController:
 
     def _profile_stats_session_id(self, alias: str) -> str:
         """Return a stable ID for the current server process behind *alias*."""
-        process = self.server_processes.get(alias)
+        process = self.model.server_processes.get(alias)
         pid = getattr(process, "pid", None)
         if isinstance(pid, int) and pid > 0:
             return f"{alias}:{pid}"
         return alias
-
-    @property
-    def log_buffers(self) -> dict[str, LogBuffer]:
-        return self.model.log_buffers
-
-    @property
-    def gpu_stats(self) -> list[GPUStats]:
-        return self.model.gpu_stats
 
     @property
     def running(self) -> bool:
@@ -275,14 +256,6 @@ class DashboardController:
     @running.setter
     def running(self, value: bool) -> None:
         self.model.running = value
-
-    @property
-    def launch_result(self) -> LaunchResult | None:
-        return self.model.launch_result
-
-    @launch_result.setter
-    def launch_result(self, value: LaunchResult | None) -> None:
-        self.model.launch_result = value
 
     @property
     def risks_acknowledged(self) -> bool:
@@ -300,44 +273,8 @@ class DashboardController:
             self.model.set_risk_prompt(value, acknowledged=self.risks_acknowledged)
 
     @property
-    def _build_request(self) -> bool:
-        return self.model.build_request
-
-    @_build_request.setter
-    def _build_request(self, value: bool) -> None:
-        self.model.build_request = value
-
-    @property
-    def unsaved_slots(self) -> set[str]:
-        return self.model.unsaved_slots
-
-    @property
     def server_manager(self) -> ServerManager:
         return self.model.server_manager
-
-    @property
-    def slot_states(self) -> dict[str, str]:
-        return self.model.slot_states
-
-    @slot_states.setter
-    def slot_states(self, value: dict[str, str]) -> None:
-        self.model.slot_states = value
-
-    @property
-    def server_processes(self) -> dict[str, Any]:
-        return self.model.server_processes
-
-    @server_processes.setter
-    def server_processes(self, value: dict[str, Any]) -> None:
-        self.model.server_processes = value
-
-    @property
-    def _status_messages(self) -> list[tuple[float, str]]:
-        return self.model.status_messages
-
-    @property
-    def _status_lock(self) -> threading.Lock:
-        return self.model.status_lock
 
     def _signal_handler(self, signum: int, frame: FrameType | None) -> None:
         """Handle shutdown signals by stopping the TUI loop.
@@ -351,27 +288,6 @@ class DashboardController:
 
         self.stop()
 
-    def _signal_handler_build(self, signum: int, frame: FrameType | None) -> None:
-        """Signal handler specifically for build process.
-
-        Releases build lock and stops the build gracefully.
-        """
-        if self.build_in_progress and self._build_pipeline is not None:
-            self._push_status_message("Build interrupted by user, releasing lock...")
-            self._build_pipeline.release_lock()
-            self.build_in_progress = False
-            # Set cancel event for the build thread
-            cancel_event = getattr(self.model, "build_cancel_event", None)
-            if cancel_event is not None:
-                cancel_event.set()
-
-    def _make_collector(self, device_index: int) -> Callable[[], dict[str, Any]]:
-        """Create a GPU collector bound to a specific device index."""
-        return self.model.make_collector(device_index)
-
-    def can_select_build_target(self) -> bool:
-        return self.view_model.can_select_build_target()
-
     def stop(self) -> None:
         """Stop the TUI loop gracefully."""
         self.running = False
@@ -383,9 +299,6 @@ class DashboardController:
         self, kind: Literal["vram", "hardware"] = "hardware"
     ) -> None:
         self.model.set_risk_prompt(kind=kind, acknowledged=True)
-
-    # How long (seconds) a status message remains visible across renders.
-    _STATUS_MESSAGE_LIFETIME_S: float = DashboardModel.STATUS_MESSAGE_LIFETIME_S
 
     def get_status_messages_since(self, since_ts: float) -> list[tuple[float, str]]:
         """Return status messages newer than ``since_ts``."""
@@ -421,22 +334,6 @@ class DashboardController:
         if self.model.risk_prompt is not None:
             return
         self._push_status_message("Display refreshed.")
-
-    def request_build(self) -> None:
-        """Start the build selection flow from the UI."""
-        if self.model.risk_prompt is not None:
-            return
-        self._build_request = True
-        self._push_status_message("Select build target: [1] SYCL  [2] CUDA  [3] Both")
-
-    def cancel_pending_prompt(self) -> bool:
-        """Cancel any pending build prompt."""
-        if self._build_request:
-            self._build_request = False
-            self._push_status_message("Build selection cancelled.")
-            return True
-
-        return False
 
     def acknowledge_risk(self) -> None:
         """Acknowledge the active risk prompt."""
@@ -508,89 +405,7 @@ class DashboardController:
         registry = self._build_tui_registry()
         return compute_add_slot_from_form(values, self.config, registry=registry)
 
-    def apply_add_slot_from_form(
-        self,
-        new_cfg: ServerConfig,
-        profile_id: str,
-        startup_callback: Callable[[], None] | None = None,
-    ) -> tuple[bool, list[str]]:
-        """Apply a resolved profile config to dashboard runtime state."""
-        from llama_manager.slot_manager import upsert_profile_slot
-
-        state = {
-            "log_buffers": self.log_buffers,
-            "server_processes": self.server_processes,
-            "slot_states": self.slot_states,
-            "unsaved_slots": self.unsaved_slots,
-            "slots": self.slots,
-        }
-        success, messages, _updated_state = upsert_profile_slot(
-            new_cfg,
-            profile_id,
-            self.configs,
-            self.gpu_indices,
-            self.gpu_stats,
-            self.server_manager,
-            state,
-            startup_callback=startup_callback,
-        )
-        for msg in messages:
-            self._push_status_message(msg)
-        active_aliases = {cfg.alias for cfg in self.configs}
-        self.model.apply_gpu_stats_snapshot(
-            {
-                cfg.alias: gpu.get_cached_stats_snapshot()
-                for cfg, gpu in zip(self.configs, self.gpu_stats, strict=False)
-            }
-        )
-        self.model.stale_warnings = {
-            alias: warning
-            for alias, warning in self.model.stale_warnings.items()
-            if alias in active_aliases
-        }
-        return success, messages
-
-    def remove_live_slot(self, alias: str) -> bool:
-        """Stop and remove one live slot from dashboard runtime state."""
-        from llama_manager.slot_manager import remove_profile_slot
-
-        state = {
-            "log_buffers": self.log_buffers,
-            "server_processes": self.server_processes,
-            "slot_states": self.slot_states,
-            "unsaved_slots": self.unsaved_slots,
-            "slots": self.slots,
-        }
-        success, messages, _updated_state = remove_profile_slot(
-            alias,
-            self.configs,
-            self.gpu_indices,
-            self.gpu_stats,
-            self.log_buffers,
-            self.server_manager,
-            state,
-        )
-        for msg in messages:
-            self._push_status_message(msg)
-        active_aliases = {cfg.alias for cfg in self.configs}
-        self.model.apply_gpu_stats_snapshot(
-            {
-                cfg.alias: gpu.get_cached_stats_snapshot()
-                for cfg, gpu in zip(self.configs, self.gpu_stats, strict=False)
-            }
-        )
-        self.model.stale_warnings = {
-            stale_alias: warning
-            for stale_alias, warning in self.model.stale_warnings.items()
-            if stale_alias in active_aliases
-        }
-        return success
-
-    def prepare_async_slot_launch(
-        self,
-        new_cfg: ServerConfig,
-        profile_id: str,
-    ) -> AsyncSlotPlan:
+    def prepare_async_slot_launch(self, new_cfg: ServerConfig) -> AsyncSlotPlan:
         """Prepare a background slot launch without mutating dashboard state."""
         from llama_manager.slot_manager import device_class_for_config
 
@@ -606,8 +421,6 @@ class DashboardController:
         return AsyncSlotPlan(
             success=True,
             messages=[],
-            alias=new_cfg.alias,
-            profile_id=profile_id,
             old_alias=old_alias,
         )
 
@@ -625,23 +438,23 @@ class DashboardController:
         alias = new_cfg.alias
         target_device = device_class_for_config(new_cfg)
         state = {
-            "log_buffers": self.log_buffers,
-            "server_processes": self.server_processes,
-            "slot_states": self.slot_states,
-            "unsaved_slots": self.unsaved_slots,
-            "slots": self.slots,
+            "log_buffers": self.model.log_buffers,
+            "server_processes": self.model.server_processes,
+            "slot_states": self.model.slot_states,
+            "unsaved_slots": self.model.unsaved_slots,
+            "slots": self.model.slots,
         }
         messages: list[str] = []
 
         if old_alias is None:
             self.configs.append(new_cfg)
-            self.gpu_indices.append(gpu_index_for_config(new_cfg))
+            self.model.gpu_indices.append(gpu_index_for_config(new_cfg))
             new_gpu = GPUStats(
                 gpu_index_for_config(new_cfg),
                 collector=collector_for_config(new_cfg),
                 selector=selector_for_config(new_cfg),
             )
-            self.gpu_stats.append(new_gpu)
+            self.model.gpu_stats.append(new_gpu)
         else:
             existing_index = next(
                 (
@@ -663,20 +476,22 @@ class DashboardController:
             self.model.remove_cached_gpu_stats(old_alias)
             self.configs[existing_index] = new_cfg
             gpu_idx = gpu_index_for_config(new_cfg)
-            self.gpu_indices[existing_index] = gpu_idx
+            self.model.gpu_indices[existing_index] = gpu_idx
             new_gpu = GPUStats(
                 gpu_idx,
                 collector=collector_for_config(new_cfg),
                 selector=selector_for_config(new_cfg),
             )
-            self.gpu_stats[existing_index] = new_gpu
+            self.model.gpu_stats[existing_index] = new_gpu
 
         log_buffer = LogBuffer(redact_sensitive=True)
-        self.log_buffers[alias] = log_buffer
+        self.model.log_buffers[alias] = log_buffer
         self.model.set_cached_gpu_stats(alias, new_gpu.get_cached_stats_snapshot())
-        self.unsaved_slots.add(alias)
-        self.slots.append(ModelSlot(slot_id=alias, model_path=new_cfg.model, port=new_cfg.port))
-        self.slot_states[alias] = SlotState.LAUNCHING.value
+        self.model.unsaved_slots.add(alias)
+        self.model.slots.append(
+            ModelSlot(slot_id=alias, model_path=new_cfg.model, port=new_cfg.port)
+        )
+        self.model.slot_states[alias] = SlotState.LAUNCHING.value
         self.model.stale_warnings = {
             stale_alias: warning
             for stale_alias, warning in self.model.stale_warnings.items()
@@ -703,15 +518,15 @@ class DashboardController:
         messages: list[str] = []
 
         if process is None:
-            self.slot_states[alias] = SlotState.CRASHED.value
+            self.model.slot_states[alias] = SlotState.CRASHED.value
             messages.append(f"Slot '{alias}' failed to start: no process returned")
             for msg in messages:
                 self._push_status_message(msg)
             return False, messages
 
-        self.server_processes[alias] = process
-        old_state = self.slot_states.get(alias)
-        self.slot_states[alias] = SlotState.RUNNING.value
+        self.model.server_processes[alias] = process
+        old_state = self.model.slot_states.get(alias)
+        self.model.slot_states[alias] = SlotState.RUNNING.value
         result = compute_slot_transition(alias, old_state, SlotState.RUNNING)
         if result is not None:
             message, _color = result
@@ -751,18 +566,20 @@ class DashboardController:
                 self._push_status_message(msg)
             return False, messages
 
-        if len(self.configs) != len(self.gpu_indices) or len(self.configs) != len(self.gpu_stats):
+        if len(self.configs) != len(self.model.gpu_indices) or len(self.configs) != len(
+            self.model.gpu_stats
+        ):
             raise RuntimeError("slot runtime lists must remain length-synchronized")
 
         del self.configs[existing_index]
-        del self.gpu_indices[existing_index]
-        del self.gpu_stats[existing_index]
+        del self.model.gpu_indices[existing_index]
+        del self.model.gpu_stats[existing_index]
         state = {
-            "log_buffers": self.log_buffers,
-            "server_processes": self.server_processes,
-            "slot_states": self.slot_states,
-            "unsaved_slots": self.unsaved_slots,
-            "slots": self.slots,
+            "log_buffers": self.model.log_buffers,
+            "server_processes": self.model.server_processes,
+            "slot_states": self.model.slot_states,
+            "unsaved_slots": self.model.unsaved_slots,
+            "slots": self.model.slots,
         }
         remove_slot_runtime_state(alias, state)
         self.model.remove_cached_gpu_stats(alias)
@@ -776,40 +593,9 @@ class DashboardController:
             self._push_status_message(msg)
         return True, messages
 
-    def add_slot_from_form(self, values: dict[str, str]) -> bool:
-        """Create or replace a slot from modal profile selection."""
-        logger.debug(
-            "add_slot_from_form: enter values=%r configs_before=%r",
-            values,
-            [c.alias for c in self.configs],
-        )
-        success, messages, profile_id, new_cfg = self.compute_add_slot_from_form(values)
-        for msg in messages:
-            self._push_status_message(msg)
-        if not success or new_cfg is None:
-            logger.debug(
-                "add_slot_from_form: compute failed success=%s messages=%r",
-                success,
-                messages,
-            )
-            return False
-
-        apply_success, apply_messages = self.apply_add_slot_from_form(new_cfg, profile_id)
-        logger.debug(
-            "add_slot_from_form: result success=%s messages=%r configs_after=%r",
-            apply_success,
-            messages + apply_messages,
-            [c.alias for c in self.configs],
-        )
-        return apply_success
-
     def cancel_add_slot_form(self) -> None:
         """Emit a status message when the add-slot modal is cancelled."""
         self._push_status_message("Slot configuration cancelled")
-
-    def get_stale_warning(self, cfg: ServerConfig) -> str | None:
-        """Return a warning string when the cached profile is stale."""
-        return self.view_model.stale_warning(cfg)
 
     def _update_risk_panel_state(self, result: RiskAckResult | None) -> None:
         if result is None:
@@ -862,23 +648,6 @@ class DashboardController:
         action = resolve_risk_action(key, "vram")
         self._apply_risk_action(action)
         return action
-
-    def handle_slot_transition(self, slot_id: str, new_state: SlotState) -> None:
-        """Handle a slot state transition and update the UI.
-
-        Args:
-            slot_id: The slot identifier.
-            new_state: The new state for the slot.
-        """
-        old_state = self.slot_states.get(slot_id)
-        self.slot_states[slot_id] = new_state.value
-
-        result = compute_slot_transition(slot_id, old_state, new_state)
-        if result is None:
-            return
-
-        message, _color = result
-        self._push_status_message(message)
 
     def _graceful_shutdown(self) -> None:
         """Initiate graceful shutdown of all server processes."""
@@ -1183,7 +952,6 @@ class DashboardController:
         """
         self.model.build_selected_backends_options = options if options is not None else {}
         self.model.build_in_progress = True
-        self.model.build_selected_backends = backends
         self.model.build_cancel_event = threading.Event()
         self._build_wizard = wizard
 
@@ -1212,7 +980,6 @@ class DashboardController:
             wizard.set_building_backend(backend)
         if self._build_single_backend(backend):
             return True
-        self.model.build_result = "failed"
         if wizard is not None:
             wizard.set_build_result(
                 False,
@@ -1238,13 +1005,11 @@ class DashboardController:
             for backend in backends:
                 if not self._build_all_targets_for_backend(backend, wizard):
                     return
-            self.model.build_result = "success"
             self._push_status_message("Build completed successfully!")
             if wizard is not None:
                 artifact_path = self.model.build_artifact
                 wizard.set_build_result(True, artifact_path=artifact_path)
         except Exception as exc:
-            self.model.build_result = "failed"
             self.model.build_error = str(exc)
             self._push_status_message(f"Build failed: {exc}")
             if wizard is not None:
@@ -1302,56 +1067,6 @@ class DashboardController:
             for warning in launch_result.warnings or []:
                 self._push_status_message(warning)
 
-    def build_llama_cpp(self, backend: str = "sycl", dry_run: bool = False) -> bool:
-        """Build llama.cpp using BuildPipeline.
-
-        Args:
-            backend: Build backend ("sycl" or "cuda")
-            dry_run: If True, print commands without executing
-
-        Returns:
-            True if build successful, False otherwise
-        """
-
-        def _set_pipeline(pipeline: BuildPipeline) -> None:
-            self._build_pipeline = pipeline
-            self.build_in_progress = True
-
-        # Capture original SIGINT handler before replacing it
-        self._original_sigint_handler = signal.signal(signal.SIGINT, self._signal_handler_build)
-
-        # Create a fresh cancel event for this build
-        self.model.build_cancel_event = threading.Event()
-
-        try:
-            self._push_status_message(f"Building for {backend} backend...")
-            if dry_run:
-                self._push_status_message("DRY RUN MODE - commands will not be executed")
-
-            with suppress_build_pipeline_stderr_for_tui():
-                result = run_build_for_backend(
-                    backend=backend,
-                    dry_run=dry_run,
-                    config=self.config,
-                    progress_callback=self._handle_build_progress,
-                    pipeline_callback=_set_pipeline,
-                    cancel_event=self.model.build_cancel_event,
-                )
-
-            if result.success:
-                self._push_status_message("Build completed successfully!")
-                if result.artifact:
-                    self._push_status_message(f"Artifact: {result.artifact.binary_path}")
-                return True
-            else:
-                self._push_status_message(f"Build failed: {result.error_message}")
-                return False
-        finally:
-            self.build_in_progress = False
-            # Restore original SIGINT handler
-            if self._original_sigint_handler is not None:
-                signal.signal(signal.SIGINT, self._original_sigint_handler)
-
     def run(self, acknowledged: bool = False) -> None:
         from llama_cli.commands.profile import get_driver_version
 
@@ -1360,7 +1075,7 @@ class DashboardController:
             self.configs,
             self.config,
             self.server_manager,
-            self.log_buffers,
+            self.model.log_buffers,
             get_driver_version,
             acknowledged=acknowledged,
         )
@@ -1384,14 +1099,14 @@ class DashboardController:
                     f"press 'y' to acknowledge, 'n' to abort"
                 )
 
-        self.launch_result = result.launch_result
+        self.model.launch_result = result.launch_result
 
         # CLI boundary: stderr printing and SystemExit for blocked launches
         if result.launch_result is not None:
             self._handle_launch_result(result.launch_result)
 
-        self.server_processes = result.processes
-        self.slot_states = result.slot_states
+        self.model.server_processes = result.processes
+        self.model.slot_states = result.slot_states
 
         try:
             DashboardApp(self).run()
@@ -1483,12 +1198,3 @@ class DashboardController:
 
         threading.Thread(target=_run_refresh, name="model-index-worker", daemon=True).start()
         return True
-
-    def is_model_index_refreshing(self) -> bool:
-        """Return True while the background model index refresh is running."""
-        with self._model_index_lock:
-            return self._model_index_refreshing
-
-    def model_index_path(self) -> str:
-        """Return the path string where the model index cache is stored."""
-        return str(model_index_path())

@@ -31,6 +31,7 @@ from .form_widgets import (
     ROW_SELECT_CLASSES,
     SELECT_CLASSES,
     SPLIT_MODE_CHOICES,
+    _optional_numeric_display,
     cache_type_row,
     checkbox_row,
     config_profile_prefill,
@@ -120,11 +121,6 @@ class SlotProfilePayload(LaunchRuntimeFields):
     spec_dflash_cross_ctx: int = 0
     save_and_add_slot: bool = False
     original_profile_id: str = ""  # filled for edits
-
-
-def _optional_numeric_display(value: int | float | None) -> str:
-    """Format optional numeric values as empty profile inputs when unset."""
-    return "" if value is None else str(value)
 
 
 def _parse_n_gpu_layers(raw: str) -> int | str:

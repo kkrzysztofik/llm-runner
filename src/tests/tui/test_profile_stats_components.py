@@ -156,7 +156,6 @@ def test_server_column_header_includes_stale_warning_when_present() -> None:
         backend_label="SYCL",
         url="http://127.0.0.1:8080",
         config_summary="ctx 8192",
-        log_lines=("ready",),
         runtime_stats=SlotRuntimeStats("1.0", "2.0", "3", "4"),
         gpu_stats=None,
         stale_warning="Config changed",
@@ -166,27 +165,3 @@ def test_server_column_header_includes_stale_warning_when_present() -> None:
     warning = header._pending_children[-1]  # type: ignore[attr-defined]
 
     assert _content(warning) == "Config changed"
-
-
-def test_server_column_on_mount_is_noop() -> None:
-    """ServerColumnPanel.on_mount leaves log fill to DashboardApp incremental updates."""
-    state = ServerColumnState(
-        alias="summary",
-        profile_name="Summary",
-        status="running",
-        status_label="RUNNING",
-        status_class="status-running",
-        backend_label="SYCL",
-        url="http://127.0.0.1:8080",
-        config_summary="ctx 8192",
-        log_lines=("ready",),
-        runtime_stats=SlotRuntimeStats("1.0", "2.0", "3", "4"),
-        gpu_stats=None,
-        stale_warning=None,
-    )
-    panel = ServerColumnPanel(state)
-    panel.query_one = MagicMock()  # type: ignore[method-assign]
-
-    panel.on_mount()
-
-    panel.query_one.assert_not_called()

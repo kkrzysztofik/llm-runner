@@ -312,11 +312,9 @@ class TestDashboardAppCheckAction:
     def _make_app(
         self,
         *,
-        build_request: bool = False,
         risk_prompt: object = None,
     ) -> DashboardApp:
         controller = _make_controller()
-        controller.model.build_request = build_request
         controller.model.risk_prompt = risk_prompt  # type: ignore[assignment]
         return DashboardApp(controller)
 
@@ -332,14 +330,6 @@ class TestDashboardAppCheckAction:
         app = self._make_app()
 
         assert app.check_action("build", ()) is True
-
-    def test_build_request_only_shows_cancel(self) -> None:
-        """During build_request only 'cancel_pending_prompt' returns True."""
-        app = self._make_app(build_request=True)
-
-        assert app.check_action("cancel_pending_prompt", ()) is True
-        assert app.check_action("build", ()) is False
-        assert app.check_action("add_slot", ()) is False
 
     def test_risk_prompt_hides_refresh_add_build_config(self) -> None:
         """During a risk prompt, refresh/add_slot/build/open_config are hidden."""
@@ -370,12 +360,6 @@ class TestDashboardAppCheckAction:
         app = self._make_app(risk_prompt=risk)
 
         assert app.check_action("quit_dashboard", ()) is False
-
-    def test_build_request_hides_about_action(self) -> None:
-        """During build_request the 'about' binding is hidden."""
-        app = self._make_app(build_request=True)
-
-        assert app.check_action("about", ()) is False
 
     def test_action_about_pushes_about_modal(self) -> None:
         from llama_cli.tui.components.about_modal import AboutModal
@@ -469,7 +453,6 @@ class TestDashboardAppGpuStatsRefresh:
             backend_label="CUDA",
             url="http://127.0.0.1:8081",
             config_summary="Device: CUDA0 | Ctx: 8192",
-            log_lines=("line1", "line2"),
             runtime_stats=SlotRuntimeStats(tps="12.5", pp="100", tokens_in="500", tokens_out="200"),
             gpu_stats={"device": "NVIDIA RTX 3090", "gpu_util": "82%", "mem_util": "71%"},
             stale_warning=None,
@@ -527,7 +510,6 @@ class TestDashboardAppGpuStatsRefresh:
             backend_label="CUDA",
             url="http://127.0.0.1:8081",
             config_summary="Device: CUDA0 | Ctx: 8192",
-            log_lines=(),
             runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
             gpu_stats=None,
             stale_warning=None,
@@ -593,7 +575,6 @@ class TestDashboardAppAddSlotFlow:
             layout_changed=True,
         )
 
-        controller.apply_add_slot_from_form.assert_not_called()
         app._reconcile_server_log_panels.assert_awaited_once()  # type: ignore[attr-defined]
         app.refresh_dashboard.assert_called_once()  # type: ignore[attr-defined]
 
@@ -625,8 +606,6 @@ class TestDashboardAppAddSlotFlow:
         controller.prepare_async_slot_launch.return_value = AsyncSlotPlan(
             success=True,
             messages=[],
-            alias="new-slot",
-            profile_id="new-slot",
             old_alias=None,
         )
         controller.stage_async_slot_launch.return_value = AsyncSlotStageResult(
@@ -658,7 +637,6 @@ class TestDashboardAppAddSlotFlow:
             {"profile": "new-slot", "port": "8080"},
         )
 
-        controller.apply_add_slot_from_form.assert_not_called()
         controller._push_status_message.assert_called_once_with("Validated")
         controller.prepare_async_slot_launch.assert_called_once()
         controller.stage_async_slot_launch.assert_called_once()
@@ -887,7 +865,6 @@ class TestDashboardAppRemoveSlotFlow:
 
         DashboardApp._run_remove_slot.__wrapped__(app, "slot0")  # type: ignore[attr-defined]
 
-        controller.remove_live_slot.assert_not_called()
         controller.prepare_async_slot_remove.assert_called_once_with("slot0")
         controller.server_manager.shutdown_slot.assert_called_once_with("slot0")
         controller.commit_async_slot_remove.assert_called_once_with("slot0")
@@ -1058,14 +1035,14 @@ class TestDashboardAppActionHandlers:
         controller.request_quit.assert_called_once()
         app._dispatch_shutdown.assert_not_called()
 
-    def test_action_interrupt_dashboard_dispatches_shutdown(self) -> None:
-        """action_interrupt_dashboard should dispatch the slot-ops shutdown worker."""
+    def test_action_cancel_pending_prompt_dispatches_shutdown(self) -> None:
+        """action_cancel_pending_prompt should dispatch the slot-ops shutdown worker."""
         controller = _make_controller()
         controller.interrupt.return_value = True
         app = DashboardApp(controller)
         app._dispatch_shutdown = MagicMock()  # type: ignore[method-assign]
 
-        app.action_interrupt_dashboard()
+        app.action_cancel_pending_prompt()
 
         controller.interrupt.assert_called_once()
         app._dispatch_shutdown.assert_called_once_with(exit_app=True)
@@ -1484,14 +1461,16 @@ class TestDashboardAppBuildModalResult:
     """Tests for _handle_build_modal_result."""
 
     def test_handle_build_modal_result_none(self) -> None:
-        """_handle_build_modal_result with None should cancel."""
+        """_handle_build_modal_result with None should not start a build."""
         controller = _make_controller()
         app = DashboardApp(controller)
         app.refresh_dashboard = MagicMock()  # type: ignore[assignment]
+        app.start_build = MagicMock()  # type: ignore[method-assign]
 
         app._handle_build_modal_result(None)
 
-        controller.cancel_pending_prompt.assert_called_once()
+        app.start_build.assert_not_called()
+        app.refresh_dashboard.assert_called_once()
 
     def test_handle_build_modal_result_with_backends(self) -> None:
         """_handle_build_modal_result with backends should start a build."""

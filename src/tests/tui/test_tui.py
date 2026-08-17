@@ -20,6 +20,23 @@ from tests.support.helpers import make_server_config
 _make_minimal_config = make_server_config
 
 
+def _view_model_with_cpu_cores(core_count: int) -> Any:
+    """DashboardViewModel backed by a stub model with a fixed CPU core count."""
+    from llama_cli.tui.types import DashboardSnapshot, SystemInfoSnapshot
+    from llama_cli.tui.viewmodel import DashboardViewModel
+
+    model = MagicMock()
+    model.dashboard_snapshot.return_value = DashboardSnapshot(
+        cpu_percentages=[0.0] * core_count,
+        memory_usage_rows=[],
+        system_info=SystemInfoSnapshot(
+            tasks=0, threads=0, running=0, load_values=None, uptime="0:00"
+        ),
+        gpu_stats_by_alias={},
+    )
+    return DashboardViewModel(model)
+
+
 class TestSystemHealthAlignment:
     """Tests for terminal-width aware system health rendering."""
 
@@ -58,7 +75,7 @@ class TestSystemHealthAlignment:
             SystemInfoWidget,
         )
 
-        sections = list(SystemHealthWidget().compose())
+        sections = list(SystemHealthWidget(MagicMock()).compose())
 
         assert [type(section) for section in sections] == [
             DateTimeWidget,
@@ -81,14 +98,12 @@ class TestSystemHealthAlignment:
         from textual.widgets import Digits, Static
 
         from llama_cli.tui.components.digital_clock import DigitalClockWidget
-        from llama_cli.tui.components.system_health import DateTimeWidget, SystemHealthRenderer
+        from llama_cli.tui.components.system_health import DateTimeWidget
         from llama_cli.tui.types import DateTimeSnapshot
 
-        renderer = SystemHealthRenderer()
-        renderer.current_datetime_snapshot = lambda: DateTimeSnapshot(  # type: ignore[method-assign]
-            date_text="Wed 2026-05-20"
-        )
-        sections = list(DateTimeWidget(renderer).compose())
+        view_model = MagicMock()
+        view_model.current_datetime_snapshot = lambda: DateTimeSnapshot(date_text="Wed 2026-05-20")
+        sections = list(DateTimeWidget(view_model).compose())
 
         assert len(sections) == 1
         row = sections[0]
@@ -133,14 +148,11 @@ class TestSystemHealthAlignment:
         from textual.containers import Horizontal
         from textual.widgets import Static
 
-        from llama_cli.tui.components.system_health import (
-            SystemHealthRenderer,
-            SystemInfoSnapshot,
-            SystemInfoWidget,
-        )
+        from llama_cli.tui.components.system_health import SystemInfoWidget
+        from llama_cli.tui.types import SystemInfoSnapshot
 
-        renderer = SystemHealthRenderer()
-        renderer.system_info_snapshot = MagicMock(  # type: ignore[method-assign]
+        view_model = MagicMock()
+        view_model.system_info_snapshot = MagicMock(
             return_value=SystemInfoSnapshot(
                 tasks=12,
                 threads=345,
@@ -150,7 +162,7 @@ class TestSystemHealthAlignment:
             )
         )
 
-        sections = list(SystemInfoWidget(renderer).compose())
+        sections = list(SystemInfoWidget(view_model).compose())
 
         assert len(sections) == 3
         assert all(isinstance(section, Horizontal) for section in sections)
@@ -162,14 +174,11 @@ class TestSystemHealthAlignment:
         assert first_row_children[1].has_class("system-info-primary-value")
 
     def test_system_info_widget_composes_load_na_row_when_missing(self) -> None:
-        from llama_cli.tui.components.system_health import (
-            SystemHealthRenderer,
-            SystemInfoSnapshot,
-            SystemInfoWidget,
-        )
+        from llama_cli.tui.components.system_health import SystemInfoWidget
+        from llama_cli.tui.types import SystemInfoSnapshot
 
-        renderer = SystemHealthRenderer()
-        renderer.system_info_snapshot = MagicMock(  # type: ignore[method-assign]
+        view_model = MagicMock()
+        view_model.system_info_snapshot = MagicMock(
             return_value=SystemInfoSnapshot(
                 tasks=12,
                 threads=345,
@@ -179,7 +188,7 @@ class TestSystemHealthAlignment:
             )
         )
 
-        sections = list(SystemInfoWidget(renderer).compose())
+        sections = list(SystemInfoWidget(view_model).compose())
 
         assert len(sections) == 3
         assert sections[1]._pending_children[1].has_class("system-info-muted-value")
@@ -187,16 +196,16 @@ class TestSystemHealthAlignment:
     def test_cpu_usage_widget_composes_stylable_rows(self) -> None:
         from textual.containers import Container, Horizontal
 
-        from llama_cli.tui.components.system_health import CPUUsageWidget, SystemHealthRenderer
+        from llama_cli.tui.components.system_health import CPUUsageWidget
 
-        renderer = SystemHealthRenderer()
-        renderer.cpu_usage_rows = MagicMock(  # type: ignore[method-assign]
+        view_model = MagicMock()
+        view_model.cpu_usage_rows = MagicMock(
             return_value=[
                 [SimpleNamespace(index=0, percent=12.5), SimpleNamespace(index=1, percent=87.0)]
             ]
         )
 
-        rows = list(CPUUsageWidget(renderer).compose())
+        rows = list(CPUUsageWidget(view_model).compose())
 
         assert len(rows) == 1
         assert isinstance(rows[0], Horizontal)
@@ -208,133 +217,52 @@ class TestSystemHealthAlignment:
     def test_memory_swap_widget_composes_stylable_rows(self) -> None:
         from textual.containers import Horizontal
 
-        from llama_cli.tui.components.system_health import MemorySwapWidget, SystemHealthRenderer
+        from llama_cli.tui.components.system_health import MemorySwapWidget
 
-        renderer = SystemHealthRenderer()
-        renderer.memory_usage_rows = MagicMock(  # type: ignore[method-assign]
+        view_model = MagicMock()
+        view_model.memory_usage_rows = MagicMock(
             return_value=[
                 SimpleNamespace(label="Mem", percent=50.0, value_text="8.00G/16.0G"),
                 SimpleNamespace(label="Swp", percent=0.0, value_text="0.00G/2.00G"),
             ]
         )
 
-        rows = list(MemorySwapWidget(renderer).compose())
+        rows = list(MemorySwapWidget(view_model).compose())
 
         assert len(rows) == 2
         assert all(isinstance(row, Horizontal) for row in rows)
         assert all(row.has_class("memory-swap-row") for row in rows)
 
     def test_core_grid_respects_narrow_terminal_width(self) -> None:
-        from llama_cli.tui.components.system_health import SystemHealthRenderer
+        view_model = _view_model_with_cpu_cores(24)
 
-        renderer = SystemHealthRenderer()
+        rows = view_model.cpu_usage_rows(width=80)
 
-        lines = renderer._build_core_grid_lines([0.0] * 24, content_width=80)
-
-        assert len(lines) > 3
-        assert all(len(line) <= 80 for line in lines)
+        assert len(rows) > 3
+        assert all(len(row) <= 5 for row in rows)
 
     def test_core_grid_auto_fits_more_columns_on_wide_terminals(self) -> None:
-        from llama_cli.tui.components.system_health import SystemHealthRenderer
+        view_model = _view_model_with_cpu_cores(24)
 
-        renderer = SystemHealthRenderer()
-        cpu_samples = [0.0] * 24
-
-        standard_rows = renderer._build_core_grid_rows(cpu_samples, content_width=120)
-        wide_rows = renderer._build_core_grid_rows(cpu_samples, content_width=240)
+        standard_rows = view_model.cpu_usage_rows(width=120)
+        wide_rows = view_model.cpu_usage_rows(width=240)
 
         assert len(standard_rows) == 4
         assert len(wide_rows) == 2
 
-    def test_system_health_sections_use_available_width(self) -> None:
-        import llama_cli.tui.components.system_health as system_health
-        from llama_cli.tui.types import DateTimeSnapshot
-
-        base_renderer = system_health.SystemHealthRenderer()
-        provider = cast(
-            system_health.SystemHealthProvider,
-            SimpleNamespace(
-                cpu_usage_rows=lambda width=None: base_renderer._build_core_grid_rows(
-                    [0.0] * 24, base_renderer._content_width(width)
-                ),
-                memory_usage_rows=lambda: [
-                    system_health.MemoryUsageSnapshot("Mem", 50.0, "8.00G/16.0G"),
-                    system_health.MemoryUsageSnapshot("Swp", 0.0, "0.00G/2.00G"),
-                ],
-                system_info_snapshot=lambda: system_health.SystemInfoSnapshot(
-                    tasks=0,
-                    threads=0,
-                    running=0,
-                    load_values=(0.1, 0.2, 0.3),
-                    uptime="00:00:00",
-                ),
-                current_datetime_snapshot=lambda: DateTimeSnapshot(date_text="Wed 2026-05-13"),
-            ),
-        )
-        renderer = system_health.SystemHealthRenderer(provider)
-
-        narrow_lines = (
-            renderer.render_cpu_usage(width=80).splitlines()
-            + renderer.render_memory_swap_usage(width=80).splitlines()
-            + renderer.render_system_info().splitlines()
-        )
-        wide_lines = (
-            renderer.render_cpu_usage(width=240).splitlines()
-            + renderer.render_memory_swap_usage(width=240).splitlines()
-            + renderer.render_system_info().splitlines()
-        )
-
-        assert all(len(line) <= 80 for line in narrow_lines)
-        assert any(len(line) > 116 for line in wide_lines)
-        assert all(len(line) <= renderer.MAX_CONTENT_WIDTH for line in wide_lines)
-
     def test_core_widgets_expose_semantic_css_classes(self) -> None:
-        from llama_cli.tui.components.gpu_telemetry import GPUTelemetryWidget
         from llama_cli.tui.components.server_log import ServerLogPanel
-        from llama_cli.tui.components.system_status import SystemStatusWidget
+        from llama_cli.tui.components.system_health import SystemHealthWidget
 
         view_model = MagicMock()
 
-        status = SystemStatusWidget()
-        gpu = GPUTelemetryWidget(view_model)
+        status = SystemHealthWidget(view_model, id="alerts", classes="system-status")
         panel = ServerLogPanel(0, view_model)
 
         assert status.id == "alerts"
         assert status.has_class("system-status")
-        assert gpu.has_class("gpu-telemetry")
         assert panel.has_class("column")
         assert panel.has_class("server-log-panel")
-
-    def test_gpu_telemetry_widget_composes_stylable_row(self) -> None:
-        from textual.containers import Horizontal
-        from textual.widgets import Static
-
-        from llama_cli.tui.components.gpu_telemetry import GPUTelemetryWidget
-
-        view_model = MagicMock()
-        view_model.gpu_telemetry_lines.return_value = ["GPU0 42%", "GPU1 77%"]
-
-        sections = list(GPUTelemetryWidget(view_model).compose())
-
-        assert len(sections) == 1
-        assert isinstance(sections[0], Horizontal)
-        assert sections[0].has_class("gpu-telemetry-row")
-        children = sections[0]._pending_children
-        assert isinstance(children[0], Static)
-        assert children[0].has_class("gpu-telemetry-label")
-        assert isinstance(children[1], Static)
-        assert children[1].has_class("gpu-telemetry-value")
-
-    def test_gpu_telemetry_widget_hides_when_empty(self) -> None:
-        from llama_cli.tui.components.gpu_telemetry import GPUTelemetryWidget
-
-        view_model = MagicMock()
-        view_model.gpu_telemetry_lines.return_value = []
-
-        widget = GPUTelemetryWidget(view_model)
-
-        assert list(widget.compose()) == []
-        assert widget.has_class("hidden")
 
     def test_gpu_stats_panel_composes_stylable_sections(self) -> None:
         from textual.containers import Container, Horizontal
@@ -391,7 +319,6 @@ class TestSystemHealthAlignment:
             backend_label="SYCL",
             url="http://127.0.0.1:8080",
             config_summary="Device: SYCL0 | Ctx: 2048 | Threads: 4",
-            log_lines=("Waiting for output...",),
             runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
             gpu_stats=None,
             stale_warning=None,
@@ -416,7 +343,6 @@ class TestSystemHealthAlignment:
             backend_label="SYCL",
             url="http://127.0.0.1:8080",
             config_summary="Device: SYCL0 | Ctx: 2048 | Threads: 4",
-            log_lines=("Waiting for output...",),
             runtime_stats=SlotRuntimeStats(tps="5.2", pp="99.9", tokens_in="123", tokens_out="45"),
             gpu_stats=None,
             stale_warning=None,
@@ -446,7 +372,6 @@ class TestSystemHealthAlignment:
             backend_label="CUDA",
             url="http://127.0.0.1:8081",
             config_summary="Device: CUDA0 | Ctx: 8192",
-            log_lines=("No output...",),
             runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
             gpu_stats=None,
             stale_warning=None,
@@ -474,7 +399,7 @@ class TestPerSlotStatusDisplay:
         app = DashboardController(configs=configs, gpu_indices=[0])
 
         assert app.configs == configs
-        assert app.gpu_indices == [0]
+        assert app.model.gpu_indices == [0]
         assert app.running is True
         assert app.server_manager is not None
 
@@ -489,8 +414,8 @@ class TestPerSlotStatusDisplay:
         app = DashboardController(configs=configs, gpu_indices=[0, 1])
 
         assert len(app.configs) == 2
-        assert len(app.gpu_stats) == 2
-        assert len(app.log_buffers) == 2
+        assert len(app.model.gpu_stats) == 2
+        assert len(app.model.log_buffers) == 2
 
     def test_log_buffers_created_per_config(self) -> None:
         """DashboardModel should create a LogBuffer for each config."""
@@ -503,14 +428,14 @@ class TestPerSlotStatusDisplay:
         app = DashboardController(configs=configs, gpu_indices=[0])
 
         for cfg in configs:
-            assert cfg.alias in app.log_buffers
+            assert cfg.alias in app.model.log_buffers
 
     def test_launch_result_initialized(self) -> None:
         """DashboardController should initialize launch_result as None."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-        assert app.launch_result is None
+        assert app.model.launch_result is None
 
     def test_risk_prompt_initialized(self) -> None:
         """DashboardController should initialize without an active risk prompt."""
@@ -528,14 +453,14 @@ class TestGPUTelemetryPanel:
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0, 1])
-        assert len(app.gpu_stats) == 1
+        assert len(app.model.gpu_stats) == 1
 
     def test_gpu_stats_collects_data(self) -> None:
         """GPUStats should collect data when updated."""
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-        stats = app.gpu_stats[0]
+        stats = app.model.gpu_stats[0]
 
         # Force an update with a custom collector
         fake_stats = {
@@ -555,7 +480,7 @@ class TestGPUTelemetryPanel:
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-        stats = app.gpu_stats[0]
+        stats = app.model.gpu_stats[0]
 
         # Use psutil-only collector (no GPU)
         text = stats.format_stats_text()
@@ -566,7 +491,7 @@ class TestGPUTelemetryPanel:
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-        stats = app.gpu_stats[0]
+        stats = app.model.gpu_stats[0]
 
         # Inject a mock collector
         mock_data: dict[str, Any] = {
@@ -588,7 +513,7 @@ class TestGPUTelemetryPanel:
         from llama_cli.tui import DashboardController
 
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-        stats = app.gpu_stats[0]
+        stats = app.model.gpu_stats[0]
 
         # Set a long update interval
         stats.update_interval = 3600  # 1 hour
@@ -715,7 +640,7 @@ class TestSlotStateTransitionHandling:
             ),
         )
 
-        app.launch_result = blocked_result
+        app.model.launch_result = blocked_result
 
         assert "Launch blocked: no slots could be launched" in app.view_model.system_notices()
 
@@ -732,7 +657,7 @@ class TestSlotStateTransitionHandling:
             warnings=["slot2: lock already held"],
         )
 
-        app.launch_result = degraded_result
+        app.model.launch_result = degraded_result
 
         assert "Launch degraded: some slots blocked" in app.view_model.system_notices()
 
@@ -744,7 +669,7 @@ class TestSlotStateTransitionHandling:
         app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
 
         success_result = LaunchResult(status="success", launched=["slot1"])
-        app.launch_result = success_result
+        app.model.launch_result = success_result
 
         assert "Launch blocked: no slots could be launched" not in app.view_model.system_notices()
         assert "Launch degraded: some slots blocked" not in app.view_model.system_notices()
@@ -867,20 +792,7 @@ class TestGracefulShutdownKeyHandler:
 
         app.refresh_display()
 
-        assert any("refreshed" in msg.lower() for _, msg in app._status_messages)
-
-    def test_request_build_and_cancel_pending_prompt(self) -> None:
-        """request_build should set build state and cancel_pending_prompt should clear it."""
-        from llama_cli.tui import DashboardController
-
-        app = DashboardController(configs=[_make_minimal_config()], gpu_indices=[0])
-
-        app.request_build()
-        assert app._build_request is True
-
-        cancelled = app.cancel_pending_prompt()
-        assert cancelled is True
-        assert app._build_request is False
+        assert any("refreshed" in msg.lower() for _, msg in app.get_status_messages_since(0.0))
 
     def test_push_status_message(self) -> None:
         """_push_status_message should add messages to the status buffer."""
@@ -892,9 +804,10 @@ class TestGracefulShutdownKeyHandler:
         app._push_status_message("test message 2")
 
         # Messages should be in the buffer
-        assert len(app._status_messages) == 2
-        assert any(msg == "test message 1" for _, msg in app._status_messages)
-        assert any(msg == "test message 2" for _, msg in app._status_messages)
+        messages = app.get_status_messages_since(0.0)
+        assert len(messages) == 2
+        assert any(msg == "test message 1" for _, msg in messages)
+        assert any(msg == "test message 2" for _, msg in messages)
 
     def test_push_status_message_limited_to_five(self) -> None:
         """_push_status_message should keep at most 5 messages."""
@@ -905,7 +818,7 @@ class TestGracefulShutdownKeyHandler:
         for i in range(10):
             app._push_status_message(f"message {i}")
 
-        assert len(app._status_messages) <= 5
+        assert len(app.get_status_messages_since(0.0)) <= 5
 
 
 class TestHandleHardwareWarning:
@@ -1036,11 +949,9 @@ class TestMVVMArchitecture:
         controller = DashboardController(
             configs=[_make_minimal_config(alias="slot0")], gpu_indices=[]
         )
-        controller.request_build()
 
         state = controller.view_model.command_menu()
 
-        assert state.build_request is True
         assert state.risk_prompt is None
 
     def test_risk_prompt_lives_in_model_state(self) -> None:
@@ -1067,11 +978,9 @@ Covers:
 """
 
 
-from pathlib import Path
-
 from llama_cli.tui import DashboardController
 from llama_cli.tui.textual_app import DashboardApp
-from llama_manager.build_pipeline import BuildProgress, BuildResult
+from llama_manager.build_pipeline import BuildProgress
 from llama_manager.config import ServerConfig
 from tests.support.helpers import make_server_config
 
@@ -1107,9 +1016,9 @@ class TestTUIAppInit:
         app = TUIApp(configs=configs, gpu_indices=[0])
 
         assert len(app.configs) == 1
-        assert app.gpu_indices == [0]
+        assert app.model.gpu_indices == [0]
         assert app.running is True
-        assert app.launch_result is None
+        assert app.model.launch_result is None
         assert app.active_risk_kind is None
         assert app.risks_acknowledged is False
 
@@ -1118,14 +1027,14 @@ class TestTUIAppInit:
         configs = [_make_config("model1", 8080, "CUDA"), _make_config("model2", 8081, "SYCL")]
         app = TUIApp(configs=configs, gpu_indices=[0, 1])
 
-        assert len(app.log_buffers) == 2
-        assert "model1" in app.log_buffers
-        assert "model2" in app.log_buffers
+        assert len(app.model.log_buffers) == 2
+        assert "model1" in app.model.log_buffers
+        assert "model2" in app.model.log_buffers
 
     def test_init_no_slots(self) -> None:
         """TUIApp should initialize with empty slots when not provided."""
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        assert app.slots == []
+        assert app.model.slots == []
 
     def test_init_with_slots(self) -> None:
         """TUIApp should accept slots parameter."""
@@ -1133,7 +1042,7 @@ class TestTUIAppInit:
 
         slots = [ModelSlot(slot_id="test", model_path="/path/to/model.gguf", port=8080)]
         app = TUIApp(configs=[_make_config()], gpu_indices=[0], slots=slots)
-        assert len(app.slots) == 1
+        assert len(app.model.slots) == 1
 
 
 class TestTextualDashboardAppActions:
@@ -1144,7 +1053,6 @@ class TestTextualDashboardAppActions:
         controller.running = True
         controller.config = MagicMock()
         controller.configs = [_make_config()]
-        controller.cancel_pending_prompt.return_value = True
         controller.interrupt.return_value = True
         app = TextualDashboardApp(controller)
 
@@ -1158,16 +1066,30 @@ class TestTextualDashboardAppActions:
             app.action_reject()
             app.action_cancel_pending_prompt()
             app.action_refresh_dashboard()
-            app.action_interrupt_dashboard()
 
         mock_push.assert_called_once()
         controller.acknowledge_risk.assert_called_once()
         controller.reject_risk.assert_called_once()
-        controller.cancel_pending_prompt.assert_called_once()
         controller.refresh_display.assert_called_once()
         controller.interrupt.assert_called_once()
         mock_shutdown.assert_called_once_with(exit_app=True)
-        assert mock_refresh.call_count == 4
+        assert mock_refresh.call_count == 3
+
+    def test_cancel_pending_prompt_refreshes_when_risk_prompt_pending(self) -> None:
+        """ctrl+c/escape with a pending risk prompt refreshes instead of shutting down."""
+        controller = MagicMock()
+        controller.running = True
+        controller.interrupt.return_value = False
+        app = TextualDashboardApp(controller)
+
+        with (
+            patch.object(app, "refresh_dashboard") as mock_refresh,
+            patch.object(app, "_dispatch_shutdown") as mock_shutdown,
+        ):
+            app.action_cancel_pending_prompt()
+
+        mock_shutdown.assert_not_called()
+        mock_refresh.assert_called_once()
 
     def test_emit_status_toasts_uses_popups_for_notices_and_status(self) -> None:
         controller = MagicMock()
@@ -1671,119 +1593,8 @@ class TestHandleLaunchResult:
 
         app._handle_launch_result(launch_result)
 
-        messages = [message for _ts, message in app._status_messages]
+        messages = [message for _ts, message in app.get_status_messages_since(0.0)]
         assert any("degraded" in message.lower() for message in messages)
-
-
-# =============================================================================
-# build_llama_cpp
-# =============================================================================
-
-
-class TestBuildLlamaCpp:
-    """Tests for TUIApp.build_llama_cpp."""
-
-    def _make_mock_config(self, tmp_path: Path) -> MagicMock:
-        """Create a mock Config with build attributes."""
-        mock_config = MagicMock()
-        mock_config.llama_cpp_root = str(tmp_path / "llama.cpp")
-        mock_config.builds_dir = tmp_path / "output"
-        mock_config.build_git_remote = "https://github.com/ggerganov/llama.cpp"
-        mock_config.build_git_branch = "main"
-        mock_config.build_retry_attempts = 2
-        mock_config.build_retry_delay = 5
-        return mock_config
-
-    def test_build_llama_cpp_success(self, tmp_path: Path) -> None:
-        """build_llama_cpp should return True on success."""
-        with patch("llama_cli.tui.controller.Config") as mock_config_cls:
-            mock_config_cls.return_value = self._make_mock_config(tmp_path)
-
-            with (
-                patch("llama_cli.tui.controller.signal.signal") as mock_signal,
-                patch("llama_cli.tui.controller.run_build_for_backend") as mock_run_build,
-            ):
-                mock_run_build.return_value = BuildResult(success=True)
-
-                app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-                result = app.build_llama_cpp(backend="sycl", dry_run=False)
-
-                assert result is True
-                assert app.build_in_progress is False
-                mock_signal.assert_called()
-
-    def test_build_llama_cpp_failure(self, tmp_path: Path) -> None:
-        """build_llama_cpp should return False on failure."""
-        with patch("llama_cli.tui.controller.Config") as mock_config_cls:
-            mock_config_cls.return_value = self._make_mock_config(tmp_path)
-
-            with (
-                patch("llama_cli.tui.controller.signal.signal"),
-                patch("llama_cli.tui.controller.run_build_for_backend") as mock_run_build,
-            ):
-                mock_run_build.return_value = BuildResult(success=False, error_message="failed")
-
-                app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-                result = app.build_llama_cpp(backend="sycl", dry_run=False)
-
-                assert result is False
-                assert app.build_in_progress is False
-
-    def test_build_llama_cpp_dry_run(self, tmp_path: Path) -> None:
-        """build_llama_cpp should pass dry_run to orchestration."""
-        with patch("llama_cli.tui.controller.Config") as mock_config_cls:
-            mock_config_cls.return_value = self._make_mock_config(tmp_path)
-
-            with (
-                patch("llama_cli.tui.controller.signal.signal"),
-                patch("llama_cli.tui.controller.run_build_for_backend") as mock_run_build,
-            ):
-                mock_run_build.return_value = BuildResult(success=True)
-
-                app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-                app.build_llama_cpp(backend="sycl", dry_run=True)
-
-                assert mock_run_build.call_args.kwargs["dry_run"] is True
-
-    def test_build_llama_cpp_cuda_backend(self, tmp_path: Path) -> None:
-        """build_llama_cpp should pass cuda backend to orchestration."""
-        with patch("llama_cli.tui.controller.Config") as mock_config_cls:
-            mock_config_cls.return_value = self._make_mock_config(tmp_path)
-
-            with (
-                patch("llama_cli.tui.controller.signal.signal"),
-                patch("llama_cli.tui.controller.run_build_for_backend") as mock_run_build,
-            ):
-                mock_run_build.return_value = BuildResult(success=True)
-
-                app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-                app.build_llama_cpp(backend="cuda", dry_run=False)
-
-                assert mock_run_build.call_args.kwargs["backend"] == "cuda"
-
-    def test_build_llama_cpp_restores_sigint(self, tmp_path: Path) -> None:
-        """build_llama_cpp should restore the original SIGINT handler."""
-        original_handler = object()
-
-        with patch("llama_cli.tui.controller.Config") as mock_config_cls:
-            mock_config_cls.return_value = self._make_mock_config(tmp_path)
-
-            with (
-                patch(
-                    "llama_cli.tui.controller.signal.signal",
-                    return_value=original_handler,
-                ) as mock_signal,
-                patch("llama_cli.tui.controller.run_build_for_backend") as mock_run_build,
-            ):
-                mock_run_build.return_value = BuildResult(success=True)
-
-                app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-                app.build_llama_cpp(backend="sycl", dry_run=False)
-
-                # signal.signal is also called in TUIApp.__init__
-                sigint_calls = [c for c in mock_signal.call_args_list if c[0][0] == signal.SIGINT]
-                # Last SIGINT call should restore the original handler
-                assert sigint_calls[-1][0] == (signal.SIGINT, original_handler)
 
 
 # =============================================================================
@@ -1802,21 +1613,6 @@ class TestSignalHandler:
         app._signal_handler(2, None)
 
         assert app.running is False
-
-    def test_signal_handler_build_releases_lock(self) -> None:
-        """_signal_handler_build should release build lock."""
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        app.build_in_progress = True
-
-        with patch.object(app, "_build_pipeline") as mock_pipeline:
-            mock_pipeline.release_lock.return_value = None
-            app.model.build_cancel_event = MagicMock()
-
-            app._signal_handler_build(2, None)
-
-            mock_pipeline.release_lock.assert_called_once()
-            assert app.build_in_progress is False
-            app.model.build_cancel_event.set.assert_called_once()
 
 
 # =============================================================================
@@ -1850,7 +1646,7 @@ class TestStaleProfileWarnings:
         ):
             mock_driver = MagicMock(return_value="driver-1")
             app.refresh_stale_warnings(mock_driver)
-            warning = app.get_stale_warning(cfg)
+            warning = app.view_model.stale_warning(cfg)
 
         assert warning is not None
         assert "profile stale" in warning.lower()
@@ -1870,9 +1666,10 @@ class TestBuildWizardResultMarkup:
         screen = BuildModalScreen()
         err = "Configure failed: ['cmake', '-DGGML_SYCL=ON'] timed out after 0.25 seconds"
         screen._wizard_state["build_result_error"] = err
-        content = screen._result_content(False)
-        assert err in str(content)
-        assert "Build failed" in str(content)
+        panel = screen._build_result_panel(False)
+        summary = screen._build_result_summary(False)
+        assert "Build failed" in str(panel.content)
+        assert err in str(summary.content)
 
 
 class TestBuildCommandMenu:
@@ -1881,7 +1678,6 @@ class TestBuildCommandMenu:
     def test_normal_mode_shows_expected_commands(self) -> None:
         state = TUIApp(configs=[_make_config()], gpu_indices=[0]).view_model.command_menu()
         assert state.risk_prompt is None
-        assert state.build_request is False
 
     def test_risk_prompt_shows_confirm_commands(self) -> None:
         app = TUIApp(configs=[_make_config()], gpu_indices=[0])
@@ -1898,72 +1694,6 @@ class TestBuildCommandMenu:
         assert state.risk_prompt.kind == "vram"
 
 
-# =============================================================================
-# Slot creation via delegation to llama_manager.slot_manager
-# =============================================================================
-
-
-class TestAddSlotFromForm:
-    """Tests for modal-backed slot creation."""
-
-    def test_add_slot_from_form_creates_slot_from_profile(self) -> None:
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        form_values = {
-            "profile": "summary-fast",
-            "port": "8090",
-        }
-
-        mock_proc = MagicMock()
-        with patch.object(app.server_manager, "start_servers", return_value=[mock_proc]):
-            ok = app.add_slot_from_form(form_values)
-
-        assert ok is True
-        assert any(cfg.alias == "summary-fast" for cfg in app.configs)
-        assert "summary-fast" in app.log_buffers
-        assert "summary-fast" in app.unsaved_slots
-
-    def test_add_slot_from_form_rejects_empty_profile(self) -> None:
-        app = TUIApp(configs=[_make_config()], gpu_indices=[0])
-        initial_count = len(app.configs)
-
-        ok = app.add_slot_from_form(
-            {
-                "profile": "   ",
-                "port": "8091",
-            }
-        )
-
-        assert ok is False
-        assert len(app.configs) == initial_count
-
-    def test_add_slot_from_form_replaces_existing_device_slot(self) -> None:
-        existing = _make_config(alias="summary-balanced", port=8080, device="SYCL0")
-        app = TUIApp(configs=[existing], gpu_indices=[1])
-
-        mock_proc = MagicMock()
-        with (
-            patch.object(app.server_manager, "shutdown_slot", return_value=True),
-            patch.object(app.server_manager, "start_servers", return_value=[mock_proc]),
-        ):
-            ok = app.add_slot_from_form({"profile": "summary-fast", "port": "8092"})
-
-        assert ok is True
-        assert len(app.configs) == 1
-        assert app.configs[0].alias == "summary-fast"
-        assert app.configs[0].port == 8092
-
-    def test_add_slot_from_form_replacement_aborts_when_shutdown_fails(self) -> None:
-        existing = _make_config(alias="summary-balanced", port=8080, device="SYCL0")
-        app = TUIApp(configs=[existing], gpu_indices=[1])
-
-        with patch.object(app.server_manager, "shutdown_slot", return_value=False):
-            ok = app.add_slot_from_form({"profile": "summary-fast", "port": "8092"})
-
-        assert ok is False
-        assert len(app.configs) == 1
-        assert app.configs[0].alias == "summary-balanced"
-
-
 """Unit tests for smaller TUI component modules."""
 
 
@@ -1976,7 +1706,7 @@ from llama_cli.tui.components.modal import AddSlotModal
 def test_panels_module_exports_expected_symbols() -> None:
     assert "GPUStatsPanel" in components.__all__
     assert "ServerColumnPanel" in components.__all__
-    assert hasattr(components, "SystemStatusWidget")
+    assert "SystemHealthWidget" in components.__all__
 
 
 def test_add_slot_modal_rejects_empty_profile_options() -> None:
@@ -2020,7 +1750,6 @@ class TestDashboardAppCheckAction:
     def _app_for_state(
         *,
         risk_prompt: Any = None,
-        build_request: bool = False,
     ) -> Any:
         from llama_cli.tui.textual_app import DashboardApp
         from llama_cli.tui.types import CommandMenuState
@@ -2028,7 +1757,6 @@ class TestDashboardAppCheckAction:
         controller = MagicMock()
         controller.view_model.command_menu.return_value = CommandMenuState(
             risk_prompt=risk_prompt,
-            build_request=build_request,
         )
         return DashboardApp(controller)
 
@@ -2057,12 +1785,6 @@ class TestDashboardAppCheckAction:
         )
         assert app.check_action("quit_dashboard", ()) is False
         assert app.check_action("confirm", ()) is True
-
-    def test_build_request_only_shows_cancel(self) -> None:
-        app = self._app_for_state(build_request=True)
-        assert app.check_action("cancel_pending_prompt", ()) is True
-        assert app.check_action("quit_dashboard", ()) is False
-        assert app.check_action("build", ()) is False
 
 
 @pytest.mark.anyio
@@ -2211,7 +1933,6 @@ def test_add_slot_modal_on_input_submitted_only_for_slot_port() -> None:
 async def test_dashboard_app_layout_geometry_regression() -> None:
     """CPUUsageWidget stays compact; system widgets above #content; non-zero sizes."""
     from llama_cli.tui.components.gpu_stats import GPUStatsPanel
-    from llama_cli.tui.components.gpu_telemetry import GPUTelemetryWidget
     from llama_cli.tui.components.server_column import ServerColumnPanel
     from llama_cli.tui.components.system_health import (
         CPUUsageWidget,
@@ -2259,7 +1980,6 @@ async def test_dashboard_app_layout_geometry_regression() -> None:
         return_value=DateTimeSnapshot(date_text="Wed 2026-05-13")
     )
 
-    controller.view_model.gpu_telemetry_lines = MagicMock(return_value=[])  # type: ignore[method-assign]
     controller.view_model.system_notices = MagicMock(return_value=[])  # type: ignore[method-assign]
     controller.view_model.column = MagicMock(  # type: ignore[method-assign]
         return_value=ServerColumnState(
@@ -2271,7 +1991,6 @@ async def test_dashboard_app_layout_geometry_regression() -> None:
             backend_label="SYCL",
             url="http://127.0.0.1:8080",
             config_summary="Device: SYCL0 | Ctx: 2048 | Threads: 4",
-            log_lines=("Waiting for output...",),
             runtime_stats=SlotRuntimeStats(tps="--", pp="--", tokens_in="0", tokens_out="0"),
             gpu_stats=None,
             stale_warning=None,
@@ -2298,7 +2017,6 @@ async def test_dashboard_app_layout_geometry_regression() -> None:
 
         assert mem.region.y + mem.region.height <= content.region.y
         assert info.region.y + info.region.height <= content.region.y
-        assert not list(app.query(GPUTelemetryWidget))
 
         assert list(app.query(ServerColumnPanel))
         for _ in range(5):

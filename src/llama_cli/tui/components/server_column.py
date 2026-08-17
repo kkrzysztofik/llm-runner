@@ -82,6 +82,3 @@ class ServerColumnPanel(Widget):
             log,
             classes="server-logs",
         )
-
-    def on_mount(self) -> None:
-        """Logs are filled by DashboardApp via LogBuffer.get_lines_since."""

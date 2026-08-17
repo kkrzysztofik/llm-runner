@@ -8,7 +8,6 @@ from llama_manager import (
     SlotState,
     resolve_slot_runtime_status,
 )
-from llama_manager.build_pipeline import BuildConfig
 from llama_manager.config import Config
 from llama_manager.config.builder import create_tui_profile_registry
 from llama_manager.slot_stats import SlotStatsSnapshot
@@ -38,57 +37,17 @@ class DashboardViewModel:
 
     def __init__(self, model: DashboardModel) -> None:
         self.model = model
-        self._deferred_resolve: set[str] = set()
 
     def command_menu(self) -> CommandMenuState:
         return CommandMenuState(
             risk_prompt=self.model.risk_prompt,
-            build_request=self.model.build_request,
         )
-
-    def gpu_telemetry_lines(self) -> list[str]:
-        snapshot = self.model.dashboard_snapshot()
-        return [
-            self._format_gpu_stats_text(gpu_stats)
-            for gpu_stats in snapshot.gpu_stats_by_alias.values()
-        ]
 
     def server_column_count(self) -> int:
         return max(1, len(self.model.configs))
 
-    def can_select_build_target(self) -> bool:
-        return self.model.build_request and self.model.build_selected_backends is None
-
-    @property
-    def build_selected_backends(self) -> list[str] | None:
-        return self.model.build_selected_backends
-
-    @property
-    def build_in_progress(self) -> bool:
-        return self.model.build_in_progress
-
-    @property
-    def build_result(self) -> str | None:
-        return self.model.build_result
-
-    @property
-    def build_error(self) -> str | None:
-        return self.model.build_error
-
-    @property
-    def build_selected_backends_options(self) -> dict[str, BuildConfig | None]:
-        return self.model.build_selected_backends_options
-
-    @property
-    def build_stage(self) -> str | None:
-        return self.model.build_stage
-
-    @property
-    def build_progress_percent(self) -> float:
-        return self.model.build_progress_percent
-
     def cpu_usage_rows(self, width: int | None = None) -> list[list[CPUCoreSnapshot]]:
-        content_width = self._content_width(width)
+        content_width = 116 if width is None or width <= 0 else min(240, max(40, width))
         cpu_per_core = self.model.dashboard_snapshot().cpu_percentages
         if not cpu_per_core:
             return []
@@ -151,9 +110,6 @@ class DashboardViewModel:
         snapshot = self.model.dashboard_snapshot()
         status = self._resolve_slot_status(cfg.alias)
         gpu_stats = snapshot.gpu_stats_by_alias.get(cfg.alias)
-        # Logs stream incrementally via get_lines_since in _update_panel_widgets;
-        # avoid copying ≤500 lines per panel per tick here.
-        log_lines: tuple[str, ...] = ()
 
         # Load cached slot stats for this server alias
         cached_stats: SlotStatsSnapshot | None = None
@@ -181,7 +137,6 @@ class DashboardViewModel:
             backend_label=BACKEND_LABELS.get(cfg.backend, BACKEND_LABELS["llama_cpp"]),
             url=f"http://{self.model.config.deployment.host}:{cfg.port}",
             config_summary=f"Device: {cfg.device} | Ctx: {cfg.ctx_size} | Threads: {cfg.threads}",
-            log_lines=log_lines,
             runtime_stats=runtime_stats,
             gpu_stats=gpu_stats,
             stale_warning=self.stale_warning(cfg),
@@ -216,38 +171,7 @@ class DashboardViewModel:
             for profile in registry.profiles
         ]
 
-    def mark_slot_launching(self, alias: str) -> None:
-        """Hold LAUNCHING display for one refresh cycle after process starts."""
-        self._deferred_resolve.add(alias)
-
     def _resolve_slot_status(self, alias: str) -> str:
         state = self.model.slot_states.get(alias, SlotState.OFFLINE.value)
         proc = self.model.server_processes.get(alias)
-        if state == SlotState.RUNNING.value and alias in self._deferred_resolve:
-            self._deferred_resolve.discard(alias)
-            return SlotState.LAUNCHING.value
         return resolve_slot_runtime_status(state, proc)
-
-    @staticmethod
-    def _content_width(width: int | None) -> int:
-        if width is None or width <= 0:
-            return 116
-        return min(240, max(40, width))
-
-    @staticmethod
-    def _format_gpu_stats_text(stats: dict[str, object]) -> str:
-        lines = [f"Device: {stats.get('device', 'N/A')}"]
-        if stats.get("gpu_util", "N/A") != "N/A":
-            lines.append(
-                f"GPU: {stats.get('gpu_util', 'N/A')} | Mem: {stats.get('mem_util', 'N/A')}"
-            )
-        else:
-            lines.append("GPU: N/A | VRAM: N/A")
-
-        if stats.get("temp", "N/A") != "N/A":
-            lines.append(f"Temp: {stats.get('temp', 'N/A')}")
-
-        if "power" in stats and stats["power"] != "N/A":
-            lines.append(f"Power: {stats['power']}")
-
-        return "\n".join(lines)

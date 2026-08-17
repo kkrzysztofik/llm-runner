@@ -1050,7 +1050,7 @@ def test_tui_run_exits_when_launch_is_blocked() -> None:
         app.run(acknowledged=False)
 
     assert exc.value.code == 1
-    messages = [message for _ts, message in app._status_messages]
+    messages = [message for _ts, message in app.model.status_messages]
     assert "launch blocked - no slots could be launched" in messages
 
 
@@ -1078,7 +1078,7 @@ def test_tui_run_buffers_degraded_warnings() -> None:
     ):
         app.run(acknowledged=True)
 
-    messages = [message for _ts, message in app._status_messages]
+    messages = [message for _ts, message in app.model.status_messages]
     assert "launch degraded - some slots blocked" in messages
     assert "slot blocked" in messages
 

@@ -555,16 +555,3 @@ def test_refresh_model_index_async_rejects_concurrent_refresh(
         release.set()
 
     assert done.wait(timeout=2)
-
-
-def test_model_index_path_delegates(mock_controller: DashboardController) -> None:
-    """model_index_path should delegate and return a string."""
-    with patch(
-        "llama_cli.tui.controller.model_index_path",
-    ) as mock_path:
-        mock_path.return_value = "/tmp/idx.json"
-        result = mock_controller.model_index_path()
-
-    mock_path.assert_called_once_with()
-    assert isinstance(result, str)
-    assert result == "/tmp/idx.json"

@@ -19,7 +19,6 @@ class CommandMenuState:
     """State needed to render the bottom command menu."""
 
     risk_prompt: RiskPromptState | None
-    build_request: bool
 
 
 @dataclass(frozen=True)
@@ -44,7 +43,6 @@ class ServerColumnState:
     backend_label: str
     url: str
     config_summary: str
-    log_lines: tuple[str, ...]
     runtime_stats: SlotRuntimeStats
     gpu_stats: dict[str, Any] | None
     stale_warning: str | None
@@ -93,24 +91,6 @@ class DateTimeSnapshot:
     """Formatted date for the system health datetime row (e.g. Wed 2026-05-20)."""
 
     date_text: str
-
-
-@dataclass(frozen=True)
-class BuildViewState:
-    """State needed to render the build progress panel."""
-
-    visible: bool = False
-    build_request: bool = False
-    selected_backend: str | None = None
-    in_progress: bool = False
-    stage: str | None = None
-    message: str | None = None
-    is_retrying: bool = False
-    retries_remaining: int = 0
-    last_result_success: bool | None = None
-    artifact_path: str | None = None
-    error_message: str | None = None
-    progress_percent: int = 0
 
 
 @dataclass

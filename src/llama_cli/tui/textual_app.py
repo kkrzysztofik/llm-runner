@@ -34,9 +34,9 @@ from .components.slot_profile_modal import SlotProfileModal, SlotProfilePayload
 from .components.system_health import (
     CPUUsageWidget,
     MemorySwapWidget,
+    SystemHealthWidget,
     SystemInfoWidget,
 )
-from .components.system_status import SystemStatusWidget
 from .types import BuildWizardResult, MemoryUsageSnapshot, ServerColumnState, SystemInfoSnapshot
 
 _CONTENT_CONTAINER_ID = "#content"
@@ -131,7 +131,7 @@ class DashboardApp(App[None]):
 
     def compose(self) -> ComposeResult:
         with Container(id="dashboard"):
-            yield SystemStatusWidget(self.view_model)
+            yield SystemHealthWidget(self.view_model, id="alerts", classes="system-status")
             with Container(id="content"):
                 for i in range(self.view_model.server_column_count()):
                     yield ServerLogPanel(i, self.view_model)
@@ -140,9 +140,6 @@ class DashboardApp(App[None]):
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Control which bindings appear in the footer for the current mode."""
         state = self.view_model.command_menu()
-
-        if state.build_request:
-            return action == "cancel_pending_prompt"
 
         if state.risk_prompt is not None:
             if action in _RISK_HIDDEN_ACTIONS:
@@ -350,10 +347,6 @@ class DashboardApp(App[None]):
 
     def action_quit_dashboard(self) -> None:
         if self.controller.request_quit():
-            self._dispatch_shutdown(exit_app=True)
-
-    def action_interrupt_dashboard(self) -> None:
-        if self.controller.interrupt():
             self._dispatch_shutdown(exit_app=True)
 
     def _dispatch_shutdown(self, *, exit_app: bool = True) -> None:
@@ -567,13 +560,6 @@ class DashboardApp(App[None]):
 
         self.refresh_dashboard()
 
-    def action_create_profile(self) -> None:
-        """Open the slot profile creation modal."""
-        self.push_screen(
-            SlotProfileModal(config=self.controller.config),
-            self._handle_profile_modal_result,
-        )
-
     def _handle_config_modal_result(self, result: ConfigPayload | None) -> None:
         if result is not None:
             if result.clean_cache:
@@ -745,7 +731,6 @@ class DashboardApp(App[None]):
                 plan = self.call_from_thread(
                     self.controller.prepare_async_slot_launch,
                     new_cfg,
-                    profile_id,
                 )
                 messages.extend(plan.messages)
 
@@ -764,11 +749,6 @@ class DashboardApp(App[None]):
             messages,
             layout_changed,
         )
-
-    def _refresh_add_slot_startup(self, alias: str) -> None:
-        """Refresh the dashboard after a slot enters launching state."""
-        self.view_model.mark_slot_launching(alias)
-        self.refresh_dashboard()
 
     async def _finish_add_slot(
         self,
@@ -897,9 +877,7 @@ class DashboardApp(App[None]):
             self._end_slot_operation()
 
     def _handle_build_modal_result(self, result: BuildWizardResult | None) -> None:
-        if result is None:
-            self.controller.cancel_pending_prompt()
-        else:
+        if result is not None:
             self.last_build_backend = result.backends[0] if result.backends else "sycl"
             self.start_build(result.backends, options=result.options)
         self.refresh_dashboard()
@@ -1014,8 +992,7 @@ class DashboardApp(App[None]):
         self.refresh_dashboard()
 
     def action_cancel_pending_prompt(self) -> None:
-        cancelled = self.controller.cancel_pending_prompt()
-        if not cancelled and self.controller.interrupt():
+        if self.controller.interrupt():
             self._dispatch_shutdown(exit_app=True)
             return
         self.refresh_dashboard()
