@@ -135,6 +135,8 @@ class ServerDefaultsConfig(LaunchRuntimeFields):
     ubatch_size: int = 512
     threads: int = 8
     n_gpu_layers_profile: str = "all"
+    # 0 disables the per-launch power cap; 290 W is below the RTX 3090's 350 W stock limit.
+    nvidia_power_limit_watts: int = 290
     bind_address: str = "127.0.0.1"
     batch_size: int = 2048
     poll_ms: int = 50
