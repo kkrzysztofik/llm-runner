@@ -318,6 +318,8 @@ merge_chat_template_kwargs() {
 import json, sys
 raw = sys.argv[1]
 effort = sys.argv[2]
+if effort not in ("xhigh", "medium", "low"):
+    effort = "medium"
 parsed = json.loads(raw) if raw.strip() else {}
 if not isinstance(parsed, dict):
     raise SystemExit("chat_template_kwargs must be a JSON object")

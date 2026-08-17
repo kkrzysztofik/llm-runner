@@ -681,7 +681,7 @@ class DashboardApp(App[None]):
                 [new_cfg],
                 {stage.alias: log_handler},
             )
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "_execute_slot_launch: start_servers failed for '%s', cleaning up staged state",
                 stage.alias,
@@ -693,7 +693,7 @@ class DashboardApp(App[None]):
                 plan.old_alias,
                 None,
             )
-            messages.append(f"Slot '{stage.alias}' failed to start: server launch exception")
+            messages.append(f"Slot '{stage.alias}' failed to start: server launch exception: {exc}")
             return False, layout_changed, messages
         proc = procs[0] if procs else None
         success, complete_messages = self.call_from_thread(

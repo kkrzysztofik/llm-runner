@@ -23,6 +23,7 @@ from llama_cli.tui.textual_app import (
 )
 from llama_cli.tui.types import MemoryUsageSnapshot, SystemInfoSnapshot
 from llama_manager import LogBuffer
+from llama_manager.config.reasoning_effort import REASONING_EFFORT_JSON_CONFLICT
 from tests.support.helpers import make_server_config
 
 
@@ -661,6 +662,66 @@ class TestDashboardAppAddSlotFlow:
             "Slot added",
         ]
         assert finish_args[4] is True
+
+    def test_run_add_slot_reports_start_servers_value_error(self) -> None:
+        """Launch ValueError text must appear in the slot-failure message."""
+        controller = _make_controller()
+        controller.compute_add_slot_from_form.return_value = (
+            True,
+            ["Validated"],
+            "new-slot",
+            make_server_config(alias="new-slot"),
+        )
+        controller.prepare_async_slot_launch.return_value = AsyncSlotPlan(
+            success=True,
+            messages=[],
+            old_alias=None,
+        )
+        controller.stage_async_slot_launch.return_value = AsyncSlotStageResult(
+            success=True,
+            messages=["Slot 'new-slot' launching..."],
+            alias="new-slot",
+            log_buffer=LogBuffer(redact_sensitive=True),
+        )
+        controller.server_manager.start_servers.side_effect = ValueError(
+            REASONING_EFFORT_JSON_CONFLICT
+        )
+        controller.complete_async_slot_launch.return_value = (False, [])
+        app = DashboardApp(controller)
+        captured: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        def _call_from_thread(fn: object, *args: object, **kwargs: object) -> object:
+            if getattr(fn, "__name__", "") == "_finish_add_slot":
+                captured.append((fn, args, kwargs))
+                return None
+            return fn(*args, **kwargs)  # type: ignore[misc]
+
+        app.call_from_thread = _call_from_thread  # type: ignore[method-assign]
+
+        DashboardApp._run_add_slot.__wrapped__(  # type: ignore[attr-defined]
+            app,
+            {"profile": "new-slot", "port": "8080"},
+        )
+
+        controller.complete_async_slot_launch.assert_called_once_with(
+            "new-slot",
+            "new-slot",
+            None,
+            None,
+        )
+        finish_calls = [
+            call for call in captured if getattr(call[0], "__name__", "") == "_finish_add_slot"
+        ]
+        assert len(finish_calls) == 1
+        finish_args = finish_calls[0][1]
+        assert finish_args[2] is False
+        failure_messages = [
+            msg for msg in cast(list[object], finish_args[3]) if isinstance(msg, str)
+        ]
+        assert any(
+            "server launch exception" in msg and REASONING_EFFORT_JSON_CONFLICT in msg
+            for msg in failure_messages
+        )
 
     def test_start_add_slot_rejects_when_slot_operation_running(self) -> None:
         controller = _make_controller()
