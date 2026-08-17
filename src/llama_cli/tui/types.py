@@ -5,6 +5,12 @@ from typing import Any, Literal
 
 from llama_manager.build_pipeline import BuildConfig
 
+MIN_CONTENT_WIDTH = 40
+DEFAULT_CONTENT_WIDTH = 116
+MAX_CONTENT_WIDTH = 240
+CPU_CORE_BAR_WIDTH = 5
+CPU_CORE_CELL_WIDTH = 16
+
 
 @dataclass(frozen=True)
 class RiskPromptState:

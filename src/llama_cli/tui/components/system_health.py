@@ -7,7 +7,13 @@ from textual.containers import Container, Horizontal
 from textual.widget import Widget
 from textual.widgets import Static
 
-from llama_cli.tui.types import CPUCoreSnapshot
+from llama_cli.tui.types import (
+    CPU_CORE_BAR_WIDTH,
+    DEFAULT_CONTENT_WIDTH,
+    MAX_CONTENT_WIDTH,
+    MIN_CONTENT_WIDTH,
+    CPUCoreSnapshot,
+)
 
 from .digital_clock import LLM_RUNNER_LOGO, DigitalClockWidget
 
@@ -18,17 +24,12 @@ _SYSTEM_INFO_LABEL = "system-health-label system-info-label"
 _SYSTEM_INFO_PRIMARY_VALUE = "system-info-value system-info-primary-value"
 _SYSTEM_INFO_ROW = "system-health-inline-row system-info-row"
 
-MIN_CONTENT_WIDTH = 40
-MAX_CONTENT_WIDTH = 240
-CPU_CORE_BAR_WIDTH = 5
-CPU_CORE_CELL_WIDTH = 16
-
 _NO_CPU_DATA = "No CPU data"
 
 
 def _content_width(width: int | None) -> int:
     if width is None or width <= 0:
-        return 116
+        return DEFAULT_CONTENT_WIDTH
     return min(MAX_CONTENT_WIDTH, max(MIN_CONTENT_WIDTH, width))
 
 

@@ -14,6 +14,10 @@ from llama_manager.slot_stats import SlotStatsSnapshot
 
 from .model import DashboardModel
 from .types import (
+    CPU_CORE_CELL_WIDTH,
+    DEFAULT_CONTENT_WIDTH,
+    MAX_CONTENT_WIDTH,
+    MIN_CONTENT_WIDTH,
     CommandMenuState,
     CPUCoreSnapshot,
     DateTimeSnapshot,
@@ -47,12 +51,15 @@ class DashboardViewModel:
         return max(1, len(self.model.configs))
 
     def cpu_usage_rows(self, width: int | None = None) -> list[list[CPUCoreSnapshot]]:
-        content_width = 116 if width is None or width <= 0 else min(240, max(40, width))
+        if width is None or width <= 0:
+            content_width = DEFAULT_CONTENT_WIDTH
+        else:
+            content_width = min(MAX_CONTENT_WIDTH, max(MIN_CONTENT_WIDTH, width))
         cpu_per_core = self.model.dashboard_snapshot().cpu_percentages
         if not cpu_per_core:
             return []
 
-        max_cols = max(1, content_width // 16)
+        max_cols = max(1, content_width // CPU_CORE_CELL_WIDTH)
         rows = max(1, (len(cpu_per_core) + max_cols - 1) // max_cols)
         cols = (len(cpu_per_core) + rows - 1) // rows
         snapshot_rows: list[list[CPUCoreSnapshot]] = []
