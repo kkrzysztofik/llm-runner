@@ -25,19 +25,15 @@ from .profiles import (
     _parse_main_gpu_from_device,
 )
 from .server import ServerConfig
-from .spec_decode import SpeculativeDecodingConfig
+from .spec_decode import SPECULATIVE_DECODING_FIELD_NAMES, SpeculativeDecodingConfig
 from .tri_state import resolve_fit, resolve_reasoning_preserve
-
-_SPEC_DECODE_FIELDS: frozenset[str] = frozenset(
-    field.name for field in dataclasses.fields(SpeculativeDecodingConfig)
-)
 
 
 def _split_spec_decode_values(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """Separate legacy flat spec keys from ServerConfig keys."""
     config_data = deepcopy(data)
     spec_data = dict(config_data.pop("spec_decode", {}) or {})
-    for key in _SPEC_DECODE_FIELDS:
+    for key in SPECULATIVE_DECODING_FIELD_NAMES:
         if key in config_data:
             spec_data[key] = config_data.pop(key)
     return config_data, spec_data
@@ -122,54 +118,13 @@ def _validate_resolved_profile_data(data: dict[str, Any]) -> None:
 
 def _profile_to_config_data(profile: SlotProfileSpec) -> dict[str, Any]:
     """Convert slot profile data to a complete ServerConfig-compatible mapping."""
-    # Auto-derive tensor_split and main_gpu from device if not explicitly set
-    tensor_split = profile.tensor_split or _derive_tensor_split_from_device(profile.device)
-    main_gpu = (
-        profile.main_gpu if profile.main_gpu != 0 else _parse_main_gpu_from_device(profile.device)
-    )
-    return {
-        "model": profile.model,
-        "alias": profile.alias,
-        "device": profile.device,
-        "port": profile.port,
-        "bind_address": profile.bind_address,
-        "ctx_size": profile.ctx_size,
-        "ubatch_size": profile.ubatch_size,
-        "threads": profile.threads,
-        "tensor_split": tensor_split,
-        "chat_template_kwargs": profile.chat_template_kwargs,
-        "spec_decode": dataclasses.asdict(profile.spec_decode),
-        "use_jinja": profile.use_jinja,
-        "cache_type_k": profile.cache_type_k,
-        "cache_type_v": profile.cache_type_v,
-        "n_gpu_layers": profile.n_gpu_layers,
-        "main_gpu": main_gpu,
-        "server_bin": profile.server_bin,
-        "backend": profile.backend,
-        "risky_acknowledged": list(profile.risky_acknowledged),
-        "batch_size": profile.batch_size,
-        "poll_ms": profile.poll_ms,
-        "n_predict": profile.n_predict,
-        "parallel": profile.parallel,
-        "threads_batch": profile.threads_batch,
-        "mmproj": profile.mmproj,
-        "kv_unified": profile.kv_unified,
-        "mmproj_offload": profile.mmproj_offload,
-        "load_mode": profile.load_mode,
-        "split_mode": profile.split_mode,
-        "no_host_buffer": profile.no_host_buffer,
-        "ui": profile.ui,
-        "reasoning_preserve": profile.reasoning_preserve,
-        "reasoning_budget_message": profile.reasoning_budget_message,
-        "fit": profile.fit,
-        "ctx_checkpoints": profile.ctx_checkpoints,
-        "temperature": profile.temperature,
-        "top_k": profile.top_k,
-        "top_p": profile.top_p,
-        "min_p": profile.min_p,
-        "presence_penalty": profile.presence_penalty,
-        "repeat_penalty": profile.repeat_penalty,
-    }
+    data = dataclasses.asdict(profile)
+    data.update(data.pop("launch_runtime", {}))
+    data["risky_acknowledged"] = list(profile.risky_acknowledged)
+    data["tensor_split"] = profile.tensor_split or _derive_tensor_split_from_device(profile.device)
+    if profile.main_gpu == 0:
+        data["main_gpu"] = _parse_main_gpu_from_device(profile.device)
+    return data
 
 
 def _optional_int(value: object) -> int | None:
@@ -301,150 +256,6 @@ def resolve_profile_config(
         ServerConfig for the requested profile.
     """
     return create_server_config_from_profile(registry.get_profile(profile_id), override_config)
-
-
-def create_summary_balanced_cfg(
-    port: int,
-    ctx_size: int | None = None,
-    ubatch_size: int | None = None,
-    threads: int | None = None,
-    cache_k: str | None = None,
-    cache_v: str | None = None,
-    registry: SlotProfileRegistry | None = None,
-) -> ServerConfig:
-    """Create a ServerConfig for the summary-balanced model profile.
-
-    Args:
-        port: Port to bind the server to.
-        ctx_size: Context size (defaults to Config.default_ctx_size_summary).
-        ubatch_size: Ubatch size (defaults to Config.default_ubatch_size_summary_balanced).
-        threads: Number of threads (defaults to Config.default_threads_summary_balanced).
-        cache_k: K cache type.
-        cache_v: V cache type.
-        registry: Optional pre-built ProfileRegistry to reuse across calls.
-            When omitted, a fresh registry is created via
-            ``create_default_profile_registry()``.
-
-    Returns:
-        A configured ServerConfig instance.
-
-    """
-    if registry is None:
-        registry = create_default_profile_registry()
-    return resolve_profile_config(
-        registry,
-        "summary-balanced",
-        _without_none(
-            {
-                "port": port,
-                "ctx_size": ctx_size,
-                "ubatch_size": ubatch_size,
-                "threads": threads,
-                "cache_type_k": cache_k,
-                "cache_type_v": cache_v,
-            }
-        ),
-    )
-
-
-def create_summary_fast_cfg(
-    port: int,
-    ctx_size: int | None = None,
-    ubatch_size: int | None = None,
-    threads: int | None = None,
-    cache_k: str | None = None,
-    cache_v: str | None = None,
-    registry: SlotProfileRegistry | None = None,
-) -> ServerConfig:
-    """Create a ServerConfig for the summary-fast model profile.
-
-    Args:
-        port: Port to bind the server to.
-        ctx_size: Context size (defaults to Config.default_ctx_size_summary).
-        ubatch_size: Ubatch size (defaults to Config.default_ubatch_size_summary_fast).
-        threads: Number of threads (defaults to Config.default_threads_summary_fast).
-        cache_k: K cache type.
-        cache_v: V cache type.
-        registry: Optional pre-built ProfileRegistry to reuse across calls.
-            When omitted, a fresh registry is created via
-            ``create_default_profile_registry()``.
-
-    Returns:
-        A configured ServerConfig instance.
-
-    """
-    if registry is None:
-        registry = create_default_profile_registry()
-    return resolve_profile_config(
-        registry,
-        "summary-fast",
-        _without_none(
-            {
-                "port": port,
-                "ctx_size": ctx_size,
-                "ubatch_size": ubatch_size,
-                "threads": threads,
-                "cache_type_k": cache_k,
-                "cache_type_v": cache_v,
-            }
-        ),
-    )
-
-
-def create_qwen35_cfg(
-    port: int,
-    ctx_size: int | None = None,
-    ubatch_size: int | None = None,
-    threads: int | None = None,
-    cache_k: str | None = None,
-    cache_v: str | None = None,
-    n_gpu_layers: int | str = "all",
-    model: str | None = None,
-    server_bin: str = "",
-    backend: str = "llama_cpp",
-    registry: SlotProfileRegistry | None = None,
-) -> ServerConfig:
-    """Create a ServerConfig for the qwen35-coding model profile.
-
-    Args:
-        port: Port to bind the server to.
-        ctx_size: Context size (defaults to Config.default_ctx_size_qwen35).
-        ubatch_size: Ubatch size (defaults to Config.default_ubatch_size_qwen35).
-        threads: Number of threads (defaults to Config.default_threads_qwen35).
-        cache_k: K cache type (defaults to Config.default_cache_type_qwen35_k).
-        cache_v: V cache type (defaults to Config.default_cache_type_qwen35_v).
-        n_gpu_layers: Number of GPU layers to offload (defaults to 'all').
-        model: Specific model path (defaults to Config.model_qwen35).
-        server_bin: Path to llama-server binary (defaults to Config.llama_server_bin_nvidia).
-        backend: Inference backend (defaults to 'llama_cpp').
-        registry: Optional pre-built ProfileRegistry to reuse across calls.
-            When omitted, a fresh registry is created via
-            ``create_default_profile_registry()``.
-
-    Returns:
-        A configured ServerConfig instance.
-
-    """
-    if registry is None:
-        registry = create_default_profile_registry()
-    return resolve_profile_config(
-        registry,
-        "qwen35",
-        _without_none(
-            {
-                "port": port,
-                "ctx_size": ctx_size,
-                "ubatch_size": ubatch_size,
-                "threads": threads,
-                "cache_type_k": cache_k,
-                "cache_type_v": cache_v,
-                "n_gpu_layers": n_gpu_layers,
-                "model": model,
-                "server_bin": server_bin or None,
-                "backend": backend,
-            }
-        ),
-    )
 
 
 def create_default_slot_profiles(config: Config | None = None) -> tuple[SlotProfileSpec, ...]:

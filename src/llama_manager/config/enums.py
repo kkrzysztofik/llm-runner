@@ -77,12 +77,3 @@ class DoctorCheckStatus(StrEnum):
     PASS = "pass"  # noqa: S105
     WARN = "warn"
     FAIL = "fail"  # noqa: S105
-
-
-class GgufParseError(StrEnum):
-    """Error types for GGUF metadata extraction."""
-
-    CORRUPT_FILE = "CORRUPT_FILE"
-    PARSE_TIMEOUT = "PARSE_TIMEOUT"
-    UNSUPPORTED_VERSION = "UNSUPPORTED_VERSION"
-    READ_ERROR = "READ_ERROR"

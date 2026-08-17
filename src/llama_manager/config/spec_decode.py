@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 _VALID_SPEC_TYPES: frozenset[str] = frozenset({"ngram-mod", "draft-mtp", "draft-dflash"})
 
@@ -25,7 +25,7 @@ def spec_type_members(spec_type: str) -> list[str]:
 
 
 @dataclass
-class SpeculativeDecodingConfig(dict[str, object]):
+class SpeculativeDecodingConfig:
     """llama-server speculative decoding and reasoning options."""
 
     spec_type: str = ""
@@ -53,27 +53,6 @@ class SpeculativeDecodingConfig(dict[str, object]):
         # (common_get_enabled_speculative_configs) and then applies its own hardcoded
         # speculator priority, so member order and repeats carry no meaning.
         self.spec_type = ",".join(dict.fromkeys(sorted(spec_type_members(self.spec_type))))
-        self.clear()
-        self.update(
-            {
-                "spec_type": self.spec_type,
-                "spec_ngram_size_n": self.spec_ngram_size_n,
-                "draft_min": self.draft_min,
-                "draft_max": self.draft_max,
-                "spec_draft_n_max": self.spec_draft_n_max,
-                "spec_draft_p_min": self.spec_draft_p_min,
-                "spec_draft_cache_type_k": self.spec_draft_cache_type_k,
-                "spec_draft_cache_type_v": self.spec_draft_cache_type_v,
-                "spec_draft_device": self.spec_draft_device,
-                "reasoning_mode": self.reasoning_mode,
-                "reasoning_format": self.reasoning_format,
-                "reasoning_budget": self.reasoning_budget,
-                "spec_draft_model": self.spec_draft_model,
-                "spec_draft_hf": self.spec_draft_hf,
-                "spec_draft_ngl": self.spec_draft_ngl,
-                "spec_dflash_cross_ctx": self.spec_dflash_cross_ctx,
-            }
-        )
 
 
 def _validate_speculative_decoding(config: SpeculativeDecodingConfig) -> None:
@@ -139,81 +118,3 @@ def resolve_speculative_decoding_config(
     resolved_values: dict[str, Any] = dict(resolved.__dict__)
     resolved_values.update(active_overrides)
     return SpeculativeDecodingConfig(**resolved_values)
-
-
-class SpeculativeDecodingFieldsMixin:
-    """Expose nested spec-decoding fields as direct config attributes."""
-
-    __slots__ = ()
-
-    def __getattribute__(self, name: str) -> object:
-        if name in SPECULATIVE_DECODING_FIELD_NAMES:
-            return getattr(self._spec_decode(), name)
-        return object.__getattribute__(self, name)
-
-    def _spec_decode(self) -> SpeculativeDecodingConfig:
-        return cast(SpeculativeDecodingConfig, object.__getattribute__(self, "spec_decode"))
-
-    @property
-    def reasoning_mode(self) -> str:
-        return self._spec_decode().reasoning_mode
-
-    @property
-    def reasoning_format(self) -> str:
-        return self._spec_decode().reasoning_format
-
-    @property
-    def reasoning_budget(self) -> str:
-        return self._spec_decode().reasoning_budget
-
-    @property
-    def spec_type(self) -> str:
-        return self._spec_decode().spec_type
-
-    @property
-    def spec_ngram_size_n(self) -> int:
-        return self._spec_decode().spec_ngram_size_n
-
-    @property
-    def draft_min(self) -> int:
-        return self._spec_decode().draft_min
-
-    @property
-    def draft_max(self) -> int:
-        return self._spec_decode().draft_max
-
-    @property
-    def spec_draft_n_max(self) -> int:
-        return self._spec_decode().spec_draft_n_max
-
-    @property
-    def spec_draft_p_min(self) -> float:
-        return self._spec_decode().spec_draft_p_min
-
-    @property
-    def spec_draft_cache_type_k(self) -> str:
-        return self._spec_decode().spec_draft_cache_type_k
-
-    @property
-    def spec_draft_cache_type_v(self) -> str:
-        return self._spec_decode().spec_draft_cache_type_v
-
-    @property
-    def spec_draft_device(self) -> str:
-        return self._spec_decode().spec_draft_device
-
-    @property
-    def spec_draft_model(self) -> str:
-        return self._spec_decode().spec_draft_model
-
-    @property
-    def spec_draft_hf(self) -> str:
-        return self._spec_decode().spec_draft_hf
-
-    @property
-    def spec_draft_ngl(self) -> int | str:
-        return self._spec_decode().spec_draft_ngl
-
-    @property
-    def spec_dflash_cross_ctx(self) -> int:
-        return self._spec_decode().spec_dflash_cross_ctx

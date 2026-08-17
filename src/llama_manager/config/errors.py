@@ -21,10 +21,6 @@ class ErrorDetail:
     slot_id: str = ""
     passed: bool = False
 
-    @property
-    def error_message(self) -> str:
-        return self.why_blocked
-
 
 @dataclass
 class MultiValidationError:

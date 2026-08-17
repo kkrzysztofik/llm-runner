@@ -143,30 +143,6 @@ def _extract_int_field_from_reader(
         return None
 
 
-def _detect_tokenizer_type_from_reader(
-    fields: Mapping[str, ReaderField],
-) -> str | None:
-    """Detect tokenizer type from GGUFReader fields.
-
-    Checks for common tokenizer key patterns in the GGUF KV store.
-
-    Args:
-        fields: The fields dict from GGUFReader.
-
-    Returns:
-        Tokenizer type string, or None if not found.
-
-    """
-    for key in fields:
-        if "tokenizer.ggml" in key:
-            return "ggml"
-        if "tokenizer.model" in key:
-            return "model"
-        if "tokenizer.json" in key:
-            return "huggingface"
-    return None
-
-
 def _try_gguf_reader(
     model_path: str,
 ) -> tuple[dict[str, ReaderField], int] | None:
@@ -206,8 +182,6 @@ def _try_gguf_reader(
 def _extract_from_gguf_reader(
     model_path: str,
     fields: Mapping[str, ReaderField],
-    parse_timeout_s: float,
-    prefix_cap_bytes: int,
     cancel_event: Event | None = None,
 ) -> GGUFMetadataRecord:
     """Extract metadata using GGUFReader fields dict.
@@ -215,8 +189,6 @@ def _extract_from_gguf_reader(
     Args:
         model_path: Path to the GGUF file.
         fields: The fields dict from GGUFReader.
-        parse_timeout_s: Timeout for parsing.
-        prefix_cap_bytes: Bytes cap used for parsing.
 
     Returns:
         A ``GGUFMetadataRecord`` with extracted metadata.
@@ -228,7 +200,6 @@ def _extract_from_gguf_reader(
     if cancel_event is not None and cancel_event.is_set():
         raise InterruptedError("parse cancelled")
 
-    tokenizer_type = _detect_tokenizer_type_from_reader(fields)
     file_type = _extract_file_type(fields)
     quantization_type = _file_type_to_quant(file_type)
 
@@ -236,38 +207,26 @@ def _extract_from_gguf_reader(
         ctx_key = Keys.LLM.CONTEXT_LENGTH.format(arch=architecture)
         emb_key = Keys.LLM.EMBEDDING_LENGTH.format(arch=architecture)
         blk_key = Keys.LLM.BLOCK_COUNT.format(arch=architecture)
-        atc_key = Keys.Attention.HEAD_COUNT.format(arch=architecture)
-        atc_kv_key = Keys.Attention.HEAD_COUNT_KV.format(arch=architecture)
 
         context_length = _extract_int_field_from_reader(fields, ctx_key)
         embedding_length = _extract_int_field_from_reader(fields, emb_key)
         block_count = _extract_int_field_from_reader(fields, blk_key)
-        attention_head_count = _extract_int_field_from_reader(fields, atc_key)
-        attention_head_count_kv = _extract_int_field_from_reader(fields, atc_kv_key)
     else:
         context_length = None
         embedding_length = None
         block_count = None
-        attention_head_count = None
-        attention_head_count_kv = None
 
     stem = Path(model_path).stem
     normalized_stem = normalize_filename(stem)
 
     return GGUFMetadataRecord(
-        raw_path=model_path,
         normalized_stem=normalized_stem,
         general_name=general_name,
         architecture=architecture,
-        tokenizer_type=tokenizer_type,
         file_type=file_type,
         quantization_type=quantization_type,
         embedding_length=embedding_length,
         block_count=block_count,
         context_length=context_length,
         max_context_length=context_length,
-        attention_head_count=attention_head_count,
-        attention_head_count_kv=attention_head_count_kv,
-        parse_timeout_s=parse_timeout_s,
-        prefix_cap_bytes=prefix_cap_bytes,
     )

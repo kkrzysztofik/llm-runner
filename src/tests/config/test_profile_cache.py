@@ -1500,10 +1500,10 @@ def test_fresh_profile_applied(
     assert merged.server_bin == cfg.server_bin
     assert merged.backend == cfg.backend
     assert merged.tensor_split == cfg.tensor_split
-    assert merged.reasoning_mode == cfg.reasoning_mode
-    assert merged.reasoning_format == cfg.reasoning_format
+    assert merged.spec_decode.reasoning_mode == cfg.spec_decode.reasoning_mode
+    assert merged.spec_decode.reasoning_format == cfg.spec_decode.reasoning_format
     assert merged.chat_template_kwargs == cfg.chat_template_kwargs
-    assert merged.reasoning_budget == cfg.reasoning_budget
+    assert merged.spec_decode.reasoning_budget == cfg.spec_decode.reasoning_budget
     assert merged.use_jinja == cfg.use_jinja
     assert merged.n_gpu_layers == cfg.n_gpu_layers
     assert merged.risky_acknowledged == cfg.risky_acknowledged

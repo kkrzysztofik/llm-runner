@@ -13,7 +13,6 @@ from .launch_runtime import (
 )
 from .spec_decode import (
     SpeculativeDecodingConfig,
-    SpeculativeDecodingFieldsMixin,
     resolve_speculative_decoding_config,
 )
 
@@ -23,7 +22,7 @@ class SlotProfileError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class SlotProfileSpec(SpeculativeDecodingFieldsMixin, LaunchRuntimeAttributeMixin):
+class SlotProfileSpec(LaunchRuntimeAttributeMixin):
     """Typed data definition for one launchable llama-server slot profile."""
 
     profile_id: str

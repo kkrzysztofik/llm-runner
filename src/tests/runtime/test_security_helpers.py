@@ -6,7 +6,6 @@ from llama_manager.common.security import (
     redact_env_value,
     redact_log_line,
     redact_sensitive,
-    safe_log,
 )
 
 # ---------------------------------------------------------------------------
@@ -161,53 +160,6 @@ class TestRedactLogLine:
 # ---------------------------------------------------------------------------
 # TestSafeLog
 # ---------------------------------------------------------------------------
-
-
-class TestSafeLog:
-    """Tests for safe_log() — t-string redaction."""
-
-    def test_redacts_sensitive_interpolation(self) -> None:
-        """Should redact values bound to sensitive variable names."""
-        api_key = "sk-abc123"
-        result = safe_log(t"Connecting with api_key={api_key}")
-        assert result == "Connecting with api_key=[REDACTED]"
-
-    def test_preserves_safe_interpolation(self) -> None:
-        """Should preserve values bound to non-sensitive variable names."""
-        model_path = "/path/to/model.gguf"
-        result = safe_log(t"Loading model from model_path={model_path}")
-        assert result == "Loading model from model_path=/path/to/model.gguf"
-
-    def test_redacts_password_interpolation(self) -> None:
-        """PASSWORD-named variables should be redacted."""
-        db_password = "super_secret"  # noqa: S105
-        result = safe_log(t"Auth with db_password={db_password}")
-        assert result == "Auth with db_password=[REDACTED]"
-
-    def test_mixed_sensitive_and_safe(self) -> None:
-        """Should redact sensitive and preserve safe in the same template."""
-        api_key = "sk-abc"
-        server = "localhost"
-        result = safe_log(t"key={api_key} on {server}")
-        assert result == "key=[REDACTED] on localhost"
-
-    def test_no_interpolations(self) -> None:
-        """A template with no interpolations should pass through unchanged."""
-        result = safe_log(t"Hello, world!")
-        assert result == "Hello, world!"
-
-    def test_multiple_sensitive_interpolations(self) -> None:
-        """All sensitive interpolations should be redacted."""
-        token = "tok-123"  # noqa: S105
-        secret = "sec-456"  # noqa: S105
-        result = safe_log(t"token={token} secret={secret}")
-        assert result == "token=[REDACTED] secret=[REDACTED]"
-
-    def test_sensitive_via_log_pattern(self) -> None:
-        """Variable names matching the log pattern should also be redacted."""
-        proxy_auth_header = "bearer_xyz"
-        result = safe_log(t"header={proxy_auth_header}")
-        assert result == "header=[REDACTED]"
 
 
 # ---------------------------------------------------------------------------

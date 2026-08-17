@@ -44,27 +44,10 @@ class TestValidMetadataExtraction:
         path = str(self._fixture_path("gguf_v3_valid.gguf"))
         record = extract_gguf_metadata(path, prefix_cap_bytes=65536)
 
-        assert record.raw_path == path
         # architecture detected from "llama" pattern in binary data
         assert record.architecture == "llama"
         # Derived fields
         assert record.normalized_stem == "gguf_v3_valid"
-        # Metadata fields
-        assert isinstance(record.parse_timestamp, str)
-        assert record.parse_timeout_s == 5.0
-        assert record.prefix_cap_bytes == 65536
-
-    def test_extract_custom_prefix_cap(self) -> None:
-        """extract_gguf_metadata should respect custom prefix_cap_bytes."""
-        path = str(self._fixture_path("gguf_v3_valid.gguf"))
-        record = extract_gguf_metadata(path, prefix_cap_bytes=1024)
-        assert record.prefix_cap_bytes == 1024
-
-    def test_extract_custom_timeout(self) -> None:
-        """extract_gguf_metadata should store parse_timeout_s in the record."""
-        path = str(self._fixture_path("gguf_v3_valid.gguf"))
-        record = extract_gguf_metadata(path, parse_timeout_s=10.0)
-        assert record.parse_timeout_s == 10.0
 
     def test_record_is_dataclass(self) -> None:
         """GGUFMetadataRecord should be a dataclass with expected fields."""
@@ -73,22 +56,15 @@ class TestValidMetadataExtraction:
         # Should have __dataclass_fields__
         assert hasattr(record, "__dataclass_fields__")
         expected_fields = {
-            "raw_path",
             "normalized_stem",
             "general_name",
             "architecture",
-            "tokenizer_type",
             "embedding_length",
             "block_count",
             "context_length",
             "max_context_length",
-            "attention_head_count",
-            "attention_head_count_kv",
             "file_type",
             "quantization_type",
-            "parse_timestamp",
-            "parse_timeout_s",
-            "prefix_cap_bytes",
         }
         assert set(record.__dataclass_fields__.keys()) == expected_fields
 
@@ -135,7 +111,6 @@ class TestMissingGeneralName:
         assert record.architecture == "llama"
         assert record.context_length is None  # regex doesn't match binary format
         assert record.max_context_length is None
-        assert record.attention_head_count is None
 
 
 # ---------------------------------------------------------------------------
@@ -421,8 +396,6 @@ class TestExtractGgufMetadataValidation:
         # Should succeed without raising
         record = extract_gguf_metadata(path, prefix_cap_bytes=1024, parse_timeout_s=1.0)
         assert record is not None
-        assert record.prefix_cap_bytes == 1024
-        assert record.parse_timeout_s == 1.0
 
 
 """Generate GGUF test fixtures as a side-effect test.
@@ -621,8 +594,6 @@ class TestExtractFromGGUFReader:
         record = _extract_from_gguf_reader(
             model_path="/fake/model.gguf",
             fields={},
-            parse_timeout_s=30.0,
-            prefix_cap_bytes=65536,
         )
         assert record.architecture is None
         assert record.context_length is None
@@ -646,8 +617,6 @@ class TestExtractFromGGUFReader:
             _extract_from_gguf_reader(
                 model_path="/fake/model.gguf",
                 fields={Keys.General.ARCHITECTURE: arch_field},
-                parse_timeout_s=30.0,
-                prefix_cap_bytes=65536,
                 cancel_event=cancel,
             )
 

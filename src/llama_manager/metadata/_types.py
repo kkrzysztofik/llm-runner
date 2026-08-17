@@ -2,18 +2,7 @@
 
 import re
 import unicodedata
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
-
-# GGUF magic bytes (little-endian)
-_GGUF_V2_MAGIC = b"GGUF\x02\x00\x00\x00"
-_GGUF_V3_MAGIC = b"GGUF\x03\x00\x00\x00"
-_GGUF_V4_MAGIC = b"GGUF\x04\x00\x00\x00"
-
-# Pattern for general.name key in GGUF metadata (raw binary format)
-_GENERAL_NAME_PATTERN = re.compile(
-    rb"general\.name\s*\x00([^\x00]+)\x00",
-)
+from dataclasses import dataclass
 
 # Invalid filename character pattern (NFKC normalization applied)
 _INVALID_FILENAME_CHARS = re.compile(r"[\x00-\x1f\x7f/\\:\*\?\"<>\|]")
@@ -32,22 +21,15 @@ class GGUFMetadataRecord:
     file path which are always set).
     """
 
-    raw_path: str
     normalized_stem: str
     general_name: str | None = None
     architecture: str | None = None
-    tokenizer_type: str | None = None
     file_type: int | None = None
     quantization_type: str | None = None
     embedding_length: int | None = None
     block_count: int | None = None
     context_length: int | None = None
     max_context_length: int | None = None
-    attention_head_count: int | None = None
-    attention_head_count_kv: int | None = None
-    parse_timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-    parse_timeout_s: float = 0.0
-    prefix_cap_bytes: int = 0
 
 
 def normalize_filename(filename: str) -> str:

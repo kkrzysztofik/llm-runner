@@ -565,6 +565,6 @@ def test_model_index_path_delegates(mock_controller: DashboardController) -> Non
         mock_path.return_value = "/tmp/idx.json"
         result = mock_controller.model_index_path()
 
-    mock_path.assert_called_once_with(mock_controller.config)
+    mock_path.assert_called_once_with()
     assert isinstance(result, str)
     assert result == "/tmp/idx.json"

@@ -929,7 +929,7 @@ class DashboardController:
         Returns:
             A tuple of (success, message).
         """
-        idx_path = model_index_path(self.config)
+        idx_path = model_index_path()
 
         if not idx_path.exists():
             return (False, "No model cache to clean")
@@ -1491,4 +1491,4 @@ class DashboardController:
 
     def model_index_path(self) -> str:
         """Return the path string where the model index cache is stored."""
-        return str(model_index_path(self.config))
+        return str(model_index_path())

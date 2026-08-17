@@ -1010,7 +1010,7 @@ class TestControllerCleanModelCache:
         """clean_model_cache should return False when cache file doesn't exist."""
         monkeypatch.setattr(
             "llama_cli.tui.controller.model_index_path",
-            lambda cfg: tmp_path / "no_cache.json",
+            lambda: tmp_path / "no_cache.json",
         )
         controller = _make_controller()
 
@@ -1025,7 +1025,7 @@ class TestControllerCleanModelCache:
         cache_file.write_text("{}")
         monkeypatch.setattr(
             "llama_cli.tui.controller.model_index_path",
-            lambda cfg: cache_file,
+            lambda: cache_file,
         )
         controller = _make_controller()
         with controller._model_index_lock:
@@ -1046,7 +1046,7 @@ class TestControllerCleanModelCache:
         cache_file.write_text("{}")
         monkeypatch.setattr(
             "llama_cli.tui.controller.model_index_path",
-            lambda cfg: cache_file,
+            lambda: cache_file,
         )
         controller = _make_controller()
 

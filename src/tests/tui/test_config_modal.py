@@ -130,9 +130,7 @@ _TOP_LEVEL_FIELDS = frozenset(
         "server_binary_version",
         "gguf_metadata_prefix_cap_bytes",
         "gguf_metadata_parse_timeout_s",
-        "tui_launch_timeout_s",
         "tui_refresh_interval_ms",
-        "probe_latency_threshold_s",
         "lock_stale_threshold_s",
         "log_file_level",
         "log_stderr_level",
@@ -185,9 +183,7 @@ def _make_config(**overrides: object) -> Config:
         "smoke_api_key": "",
         "gguf_metadata_prefix_cap_bytes": 4096,
         "gguf_metadata_parse_timeout_s": 5,
-        "tui_launch_timeout_s": 30,
         "tui_refresh_interval_ms": 250,
-        "probe_latency_threshold_s": 1.0,
         "lock_stale_threshold_s": 300,
     }
     defaults.update(overrides)

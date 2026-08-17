@@ -73,7 +73,6 @@ class TestSpecTypeValidation:
         """Stored spec_type is canonical, so consumers never see stray spaces."""
         cfg = SpeculativeDecodingConfig(spec_type="draft-mtp, ngram-mod")
         assert cfg.spec_type == "draft-mtp,ngram-mod"
-        assert cfg["spec_type"] == "draft-mtp,ngram-mod"
 
     def test_spec_type_with_no_members_is_rejected(self) -> None:
         """A non-empty spec_type that yields no members is not silently accepted."""
@@ -265,34 +264,3 @@ class TestReasoningFields:
         cfg = SpeculativeDecodingConfig()
         assert cfg.reasoning_mode == "auto"
         assert cfg.reasoning_format == "none"
-
-
-class TestSpeculativeDecodingConfigDictBehavior:
-    """SpeculativeDecodingConfig acts as a dict after __post_init__."""
-
-    def test_dict_contains_all_fields(self) -> None:
-        """Config dict representation contains all field keys."""
-        cfg = SpeculativeDecodingConfig(
-            spec_type="draft-dflash",
-            spec_draft_model="/path/to/model",
-            spec_dflash_cross_ctx=512,
-        )
-        assert "spec_type" in cfg
-        assert "spec_draft_model" in cfg
-        assert "spec_dflash_cross_ctx" in cfg
-        assert cfg["spec_type"] == "draft-dflash"
-        assert cfg["spec_draft_model"] == "/path/to/model"
-        assert cfg["spec_dflash_cross_ctx"] == 512
-
-    def test_dict_reflects_dataclass_attrs(self) -> None:
-        """Dict values match dataclass attribute values."""
-        cfg = SpeculativeDecodingConfig(
-            spec_type="ngram-mod",
-            spec_ngram_size_n=10,
-            draft_min=2,
-            draft_max=8,
-        )
-        assert cfg["spec_type"] == cfg.spec_type
-        assert cfg["spec_ngram_size_n"] == cfg.spec_ngram_size_n
-        assert cfg["draft_min"] == cfg.draft_min
-        assert cfg["draft_max"] == cfg.draft_max

@@ -9,7 +9,6 @@ from .launch_runtime import LaunchRuntimeFields, apply_launch_runtime, split_lau
 from .load_mode import LOAD_MODE_VALUES
 from .spec_decode import (
     SpeculativeDecodingConfig,
-    SpeculativeDecodingFieldsMixin,
     resolve_speculative_decoding_config,
 )
 from .tri_state import TRI_STATE_VALUES
@@ -22,7 +21,7 @@ _SLOT_ID_PATTERN = re.compile(r"[^a-z0-9_-]")
 
 
 @dataclass
-class ServerConfig(SpeculativeDecodingFieldsMixin, LaunchRuntimeFields):
+class ServerConfig(LaunchRuntimeFields):
     """Configuration for a single llama.cpp server instance.
 
     Each instance targets a specific GPU device and loads a specific model.

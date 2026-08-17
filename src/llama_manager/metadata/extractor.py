@@ -9,8 +9,6 @@ from ._types import GGUFMetadataRecord
 
 def _parse_gguf_in_thread(
     model_path: str,
-    prefix_cap_bytes: int,
-    parse_timeout_s: float,
     result_queue: Queue[GGUFMetadataRecord | BaseException],
     cancel_event: Event,
 ) -> None:
@@ -33,8 +31,6 @@ def _parse_gguf_in_thread(
             record = _extract_from_gguf_reader(
                 model_path,
                 fields,
-                parse_timeout_s,
-                prefix_cap_bytes,
                 cancel_event,
             )
         else:
@@ -100,7 +96,7 @@ def extract_gguf_metadata(
     # Run parse in a thread with timeout
     thread = Thread(
         target=_parse_gguf_in_thread,
-        args=(model_path, prefix_cap_bytes, parse_timeout_s, result_queue, cancel_event),
+        args=(model_path, result_queue, cancel_event),
         daemon=True,
     )
     thread.start()

@@ -4,28 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, replace
-from typing import Any, TypedDict, cast
-
-
-class LaunchRuntimeOverrides(TypedDict, total=False):
-    """Optional keyword overrides for launch/runtime fields."""
-
-    kv_unified: bool | None
-    mmproj_offload: bool | None
-    load_mode: str | None
-    split_mode: str | None
-    no_host_buffer: bool | None
-    ui: bool | None
-    reasoning_preserve: str | None
-    reasoning_budget_message: str | None
-    fit: str | None
-    ctx_checkpoints: int | None
-    temperature: float | None
-    top_k: int | None
-    top_p: float | None
-    min_p: float | None
-    presence_penalty: float | None
-    repeat_penalty: float | None
+from typing import Any, cast
 
 
 @dataclass
@@ -138,8 +117,3 @@ def split_launch_runtime_kwargs(
         else:
             rest[key] = value
     return runtime, rest
-
-
-def launch_runtime_as_dict(source: object) -> dict[str, object]:
-    """Copy launch/runtime field values from ``source`` into a plain dict."""
-    return {key: getattr(source, key) for key in LAUNCH_RUNTIME_KEYS}

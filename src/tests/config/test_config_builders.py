@@ -16,10 +16,7 @@ from llama_manager.config import (
     ModelSlot,
     ServerConfig,
     create_default_profile_registry,
-    create_qwen35_cfg,
     create_server_config_from_profile,
-    create_summary_balanced_cfg,
-    create_summary_fast_cfg,
     resolve_backend_from_profile,
     resolve_profile_config,
     resolve_profile_id,
@@ -110,21 +107,6 @@ class TestConfig:
             Path(custom_root) / "build_cuda" / "bin" / "llama-server"
         )
 
-    def test_venv_path_default(self) -> None:
-        """Config.paths.venv_path should return Path to ~/.cache/llm-runner/venv by default."""
-        cfg = Config()
-        expected = Path.home() / ".cache" / "llm-runner" / "venv"
-        assert cfg.paths.venv_path == expected
-        assert isinstance(cfg.paths.venv_path, Path)
-
-    def test_venv_path_with_xdg_cache_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config.paths.venv_path should respect XDG_CACHE_HOME environment variable."""
-        custom_cache = "/custom/cache"
-        monkeypatch.setenv("XDG_CACHE_HOME", custom_cache)
-        cfg = Config()
-        expected = Path(custom_cache) / "llm-runner" / "venv"
-        assert cfg.paths.venv_path == expected
-
     def test_builds_dir_default(self) -> None:
         """Config.paths.builds_dir should return Path to ~/.local/state/llm-runner/builds by default."""
         cfg = Config()
@@ -173,8 +155,6 @@ class TestConfig:
     def test_xdg_paths_are_under_xdg_base_directories(self) -> None:
         """All XDG paths should be under their respective base directories."""
         cfg = Config()
-        # venv_path should be under xdg_cache_base
-        assert str(cfg.paths.venv_path).startswith(str(Path(cfg.paths.xdg_cache_base)))
         # builds_dir should be under xdg_state_base (per specs/002-build-setup/data-model.md)
         assert str(cfg.paths.builds_dir).startswith(str(Path(cfg.paths.xdg_state_base)))
         # reports_dir should be under xdg_data_base
@@ -209,8 +189,8 @@ class TestServerConfig:
             threads=2,
         )
         assert sc.tensor_split == ""
-        assert sc.reasoning_mode == "auto"
-        assert sc.reasoning_format == "none"
+        assert sc.spec_decode.reasoning_mode == "auto"
+        assert sc.spec_decode.reasoning_format == "none"
         assert sc.use_jinja is False
         assert sc.server_bin == ""
         assert sc.n_gpu_layers == 99
@@ -227,48 +207,6 @@ class TestServerConfig:
             server_bin="/custom/llama-server",
         )
         assert sc.server_bin == "/custom/llama-server"
-
-
-class TestConfigBuilders:
-    def test_create_summary_balanced_cfg_port(self) -> None:
-        sc = create_summary_balanced_cfg(port=9001)
-        assert sc.port == 9001
-        assert sc.alias == "summary-balanced"
-        assert sc.device == "SYCL0"
-        assert sc.use_jinja is True
-        assert sc.reasoning_mode == "off"
-
-    def test_create_summary_balanced_cfg_overrides(self) -> None:
-        sc = create_summary_balanced_cfg(port=9001, ctx_size=8192, threads=4)
-        assert sc.ctx_size == 8192
-        assert sc.threads == 4
-
-    def test_create_summary_fast_cfg_port(self) -> None:
-        sc = create_summary_fast_cfg(port=9002)
-        assert sc.port == 9002
-        assert sc.alias == "summary-fast"
-        assert sc.device == "SYCL0"
-
-    def test_create_summary_fast_cfg_overrides(self) -> None:
-        sc = create_summary_fast_cfg(port=9002, ubatch_size=128)
-        assert sc.ubatch_size == 128
-
-    def test_create_qwen35_cfg_port(self) -> None:
-        sc = create_qwen35_cfg(port=9003)
-        assert sc.port == 9003
-        assert sc.alias == "qwen35-coding"
-
-    def test_create_qwen35_cfg_overrides(self) -> None:
-        sc = create_qwen35_cfg(port=9003, threads=16, ctx_size=131072)
-        assert sc.threads == 16
-        assert sc.ctx_size == 131072
-
-    def test_builder_ctx_size_defaults_differ(self) -> None:
-        """Summary and qwen35 configs should have different ctx_size defaults."""
-        summary = create_summary_balanced_cfg(port=8080)
-        qwen35 = create_qwen35_cfg(port=8081)
-        # qwen35 has a much larger context window
-        assert qwen35.ctx_size > summary.ctx_size
 
 
 class TestModelSlot:
@@ -350,7 +288,7 @@ class TestErrorDetail:
         assert result.passed is True
         assert result.failed_check == ""
         assert result.error_code is None
-        assert result.error_message == ""
+        assert result.why_blocked == ""
 
     def test_error_detail_failed(self) -> None:
         """ErrorDetail should capture failure details."""
@@ -364,7 +302,7 @@ class TestErrorDetail:
         assert result.passed is False
         assert result.failed_check == "model_not_found"
         assert result.error_code == ErrorCode.FILE_NOT_FOUND
-        assert result.error_message == "Model file does not exist"
+        assert result.why_blocked == "Model file does not exist"
 
     def test_error_detail_minimal_fields(self) -> None:
         """ErrorDetail should work with minimal required fields."""
@@ -703,7 +641,7 @@ class TestModelSlotValidation:
         assert result.passed is False
         assert result.failed_check == "slot_id_validation"
         assert result.error_code == ErrorCode.INVALID_SLOT_ID
-        assert "at least one valid character" in result.error_message
+        assert "at least one valid character" in result.why_blocked
 
     def test_validate_slot_id_rejects_whitespace_only(self) -> None:
         """validate_slot_id should fail for whitespace-only slot IDs."""
@@ -1297,8 +1235,8 @@ class TestRunProfileSpec:
         assert spec.bind_address == "127.0.0.1"
         assert spec.tensor_split == ""
         # Optional enum-like fields have defaults
-        assert spec.reasoning_mode == "auto"
-        assert spec.reasoning_format == "none"
+        assert spec.spec_decode.reasoning_mode == "auto"
+        assert spec.spec_decode.reasoning_format == "none"
         # Optional bool defaults to False
         assert spec.use_jinja is False
         # Optional cache types default to q8_0
@@ -1653,35 +1591,6 @@ class TestServerConfigResolution:
 # =============================================================================
 # Compatibility builders still work
 # =============================================================================
-
-
-class TestCompatibilityBuildersWithRegistry:
-    """Verify legacy builders still produce correct configs via registry."""
-
-    def test_summary_balanced_builder(self) -> None:
-        """create_summary_balanced_cfg should produce correct config."""
-        cfg = create_summary_balanced_cfg(port=8080)
-        assert cfg.port == 8080
-        assert cfg.alias == "summary-balanced"
-
-    def test_summary_fast_builder(self) -> None:
-        """create_summary_fast_cfg should produce correct config."""
-        cfg = create_summary_fast_cfg(port=8082)
-        assert cfg.port == 8082
-        assert cfg.alias == "summary-fast"
-
-    def test_qwen35_builder(self) -> None:
-        """create_qwen35_cfg should produce correct config."""
-        cfg = create_qwen35_cfg(port=8081)
-        assert cfg.port == 8081
-        assert cfg.alias == "qwen35-coding"
-
-    def test_builder_with_overrides(self) -> None:
-        """Builders should accept and apply overrides."""
-        cfg = create_summary_balanced_cfg(port=9999, threads=16, ctx_size=8192)
-        assert cfg.port == 9999
-        assert cfg.threads == 16
-        assert cfg.ctx_size == 8192
 
 
 # =============================================================================
@@ -2321,6 +2230,7 @@ def test_model_path_validation_only_when_model_is_overridden() -> None:
     assert "model path not found" in str(exc.value)
 
 
+import dataclasses
 import json
 
 from llama_manager.validation import build_server_cmd
@@ -2347,8 +2257,8 @@ def test_resolution_is_deterministic() -> None:
     assert res1 == res2
 
     # Verify JSON serialization is identical
-    def to_dict(cfg: object) -> dict[str, object]:
-        return dict(vars(cfg))
+    def to_dict(cfg: ServerConfig) -> dict[str, object]:
+        return dataclasses.asdict(cfg)
 
     assert json.dumps(to_dict(res1), sort_keys=True) == json.dumps(to_dict(res2), sort_keys=True)
 

@@ -295,10 +295,10 @@ def test_roundtrip_serialization_with_all_fields(xdg_config_home: Path) -> None:
     assert r.description == full_profile.description
     assert r.bind_address == full_profile.bind_address
     assert r.tensor_split == full_profile.tensor_split
-    assert r.reasoning_mode == full_profile.reasoning_mode
-    assert r.reasoning_format == full_profile.reasoning_format
+    assert r.spec_decode.reasoning_mode == full_profile.spec_decode.reasoning_mode
+    assert r.spec_decode.reasoning_format == full_profile.spec_decode.reasoning_format
     assert r.chat_template_kwargs == full_profile.chat_template_kwargs
-    assert r.reasoning_budget == full_profile.reasoning_budget
+    assert r.spec_decode.reasoning_budget == full_profile.spec_decode.reasoning_budget
     assert r.use_jinja == full_profile.use_jinja
     assert r.cache_type_k == full_profile.cache_type_k
     assert r.cache_type_v == full_profile.cache_type_v
@@ -313,10 +313,10 @@ def test_roundtrip_serialization_with_all_fields(xdg_config_home: Path) -> None:
     assert r.parallel == full_profile.parallel
     assert r.threads_batch == full_profile.threads_batch
     assert r.mmproj == full_profile.mmproj
-    assert r.spec_type == full_profile.spec_type
-    assert r.spec_ngram_size_n == full_profile.spec_ngram_size_n
-    assert r.draft_min == full_profile.draft_min
-    assert r.draft_max == full_profile.draft_max
+    assert r.spec_decode.spec_type == full_profile.spec_decode.spec_type
+    assert r.spec_decode.spec_ngram_size_n == full_profile.spec_decode.spec_ngram_size_n
+    assert r.spec_decode.draft_min == full_profile.spec_decode.draft_min
+    assert r.spec_decode.draft_max == full_profile.spec_decode.draft_max
 
 
 # ---------------------------------------------------------------------------
@@ -410,8 +410,8 @@ def test_profile_from_dict_applies_defaults() -> None:
     }
     p = _profile_from_dict(minimal)
     assert p.bind_address == "127.0.0.1"
-    assert p.reasoning_mode == "auto"
-    assert p.reasoning_format == "none"
+    assert p.spec_decode.reasoning_mode == "auto"
+    assert p.spec_decode.reasoning_format == "none"
     assert p.use_jinja is False
     assert p.cache_type_k == "q8_0"
     assert p.cache_type_v == "q8_0"

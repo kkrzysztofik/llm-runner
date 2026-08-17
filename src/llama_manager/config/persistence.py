@@ -9,8 +9,10 @@ import dataclasses
 import os
 import tomllib
 from collections.abc import Mapping
+from dataclasses import fields
 from pathlib import Path
-from typing import Any
+from types import NoneType, UnionType
+from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from .defaults import (
     BuildPipelineConfig,
@@ -23,85 +25,58 @@ from .defaults import (
 from .load_mode import resolve_load_mode
 from .tri_state import resolve_fit, resolve_reasoning_preserve
 
-_PERSISTED_SECTIONS: dict[str, tuple[str, ...]] = {
-    "paths": (
-        "llama_cpp_root",
-        "models_dir",
-        "llama_server_bin_intel",
-        "llama_server_bin_nvidia",
-    ),
-    "deployment": (
-        "host",
-        "model_summary_balanced",
-        "model_summary_fast",
-        "model_qwen35",
-        "model_qwen35_both",
-        "summary_balanced_port",
-        "summary_fast_port",
-        "qwen35_port",
-        "summary_balanced_chat_template_kwargs",
-        "summary_fast_chat_template_kwargs",
-    ),
-    "build": ("git_remote", "git_branch"),
-    "smoke": (
-        "listen_timeout_s",
-        "http_request_timeout_s",
-        "first_token_timeout_s",
-        "total_chat_timeout_s",
-    ),
-    "server_defaults": (
-        "port",
-        "ctx_size",
-        "ubatch_size",
-        "threads",
-        "n_gpu_layers_profile",
-        "bind_address",
-        "batch_size",
-        "poll_ms",
-        "n_predict",
-        "parallel",
-        "threads_batch",
-        "cache_type_k",
-        "cache_type_v",
-        "reasoning_mode",
-        "reasoning_format",
-        "reasoning_budget",
-        "use_jinja",
-        "chat_template_kwargs",
-        "mmproj",
-        "spec_type",
-        "spec_ngram_size_n",
-        "draft_min",
-        "draft_max",
-        "spec_draft_n_max",
-        "spec_draft_p_min",
-        "spec_draft_cache_type_k",
-        "spec_draft_cache_type_v",
-        "spec_draft_device",
-        "kv_unified",
-        "mmproj_offload",
-        "load_mode",
-        "split_mode",
-        "no_host_buffer",
-        "ui",
-        "reasoning_preserve",
-        "reasoning_budget_message",
-        "fit",
-        "ctx_checkpoints",
-        "temperature",
-        "top_k",
-        "top_p",
-        "min_p",
-        "presence_penalty",
-        "repeat_penalty",
-    ),
+_SECTION_CLASSES: dict[str, type] = {
+    "paths": PathsConfig,
+    "deployment": DeploymentConfig,
+    "build": BuildPipelineConfig,
+    "smoke": SmokeConfig,
+    "server_defaults": ServerDefaultsConfig,
 }
+
+
+def _section_field_names() -> dict[str, set[str]]:
+    return {section: {f.name for f in fields(cls)} for section, cls in _SECTION_CLASSES.items()}
+
+
+def _field_type(cls: type, name: str):
+    return get_type_hints(cls)[name]
+
+
+def _is_nullable(t) -> bool:
+    origin = get_origin(t)
+    if origin is Union or origin is UnionType:
+        return NoneType in get_args(t)
+    return False
+
+
+def _coercion_kind(t) -> str | None:
+    if _is_nullable(t):
+        return _coercion_kind(next(a for a in get_args(t) if a is not NoneType))
+    if t is int:
+        return "int"
+    if t is float:
+        return "float"
+    if t is bool:
+        return "bool"
+    return None
+
 
 _TOP_LEVEL_FIELDS: tuple[str, ...] = ("log_file_level", "log_stderr_level")
 _LEGACY_SERVER_DEFAULTS_KEYS: tuple[str, ...] = ("mmap", "mlock")
 _UPDATE_FIELDS: frozenset[str] = frozenset(
-    f"{section}.{field}" for section, fields in _PERSISTED_SECTIONS.items() for field in fields
+    f"{section}.{field}" for section, fields in _section_field_names().items() for field in fields
 ) | frozenset(_TOP_LEVEL_FIELDS)
+
+_COERCION_FIELDS: dict[str, set[str]] = {"int": set(), "float": set(), "bool": set()}
+_NULLABLE_FIELDS: set[str] = set()
+for _section, _cls in _SECTION_CLASSES.items():
+    for _f in fields(_cls):
+        _t = _field_type(_cls, _f.name)
+        if _is_nullable(_t):
+            _NULLABLE_FIELDS.add(f"{_section}.{_f.name}")
+        _kind = _coercion_kind(_t)
+        if _kind:
+            _COERCION_FIELDS[_kind].add(f"{_section}.{_f.name}")
 
 # Fields that have a corresponding env var. When building a Config from the
 # file, these env vars override whatever is in the file.
@@ -138,10 +113,12 @@ def load_config_overrides_from_file(path: Path) -> dict[str, Any]:
     with open(path, "rb") as fh:
         raw = tomllib.load(fh)
     overrides: dict[str, Any] = {}
-    for section, fields in _PERSISTED_SECTIONS.items():
+    for section, section_fields in _section_field_names().items():
         section_data = raw.get(section)
         if isinstance(section_data, dict):
-            values = {field: section_data[field] for field in fields if field in section_data}
+            values = {
+                field: section_data[field] for field in section_fields if field in section_data
+            }
             if section == "server_defaults":
                 for legacy_key in _LEGACY_SERVER_DEFAULTS_KEYS:
                     if legacy_key in section_data:
@@ -167,15 +144,13 @@ def save_config_to_file(config: Config, path: Path) -> None:
     lines: list[str] = []
     for field in _TOP_LEVEL_FIELDS:
         lines.append(f"{field} = {_toml_value(getattr(config, field))}")
-    for section, fields in _PERSISTED_SECTIONS.items():
+    for section, _cls in _SECTION_CLASSES.items():
         lines.append("")
         lines.append(f"[{section}]")
-        section_config = getattr(config, section)
-        for field in fields:
-            value = getattr(section_config, field)
+        for key, value in dataclasses.asdict(getattr(config, section)).items():
             if value is None:
                 continue
-            lines.append(f"{field} = {_toml_value(value)}")
+            lines.append(f"{key} = {_toml_value(value)}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -242,70 +217,8 @@ def _toml_value(value: Any) -> str:
     raise TypeError(f"unsupported TOML value type: {type(value).__name__}")
 
 
-# Fields that require integer coercion from string input.
-_INT_FIELDS: frozenset[str] = frozenset(
-    {
-        "smoke.listen_timeout_s",
-        "smoke.http_request_timeout_s",
-        "smoke.first_token_timeout_s",
-        "smoke.total_chat_timeout_s",
-        "server_defaults.port",
-        "server_defaults.ctx_size",
-        "server_defaults.ubatch_size",
-        "server_defaults.threads",
-        "server_defaults.batch_size",
-        "server_defaults.poll_ms",
-        "server_defaults.n_predict",
-        "server_defaults.parallel",
-        "server_defaults.threads_batch",
-        "server_defaults.spec_ngram_size_n",
-        "server_defaults.draft_min",
-        "server_defaults.draft_max",
-        "server_defaults.spec_draft_n_max",
-        "server_defaults.spec_dflash_cross_ctx",
-        "server_defaults.ctx_checkpoints",
-        "server_defaults.top_k",
-        "deployment.summary_balanced_port",
-        "deployment.summary_fast_port",
-        "deployment.qwen35_port",
-    }
-)
-
-_FLOAT_FIELDS: frozenset[str] = frozenset(
-    {
-        "server_defaults.spec_draft_p_min",
-        "server_defaults.temperature",
-        "server_defaults.top_p",
-        "server_defaults.min_p",
-        "server_defaults.presence_penalty",
-        "server_defaults.repeat_penalty",
-    }
-)
-
 _BOOL_TRUE_TOKENS: frozenset[str] = frozenset({"1", "true", "yes", "on"})
 _BOOL_FALSE_TOKENS: frozenset[str] = frozenset({"0", "false", "no", "off"})
-
-_BOOL_FIELDS: frozenset[str] = frozenset(
-    {
-        "server_defaults.use_jinja",
-        "server_defaults.kv_unified",
-        "server_defaults.mmproj_offload",
-        "server_defaults.no_host_buffer",
-        "server_defaults.ui",
-    }
-)
-
-_NULLABLE_OPTIONAL_FIELDS: frozenset[str] = frozenset(
-    {
-        "server_defaults.ctx_checkpoints",
-        "server_defaults.temperature",
-        "server_defaults.top_k",
-        "server_defaults.top_p",
-        "server_defaults.min_p",
-        "server_defaults.presence_penalty",
-        "server_defaults.repeat_penalty",
-    }
-)
 
 
 @dataclasses.dataclass
@@ -322,25 +235,25 @@ def _coerce_config_field_value(
     raw_value: object,
 ) -> tuple[object | None, str | None]:
     """Return (coerced_value, error). value is None when coercion fails."""
-    if raw_value is None and field_name in _NULLABLE_OPTIONAL_FIELDS:
+    if raw_value is None and field_name in _NULLABLE_FIELDS:
         return None, None
-    if field_name in _INT_FIELDS:
+    if field_name in _COERCION_FIELDS["int"]:
         try:
             return int(raw_value), None  # type: ignore[arg-type]
         except ValueError, TypeError:
             return None, _invalid_value_message(field_name, raw_value)
-    if field_name in _FLOAT_FIELDS:
+    if field_name in _COERCION_FIELDS["float"]:
         try:
             return float(raw_value), None  # type: ignore[arg-type]
         except ValueError, TypeError:
             return None, _invalid_value_message(field_name, raw_value)
-    if field_name in _BOOL_FIELDS:
+    if field_name in _COERCION_FIELDS["bool"]:
         return _coerce_bool_field_value(field_name, raw_value)
     return raw_value, None
 
 
 def _coerce_bool_field_value(field_name: str, raw_value: object) -> tuple[bool | None, str | None]:
-    """Coerce *raw_value* into a bool for fields in ``_BOOL_FIELDS``."""
+    """Coerce *raw_value* into a bool for boolean-typed config fields."""
     if isinstance(raw_value, bool):
         return raw_value, None
     if isinstance(raw_value, int):
