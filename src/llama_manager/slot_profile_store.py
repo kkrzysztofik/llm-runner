@@ -8,6 +8,7 @@ from typing import Any
 from .common.profile_io import read_profile_toml, write_profile_toml
 from .config.load_mode import resolve_load_mode
 from .config.profiles import SlotProfileSpec
+from .config.reasoning_effort import resolve_reasoning_effort
 from .config.tri_state import resolve_fit, resolve_reasoning_preserve
 
 logger = logging.getLogger(__name__)
@@ -159,6 +160,7 @@ def _profile_to_dict(profile: SlotProfileSpec) -> dict[str, Any]:
         "no_host_buffer": profile.no_host_buffer,
         "ui": profile.ui,
         "reasoning_preserve": profile.reasoning_preserve,
+        "reasoning_effort": profile.reasoning_effort,
         "reasoning_budget_message": profile.reasoning_budget_message,
         "fit": profile.fit,
         "ctx_checkpoints": profile.ctx_checkpoints,
@@ -223,6 +225,7 @@ def _profile_from_dict(data: dict[str, Any]) -> SlotProfileSpec:
         no_host_buffer=data.get("no_host_buffer", False),
         ui=data.get("ui", data.get("webui", False)),
         reasoning_preserve=resolve_reasoning_preserve(data),
+        reasoning_effort=resolve_reasoning_effort(data),
         reasoning_budget_message=data.get("reasoning_budget_message", ""),
         fit=resolve_fit(data),
         ctx_checkpoints=data.get("ctx_checkpoints"),

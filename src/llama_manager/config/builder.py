@@ -24,6 +24,7 @@ from .profiles import (
     _derive_tensor_split_from_device,
     _parse_main_gpu_from_device,
 )
+from .reasoning_effort import resolve_reasoning_effort
 from .server import ServerConfig
 from .spec_decode import SPECULATIVE_DECODING_FIELD_NAMES, SpeculativeDecodingConfig
 from .tri_state import resolve_fit, resolve_reasoning_preserve
@@ -184,6 +185,7 @@ def _config_data_to_server_config(data: dict[str, Any]) -> ServerConfig:
         no_host_buffer=bool(config_data.get("no_host_buffer", False)),
         ui=bool(config_data.get("ui", config_data.get("webui", False))),
         reasoning_preserve=resolve_reasoning_preserve(config_data),
+        reasoning_effort=resolve_reasoning_effort(config_data),
         reasoning_budget_message=str(config_data.get("reasoning_budget_message", "")),
         fit=resolve_fit(config_data),
         ctx_checkpoints=_optional_int(config_data.get("ctx_checkpoints")),
@@ -434,6 +436,7 @@ def merge_config_overrides(
         "no_host_buffer": defaults.server_defaults.no_host_buffer,
         "ui": defaults.server_defaults.ui,
         "reasoning_preserve": defaults.server_defaults.reasoning_preserve,
+        "reasoning_effort": defaults.server_defaults.reasoning_effort,
         "reasoning_budget_message": defaults.server_defaults.reasoning_budget_message,
         "fit": defaults.server_defaults.fit,
         "ctx_checkpoints": defaults.server_defaults.ctx_checkpoints,

@@ -278,6 +278,7 @@ def test_roundtrip_serialization_with_all_fields(xdg_config_home: Path) -> None:
         spec_draft_cache_type_k="",
         spec_draft_cache_type_v="",
         spec_draft_device="",
+        reasoning_effort="low",
     )
     save_custom_run_profile(full_profile)
     loaded = load_custom_run_profiles()
@@ -317,6 +318,7 @@ def test_roundtrip_serialization_with_all_fields(xdg_config_home: Path) -> None:
     assert r.spec_decode.spec_ngram_size_n == full_profile.spec_decode.spec_ngram_size_n
     assert r.spec_decode.draft_min == full_profile.spec_decode.draft_min
     assert r.spec_decode.draft_max == full_profile.spec_decode.draft_max
+    assert r.reasoning_effort == full_profile.reasoning_effort
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +395,24 @@ def test_profile_from_dict_normalizes_invalid_tri_state() -> None:
     )
     assert p.reasoning_preserve == "auto"
     assert p.fit == "auto"
+
+
+def test_invalid_reasoning_effort_normalizes_to_medium() -> None:
+    """Invalid persisted reasoning_effort values normalize to medium."""
+    p = _profile_from_dict(
+        {
+            "profile_id": "t",
+            "model": "/m.gguf",
+            "alias": "t",
+            "device": "cuda:0",
+            "port": 8080,
+            "ctx_size": 4096,
+            "ubatch_size": 512,
+            "threads": 8,
+            "reasoning_effort": "high",
+        }
+    )
+    assert p.reasoning_effort == "medium"
 
 
 def test_profile_from_dict_applies_defaults() -> None:

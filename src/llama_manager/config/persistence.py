@@ -23,6 +23,7 @@ from .defaults import (
     SmokeConfig,
 )
 from .load_mode import resolve_load_mode
+from .reasoning_effort import resolve_reasoning_effort
 from .tri_state import resolve_fit, resolve_reasoning_preserve
 
 _SECTION_CLASSES: dict[str, type] = {
@@ -198,6 +199,7 @@ def _normalize_server_defaults_section(section_data: dict[str, Any]) -> dict[str
     normalized.pop("mmap", None)
     normalized.pop("mlock", None)
     normalized["reasoning_preserve"] = resolve_reasoning_preserve(section_data)
+    normalized["reasoning_effort"] = resolve_reasoning_effort(section_data)
     normalized["fit"] = resolve_fit(section_data)
     return normalized
 

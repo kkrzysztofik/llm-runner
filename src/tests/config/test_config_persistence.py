@@ -220,6 +220,22 @@ def test_build_config_normalizes_invalid_tri_state(
     assert result.server_defaults.fit == "auto"
 
 
+def test_invalid_reasoning_effort_normalizes_to_medium(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Invalid persisted reasoning_effort values normalize to medium."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    config_path = config_file_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        '[server_defaults]\nreasoning_effort = "high"\n',
+        encoding="utf-8",
+    )
+
+    result = build_config()
+    assert result.server_defaults.reasoning_effort == "medium"
+
+
 def test_models_dir_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setenv("MODELS_DIR", "/env/models")

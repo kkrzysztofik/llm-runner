@@ -1513,6 +1513,16 @@ class TestServerConfigResolution:
         assert cfg.reasoning_preserve == "auto"
         assert cfg.fit == "auto"
 
+    def test_invalid_reasoning_effort_resolves_to_medium(self) -> None:
+        """Invalid reasoning_effort values resolve to medium at builder boundary."""
+        registry = create_default_profile_registry()
+        profile = registry.get_profile("summary-balanced")
+        cfg = create_server_config_from_profile(
+            profile,
+            {"reasoning_effort": "high"},
+        )
+        assert cfg.reasoning_effort == "medium"
+
     def test_create_server_config_coerces_optional_numeric_strings(self) -> None:
         """Optional sampling/ctx fields from dict overrides should coerce to numbers."""
         registry = create_default_profile_registry()
@@ -2268,6 +2278,7 @@ def test_merge_config_overrides_propagates_server_defaults_runtime_fields() -> N
     defaults = Config()
     defaults.server_defaults.load_mode = "dio"
     defaults.server_defaults.reasoning_preserve = "on"
+    defaults.server_defaults.reasoning_effort = "low"
     defaults.server_defaults.fit = "off"
     defaults.server_defaults.ctx_checkpoints = 32
     defaults.server_defaults.temperature = 0.8
@@ -2276,6 +2287,7 @@ def test_merge_config_overrides_propagates_server_defaults_runtime_fields() -> N
 
     assert result.load_mode == "dio"
     assert result.reasoning_preserve == "on"
+    assert result.reasoning_effort == "low"
     assert result.fit == "off"
     assert result.ctx_checkpoints == 32
     assert result.temperature == 0.8
