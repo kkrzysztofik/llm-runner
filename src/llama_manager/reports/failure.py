@@ -7,8 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .redaction import redact_sensitive
-from .rotation import _rotate_mutating_log
+from ..common.security import redact_sensitive
 
 
 @dataclass
@@ -64,69 +63,6 @@ class FailureReport:
         os.chmod(report_path, 0o600)
 
         return report_path
-
-
-@dataclass
-class MutatingActionLogEntry:
-    """Log entry for mutating actions (git clone, checkout, file operations).
-
-    This dataclass records all state-changing operations performed during
-    the build process, including exit codes, truncated output for large
-    outputs, and whether redaction was applied for security.
-    """
-
-    command: list[str]
-    timestamp: datetime
-    exit_code: int
-    truncated_output: str
-    redaction_applied: bool = False
-    duration_seconds: float | None = None
-    working_dir: Path | None = None
-    output_truncated: bool = False
-
-    @property
-    def is_success(self) -> bool:
-        """Check if the mutating action succeeded."""
-        return self.exit_code == 0
-
-    @property
-    def was_truncated(self) -> bool:
-        """Check if the output was truncated.
-
-        Returns True when truncation was explicitly applied during logging.
-        """
-        return self.output_truncated
-
-    def format_summary(self) -> str:
-        """Generate a human-readable summary of this log entry.
-
-        Returns:
-            Formatted summary string suitable for logging or display.
-        """
-        status = "SUCCESS" if self.is_success else "FAILED"
-        duration = f" in {self.duration_seconds:.2f}s" if self.duration_seconds else ""
-        truncation = " [TRUNCATED]" if self.was_truncated else ""
-        redaction = " [REDACTED]" if self.redaction_applied else ""
-
-        return (
-            f"[{self.timestamp.strftime('%Y-%m-%d %H:%M:%S')}] "
-            f"{status}: {' '.join(self.command)}{duration}{truncation}{redaction}"
-        )
-
-    def get_output_with_markers(self, max_length: int = 1000) -> str:
-        """Get the output with markers indicating truncation.
-
-        Args:
-            max_length: Maximum length of output to return.
-
-        Returns:
-            Output string with truncation markers if applicable.
-        """
-        if len(self.truncated_output) <= max_length:
-            return self.truncated_output
-
-        truncated = self.truncated_output[:max_length]
-        return f"{truncated}\n... [output truncated] ..."
 
 
 def write_failure_report(
@@ -210,74 +146,3 @@ def write_failure_report(
         error_details_json=error_json,
         metadata=metadata or {},
     )
-
-
-def log_mutating_action(
-    command: list[str],
-    exit_code: int,
-    output: str,
-    working_dir: Path | None = None,
-) -> MutatingActionLogEntry:
-    """Log a mutating action (git clone, venv creation, file operations).
-
-    Records all state-changing operations performed during the build process,
-    including exit codes, truncated output for large outputs, and whether
-    redaction was applied for security.
-
-    Args:
-        command: Command that was executed (as list for subprocess safety)
-        exit_code: Exit code from the command
-        output: stdout/stderr output from the command
-        working_dir: Working directory where the command was executed
-
-    Returns:
-        MutatingActionLogEntry with the logged action details
-
-    Examples:
-        >>> entry = log_mutating_action(
-        ...     command=["git", "clone", "https://github.com/example/repo.git"],
-        ...     exit_code=0,
-        ...     output="Cloning into 'repo'...",
-        ... )
-        >>> entry.is_success
-        True
-    """
-    from ..config import Config
-
-    config = Config()
-    timestamp = datetime.now(UTC)
-
-    # Redact sensitive information
-    redaction_applied = False
-    if any(kw in output.upper() for kw in ["KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH"]):
-        output = redact_sensitive(output)
-        redaction_applied = True
-
-    # Truncate output if too large
-    max_output_len = config.build.output_truncate_bytes
-    output_truncated = len(output) > max_output_len
-    truncated_output = output[:max_output_len]
-
-    entry = MutatingActionLogEntry(
-        command=command,
-        timestamp=timestamp,
-        exit_code=exit_code,
-        truncated_output=truncated_output,
-        redaction_applied=redaction_applied,
-        duration_seconds=None,  # Would need timing info from caller
-        working_dir=working_dir,
-        output_truncated=output_truncated,
-    )
-
-    # Write to XDG state home
-    log_path = Path(config.paths.xdg_state_base) / "llm-runner" / "mutating_actions.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Append entry to log file
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(entry.format_summary() + "\n")
-
-    # Rotate if exceeds max entries
-    _rotate_mutating_log(log_path, max_entries=1000)
-
-    return entry

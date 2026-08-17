@@ -15,8 +15,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TextIO
 
-from ..common.security import REDACTED_VALUE
-from ..reports import redact_sensitive
+from ..common.security import REDACTED_VALUE, redact_sensitive
 from .models import BuildBackend
 
 # Message constants used across pipeline stages

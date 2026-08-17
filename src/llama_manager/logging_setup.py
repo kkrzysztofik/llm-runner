@@ -9,17 +9,14 @@ Usage
 -----
     from llama_manager.logging_setup import configure_logging
 
-    configure_logging(level="DEBUG", log_file="/var/log/llm-runner/app.log")
+    configure_logging(stderr_level="DEBUG", log_file="/var/log/llm-runner/app.log")
 """
 
 import contextlib
 import contextvars
-import json
 import logging
 import sys
 from collections.abc import Iterator
-from dataclasses import asdict, dataclass, field
-from datetime import datetime
 from logging import LogRecord
 from typing import TYPE_CHECKING, Any
 
@@ -50,25 +47,15 @@ _LEVEL_MAP: dict[str, str | int] = {
     "CRITICAL": "CRITICAL",
 }
 
-# ---------------------------------------------------------------------------
-# JSON log record envelope
-# ---------------------------------------------------------------------------
 
-
-@dataclass
-class _JsonLogEnvelope:
-    """Structure of a JSON-encoded log record."""
-
-    timestamp: str
-    level: str
-    name: str
-    line: int
-    message: str
-    extra: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return the envelope as a plain dict (for json.dumps)."""
-        return asdict(self)
+def _validate_log_level(level: str | None) -> str | None:
+    """Normalise and validate a log level name; ``None`` passes through."""
+    if level is None:
+        return None
+    normalized = level.upper()
+    if normalized not in _LEVEL_MAP:
+        raise ValueError(f"unknown log level '{level}' — must be one of {list(_LEVEL_MAP)}")
+    return normalized
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +66,19 @@ class _JsonLogEnvelope:
 def _redact_log_message(message: str) -> str:
     """Apply security redaction to log messages."""
     return redact_log_line(message)
+
+
+def _redact_only_filter(record: LoguruRecord) -> bool:
+    record["message"] = _redact_log_message(record["message"])
+    return True
+
+
+def _stderr_sink_filter(record: LoguruRecord) -> bool:
+    rec_name = record["name"] or ""
+    if _SUPPRESS_BUILD_PIPELINE_ON_STDERR.get() and rec_name.startswith(_BUILD_PIPELINE_LOG_PREFIX):
+        return False
+    record["message"] = _redact_log_message(record["message"])
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -117,166 +117,43 @@ class _InterceptHandler(logging.Handler):
 
 def configure_logging(
     *,
-    level: str = "INFO",
+    stderr_level: str | None = "INFO",
+    file_level: str | None = None,
     log_file: str | None = None,
     json_logs: bool = False,
 ) -> None:
     """Configure the logging subsystem.
 
-    Removes the default Loguru handler and installs:
-    - A coloured stderr sink (always)
-    - An optional rotating file sink (when *log_file* is provided)
-    - A stdlib → Loguru bridge for ``logging.getLogger(...)`` consumers
-
-    Parameters
-    ----------
-    level:
-        Minimum log level for all sinks.  One of ``DEBUG``, ``INFO``,
-        ``WARNING``, ``ERROR``, ``CRITICAL`` (case-insensitive).
-    log_file:
-        If provided, a rotating file sink is added at the given path.
-        Files rotate at 10 MB and are retained for 30 days (gzipped).
-    json_logs:
-        If ``True``, both sinks emit JSON-encoded records instead of
-        human-readable text.
+    *stderr_level* ``None`` disables the stderr sink. *file_level* ``None``
+    follows *stderr_level* (or INFO when stderr is disabled).
     """
-    # Remove default handler — we replace it entirely
     logger.remove()
 
-    # Normalise level
-    log_level = level.upper()
-    if log_level not in _LEVEL_MAP:
-        raise ValueError(f"unknown log level '{level}' — must be one of {list(_LEVEL_MAP)}")
-
-    # Common format templates
-    text_format = "{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {name}:{line} | {message}"
-
-    fmt = text_format if not json_logs else ""
-
-    def _redact_only_filter(record: LoguruRecord) -> bool:
-        """Redact message in-place; keep all records."""
-        original = record["message"]
-        record["message"] = _redact_log_message(original)
-        return True
-
-    def _stderr_sink_filter(record: LoguruRecord) -> bool:
-        """Redact; drop build_pipeline to stderr while TUI suppression is active."""
-        rec_name = record["name"] or ""
-        if _SUPPRESS_BUILD_PIPELINE_ON_STDERR.get() and rec_name.startswith(
-            _BUILD_PIPELINE_LOG_PREFIX
-        ):
-            return False
-        original = record["message"]
-        record["message"] = _redact_log_message(original)
-        return True
-
-    # --- Stderr sink (always present) ---
-    logger.add(
-        sys.stderr,
-        level=log_level,
-        format=fmt,
-        colorize=True,
-        filter=_stderr_sink_filter,
-        serialize=json_logs,
-    )
-
-    # --- Optional file sink ---
+    stderr_norm: str | None = _validate_log_level(stderr_level)
     if log_file is not None:
-        logger.add(
-            log_file,
-            level=log_level,
-            format=fmt,
-            colorize=False,
-            rotation="10 MB",
-            retention="30 days",
-            compression="gz",
-            filter=_redact_only_filter,
-            serialize=json_logs,
-        )
-
-    # --- Install stdlib → Loguru bridge ---
-    root_logger = logging.getLogger()
-    if not any(isinstance(h, _InterceptHandler) for h in root_logger.handlers):
-        root_logger.addHandler(_InterceptHandler())
-    for target_name in ("llama_manager", "llama_cli"):
-        logging.getLogger(target_name).setLevel(logging.DEBUG)
-        logging.getLogger(target_name).handlers = []
-
-
-def configure_logging_split(
-    *,
-    stderr_level: str | None = "INFO",
-    file_level: str = "DEBUG",
-    log_file: str | None = None,
-    json_logs: bool = False,
-) -> None:
-    """Configure logging with separate levels for stderr and file sinks.
-
-    Removes the default Loguru handler and installs:
-    - A coloured stderr sink at *stderr_level* when not ``None``
-    - An optional rotating file sink at *file_level* (when *log_file* is provided)
-    - A stdlib → Loguru bridge for ``logging.getLogger(...)`` consumers
-
-    Parameters
-    ----------
-    stderr_level:
-        Minimum log level for the stderr sink, or ``None`` to disable stderr logging.
-    file_level:
-        Minimum log level for the file sink.
-    log_file:
-        If provided, a rotating file sink is added at the given path.
-    json_logs:
-        If ``True``, both sinks emit JSON-encoded records.
-    """
-    logger.remove()
-
-    normalized_stderr_level: str | None = None
-    if stderr_level is not None:
-        normalized_stderr_level = stderr_level.upper()
-        if normalized_stderr_level not in _LEVEL_MAP:
-            raise ValueError(
-                f"unknown stderr level '{normalized_stderr_level}' — must be one of {list(_LEVEL_MAP)}"
-            )
-
-    file_level = file_level.upper()
-    if file_level not in _LEVEL_MAP:
-        raise ValueError(f"unknown file level '{file_level}' — must be one of {list(_LEVEL_MAP)}")
+        if file_level is None:
+            file_norm = stderr_norm if stderr_norm is not None else "INFO"
+        else:
+            file_norm = _validate_log_level(file_level) or "INFO"
+    else:
+        file_norm = "INFO"
 
     text_format = "{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {name}:{line} | {message}"
-
     fmt = text_format if not json_logs else ""
 
-    def _redact_only_filter(record: LoguruRecord) -> bool:
-        original = record["message"]
-        record["message"] = _redact_log_message(original)
-        return True
-
-    def _stderr_sink_filter(record: LoguruRecord) -> bool:
-        rec_name = record["name"] or ""
-        if _SUPPRESS_BUILD_PIPELINE_ON_STDERR.get() and rec_name.startswith(
-            _BUILD_PIPELINE_LOG_PREFIX
-        ):
-            return False
-        original = record["message"]
-        record["message"] = _redact_log_message(original)
-        return True
-
-    # --- Optional stderr sink ---
-    if normalized_stderr_level is not None:
+    if stderr_norm is not None:
         logger.add(
             sys.stderr,
-            level=normalized_stderr_level,
+            level=stderr_norm,
             format=fmt,
             colorize=True,
             filter=_stderr_sink_filter,
             serialize=json_logs,
         )
-
-    # --- Optional file sink ---
     if log_file is not None:
         logger.add(
             log_file,
-            level=file_level,
+            level=file_norm,
             format=fmt,
             colorize=False,
             rotation="10 MB",
@@ -286,7 +163,7 @@ def configure_logging_split(
             serialize=json_logs,
         )
 
-    # --- Install stdlib → Loguru bridge ---
+    # --- Install stdlib → Loguru bridge (unchanged tail) ---
     root_logger = logging.getLogger()
     if not any(isinstance(h, _InterceptHandler) for h in root_logger.handlers):
         root_logger.addHandler(_InterceptHandler())
@@ -346,36 +223,3 @@ def suppress_build_pipeline_stderr_for_tui() -> Iterator[None]:
         yield
     finally:
         _SUPPRESS_BUILD_PIPELINE_ON_STDERR.reset(token)
-
-
-# ---------------------------------------------------------------------------
-# JSON formatting helper
-# ---------------------------------------------------------------------------
-
-
-def _format_json(record: LoguruRecord) -> str:
-    """Serialize a Loguru record dict to a JSON string."""
-    ts = record["time"].strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-    extra = {
-        k: v
-        for k, v in record.get("extra", {}).items()
-        if k not in ("id", "name", "level", "message", "time", "line", "function", "file", "module")
-    }
-    envelope = _JsonLogEnvelope(
-        timestamp=ts,
-        level=record["level"].name,
-        name=record["name"] or "unknown",
-        line=record["line"],
-        message=record["message"],
-        extra=extra,
-    )
-    return json.dumps(envelope.to_dict(), default=_json_default)
-
-
-def _json_default(obj: Any) -> Any:
-    """Fallback serializer for non-JSON-native types in extra fields."""
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    if isinstance(obj, bytes):
-        return obj.decode("utf-8", errors="replace")
-    return str(obj)
