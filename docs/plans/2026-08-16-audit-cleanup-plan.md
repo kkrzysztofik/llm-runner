@@ -534,13 +534,15 @@ git add -A -- src/ && git commit -m "chore(cleanup): batch 2 — build pipeline 
 
 ```bash
 for s in DoctorCheckResult DoctorReport sort_validation_errors
-         compute_machine_fingerprint _get_lspci_output _sycl_device_details
-         _sycl_dotted_device_details check_hardware_allowlist assess_vram_risk
+         compute_machine_fingerprint _get_lspci_output
+         check_hardware_allowlist assess_vram_risk
          VRamRecommendation validate_slots _validate_slot
          _validate_duplicate_slots _convert_results_to_errors validate_threads
          validate_backend_eligibility sort_errors error_count; do
   echo "== $s =="; rtk grep -rn "$s" src/llama_cli src/llama_manager --type py | grep -v tests
 done
+# NOTE: _sycl_device_details / _sycl_dotted_device_details are LIVE (dry-run
+# hardware-notes path) and are intentionally NOT in this deadness loop.
 ```
 
 - [ ] **Step 2: Delete the doctor/fingerprint/VRAM cluster** from
@@ -548,9 +550,15 @@ done
   `DoctorReport`, `sort_validation_errors` + its `sort_key`,
   `compute_machine_fingerprint` + `_get_cpu_model` + `_get_os_name`
   (these shell out to `cat` for `Path.read_text`-able data),
-  `_get_lspci_output`, `_sycl_device_details`,
-  `_sycl_dotted_device_details`, `check_hardware_allowlist`,
-  `assess_vram_risk` + its `VRamRecommendation` usage. After the cut,
+  `_get_lspci_output`, `check_hardware_allowlist`,
+  `assess_vram_risk` + its `VRamRecommendation` usage.
+  KEEP (audit misread — these are LIVE): `_sycl_device_details`
+  (builder.py:426) and `_sycl_dotted_device_details` (builder.py:437) —
+  called by `_parse_device_details` (builder.py:411,414) →
+  `_build_hardware_notes` (builder.py:389) →
+  `build_dry_run_slot_payload` (builder.py:312) → `dry_run.py:169` →
+  `run_dry_run` (dry_run.py:102) → CLI `dry_run`. Do NOT delete them.
+  After the cut,
   confirm the `VRamRecommendation` enum (`config/enums.py`) has zero
   consumers repo-wide and delete the enum + its `config/__init__.py`
   re-export NOW — batch 3 owns it (GgufParseError and DoctorCheckStatus
