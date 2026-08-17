@@ -125,11 +125,14 @@ def _start_and_map_servers(
     launched_configs: list[ServerConfig],
     log_handlers: dict[str, Callable[[str], None]],
     server_manager: ServerManager,
+    power_limit_watts: int = 0,
 ) -> dict[str, Any]:
     """Start servers and map processes by alias."""
     processes: dict[str, Any] = {}
     try:
-        processes_list = server_manager.start_servers(launched_configs, log_handlers)
+        processes_list = server_manager.start_servers(
+            launched_configs, log_handlers, power_limit_watts=power_limit_watts
+        )
     except Exception:
         server_manager.cleanup_servers()
         raise
@@ -236,7 +239,12 @@ def launch_orchestrate(
     launched_configs = [cfg for cfg in updated_configs if cfg.alias in launched_set]
 
     log_handlers = _build_log_handlers(launched_configs, log_buffers, launched_slots)
-    processes = _start_and_map_servers(launched_configs, log_handlers, server_manager)
+    processes = _start_and_map_servers(
+        launched_configs,
+        log_handlers,
+        server_manager,
+        power_limit_watts=base_config.server_defaults.nvidia_power_limit_watts,
+    )
 
     slot_states, status_messages = _build_slot_states_and_messages(
         launched_configs, status_messages

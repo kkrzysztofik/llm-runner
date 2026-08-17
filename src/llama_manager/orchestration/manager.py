@@ -1,6 +1,7 @@
 """Server lifecycle management — ServerManager."""
 
 import contextlib
+import logging
 import os
 import signal
 import threading
@@ -33,10 +34,13 @@ from .lockfile import (
     check_lockfile_integrity,
     verify_process_ownership,
 )
+from .power_limit import apply_nvidia_power_limit
 from .risk import RiskAckManager
 from .types import LOCKFILE_FIX_SUGGESTION, LaunchResult
 
 __all__ = ["ServerManager"]
+
+logger = logging.getLogger(__name__)
 
 
 class ServerManager:
@@ -189,8 +193,14 @@ class ServerManager:
         self,
         configs: list[ServerConfig],
         log_handlers: dict[str, Callable[[str], None]] | None = None,
+        power_limit_watts: int = 0,
     ) -> list[ProcessHandle]:
-        """Start multiple servers and return their processes."""
+        """Start multiple servers and return their processes.
+
+        When ``power_limit_watts > 0``, applies an NVIDIA power cap to every
+        CUDA device of each config before launching (best-effort; failures
+        only log a warning and never block the launch).
+        """
         from ..validation.commands import build_server_cmd
         from .launcher import wrap_sycl_launch_cmd
 
@@ -198,6 +208,8 @@ class ServerManager:
         processes = []
         for cfg in configs:
             try:
+                if isinstance(power_limit_watts, int) and power_limit_watts > 0:
+                    apply_nvidia_power_limit(cfg.device, power_limit_watts, logger.warning)
                 self._reserve_slot_lock(cfg)
                 cmd = build_server_cmd(cfg)
                 cmd = wrap_sycl_launch_cmd(cmd, cfg.device)

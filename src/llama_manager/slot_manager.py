@@ -120,6 +120,8 @@ def register_and_start_slot(
     server_manager: ServerManager,
     state: dict[str, Any],
     startup_callback: Callable[[], None] | None = None,
+    # ponytail: sync add-slot path is test/legacy-only; TUI uses the async start_servers call
+    power_limit_watts: int = 0,
 ) -> tuple[dict[str, Any], list[str]]:
     """Register and start one slot.
 
@@ -146,7 +148,9 @@ def register_and_start_slot(
             startup_callback()
         except Exception:
             logger.exception("slot %s: startup progress callback failed", alias)
-    procs = server_manager.start_servers([cfg], {alias: log_handler})
+    procs = server_manager.start_servers(
+        [cfg], {alias: log_handler}, power_limit_watts=power_limit_watts
+    )
 
     if procs:
         state["server_processes"][alias] = procs[0]

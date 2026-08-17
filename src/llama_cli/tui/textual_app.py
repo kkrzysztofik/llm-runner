@@ -680,6 +680,7 @@ class DashboardApp(App[None]):
             procs = self.controller.server_manager.start_servers(
                 [new_cfg],
                 {stage.alias: log_handler},
+                power_limit_watts=self.controller.config.server_defaults.nvidia_power_limit_watts,
             )
         except Exception as exc:
             logger.exception(

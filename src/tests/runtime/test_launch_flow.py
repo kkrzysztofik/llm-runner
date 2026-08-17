@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from llama_manager.config import ModelSlot
+from llama_manager.config import Config, ModelSlot, ServerConfig
 from llama_manager.orchestration import (
     LockMetadata,
     check_lockfile_integrity,
@@ -545,6 +545,36 @@ class TestLaunchOrchestrate:
         assert result.risk_result == risk_result
         assert result.risk_result is not None
         assert result.risk_result.has_risks is True
+
+    def test_launch_orchestrate_forwards_power_limit_watts(self) -> None:
+        from llama_manager.orchestration import LaunchResult, launch_orchestrate
+
+        cfg = ServerConfig(
+            model="/models/qwen.gguf",
+            alias="qwen35",
+            device="CUDA0",
+            port=8081,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+        )
+        base = Config()
+        base.server_defaults.nvidia_power_limit_watts = 290
+        mock_sm = Mock()
+        mock_sm.begin_launch_attempt.return_value = "launch-1"
+        mock_sm.launch_all_slots.return_value = LaunchResult(status="success", launched=["qwen35"])
+        mock_sm.start_servers.return_value = [Mock()]
+        result = launch_orchestrate(
+            [cfg],
+            base,
+            mock_sm,
+            log_buffers={},
+            get_driver_version=lambda _: "v1",
+        )
+        assert result.launch_result is not None
+        assert result.launch_result.status == "success"
+        mock_sm.start_servers.assert_called_once()
+        assert mock_sm.start_servers.call_args.kwargs["power_limit_watts"] == 290
 
 
 """Tests for US1: Degraded one-slot vs full-block behavior.
