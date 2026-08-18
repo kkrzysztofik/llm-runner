@@ -595,7 +595,6 @@ def _build_hardware_notes(
 ```
 
 Existing schema tests that assert each `hardware_notes` value is `str | None` iterate only the specific keys `backend`/`device_id`/`device_name` (see `test_dry_run_schema.py:964`), so widening the dict type does not break them.
-```
 
 In `src/llama_manager/dry_run.py`:
 

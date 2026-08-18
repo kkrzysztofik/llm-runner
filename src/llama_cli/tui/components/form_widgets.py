@@ -436,7 +436,7 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             "default_nvidia_power_limit_watts",
             str(defaults.nvidia_power_limit_watts),
             id_prefix=prefix,
-            type="number",
+            type="integer",
             label_classes=cfg_label,
             input_classes=cfg_input,
             row_classes=cfg_row,

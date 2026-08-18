@@ -948,7 +948,9 @@ def test_tui_run_keeps_acknowledged_risk_prompt_active() -> None:
         patch.object(
             app.server_manager,
             "start_servers",
-            side_effect=lambda configs, log_handlers=None, **kwargs: [MagicMock() for _ in configs],
+            side_effect=lambda configs, log_handlers=None, power_limit_watts=0: [
+                MagicMock() for _ in configs
+            ],
         ),
         patch.object(app.server_manager, "cleanup_servers"),
     ):
@@ -1114,7 +1116,9 @@ def test_tui_run_buffers_degraded_warnings() -> None:
         patch.object(
             app.server_manager,
             "start_servers",
-            side_effect=lambda configs, log_handlers=None, **kwargs: [MagicMock() for _ in configs],
+            side_effect=lambda configs, log_handlers=None, power_limit_watts=0: [
+                MagicMock() for _ in configs
+            ],
         ),
         patch.object(app.server_manager, "cleanup_servers"),
     ):

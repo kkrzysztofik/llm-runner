@@ -208,9 +208,9 @@ class ServerManager:
         processes = []
         for cfg in configs:
             try:
+                self._reserve_slot_lock(cfg)
                 if isinstance(power_limit_watts, int) and power_limit_watts > 0:
                     apply_nvidia_power_limit(cfg.device, power_limit_watts, logger.warning)
-                self._reserve_slot_lock(cfg)
                 cmd = build_server_cmd(cfg)
                 cmd = wrap_sycl_launch_cmd(cmd, cfg.device)
                 handler = log_handlers.get(cfg.alias) if log_handlers else None

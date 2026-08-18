@@ -23,6 +23,7 @@ from llama_manager.config import (
 )
 from llama_manager.orchestration import DryRunArtifactPayload, ServerManager, write_artifact
 from llama_manager.orchestration.lockfile import resolve_runtime_dir
+from llama_manager.orchestration.power_limit import cuda_ordinals
 from llama_manager.risk_ack import evaluate_risks
 from llama_manager.validation import (
     DryRunSlotPayload,
@@ -178,7 +179,7 @@ def _build_dry_run_result(
                 slot_id=slot_id,
                 validation_results=DryRunValidationSummary(passed=True, checks=[]),
                 warnings=[],
-                power_limit_watts=power_limit_watts,
+                power_limit_watts=power_limit_watts if cuda_ordinals(server_cfg.device) else 0,
             )
         )
 

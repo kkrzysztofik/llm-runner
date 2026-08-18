@@ -437,6 +437,8 @@ class TestConfigModalCollectValues:
         assert payload.default_nvidia_power_limit_watts == "0"
         updates = payload.to_config_updates()
         assert updates["server_defaults.nvidia_power_limit_watts"] == "0"
+        errors = _validate_config_payload(payload)
+        assert errors == []
 
     def test_invalid_nvidia_power_limit_watts_rejected(self) -> None:
         payload = ConfigPayload(default_nvidia_power_limit_watts="-5")
