@@ -23,6 +23,7 @@ from llama_manager.config import (
 )
 from llama_manager.orchestration import DryRunArtifactPayload, ServerManager, write_artifact
 from llama_manager.orchestration.lockfile import resolve_runtime_dir
+from llama_manager.orchestration.power_limit import cuda_ordinals
 from llama_manager.risk_ack import evaluate_risks
 from llama_manager.validation import (
     DryRunSlotPayload,
@@ -99,7 +100,13 @@ def run_dry_run(
         return resolved
     configs = resolved
 
-    return _build_dry_run_result(mode, configs, profile_ids, acknowledged)
+    return _build_dry_run_result(
+        mode,
+        configs,
+        profile_ids,
+        acknowledged,
+        power_limit_watts=config.server_defaults.nvidia_power_limit_watts,
+    )
 
 
 def _error_result(mode: str, message: str) -> DryRunResult:
@@ -147,6 +154,7 @@ def _build_dry_run_result(
     configs: list,
     profile_ids: tuple[str, ...],
     acknowledged: bool,
+    power_limit_watts: int = 0,
 ) -> DryRunResult:
     """Assemble the full ``DryRunResult`` from resolved configs + risk evaluation."""
     slot_payloads: list[DryRunSlotPayload] = []
@@ -171,6 +179,7 @@ def _build_dry_run_result(
                 slot_id=slot_id,
                 validation_results=DryRunValidationSummary(passed=True, checks=[]),
                 warnings=[],
+                power_limit_watts=power_limit_watts if cuda_ordinals(server_cfg.device) else 0,
             )
         )
 

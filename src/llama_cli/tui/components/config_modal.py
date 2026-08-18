@@ -91,6 +91,7 @@ class ConfigPayload:
     default_mmproj_offload: bool = True
     default_load_mode: str = "auto"
     default_split_mode: str = "layer"
+    default_nvidia_power_limit_watts: str = "290"
     default_no_host_buffer: bool = False
     default_ui: bool = False
     default_fit: str = "auto"
@@ -159,6 +160,7 @@ class ConfigPayload:
             "server_defaults.mmproj_offload": self.default_mmproj_offload,
             "server_defaults.load_mode": self.default_load_mode,
             "server_defaults.split_mode": self.default_split_mode,
+            "server_defaults.nvidia_power_limit_watts": self.default_nvidia_power_limit_watts,
             "server_defaults.no_host_buffer": self.default_no_host_buffer,
             "server_defaults.ui": self.default_ui,
             "server_defaults.fit": self.default_fit,
@@ -230,7 +232,10 @@ def _validate_config_payload(payload: ConfigPayload) -> list[str]:
         ("min p", payload.default_min_p, False, False),
         ("presence penalty", payload.default_presence_penalty, False, False),
         ("repeat penalty", payload.default_repeat_penalty, False, False),
+        ("nvidia power limit", payload.default_nvidia_power_limit_watts, True, True),
     )
+    if not payload.default_nvidia_power_limit_watts.strip():
+        errors.append("Invalid nvidia power limit: must be a number (0 = disabled)")
     for label, raw, is_int, non_negative in numeric_fields:
         error = _validate_optional_number_field(
             label, raw, is_int=is_int, non_negative=non_negative
@@ -561,6 +566,9 @@ class ConfigModal(ModalScreen[ConfigPayload | None]):
             default_mmproj_offload=self.query_one("#cfg-default_mmproj_offload", Checkbox).value,
             default_load_mode=self._select_value("#cfg-default_load_mode", "auto"),
             default_split_mode=self._select_value("#cfg-default_split_mode", "layer"),
+            default_nvidia_power_limit_watts=self.query_one(
+                "#cfg-default_nvidia_power_limit_watts", Input
+            ).value.strip(),
             default_no_host_buffer=self.query_one("#cfg-default_no_host_buffer", Checkbox).value,
             default_ui=self.query_one("#cfg-default_ui", Checkbox).value,
             default_fit=self._select_value("#cfg-default_fit", "auto"),

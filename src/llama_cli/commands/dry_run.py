@@ -83,6 +83,9 @@ def _print_resolved_slot(
     emit_info(f"  Threads: {server_cfg.threads}")
     emit_info(f"  UBatch: {server_cfg.ubatch_size}")
     emit_info(f"  KV cache: {server_cfg.cache_type_k}/{server_cfg.cache_type_v}")
+    power_limit = payload.hardware_notes.get("power_limit_watts")
+    if power_limit:
+        emit_info(f"  Power limit: {power_limit} W")
     emit_info(f"  n-gpu-layers: {server_cfg.n_gpu_layers}")
     spec = server_cfg.spec_decode
     if spec.reasoning_mode != "auto":

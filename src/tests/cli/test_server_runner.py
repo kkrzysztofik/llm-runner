@@ -1,6 +1,7 @@
 import argparse
 import sys
 from argparse import Namespace
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -934,6 +935,15 @@ def test_tui_risk_prompt_tracks_required_and_acknowledged_states() -> None:
     assert app.risks_acknowledged is True
 
 
+def _mock_start_servers(
+    configs: list[ServerConfig],
+    log_handlers: dict[str, Callable[[str], None]] | None = None,
+    power_limit_watts: int = 0,
+) -> list[MagicMock]:
+    """Fake ``ServerManager.start_servers`` for TUI launch tests."""
+    return [MagicMock() for _ in configs]
+
+
 def test_tui_run_keeps_acknowledged_risk_prompt_active() -> None:
     app = DashboardController([_risky_cfg()], [0])
     app.running = False
@@ -948,7 +958,7 @@ def test_tui_run_keeps_acknowledged_risk_prompt_active() -> None:
         patch.object(
             app.server_manager,
             "start_servers",
-            side_effect=lambda configs, log_handlers=None: [MagicMock() for _ in configs],
+            side_effect=_mock_start_servers,
         ),
         patch.object(app.server_manager, "cleanup_servers"),
     ):
@@ -1035,6 +1045,25 @@ def test_print_resolved_slot_includes_thinking_level(capsys: pytest.CaptureFixtu
     assert "Thinking level: medium" in captured.out
 
 
+def test_print_resolved_slot_includes_power_limit(capsys: pytest.CaptureFixture[str]) -> None:
+    """Dry-run slot print shows the planned NVIDIA power cap."""
+    from llama_cli.commands.dry_run import _print_resolved_slot
+    from llama_manager.validation import build_dry_run_slot_payload
+    from tests.support.helpers import make_server_config
+
+    server_cfg = make_server_config(
+        alias="qwen35",
+        model="/models/qwen.gguf",
+        port=8081,
+        device="CUDA0",
+    )
+    payload = build_dry_run_slot_payload(server_cfg, slot_id="qwen35", power_limit_watts=290)
+    _print_resolved_slot("qwen35", server_cfg, payload)
+
+    captured = capsys.readouterr()
+    assert "Power limit: 290 W" in captured.out
+
+
 def test_tui_run_exits_when_launch_is_blocked() -> None:
     safe_cfg = ServerConfig(
         model="/home/kmk/models/test-model.gguf",
@@ -1095,7 +1124,7 @@ def test_tui_run_buffers_degraded_warnings() -> None:
         patch.object(
             app.server_manager,
             "start_servers",
-            side_effect=lambda configs, log_handlers=None: [MagicMock() for _ in configs],
+            side_effect=_mock_start_servers,
         ),
         patch.object(app.server_manager, "cleanup_servers"),
     ):

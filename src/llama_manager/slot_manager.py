@@ -120,6 +120,8 @@ def register_and_start_slot(
     server_manager: ServerManager,
     state: dict[str, Any],
     startup_callback: Callable[[], None] | None = None,
+    # ponytail: sync add-slot path is test/legacy-only; TUI uses the async start_servers call
+    power_limit_watts: int = 0,
 ) -> tuple[dict[str, Any], list[str]]:
     """Register and start one slot.
 
@@ -146,7 +148,9 @@ def register_and_start_slot(
             startup_callback()
         except Exception:
             logger.exception("slot %s: startup progress callback failed", alias)
-    procs = server_manager.start_servers([cfg], {alias: log_handler})
+    procs = server_manager.start_servers(
+        [cfg], {alias: log_handler}, power_limit_watts=power_limit_watts
+    )
 
     if procs:
         state["server_processes"][alias] = procs[0]
@@ -172,6 +176,7 @@ def upsert_profile_slot(
     server_manager: ServerManager,
     state: dict[str, Any],
     startup_callback: Callable[[], None] | None = None,
+    power_limit_watts: int = 0,
 ) -> tuple[bool, list[str], dict[str, Any]]:
     """Add a profile slot or replace an existing slot on the same device.
 
@@ -213,6 +218,7 @@ def upsert_profile_slot(
             server_manager,
             state,
             startup_callback=startup_callback,
+            power_limit_watts=power_limit_watts,
         )
         messages.extend(slot_messages)
         messages.append(
@@ -241,6 +247,7 @@ def upsert_profile_slot(
         server_manager,
         state,
         startup_callback=startup_callback,
+        power_limit_watts=power_limit_watts,
     )
     messages.extend(slot_messages)
     messages.append(
@@ -327,6 +334,7 @@ def add_slot_from_form(
         gpu_stats,
         server_manager,
         state,
+        power_limit_watts=config.server_defaults.nvidia_power_limit_watts,
     )
     messages.extend(upsert_messages)
     return success, messages, state

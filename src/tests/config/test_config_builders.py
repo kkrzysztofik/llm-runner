@@ -52,6 +52,10 @@ class TestConfig:
         assert cfg.deployment.summary_fast_port == 8082
         assert cfg.deployment.qwen35_port == 8081
 
+    def test_nvidia_power_limit_watts_default(self) -> None:
+        cfg = Config()
+        assert cfg.server_defaults.nvidia_power_limit_watts == 290
+
     def test_ports_are_distinct_by_default(self) -> None:
         cfg = Config()
         ports = {

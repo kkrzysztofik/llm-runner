@@ -3,10 +3,12 @@
 import time
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from llama_manager.config import ServerConfig
+from llama_manager.orchestration import ServerManager
 from llama_manager.orchestration.launcher import (
     DefaultProcessLauncher,
     ProcessHandle,
@@ -503,6 +505,42 @@ class TestProcessLauncherProtocol:
             assert manager._shutdown_process_handle("slot", process, timeout=0.1) is False
 
         manager.release_lock.assert_not_called()
+
+
+class TestStartServersPowerLimit:
+    def _cuda_cfg(self) -> ServerConfig:
+        return ServerConfig(
+            model="/models/qwen.gguf",
+            alias="qwen",
+            device="CUDA0,CUDA1",
+            port=8081,
+            ctx_size=4096,
+            ubatch_size=512,
+            threads=4,
+        )
+
+    def _start(self, watts: int) -> Mock:
+        """Run start_servers with launch internals patched out."""
+        manager = ServerManager(process_launcher=Mock())
+        with (
+            patch("llama_manager.orchestration.manager.apply_nvidia_power_limit") as apply_patch,
+            patch.object(manager, "_reserve_slot_lock"),
+            patch.object(manager, "_record_started_slot_lock"),
+            patch.object(manager, "start_server_background", return_value=Mock()),
+        ):
+            manager.start_servers([self._cuda_cfg()], {}, power_limit_watts=watts)
+        return apply_patch
+
+    def test_applies_power_limit_for_cuda_when_watts_set(self) -> None:
+        apply_patch = self._start(290)
+        apply_patch.assert_called_once()
+        args = apply_patch.call_args.args
+        assert args[0] == "CUDA0,CUDA1"
+        assert args[1] == 290
+
+    def test_skips_power_limit_when_zero(self) -> None:
+        apply_patch = self._start(0)
+        apply_patch.assert_not_called()
 
 
 class TestServerManagerAckFlow:

@@ -321,6 +321,7 @@ ignoring comments/strings, and can **safely rewrite** code.
 - `ServerConfig.server_bin` defaults to `""` — `build_server_cmd` only falls back to `Config().paths.llama_server_bin_intel` when `server_bin` is `None`, so provide an explicit path in tests to avoid needing the binary on disk.
 - `n_gpu_layers` is typed as `int | str` to support `"all"` for CUDA. Keep it that way.
 - Do not import from `llama_cli` inside `llama_manager` — the dependency is one-way.
+- Comma-form `except A, B:` is PEP 758-legal on Python ≥3.14 and is the form `ruff format` enforces on the `py314` target (it rewrites the parenthesized tuple form back to comma form). Do not flag it as a Python 2 SyntaxError; the project uses it throughout (31 occurrences).
 - The TUI uses Textual for rendering and key handling; keep blocking subprocess/log work off the app thread and route UI output through widgets or controller state.
 
 ---

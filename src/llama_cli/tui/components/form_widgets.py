@@ -432,6 +432,16 @@ def build_config_profile_defaults_collapsible(config: Config) -> Collapsible:
             row_classes=cfg_row,
         ),
         field_row(
+            "NVIDIA power limit (W)",
+            "default_nvidia_power_limit_watts",
+            str(defaults.nvidia_power_limit_watts),
+            id_prefix=prefix,
+            type="integer",
+            label_classes=cfg_label,
+            input_classes=cfg_input,
+            row_classes=cfg_row,
+        ),
+        field_row(
             "Bind address",
             "default_bind_address",
             defaults.bind_address,
