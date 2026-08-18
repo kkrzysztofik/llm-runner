@@ -176,6 +176,7 @@ def upsert_profile_slot(
     server_manager: ServerManager,
     state: dict[str, Any],
     startup_callback: Callable[[], None] | None = None,
+    power_limit_watts: int = 0,
 ) -> tuple[bool, list[str], dict[str, Any]]:
     """Add a profile slot or replace an existing slot on the same device.
 
@@ -217,6 +218,7 @@ def upsert_profile_slot(
             server_manager,
             state,
             startup_callback=startup_callback,
+            power_limit_watts=power_limit_watts,
         )
         messages.extend(slot_messages)
         messages.append(
@@ -245,6 +247,7 @@ def upsert_profile_slot(
         server_manager,
         state,
         startup_callback=startup_callback,
+        power_limit_watts=power_limit_watts,
     )
     messages.extend(slot_messages)
     messages.append(
@@ -331,6 +334,7 @@ def add_slot_from_form(
         gpu_stats,
         server_manager,
         state,
+        power_limit_watts=config.server_defaults.nvidia_power_limit_watts,
     )
     messages.extend(upsert_messages)
     return success, messages, state

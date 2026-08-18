@@ -125,6 +125,8 @@ class TestRunDryRun:
     def test_power_limit_only_reported_for_nvidia_devices(self) -> None:
         """Dry-run reports the power cap only for CUDA-backed slots."""
         cfg = Config()
+        cfg.paths.llama_server_bin_nvidia = "/dummy/llama-server"
+        cfg.paths.llama_server_bin_intel = "/dummy/llama-server"
         cfg.server_defaults.nvidia_power_limit_watts = 290
         registry = create_default_profile_registry(cfg)
         result = run_dry_run(mode="both", config=cfg, registry=registry)

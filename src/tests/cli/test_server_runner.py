@@ -1,6 +1,7 @@
 import argparse
 import sys
 from argparse import Namespace
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -934,6 +935,15 @@ def test_tui_risk_prompt_tracks_required_and_acknowledged_states() -> None:
     assert app.risks_acknowledged is True
 
 
+def _mock_start_servers(
+    configs: list[ServerConfig],
+    log_handlers: dict[str, Callable[[str], None]] | None = None,
+    power_limit_watts: int = 0,
+) -> list[MagicMock]:
+    """Fake ``ServerManager.start_servers`` for TUI launch tests."""
+    return [MagicMock() for _ in configs]
+
+
 def test_tui_run_keeps_acknowledged_risk_prompt_active() -> None:
     app = DashboardController([_risky_cfg()], [0])
     app.running = False
@@ -948,9 +958,7 @@ def test_tui_run_keeps_acknowledged_risk_prompt_active() -> None:
         patch.object(
             app.server_manager,
             "start_servers",
-            side_effect=lambda configs, log_handlers=None, power_limit_watts=0: [
-                MagicMock() for _ in configs
-            ],
+            side_effect=_mock_start_servers,
         ),
         patch.object(app.server_manager, "cleanup_servers"),
     ):
@@ -1116,9 +1124,7 @@ def test_tui_run_buffers_degraded_warnings() -> None:
         patch.object(
             app.server_manager,
             "start_servers",
-            side_effect=lambda configs, log_handlers=None, power_limit_watts=0: [
-                MagicMock() for _ in configs
-            ],
+            side_effect=_mock_start_servers,
         ),
         patch.object(app.server_manager, "cleanup_servers"),
     ):
