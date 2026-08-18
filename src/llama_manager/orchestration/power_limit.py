@@ -47,6 +47,8 @@ def apply_nvidia_power_limit(device: str, watts: int, warn: Callable[[str], None
                 text=True,
                 timeout=_TIMEOUT_S,
             )
+        # PEP 758 (Python 3.14): comma-form except is legal on the py314 target
+        # and is what ruff format enforces; not a Python 2 leftover.
         except OSError, subprocess.SubprocessError:
             warn(f"failed to set NVIDIA power limit {watts}W on GPU {ordinal}")
             continue
